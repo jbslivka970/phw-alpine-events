@@ -21,23 +21,45 @@ This application provides a single platform for event creation, notification (em
 - Node.js 18+
 - Azure CLI
 - Git
+- Personal GitHub account
 
 ### Setup
 
-1. Clone the repository
-2. Set up Azure resources (see Azure deployment guide)
-3. Install dependencies for frontend and backend
-4. Configure environment variables
-5. Run the application
+1. **Create GitHub Repository:**
+   - Go to GitHub.com and create a new repository named `phw-alpine-events`
+   - Do not initialize with README, .gitignore, or license
+   - Copy the repository URL
 
-## Development
+2. **Push to GitHub:**
+   ```bash
+   git remote add origin <your-repo-url>
+   git branch -M main
+   git push -u origin main
+   ```
 
-- Frontend: `cd frontend && npm start`
-- Backend: `cd backend && npm run dev`
+3. **Set up Azure Resources:**
+   - Install Azure CLI: `brew install azure-cli`
+   - Login: `az login`
+   - Create resource group: `az group create --name phw-alpine-rg --location eastus`
+   - Deploy ARM template: `az deployment group create --resource-group phw-alpine-rg --template-file deploy/azuredeploy.json --parameters appName=phw-alpine-events sqlServerName=phw-alpine-sql sqlDatabaseName=phw-alpine-db`
+
+4. **Configure Environment:**
+   - Copy `.env.example` to `.env` in frontend and backend
+   - Fill in Azure resource values from deployment outputs
+
+5. **Install Dependencies:**
+   ```bash
+   cd frontend && npm install
+   cd ../backend && npm install
+   ```
+
+6. **Run Locally:**
+   - Backend: `cd backend && npm run dev`
+   - Frontend: `cd frontend && npm run dev`
 
 ## Deployment
 
-Deployed via GitHub Actions to Azure.
+Configured for automatic deployment via GitHub Actions to Azure App Service.
 
 ## Contributing
 
