@@ -7,6 +7,7 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "dev": "ts-node src/index.ts",
+    "deploy-schema": "ts-node src/deploy-schema.ts",
     "test": "jest"
   },
   "dependencies": {
