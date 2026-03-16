@@ -18,22 +18,23 @@ const config: sql.config = {
 };
 
 async function deploySchema() {
+  let pool: sql.ConnectionPool | undefined;
   try {
     console.log('Connecting to Azure SQL Database...');
-    await sql.connect(config);
+    pool = await sql.connect(config);
     console.log('Connected successfully.');
 
     const schemaPath = path.join(__dirname, '../../database/schema.sql');
     const schema = fs.readFileSync(schemaPath, 'utf8');
 
     console.log('Executing schema deployment...');
-    await sql.query(schema);
+    await pool.request().query(schema);
     console.log('Schema deployed successfully.');
 
   } catch (err) {
     console.error('Error deploying schema:', err);
   } finally {
-    await sql.close();
+    await pool?.close();
   }
 }
 
