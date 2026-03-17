@@ -3,7 +3,7 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 interface ServerConfig {
-  port: number;
+  port: number | string;
   nodeEnv: string;
   corsOrigin?: string;
 }
@@ -59,8 +59,11 @@ function optionalEnv(name: string, fallback?: string): string | undefined {
 
 function loadServerConfig(): ServerConfig {
   const corsOrigin = optionalEnv('CORS_ORIGIN');
+  const rawPort = optionalEnv('PORT', '3001') ?? '3001';
+  const parsedPort = Number.parseInt(rawPort, 10);
+
   return {
-    port: parseInt(optionalEnv('PORT', '3001') ?? '3001', 10),
+    port: Number.isNaN(parsedPort) ? rawPort : parsedPort,
     nodeEnv: optionalEnv('NODE_ENV', 'development') ?? 'development',
     ...(corsOrigin ? { corsOrigin } : {}),
   };

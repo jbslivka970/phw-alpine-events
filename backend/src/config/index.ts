@@ -10,7 +10,11 @@ function requireEnv(name: string): string {
 }
 
 export const config = {
-  port: parseInt(process.env.PORT || '3001', 10),
+  port: (() => {
+    const rawPort = process.env.PORT || '3001';
+    const parsedPort = Number.parseInt(rawPort, 10);
+    return Number.isNaN(parsedPort) ? rawPort : parsedPort;
+  })(),
   nodeEnv: process.env.NODE_ENV || 'development',
 
   db: {
