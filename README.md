@@ -113,7 +113,7 @@ Key frontend variables:
 - `VITE_AZURE_CLIENT_ID`
 - `VITE_AZURE_AD_B2C_POLICY_NAME`
 - `VITE_AZURE_AUTHORITY` (optional override)
-- `VITE_API_BASE_URL`
+- `VITE_API_BASE_URL` (optional when using local Vite proxy)
 
 ### Run Locally
 
@@ -126,6 +126,47 @@ cd frontend && npm run dev
 ```
 
 The backend listens on `http://localhost:3001` by default. The frontend runs through Vite and currently exposes the authenticated shell, placeholder pages, and role-gated navigation.
+
+For local frontend API calls, Vite proxies `/api/*` to `http://localhost:3001`.
+
+## Production Plumbing Checklist
+
+Backend App Service settings required for full functionality:
+
+- `NODE_ENV=production`
+- `WEBSITE_NODE_DEFAULT_VERSION=~20`
+- `DB_HOST`
+- `DB_PORT`
+- `DB_NAME`
+- `DB_USER`
+- `DB_PASSWORD`
+- `AZURE_AD_B2C_TENANT_NAME`
+- `AZURE_TENANT_ID`
+- `AZURE_CLIENT_ID`
+- `AZURE_AD_B2C_POLICY_NAME` (optional if default policy name is used)
+
+Optional backend settings:
+
+- `ACS_CONNECTION_STRING`
+- `ACS_EMAIL_FROM`
+- `ACS_SMS_FROM`
+
+## Smoke Test Sequence
+
+1. Verify app process and API root:
+  - `GET /`
+  - `GET /api/v1/health`
+2. Verify startup configuration diagnostics:
+  - `GET /api/v1/health/startup`
+3. Verify database readiness:
+  - `GET /api/v1/health/ready`
+4. Verify auth plumbing:
+  - Unauthenticated `GET /api/v1/events` should return `401` when auth is configured.
+  - If it returns `503 Authentication is not configured`, auth env vars are still missing.
+5. Verify authenticated flow in UI:
+  - Login succeeds via B2C
+  - Dashboard loads
+  - Events, Calendar, Reports, Members routes load without API auth errors
 
 ## Database Schema Deployment
 

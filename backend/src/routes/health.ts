@@ -1,7 +1,15 @@
 import { Request, Response, Router } from 'express';
 import { getPool } from '../db';
+import { loadAcsConfig, loadAuthConfig } from '../config';
 
 const router = Router();
+
+const REQUIRED_DB_ENV_VARS = ['DB_HOST', 'DB_NAME', 'DB_USER', 'DB_PASSWORD'] as const;
+const REQUIRED_AUTH_ENV_VARS = ['AZURE_AD_B2C_TENANT_NAME', 'AZURE_TENANT_ID', 'AZURE_CLIENT_ID'] as const;
+
+function missingEnvVars(names: readonly string[]): string[] {
+  return names.filter((name) => !process.env[name]);
+}
 
 // Liveness — always 200 if the process is running
 router.get('/', (_req: Request, res: Response) => {
@@ -22,6 +30,45 @@ router.get('/ready', async (_req: Request, res: Response): Promise<void> => {
     const message = err instanceof Error ? err.message : 'unknown error';
     res.status(503).json({ status: 'unavailable', db: 'error', error: message, timestamp: new Date().toISOString() });
   }
+});
+
+// Startup diagnostics — reports configuration health without exposing secrets
+router.get('/startup', (_req: Request, res: Response) => {
+  const authConfig = loadAuthConfig();
+  const acsConfig = loadAcsConfig();
+  const dbMissing = missingEnvVars(REQUIRED_DB_ENV_VARS);
+  const authMissing = missingEnvVars(REQUIRED_AUTH_ENV_VARS);
+  const isProd = process.env['NODE_ENV'] === 'production';
+
+  const summary = {
+    status: dbMissing.length === 0 ? 'ok' : 'degraded',
+    timestamp: new Date().toISOString(),
+    runtime: {
+      nodeEnv: process.env['NODE_ENV'] ?? 'development',
+      nodeVersion: process.version,
+      portMode: Number.isNaN(Number.parseInt(process.env['PORT'] ?? '', 10)) ? 'pipe-or-string' : 'numeric',
+    },
+    checks: {
+      dbEnvConfigured: dbMissing.length === 0,
+      authConfigured: authConfig.isConfigured,
+      notificationsConfigured: acsConfig.isConfigured,
+    },
+    missing: {
+      db: dbMissing,
+      auth: authMissing,
+      optional: [
+        ...(!process.env['ACS_CONNECTION_STRING'] ? ['ACS_CONNECTION_STRING'] : []),
+        ...(process.env['ACS_CONNECTION_STRING'] && !process.env['ACS_EMAIL_FROM'] ? ['ACS_EMAIL_FROM'] : []),
+      ],
+    },
+  };
+
+  if (isProd && dbMissing.length > 0) {
+    res.status(503).json(summary);
+    return;
+  }
+
+  res.json(summary);
 });
 
 export default router;
