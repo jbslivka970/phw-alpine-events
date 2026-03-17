@@ -35,6 +35,9 @@ function useAuth() {
     return hasRole(ROLES.ADMIN)
   }
 
+  function canCreateEvents(): boolean {
+    return hasRole(ROLES.ADMIN) || hasRole(ROLES.EVENT_CREATOR)
+  }
   async function login() {
     try {
       await instance.loginPopup(loginRequest)
@@ -65,7 +68,7 @@ function useAuth() {
     })
   }, [account, instance])
 
-  return { hasRole, isAdmin, isAuthenticated, login, logout, user }
+  return { hasRole, isAdmin, canCreateEvents, isAuthenticated, login, logout, user }
 }
 
 export { useAuth }
