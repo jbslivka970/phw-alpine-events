@@ -1,71 +1,83 @@
-/**
- * Shared API client.
- * Reads the base URL from VITE_API_BASE_URL (falls back to /api for same-origin).
- * An optional token getter can be provided; call setTokenGetter() from auth context.
- */
-
-const BASE_URL = (import.meta.env.VITE_API_BASE_URL as string) || '/api';
-
 type TokenGetter = () => Promise<string | null>;
 
-let _getToken: TokenGetter = async () => null;
+const DEFAULT_BASE = '/api/v1';
+const rawBase = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? DEFAULT_BASE;
+const BASE_URL = rawBase.endsWith('/') ? rawBase.slice(0, -1) : rawBase;
 
-export function setTokenGetter(fn: TokenGetter): void {
-  _getToken = fn;
+let getToken: TokenGetter = async () => null;
+
+function setTokenGetter(fn: TokenGetter): void {
+  getToken = fn;
 }
 
-async function buildHeaders(extra: HeadersInit = {}): Promise<HeadersInit> {
-  const token = await _getToken();
+async function buildHeaders(extra?: HeadersInit): Promise<HeadersInit> {
+  const token = await getToken();
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    ...(extra as Record<string, string>),
+    ...(extra as Record<string, string> | undefined),
   };
+
   if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
+    headers.Authorization = `Bearer ${token}`;
   }
+
   return headers;
 }
 
-async function handleResponse<T>(res: Response): Promise<T> {
-  if (!res.ok) {
-    const message = await res.text().catch(() => res.statusText);
-    throw new Error(`API ${res.status}: ${message}`);
+async function parseResponse<T>(response: Response): Promise<T> {
+  if (!response.ok) {
+    const message = await response.text().catch(() => response.statusText);
+    throw new Error(`API ${response.status}: ${message}`);
   }
-  // 204 No Content
-  if (res.status === 204) return undefined as unknown as T;
-  return res.json() as Promise<T>;
+
+  if (response.status === 204) {
+    return undefined as T;
+  }
+
+  return (await response.json()) as T;
 }
 
-export async function apiGet<T>(path: string): Promise<T> {
-  const res = await fetch(`${BASE_URL}${path}`, {
+async function apiGet<T>(path: string): Promise<T> {
+  const response = await fetch(`${BASE_URL}${path}`, {
     method: 'GET',
     headers: await buildHeaders(),
   });
-  return handleResponse<T>(res);
+  return parseResponse<T>(response);
 }
 
-export async function apiPost<T>(path: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${BASE_URL}${path}`, {
+async function apiPost<T>(path: string, body?: unknown): Promise<T> {
+  const response = await fetch(`${BASE_URL}${path}`, {
     method: 'POST',
     headers: await buildHeaders(),
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
-  return handleResponse<T>(res);
+  return parseResponse<T>(response);
 }
 
-export async function apiPut<T>(path: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${BASE_URL}${path}`, {
+async function apiPut<T>(path: string, body?: unknown): Promise<T> {
+  const response = await fetch(`${BASE_URL}${path}`, {
     method: 'PUT',
     headers: await buildHeaders(),
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
-  return handleResponse<T>(res);
+  return parseResponse<T>(response);
 }
 
-export async function apiDelete<T>(path: string): Promise<T> {
-  const res = await fetch(`${BASE_URL}${path}`, {
+async function apiPatch<T>(path: string, body?: unknown): Promise<T> {
+  const response = await fetch(`${BASE_URL}${path}`, {
+    method: 'PATCH',
+    headers: await buildHeaders(),
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
+  return parseResponse<T>(response);
+}
+
+async function apiDelete<T>(path: string): Promise<T> {
+  const response = await fetch(`${BASE_URL}${path}`, {
     method: 'DELETE',
     headers: await buildHeaders(),
   });
-  return handleResponse<T>(res);
+  return parseResponse<T>(response);
 }
+
+export { BASE_URL, setTokenGetter, apiDelete, apiGet, apiPatch, apiPost, apiPut };

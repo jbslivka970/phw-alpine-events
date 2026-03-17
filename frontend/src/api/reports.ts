@@ -1,15 +1,15 @@
 import { apiGet } from './client';
 
-export interface DashboardStats {
+interface DashboardStats {
   totalMembers: number;
   totalGroups: number;
   upcomingEvents: number;
   pendingRsvps: number;
 }
 
-export const reportsApi = {
-  dashboard: () => apiGet<DashboardStats>('/v1/reports/dashboard'),
-  membershipSummary: () => apiGet<unknown>('/v1/reports/membership'),
-  eventAttendance: (eventId: number) =>
-    apiGet<unknown>(`/v1/reports/events/${eventId}/attendance`),
+const reportsApi = {
+  dashboard: () => apiGet<{ data: DashboardStats | null; message?: string }>('/admin/users'),
 };
+
+export { reportsApi };
+export type { DashboardStats };

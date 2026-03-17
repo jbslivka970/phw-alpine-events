@@ -1,16 +1,22 @@
-import { apiGet, apiPost, apiPut, apiDelete } from './client';
+import { apiDelete, apiGet, apiPatch, apiPost } from './client';
 
-export interface Group {
-  id: number;
-  name: string;
-  description?: string;
-  createdAt?: string;
+interface GroupRecord {
+  group_id: string;
+  group_name: string;
+  description: string | null;
 }
 
-export const groupsApi = {
-  list: () => apiGet<Group[]>('/v1/groups'),
-  get: (id: number) => apiGet<Group>(`/v1/groups/${id}`),
-  create: (data: Omit<Group, 'id' | 'createdAt'>) => apiPost<Group>('/v1/groups', data),
-  update: (id: number, data: Partial<Group>) => apiPut<Group>(`/v1/groups/${id}`, data),
-  remove: (id: number) => apiDelete<void>(`/v1/groups/${id}`),
+const groupsApi = {
+  list: () => apiGet<GroupRecord[]>('/groups'),
+  get: (id: string) => apiGet<GroupRecord>(`/groups/${id}`),
+  members: (id: string) => apiGet<string[]>(`/groups/${id}/members`),
+  create: (data: { group_name: string; description?: string | null }) => apiPost<GroupRecord>('/groups', data),
+  update: (id: string, data: { group_name?: string; description?: string | null }) =>
+    apiPatch<GroupRecord>(`/groups/${id}`, data),
+  remove: (id: string) => apiDelete<{ message: string }>(`/groups/${id}`),
+  addMember: (id: string, memberId: string) => apiPost<{ message: string }>(`/groups/${id}/members/${memberId}`),
+  removeMember: (id: string, memberId: string) => apiDelete<{ message: string }>(`/groups/${id}/members/${memberId}`),
 };
+
+export { groupsApi };
+export type { GroupRecord };

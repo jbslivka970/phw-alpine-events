@@ -1,6 +1,8 @@
+import { useEffect } from 'react'
 import { useIsAuthenticated, useMsal } from '@azure/msal-react'
 import { loginRequest, ROLES } from '../authConfig'
 import type { AppRole } from '../authConfig'
+import { setTokenGetter } from '../api/client'
 
 interface AuthUser {
   name: string
@@ -47,6 +49,21 @@ function useAuth() {
   async function logout() {
     await instance.logoutPopup({ account: account ?? undefined })
   }
+
+  useEffect(() => {
+    setTokenGetter(async () => {
+      if (!account) return null
+      try {
+        const tokenResponse = await instance.acquireTokenSilent({
+          ...loginRequest,
+          account,
+        })
+        return tokenResponse.accessToken
+      } catch {
+        return null
+      }
+    })
+  }, [account, instance])
 
   return { hasRole, isAdmin, isAuthenticated, login, logout, user }
 }
