@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { calendarApi } from '../api/calendar';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -7,11 +8,12 @@ import { useState } from 'react';
 export interface CalendarEvent {
   event_id: string;
   title: string;
-  start_date: string; // ISO date string
-  end_date: string;
-  location: string;
+  event_date: string;
+  location: string | null;
   capacity: number | null;
-  rsvp_count: number;
+  yes_count: number;
+  maybe_count: number;
+  waitlist_count: number;
   status: 'draft' | 'published' | 'cancelled' | 'completed';
   targeted_groups: string[];
 }
@@ -44,7 +46,7 @@ function sameDay(a: Date, b: Date): boolean {
 // Returns a CSS class string representing fill level
 function capacityClass(event: CalendarEvent): string {
   if (event.capacity === null || event.capacity === 0) return 'cap-none';
-  const ratio = event.rsvp_count / event.capacity;
+  const ratio = totalRsvpCount(event) / event.capacity;
   if (ratio >= 1) return 'cap-full';
   if (ratio >= 0.75) return 'cap-high';
   if (ratio >= 0.4) return 'cap-medium';
@@ -54,9 +56,13 @@ function capacityClass(event: CalendarEvent): string {
 function capacityLabel(event: CalendarEvent): string {
   if (event.capacity === null) return '';
   if (event.capacity === 0) return 'Unlimited';
-  const remaining = event.capacity - event.rsvp_count;
+  const remaining = event.capacity - totalRsvpCount(event);
   if (remaining <= 0) return 'FULL';
-  return `${event.rsvp_count}/${event.capacity}`;
+  return `${totalRsvpCount(event)}/${event.capacity}`;
+}
+
+function totalRsvpCount(event: CalendarEvent): number {
+  return event.yes_count + event.maybe_count + event.waitlist_count;
 }
 
 // ---------------------------------------------------------------------------
@@ -120,7 +126,7 @@ function MonthView({
             return <div key={`empty-${idx}`} className="day-cell day-cell--empty" />;
           }
           const cellDate = new Date(year, month, day);
-          const dayEvents = events.filter((e) => sameDay(isoToDate(e.start_date), cellDate));
+          const dayEvents = events.filter((e) => sameDay(isoToDate(e.event_date), cellDate));
           const isToday = sameDay(cellDate, today);
           return (
             <div key={day} className={`day-cell${isToday ? ' day-cell--today' : ''}`}>
@@ -143,7 +149,7 @@ function MonthView({
 // ---------------------------------------------------------------------------
 
 function ListItem({ event }: { event: CalendarEvent }) {
-  const start = isoToDate(event.start_date);
+  const start = isoToDate(event.event_date);
   const dateStr = start.toLocaleDateString(undefined, {
     weekday: 'short', month: 'short', day: 'numeric',
   });
@@ -172,7 +178,7 @@ function ListItem({ event }: { event: CalendarEvent }) {
 
 function ListView({ events }: { events: CalendarEvent[] }) {
   const sorted = [...events].sort(
-    (a, b) => new Date(a.start_date).getTime() - new Date(b.start_date).getTime(),
+    (a, b) => new Date(a.event_date).getTime() - new Date(b.event_date).getTime(),
   );
 
   if (sorted.length === 0) {
@@ -189,49 +195,6 @@ function ListView({ events }: { events: CalendarEvent[] }) {
 }
 
 // ---------------------------------------------------------------------------
-// Placeholder fetch hook
-// ---------------------------------------------------------------------------
-
-function usePlaceholderEvents(_year: number, _month: number): CalendarEvent[] {
-  // TODO: replace with real API call — GET /api/calendar?month=YYYY-MM
-  return [
-    {
-      event_id: 'placeholder-1',
-      title: 'Sample Hike',
-      start_date: new Date(_year, _month, 10, 9, 0).toISOString(),
-      end_date: new Date(_year, _month, 10, 15, 0).toISOString(),
-      location: 'Trailhead A',
-      capacity: 20,
-      rsvp_count: 14,
-      status: 'published',
-      targeted_groups: ['All Members'],
-    },
-    {
-      event_id: 'placeholder-2',
-      title: 'Board Meeting',
-      start_date: new Date(_year, _month, 18, 18, 30).toISOString(),
-      end_date: new Date(_year, _month, 18, 20, 0).toISOString(),
-      location: 'Community Center',
-      capacity: 30,
-      rsvp_count: 30,
-      status: 'published',
-      targeted_groups: ['Board'],
-    },
-    {
-      event_id: 'placeholder-3',
-      title: 'Skill Workshop',
-      start_date: new Date(_year, _month, 25, 8, 0).toISOString(),
-      end_date: new Date(_year, _month, 25, 17, 0).toISOString(),
-      location: 'Mountain Base',
-      capacity: null,
-      rsvp_count: 8,
-      status: 'draft',
-      targeted_groups: ['Beginners'],
-    },
-  ];
-}
-
-// ---------------------------------------------------------------------------
 // CalendarPage
 // ---------------------------------------------------------------------------
 
@@ -240,8 +203,40 @@ function CalendarPage() {
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth());
   const [view, setView] = useState<ViewMode>('month');
+  const [events, setEvents] = useState<CalendarEvent[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const events = usePlaceholderEvents(year, month);
+  const monthKey = useMemo(() => `${year}-${String(month + 1).padStart(2, '0')}`, [year, month]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const load = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const response = await calendarApi.getMonth(monthKey);
+        if (isMounted) {
+          setEvents(response.events);
+        }
+      } catch (err) {
+        if (isMounted) {
+          setError(err instanceof Error ? err.message : 'Failed to load calendar events.');
+          setEvents([]);
+        }
+      } finally {
+        if (isMounted) {
+          setLoading(false);
+        }
+      }
+    };
+
+    void load();
+    return () => {
+      isMounted = false;
+    };
+  }, [monthKey]);
 
   function prevMonth() {
     if (month === 0) { setMonth(11); setYear((y) => y - 1); }
@@ -288,6 +283,9 @@ function CalendarPage() {
         <span className="legend-item cap-full">Full</span>
         <span className="legend-item cap-none">No cap</span>
       </div>
+
+      {loading && <p>Loading calendar events...</p>}
+      {error && <p className="empty-state">{error}</p>}
 
       {view === 'month' ? (
         <MonthView year={year} month={month} events={events} />
