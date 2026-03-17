@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
+import importRouter from './routes/import';
 
 dotenv.config();
 
@@ -13,10 +14,12 @@ app.use(helmet());
 app.use(cors());
 app.use(express.json());
 
-// Basic route
-app.get('/', (req, res) => {
+// Routes
+app.get('/', (_req, res) => {
   res.json({ message: 'PHW Alpine Events API' });
 });
+
+app.use('/api/v1/import', importRouter);
 
 // Start server
 app.listen(port, () => {
