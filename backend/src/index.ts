@@ -10,11 +10,11 @@ import { errorHandler, notFoundHandler } from './middleware/error';
 import apiRouter from './routes';
 
 const app = express();
-const { port, nodeEnv } = loadServerConfig();
+const { corsOrigin, port, nodeEnv } = loadServerConfig();
 
 // Middleware
 app.use(helmet());
-app.use(cors());
+app.use(cors(corsOrigin ? { origin: corsOrigin } : undefined));
 app.use(express.json());
 
 // Basic route
