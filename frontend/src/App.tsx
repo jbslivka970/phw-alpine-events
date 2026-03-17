@@ -4,11 +4,13 @@ import { ROLES } from './authConfig'
 import { AppShell } from './components/AppShell'
 import { ProtectedRoute } from './components/ProtectedRoute'
 import { AdminPage } from './pages/AdminPage'
+import { CalendarPage } from './pages/CalendarPage'
 import { DashboardPage } from './pages/DashboardPage'
 import { EventsPage } from './pages/EventsPage'
 import { LoginPage } from './pages/LoginPage'
 import { ImportPage } from './pages/ImportPage'
 import { MembersPage } from './pages/MembersPage'
+import { ReportsPage } from './pages/ReportsPage'
 
 function App() {
   return (
@@ -26,6 +28,7 @@ function App() {
           <Route index element={<Navigate to="/dashboard" replace />} />
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/events" element={<EventsPage />} />
+          <Route path="/calendar" element={<CalendarPage />} />
           <Route
             path="/members"
             element={
@@ -39,6 +42,14 @@ function App() {
             element={
               <ProtectedRoute requiredRole={ROLES.ADMIN}>
                 <ImportPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/reports"
+            element={
+              <ProtectedRoute requiredRole={ROLES.ADMIN}>
+                <ReportsPage />
               </ProtectedRoute>
             }
           />
@@ -58,5 +69,6 @@ function App() {
     </BrowserRouter>
   )
 }
+
 
 export default App

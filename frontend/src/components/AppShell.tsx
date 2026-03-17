@@ -35,8 +35,10 @@ function AppShell() {
         <nav className="app-nav" aria-label="Main navigation">
           <NavLink to="/dashboard" className={navClass}>Dashboard</NavLink>
           <NavLink to="/events" className={navClass}>Events</NavLink>
+          <NavLink to="/calendar" className={navClass}>Calendar</NavLink>
           {isAdmin() && <NavLink to="/members" className={navClass}>Members</NavLink>}
           {isAdmin() && <NavLink to="/import" className={navClass}>Import</NavLink>}
+          {isAdmin() && <NavLink to="/reports" className={navClass}>Reports</NavLink>}
           {isAdmin() && <NavLink to="/admin" className={navClass}>Admin</NavLink>}
         </nav>
 
