@@ -60,8 +60,8 @@ router.post('/', writeLimiter, authenticate, requireAnyAuthenticatedRole, async 
     const eventResult = await pool
       .request()
       .input('event_id', sql.UniqueIdentifier, eventId)
-      .query<{ event_id: string; title: string; status: string; capacity: number | null }>(
-        'SELECT event_id, title, status, capacity FROM event WHERE event_id = @event_id'
+      .query<{ event_id: string; title: string; status: string; capacity: number | null; event_date: Date }>(
+        'SELECT event_id, title, status, capacity, event_date FROM event WHERE event_id = @event_id'
       );
 
     const event = eventResult.recordset[0];
@@ -110,8 +110,8 @@ router.post('/', writeLimiter, authenticate, requireAnyAuthenticatedRole, async 
     const memberResult = await pool
       .request()
       .input('member_id', sql.UniqueIdentifier, memberId)
-      .query<{ email: string | null; mobile_phone: string | null }>(
-        'SELECT email, mobile_phone FROM member WHERE member_id = @member_id'
+      .query<{ first_name: string; email: string | null; mobile_phone: string | null; sms_opt_in: boolean }>(
+        'SELECT first_name, email, mobile_phone, sms_opt_in FROM member WHERE member_id = @member_id'
       );
 
     const member = memberResult.recordset[0];
@@ -119,8 +119,12 @@ router.post('/', writeLimiter, authenticate, requireAnyAuthenticatedRole, async 
       sendRsvpConfirmation({
         eventId: event.event_id,
         eventTitle: event.title,
+        eventDate: new Date(event.event_date).toLocaleString(),
+        firstName: member.first_name,
+        memberId,
+        rsvpStatus: response,
         recipientEmail: member.email ?? undefined,
-        recipientPhone: member.mobile_phone ?? undefined,
+        recipientPhone: member.sms_opt_in ? (member.mobile_phone ?? undefined) : undefined,
       });
     }
 
