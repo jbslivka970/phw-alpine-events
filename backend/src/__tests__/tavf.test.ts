@@ -12,6 +12,18 @@ import * as tavfService from '../services/tavfService';
 
 // Mock the entire service module
 jest.mock('../services/tavfService');
+jest.mock('../middleware/auth', () => ({
+  __esModule: true,
+  default: (req: express.Request, _res: express.Response, next: express.NextFunction) => {
+    req.user = {
+      sub: '00000000-0000-0000-0000-000000000001',
+      email: 'test@example.com',
+      roles: ['ADMIN'],
+      rawClaims: {},
+    };
+    next();
+  },
+}));
 
 const app = express();
 app.use(express.json());
