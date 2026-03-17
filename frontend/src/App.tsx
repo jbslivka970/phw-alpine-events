@@ -7,6 +7,7 @@ import { AdminPage } from './pages/AdminPage'
 import { DashboardPage } from './pages/DashboardPage'
 import { EventsPage } from './pages/EventsPage'
 import { LoginPage } from './pages/LoginPage'
+import { ImportPage } from './pages/ImportPage'
 import { MembersPage } from './pages/MembersPage'
 
 function App() {
@@ -30,6 +31,14 @@ function App() {
             element={
               <ProtectedRoute requiredRole={ROLES.ADMIN}>
                 <MembersPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/import"
+            element={
+              <ProtectedRoute requiredRole={ROLES.ADMIN}>
+                <ImportPage />
               </ProtectedRoute>
             }
           />
