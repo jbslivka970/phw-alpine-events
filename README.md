@@ -46,6 +46,8 @@ backend/node_modules/
 
 `server.js` is the Node entrypoint used by IISNode and `web.config` contains the rewrite rules that prevent the App Service from returning a 403 at the root. Do not remove or rename those files without updating the deployment model.
 
+Set `WEBSITE_NODE_DEFAULT_VERSION` to `~20` for the Windows App Service. Do not pin it to an exact patch version like `20.20.0`; App Service expects a supported installed runtime selector, and an invalid value can leave the site returning HTTP 500 before the app starts.
+
 ## CI/CD
 
 The pipeline lives in `.github/workflows/ci-cd.yml`.
@@ -67,7 +69,7 @@ If `AZURE_WEBAPP_NAME` is not configured, the deploy job is skipped and the work
 
 ### Prerequisites
 
-- Node.js 18+
+- Node.js 20+
 - Git
 - Azure CLI if you need to provision or inspect Azure resources
 

@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "description": "Backend API for PHW Alpine Events",
   "main": "server.js",
+  "engines": {
+    "node": ">=20 <21"
+  },
   "scripts": {
     "build": "tsc",
     "start": "node server.js",
