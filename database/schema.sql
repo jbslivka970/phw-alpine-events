@@ -1,31 +1,357 @@
 -- Azure SQL Database Schema for PHW Alpine Events
 -- Based on PRD Section 5.1 Data Model
+--
+-- Implementation Notes:
+--   - email is intentionally NOT unique to support households that share an email address.
+--   - Idempotent guards (IF NOT EXISTS / IF OBJECT_ID IS NULL) allow re-running the script safely.
+--   - All DATETIME columns use GETUTCDATE() so timestamps are UTC-normalized.
+--   - Four system groups (ALL, ADMIN, MENTORS, PARTICIPANTS) are seeded at the bottom.
 
-CREATE TABLE member (
-    member_id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
-    first_name NVARCHAR(100) NOT NULL,
-    last_name NVARCHAR(100) NOT NULL,
-    email NVARCHAR(255) NOT NULL,
-    mobile_phone NVARCHAR(20),
-    sms_opt_in BIT DEFAULT 0,
-    sms_opt_in_date DATETIME,
-    sms_opt_out_date DATETIME,
-    email_opt_out BIT DEFAULT 0,
-    salutation NVARCHAR(50),
-    title NVARCHAR(100),
-    account_name NVARCHAR(200),
-    source NVARCHAR(10) CHECK (source IN ('import', 'manual')),
-    last_import_hash NVARCHAR(64),
-    last_manual_edit DATETIME,
-    is_active BIT DEFAULT 1,
-    created_at DATETIME DEFAULT GETDATE(),
-    updated_at DATETIME DEFAULT GETDATE()
+-- ---------------------------------------------------------------------------
+-- 1. Member
+-- ---------------------------------------------------------------------------
+IF OBJECT_ID(N'dbo.member', N'U') IS NULL
+CREATE TABLE dbo.member (
+    member_id          UNIQUEIDENTIFIER NOT NULL DEFAULT NEWID(),
+    first_name         NVARCHAR(100)    NOT NULL,
+    last_name          NVARCHAR(100)    NOT NULL,
+    -- email is NOT unique: multiple members may share one household email address
+    email              NVARCHAR(255)    NOT NULL,
+    mobile_phone       NVARCHAR(20)     NULL,
+    sms_opt_in         BIT              NOT NULL DEFAULT 0,
+    sms_opt_in_date    DATETIME         NULL,
+    sms_opt_out_date   DATETIME         NULL,
+    email_opt_out      BIT              NOT NULL DEFAULT 0,
+    salutation         NVARCHAR(50)     NULL,
+    title              NVARCHAR(100)    NULL,
+    account_name       NVARCHAR(200)    NULL,
+    source             NVARCHAR(10)     NULL CHECK (source IN ('import', 'manual')),
+    last_import_hash   NVARCHAR(64)     NULL,
+    last_manual_edit   DATETIME         NULL,
+    is_active          BIT              NOT NULL DEFAULT 1,
+    created_at         DATETIME         NOT NULL DEFAULT GETUTCDATE(),
+    updated_at         DATETIME         NOT NULL DEFAULT GETUTCDATE(),
+    CONSTRAINT PK_member PRIMARY KEY (member_id)
 );
 
--- Add more tables as per PRD...
+-- ---------------------------------------------------------------------------
+-- 2. [group]  (brackets required: GROUP is a reserved word in T-SQL)
+-- ---------------------------------------------------------------------------
+IF OBJECT_ID(N'dbo.[group]', N'U') IS NULL
+CREATE TABLE dbo.[group] (
+    group_id    UNIQUEIDENTIFIER NOT NULL DEFAULT NEWID(),
+    group_name  NVARCHAR(100)    NOT NULL,
+    description NVARCHAR(500)    NULL,
+    is_system   BIT              NOT NULL DEFAULT 0,  -- 1 = built-in / cannot be deleted
+    created_at  DATETIME         NOT NULL DEFAULT GETUTCDATE(),
+    CONSTRAINT PK_group       PRIMARY KEY (group_id),
+    CONSTRAINT UQ_group_name  UNIQUE      (group_name)
+);
 
--- Indexes and constraints
-CREATE INDEX idx_member_email ON member(email);
-CREATE INDEX idx_member_composite ON member(email, first_name, last_name);
+-- ---------------------------------------------------------------------------
+-- 3. MemberGroup  (many-to-many: member <-> group)
+-- ---------------------------------------------------------------------------
+IF OBJECT_ID(N'dbo.member_group', N'U') IS NULL
+CREATE TABLE dbo.member_group (
+    member_group_id UNIQUEIDENTIFIER NOT NULL DEFAULT NEWID(),
+    member_id       UNIQUEIDENTIFIER NOT NULL,
+    group_id        UNIQUEIDENTIFIER NOT NULL,
+    added_at        DATETIME         NOT NULL DEFAULT GETUTCDATE(),
+    CONSTRAINT PK_member_group          PRIMARY KEY (member_group_id),
+    CONSTRAINT UQ_member_group_pair     UNIQUE      (member_id, group_id),
+    CONSTRAINT FK_member_group_member   FOREIGN KEY (member_id)
+        REFERENCES dbo.member (member_id) ON DELETE CASCADE,
+    CONSTRAINT FK_member_group_group    FOREIGN KEY (group_id)
+        REFERENCES dbo.[group] (group_id) ON DELETE CASCADE
+);
 
--- System groups seeded separately
+-- ---------------------------------------------------------------------------
+-- 4. Event
+-- ---------------------------------------------------------------------------
+IF OBJECT_ID(N'dbo.event', N'U') IS NULL
+CREATE TABLE dbo.event (
+    event_id          UNIQUEIDENTIFIER NOT NULL DEFAULT NEWID(),
+    title             NVARCHAR(200)    NOT NULL,
+    description       NVARCHAR(MAX)    NULL,
+    location          NVARCHAR(300)    NULL,
+    event_date        DATETIME         NOT NULL,
+    end_date          DATETIME         NULL,
+    capacity          INT              NULL,
+    status            NVARCHAR(20)     NOT NULL DEFAULT 'draft'
+        CHECK (status IN ('draft', 'published', 'cancelled', 'completed')),
+    created_by        UNIQUEIDENTIFIER NULL,  -- FK to dbo.[user] added after that table is created
+    created_at        DATETIME         NOT NULL DEFAULT GETUTCDATE(),
+    updated_at        DATETIME         NOT NULL DEFAULT GETUTCDATE(),
+    CONSTRAINT PK_event PRIMARY KEY (event_id)
+);
+
+-- ---------------------------------------------------------------------------
+-- 5. EventNotificationTarget  (which groups / members receive notifications)
+-- ---------------------------------------------------------------------------
+IF OBJECT_ID(N'dbo.event_notification_target', N'U') IS NULL
+CREATE TABLE dbo.event_notification_target (
+    target_id   UNIQUEIDENTIFIER NOT NULL DEFAULT NEWID(),
+    event_id    UNIQUEIDENTIFIER NOT NULL,
+    -- Either group_id or member_id must be set, not both
+    group_id    UNIQUEIDENTIFIER NULL,
+    member_id   UNIQUEIDENTIFIER NULL,
+    CONSTRAINT PK_event_notification_target        PRIMARY KEY (target_id),
+    CONSTRAINT CK_ent_group_or_member              CHECK (
+        (group_id IS NOT NULL AND member_id IS NULL) OR
+        (group_id IS NULL     AND member_id IS NOT NULL)
+    ),
+    CONSTRAINT FK_ent_event     FOREIGN KEY (event_id)
+        REFERENCES dbo.event  (event_id) ON DELETE CASCADE,
+    CONSTRAINT FK_ent_group     FOREIGN KEY (group_id)
+        REFERENCES dbo.[group] (group_id),
+    CONSTRAINT FK_ent_member    FOREIGN KEY (member_id)
+        REFERENCES dbo.member  (member_id)
+);
+
+-- ---------------------------------------------------------------------------
+-- 6. EventResponse  (RSVP)
+-- ---------------------------------------------------------------------------
+IF OBJECT_ID(N'dbo.event_response', N'U') IS NULL
+CREATE TABLE dbo.event_response (
+    response_id   UNIQUEIDENTIFIER NOT NULL DEFAULT NEWID(),
+    event_id      UNIQUEIDENTIFIER NOT NULL,
+    member_id     UNIQUEIDENTIFIER NOT NULL,
+    response      NVARCHAR(20)     NOT NULL
+        CHECK (response IN ('yes', 'no', 'maybe', 'waitlist')),
+    responded_at  DATETIME         NOT NULL DEFAULT GETUTCDATE(),
+    notes         NVARCHAR(500)    NULL,
+    CONSTRAINT PK_event_response            PRIMARY KEY (response_id),
+    CONSTRAINT UQ_event_response_pair       UNIQUE      (event_id, member_id),
+    CONSTRAINT FK_event_response_event      FOREIGN KEY (event_id)
+        REFERENCES dbo.event  (event_id) ON DELETE CASCADE,
+    CONSTRAINT FK_event_response_member     FOREIGN KEY (member_id)
+        REFERENCES dbo.member (member_id)
+);
+
+-- ---------------------------------------------------------------------------
+-- 7. EventAssignment  (staff / volunteer role assignments for an event)
+-- ---------------------------------------------------------------------------
+IF OBJECT_ID(N'dbo.event_assignment', N'U') IS NULL
+CREATE TABLE dbo.event_assignment (
+    assignment_id UNIQUEIDENTIFIER NOT NULL DEFAULT NEWID(),
+    event_id      UNIQUEIDENTIFIER NOT NULL,
+    member_id     UNIQUEIDENTIFIER NOT NULL,
+    role          NVARCHAR(100)    NOT NULL,
+    assigned_at   DATETIME         NOT NULL DEFAULT GETUTCDATE(),
+    notes         NVARCHAR(500)    NULL,
+    CONSTRAINT PK_event_assignment           PRIMARY KEY (assignment_id),
+    CONSTRAINT UQ_event_assignment_pair      UNIQUE      (event_id, member_id, role),
+    CONSTRAINT FK_event_assignment_event     FOREIGN KEY (event_id)
+        REFERENCES dbo.event  (event_id) ON DELETE CASCADE,
+    CONSTRAINT FK_event_assignment_member    FOREIGN KEY (member_id)
+        REFERENCES dbo.member (member_id)
+);
+
+-- ---------------------------------------------------------------------------
+-- 8. NotificationTemplate
+-- ---------------------------------------------------------------------------
+IF OBJECT_ID(N'dbo.notification_template', N'U') IS NULL
+CREATE TABLE dbo.notification_template (
+    template_id   UNIQUEIDENTIFIER NOT NULL DEFAULT NEWID(),
+    template_name NVARCHAR(100)    NOT NULL,
+    channel       NVARCHAR(10)     NOT NULL CHECK (channel IN ('email', 'sms')),
+    subject       NVARCHAR(300)    NULL,   -- email only
+    body          NVARCHAR(MAX)    NOT NULL,
+    is_active     BIT              NOT NULL DEFAULT 1,
+    created_at    DATETIME         NOT NULL DEFAULT GETUTCDATE(),
+    updated_at    DATETIME         NOT NULL DEFAULT GETUTCDATE(),
+    CONSTRAINT PK_notification_template        PRIMARY KEY (template_id),
+    CONSTRAINT UQ_notification_template_name   UNIQUE      (template_name, channel)
+);
+
+-- ---------------------------------------------------------------------------
+-- 9. NotificationLog  (record of every notification sent or attempted)
+-- ---------------------------------------------------------------------------
+IF OBJECT_ID(N'dbo.notification_log', N'U') IS NULL
+CREATE TABLE dbo.notification_log (
+    log_id       UNIQUEIDENTIFIER NOT NULL DEFAULT NEWID(),
+    event_id     UNIQUEIDENTIFIER NULL,
+    member_id    UNIQUEIDENTIFIER NULL,
+    template_id  UNIQUEIDENTIFIER NULL,
+    channel      NVARCHAR(10)     NOT NULL CHECK (channel IN ('email', 'sms')),
+    recipient    NVARCHAR(255)    NOT NULL,  -- email address or phone number
+    status       NVARCHAR(20)     NOT NULL
+        CHECK (status IN ('queued', 'sent', 'delivered', 'failed', 'stubbed')),
+    provider_id  NVARCHAR(255)    NULL,  -- message-ID returned by Azure Communication Services
+    error_detail NVARCHAR(MAX)    NULL,
+    sent_at      DATETIME         NOT NULL DEFAULT GETUTCDATE(),
+    CONSTRAINT PK_notification_log           PRIMARY KEY (log_id),
+    CONSTRAINT FK_notification_log_event     FOREIGN KEY (event_id)
+        REFERENCES dbo.event  (event_id),
+    CONSTRAINT FK_notification_log_member    FOREIGN KEY (member_id)
+        REFERENCES dbo.member (member_id),
+    CONSTRAINT FK_notification_log_template  FOREIGN KEY (template_id)
+        REFERENCES dbo.notification_template (template_id)
+);
+
+-- ---------------------------------------------------------------------------
+-- 10. SMSConsentLog  (audit trail of opt-in / opt-out actions)
+-- ---------------------------------------------------------------------------
+IF OBJECT_ID(N'dbo.sms_consent_log', N'U') IS NULL
+CREATE TABLE dbo.sms_consent_log (
+    consent_log_id UNIQUEIDENTIFIER NOT NULL DEFAULT NEWID(),
+    member_id      UNIQUEIDENTIFIER NOT NULL,
+    action         NVARCHAR(10)     NOT NULL CHECK (action IN ('opt_in', 'opt_out')),
+    source         NVARCHAR(20)     NOT NULL CHECK (source IN ('import', 'manual', 'reply')),
+    recorded_at    DATETIME         NOT NULL DEFAULT GETUTCDATE(),
+    notes          NVARCHAR(500)    NULL,
+    CONSTRAINT PK_sms_consent_log         PRIMARY KEY (consent_log_id),
+    CONSTRAINT FK_sms_consent_log_member  FOREIGN KEY (member_id)
+        REFERENCES dbo.member (member_id) ON DELETE CASCADE
+);
+
+-- ---------------------------------------------------------------------------
+-- 11. ImportLog  (tracks each CSV import run)
+-- ---------------------------------------------------------------------------
+IF OBJECT_ID(N'dbo.import_log', N'U') IS NULL
+CREATE TABLE dbo.import_log (
+    import_id        UNIQUEIDENTIFIER NOT NULL DEFAULT NEWID(),
+    imported_by      UNIQUEIDENTIFIER NULL,  -- FK to dbo.[user]
+    file_name        NVARCHAR(255)    NULL,
+    rows_processed   INT              NOT NULL DEFAULT 0,
+    rows_inserted    INT              NOT NULL DEFAULT 0,
+    rows_updated     INT              NOT NULL DEFAULT 0,
+    rows_skipped     INT              NOT NULL DEFAULT 0,
+    rows_errored     INT              NOT NULL DEFAULT 0,
+    status           NVARCHAR(20)     NOT NULL
+        CHECK (status IN ('pending', 'running', 'completed', 'failed')),
+    error_detail     NVARCHAR(MAX)    NULL,
+    started_at       DATETIME         NOT NULL DEFAULT GETUTCDATE(),
+    completed_at     DATETIME         NULL,
+    CONSTRAINT PK_import_log PRIMARY KEY (import_id)
+);
+
+-- ---------------------------------------------------------------------------
+-- 12. [user]  (application admin / staff accounts; distinct from member)
+-- ---------------------------------------------------------------------------
+IF OBJECT_ID(N'dbo.[user]', N'U') IS NULL
+CREATE TABLE dbo.[user] (
+    user_id        UNIQUEIDENTIFIER NOT NULL DEFAULT NEWID(),
+    azure_oid      NVARCHAR(255)    NULL,   -- Azure AD B2C object ID
+    email          NVARCHAR(255)    NOT NULL,
+    display_name   NVARCHAR(200)    NULL,
+    role           NVARCHAR(20)     NOT NULL DEFAULT 'admin'
+        CHECK (role IN ('admin', 'superadmin')),
+    is_active      BIT              NOT NULL DEFAULT 1,
+    last_login     DATETIME         NULL,
+    created_at     DATETIME         NOT NULL DEFAULT GETUTCDATE(),
+    updated_at     DATETIME         NOT NULL DEFAULT GETUTCDATE(),
+    CONSTRAINT PK_user        PRIMARY KEY (user_id),
+    CONSTRAINT UQ_user_email  UNIQUE      (email)
+);
+
+-- Now that dbo.[user] exists, add the FK from dbo.event.created_by
+IF NOT EXISTS (
+    SELECT 1 FROM sys.foreign_keys WHERE name = 'FK_event_created_by'
+)
+ALTER TABLE dbo.event
+    ADD CONSTRAINT FK_event_created_by
+        FOREIGN KEY (created_by) REFERENCES dbo.[user] (user_id);
+
+-- And from dbo.import_log.imported_by
+IF NOT EXISTS (
+    SELECT 1 FROM sys.foreign_keys WHERE name = 'FK_import_log_user'
+)
+ALTER TABLE dbo.import_log
+    ADD CONSTRAINT FK_import_log_user
+        FOREIGN KEY (imported_by) REFERENCES dbo.[user] (user_id);
+
+-- ---------------------------------------------------------------------------
+-- 13. TakeAVetPosting  (Take-A-Vet program listings)
+-- ---------------------------------------------------------------------------
+IF OBJECT_ID(N'dbo.take_a_vet_posting', N'U') IS NULL
+CREATE TABLE dbo.take_a_vet_posting (
+    posting_id    UNIQUEIDENTIFIER NOT NULL DEFAULT NEWID(),
+    event_id      UNIQUEIDENTIFIER NULL,
+    title         NVARCHAR(200)    NOT NULL,
+    description   NVARCHAR(MAX)    NULL,
+    location      NVARCHAR(300)    NULL,
+    activity_date DATETIME         NOT NULL,
+    spots_total   INT              NOT NULL DEFAULT 1,
+    spots_filled  INT              NOT NULL DEFAULT 0,
+    status        NVARCHAR(20)     NOT NULL DEFAULT 'open'
+        CHECK (status IN ('open', 'full', 'cancelled', 'completed')),
+    created_by    UNIQUEIDENTIFIER NULL,
+    created_at    DATETIME         NOT NULL DEFAULT GETUTCDATE(),
+    updated_at    DATETIME         NOT NULL DEFAULT GETUTCDATE(),
+    CONSTRAINT PK_take_a_vet_posting            PRIMARY KEY (posting_id),
+    CONSTRAINT CK_tav_spots                     CHECK (spots_filled <= spots_total),
+    CONSTRAINT FK_take_a_vet_posting_event      FOREIGN KEY (event_id)
+        REFERENCES dbo.event  (event_id),
+    CONSTRAINT FK_take_a_vet_posting_user       FOREIGN KEY (created_by)
+        REFERENCES dbo.[user] (user_id)
+);
+
+-- ===========================================================================
+-- Indexes
+-- ===========================================================================
+
+-- member
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_member_email' AND object_id = OBJECT_ID('dbo.member'))
+    CREATE INDEX idx_member_email     ON dbo.member (email);
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_member_composite' AND object_id = OBJECT_ID('dbo.member'))
+    CREATE INDEX idx_member_composite ON dbo.member (email, first_name, last_name);
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_member_active' AND object_id = OBJECT_ID('dbo.member'))
+    CREATE INDEX idx_member_active    ON dbo.member (is_active);
+
+-- event
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_event_date' AND object_id = OBJECT_ID('dbo.event'))
+    CREATE INDEX idx_event_date       ON dbo.event (event_date);
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_event_status' AND object_id = OBJECT_ID('dbo.event'))
+    CREATE INDEX idx_event_status     ON dbo.event (status);
+
+-- event_response
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_event_response_event' AND object_id = OBJECT_ID('dbo.event_response'))
+    CREATE INDEX idx_event_response_event         ON dbo.event_response (event_id);
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_event_response_member' AND object_id = OBJECT_ID('dbo.event_response'))
+    CREATE INDEX idx_event_response_member        ON dbo.event_response (member_id);
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_event_response_event_resp' AND object_id = OBJECT_ID('dbo.event_response'))
+    CREATE INDEX idx_event_response_event_resp    ON dbo.event_response (event_id, response);
+
+-- notification_log
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_notification_log_event' AND object_id = OBJECT_ID('dbo.notification_log'))
+    CREATE INDEX idx_notification_log_event  ON dbo.notification_log (event_id);
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_notification_log_member' AND object_id = OBJECT_ID('dbo.notification_log'))
+    CREATE INDEX idx_notification_log_member ON dbo.notification_log (member_id);
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_notification_log_status' AND object_id = OBJECT_ID('dbo.notification_log'))
+    CREATE INDEX idx_notification_log_status ON dbo.notification_log (status);
+
+-- member_group
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_member_group_member_id' AND object_id = OBJECT_ID('dbo.member_group'))
+    CREATE INDEX idx_member_group_member_id ON dbo.member_group (member_id);
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_member_group_group_id' AND object_id = OBJECT_ID('dbo.member_group'))
+    CREATE INDEX idx_member_group_group_id  ON dbo.member_group (group_id);
+
+-- ===========================================================================
+-- Seed: System groups
+-- ALL members are added here automatically; other groups are managed manually.
+-- ===========================================================================
+
+IF NOT EXISTS (SELECT 1 FROM dbo.[group] WHERE group_name = 'ALL')
+    INSERT INTO dbo.[group] (group_id, group_name, description, is_system)
+    VALUES (NEWID(), 'ALL', 'All active members', 1);
+
+IF NOT EXISTS (SELECT 1 FROM dbo.[group] WHERE group_name = 'ADMIN')
+    INSERT INTO dbo.[group] (group_id, group_name, description, is_system)
+    VALUES (NEWID(), 'ADMIN', 'Chapter administrators', 1);
+
+IF NOT EXISTS (SELECT 1 FROM dbo.[group] WHERE group_name = 'MENTORS')
+    INSERT INTO dbo.[group] (group_id, group_name, description, is_system)
+    VALUES (NEWID(), 'MENTORS', 'Mentors / guides', 1);
+
+IF NOT EXISTS (SELECT 1 FROM dbo.[group] WHERE group_name = 'PARTICIPANTS')
+    INSERT INTO dbo.[group] (group_id, group_name, description, is_system)
+    VALUES (NEWID(), 'PARTICIPANTS', 'Program participants (veterans)', 1);
