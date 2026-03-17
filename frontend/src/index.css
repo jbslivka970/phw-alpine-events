@@ -930,3 +930,176 @@ textarea {
     grid-column: 1;
   }
 }
+
+/* ============================================================
+   TAVF (Take a Vet Fishing) Pages
+   ============================================================ */
+
+/* Status badges */
+.tavf-status-badge {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.tavf-status-badge--open        { background: #d1fae5; color: #065f46; }
+.tavf-status-badge--filled      { background: #dbeafe; color: #1e40af; }
+.tavf-status-badge--cancelled   { background: #fee2e2; color: #991b1b; }
+.tavf-status-badge--pending     { background: #fef9c3; color: #854d0e; }
+.tavf-status-badge--matched     { background: #d1fae5; color: #065f46; }
+.tavf-status-badge--waitlisted  { background: #ede9fe; color: #5b21b6; }
+.tavf-status-badge--withdrawn   { background: #f3f4f6; color: #6b7280; }
+
+/* Filters row */
+.tavf-filters {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+}
+.tavf-filters__label {
+  font-size: 0.875rem;
+  color: var(--color-text-secondary, #6b7280);
+  margin-right: 0.25rem;
+}
+
+/* Grid of posting cards */
+.tavf-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 1.25rem;
+}
+
+/* Posting card */
+.tavf-card {
+  background: var(--color-surface, #fff);
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transition: box-shadow 0.15s;
+}
+.tavf-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
+.tavf-card--cancelled { opacity: 0.7; }
+
+.tavf-card__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem 1rem 0;
+}
+.tavf-card__date {
+  font-size: 0.8rem;
+  color: var(--color-text-secondary, #6b7280);
+}
+
+.tavf-card__body {
+  padding: 0.75rem 1rem;
+  flex: 1;
+}
+.tavf-card__location {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin: 0 0 0.25rem;
+  color: var(--color-text, #111827);
+}
+.tavf-card__species,
+.tavf-card__description,
+.tavf-card__capacity {
+  font-size: 0.875rem;
+  color: var(--color-text-secondary, #6b7280);
+  margin: 0.25rem 0 0;
+}
+.tavf-card__description {
+  -webkit-line-clamp: 3;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.tavf-card__footer {
+  padding: 0.75rem 1rem;
+  border-top: 1px solid var(--color-border, #e5e7eb);
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* Detail page: meta strip */
+.tavf-detail-meta {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+.tavf-detail-meta__item {
+  font-size: 0.9rem;
+  color: var(--color-text-secondary, #6b7280);
+}
+
+.tavf-detail-description {
+  font-size: 0.95rem;
+  color: var(--color-text, #374151);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  margin-bottom: 1.5rem;
+}
+
+/* Apply section */
+.tavf-apply-section {
+  background: var(--color-surface-alt, #f9fafb);
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: 8px;
+  padding: 1.25rem;
+  margin-bottom: 2rem;
+}
+.tavf-apply-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  max-width: 560px;
+}
+
+.tavf-applied-notice {
+  background: #d1fae5;
+  color: #065f46;
+  border-radius: 6px;
+  padding: 0.75rem 1rem;
+  font-size: 0.875rem;
+  margin-bottom: 1.5rem;
+}
+
+/* Applications table */
+.tavf-applications-section {
+  margin-top: 2rem;
+}
+.tavf-app-row__id    { font-family: monospace; font-size: 0.8rem; color: #9ca3af; }
+.tavf-app-row__notes { max-width: 240px; font-size: 0.85rem; }
+.tavf-app-row__applied { font-size: 0.85rem; color: #6b7280; }
+.tavf-app-row__actions {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+/* Narrow form container */
+.page-container--narrow {
+  max-width: 640px;
+}
+.form-input--narrow { max-width: 120px; }
+
+.btn--xs {
+  padding: 2px 10px;
+  font-size: 0.75rem;
+}
+.btn--danger {
+  background: #dc2626;
+  color: #fff;
+  border: 1px solid #dc2626;
+}
+.btn--danger:hover { background: #b91c1c; border-color: #b91c1c; }
