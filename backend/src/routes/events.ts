@@ -290,6 +290,123 @@ router.put('/:id/status', writeLimiter, authenticate, requireEventCreatorOrAdmin
   }
 });
 
+router.get('/:id/assignments', apiLimiter, authenticate, requireAnyAuthenticatedRole, async (req, res) => {
+  try {
+    const pool = await getPool();
+    const result = await pool
+      .request()
+      .input('event_id', sql.UniqueIdentifier, req.params.id)
+      .query(
+        `SELECT
+            ea.assignment_id,
+            ea.member_id,
+            m.first_name,
+            m.last_name,
+            ea.role,
+            ea.assigned_at,
+            ea.attended,
+            ea.attendance_notes
+         FROM event_assignment ea
+         INNER JOIN member m ON m.member_id = ea.member_id
+         WHERE ea.event_id = @event_id
+         ORDER BY ea.assigned_at ASC`
+      );
+
+    res.json(result.recordset);
+  } catch (error) {
+    console.error('GET /events/:id/assignments failed', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.post('/:id/assignments', writeLimiter, authenticate, requireEventCreatorOrAdmin, async (req, res) => {
+  try {
+    const memberId = req.body?.member_id as string | undefined;
+    const role = (req.body?.role as string | undefined)?.toUpperCase();
+    if (!memberId || !role || !['MENTOR', 'PARTICIPANT'].includes(role)) {
+      res.status(400).json({ error: 'member_id and role (MENTOR|PARTICIPANT) are required.' });
+      return;
+    }
+
+    const pool = await getPool();
+    const result = await pool
+      .request()
+      .input('event_id', sql.UniqueIdentifier, req.params.id)
+      .input('member_id', sql.UniqueIdentifier, memberId)
+      .input('role', sql.NVarChar(100), role)
+      .query(
+        `INSERT INTO event_assignment
+           (assignment_id, event_id, member_id, role, assigned_at, notes)
+         OUTPUT INSERTED.*
+         VALUES (NEWID(), @event_id, @member_id, @role, GETUTCDATE(), NULL)`
+      );
+
+    res.status(201).json(result.recordset[0]);
+  } catch (error) {
+    console.error('POST /events/:id/assignments failed', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.delete('/:id/assignments/:assignmentId', writeLimiter, authenticate, requireEventCreatorOrAdmin, async (req, res) => {
+  try {
+    const pool = await getPool();
+    const result = await pool
+      .request()
+      .input('event_id', sql.UniqueIdentifier, req.params.id)
+      .input('assignment_id', sql.UniqueIdentifier, req.params.assignmentId)
+      .query('DELETE FROM event_assignment WHERE event_id = @event_id AND assignment_id = @assignment_id');
+
+    if ((result.rowsAffected[0] ?? 0) === 0) {
+      res.status(404).json({ error: 'Assignment not found' });
+      return;
+    }
+
+    res.status(204).send();
+  } catch (error) {
+    console.error('DELETE /events/:id/assignments/:assignmentId failed', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.patch('/:id/assignments/:assignmentId/attendance', writeLimiter, authenticate, requireEventCreatorOrAdmin, async (req, res) => {
+  try {
+    const attended = req.body?.attended;
+    const attendanceNotes = (req.body?.attendance_notes as string | undefined) ?? null;
+    if (typeof attended !== 'boolean') {
+      res.status(400).json({ error: 'attended boolean is required.' });
+      return;
+    }
+
+    const pool = await getPool();
+    const result = await pool
+      .request()
+      .input('event_id', sql.UniqueIdentifier, req.params.id)
+      .input('assignment_id', sql.UniqueIdentifier, req.params.assignmentId)
+      .input('attended', sql.Bit, attended ? 1 : 0)
+      .input('attendance_notes', sql.NVarChar(500), attendanceNotes)
+      .query(
+        `UPDATE event_assignment
+         SET attended = @attended,
+             attendance_notes = @attendance_notes
+         OUTPUT INSERTED.*
+         WHERE event_id = @event_id
+           AND assignment_id = @assignment_id`
+      );
+
+    const updated = result.recordset[0];
+    if (!updated) {
+      res.status(404).json({ error: 'Assignment not found' });
+      return;
+    }
+
+    res.json(updated);
+  } catch (error) {
+    console.error('PATCH /events/:id/assignments/:assignmentId/attendance failed', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 router.delete('/:id', writeLimiter, authenticate, requireEventCreatorOrAdmin, async (req, res) => {
   try {
     const pool = await getPool();

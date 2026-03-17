@@ -1,4 +1,4 @@
-import { apiDelete, apiGet, apiPost, apiPut } from './client';
+import { apiDelete, apiGet, apiPatch, apiPost, apiPut } from './client';
 
 interface EventRecord {
   event_id: string;
@@ -33,6 +33,17 @@ interface RsvpRecord {
   mobile_phone?: string;
 }
 
+interface EventAssignmentRecord {
+  assignment_id: string;
+  member_id: string;
+  first_name: string;
+  last_name: string;
+  role: 'MENTOR' | 'PARTICIPANT' | string;
+  assigned_at: string;
+  attended: boolean;
+  attendance_notes?: string | null;
+}
+
 const eventsApi = {
   list: (status?: string) => apiGet<EventRecord[]>(status ? `/events?status=${encodeURIComponent(status)}` : '/events'),
   get: (id: string) => apiGet<EventRecord & { notification_targets: unknown[] }>(`/events/${id}`),
@@ -60,5 +71,15 @@ const rsvpApi = {
   remove: (eventId: string, memberId: string) => apiDelete<void>(`/events/${eventId}/rsvp/${memberId}`),
 };
 
-export { eventsApi, rsvpApi };
-export type { EventRecord, RsvpRecord };
+const assignmentsApi = {
+  list: (eventId: string) => apiGet<EventAssignmentRecord[]>(`/events/${eventId}/assignments`),
+  create: (eventId: string, payload: { member_id: string; role: 'MENTOR' | 'PARTICIPANT' }) =>
+    apiPost<EventAssignmentRecord>(`/events/${eventId}/assignments`, payload),
+  remove: (eventId: string, assignmentId: string) =>
+    apiDelete<void>(`/events/${eventId}/assignments/${assignmentId}`),
+  setAttendance: (eventId: string, assignmentId: string, payload: { attended: boolean; attendance_notes?: string | null }) =>
+    apiPatch<EventAssignmentRecord>(`/events/${eventId}/assignments/${assignmentId}/attendance`, payload),
+};
+
+export { assignmentsApi, eventsApi, rsvpApi };
+export type { EventRecord, RsvpRecord, EventAssignmentRecord };

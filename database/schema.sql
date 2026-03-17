@@ -147,6 +147,15 @@ CREATE TABLE dbo.event_assignment (
         REFERENCES dbo.member (member_id)
 );
 
+IF OBJECT_ID(N'dbo.event_assignment', N'U') IS NOT NULL
+BEGIN
+    IF COL_LENGTH('dbo.event_assignment', 'attended') IS NULL
+        ALTER TABLE dbo.event_assignment ADD attended BIT NOT NULL DEFAULT 0;
+
+    IF COL_LENGTH('dbo.event_assignment', 'attendance_notes') IS NULL
+        ALTER TABLE dbo.event_assignment ADD attendance_notes NVARCHAR(500) NULL;
+END
+
 -- ---------------------------------------------------------------------------
 -- 8. NotificationTemplate
 -- ---------------------------------------------------------------------------

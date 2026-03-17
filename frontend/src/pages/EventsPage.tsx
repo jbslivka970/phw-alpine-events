@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { eventsApi, rsvpApi } from '../api/events'
 import type { EventRecord, RsvpRecord } from '../api/events'
 import { groupsApi } from '../api/groups'
@@ -255,6 +256,7 @@ function EventFormModal({ initial, groups, onSave, onCancel, saving, error, isEd
 // ── Main EventsPage ───────────────────────────────────────────────────────────
 
 function EventsPage() {
+  const navigate = useNavigate()
   const { isAdmin, canCreateEvents } = useAuth()
   const canEdit = isAdmin() || canCreateEvents()
 
@@ -425,6 +427,12 @@ function EventsPage() {
                   {canEdit && (
                     <button className="btn btn--outline btn--sm" onClick={() => openEdit(event)}>
                       Edit
+                    </button>
+                  )}
+
+                  {isAdmin() && (
+                    <button className="btn btn--outline btn--sm" onClick={() => navigate(`/events/${event.event_id}/assign`)}>
+                      Assign
                     </button>
                   )}
 

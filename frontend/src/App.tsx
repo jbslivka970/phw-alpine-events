@@ -7,6 +7,7 @@ import { AdminPage } from './pages/AdminPage'
 import { CalendarPage } from './pages/CalendarPage'
 import { DashboardPage } from './pages/DashboardPage'
 import { EventsPage } from './pages/EventsPage'
+import { EventAssignmentPage } from './pages/EventAssignmentPage'
 import { LoginPage } from './pages/LoginPage'
 import { ImportPage } from './pages/ImportPage'
 import { MembersPage } from './pages/MembersPage'
@@ -31,6 +32,14 @@ function App() {
           <Route index element={<Navigate to="/dashboard" replace />} />
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/events" element={<EventsPage />} />
+          <Route
+            path="/events/:id/assign"
+            element={
+              <ProtectedRoute requiredRole={ROLES.ADMIN}>
+                <EventAssignmentPage />
+              </ProtectedRoute>
+            }
+          />
           <Route path="/calendar" element={<CalendarPage />} />
           <Route path="/tavf" element={<TavfListPage />} />
           <Route
