@@ -189,6 +189,36 @@ CREATE TABLE dbo.notification_log (
         REFERENCES dbo.notification_template (template_id)
 );
 
+-- Ensure notification_log status constraint includes 'skipped' for SMS opt-out handling.
+IF OBJECT_ID(N'dbo.notification_log', N'U') IS NOT NULL
+BEGIN
+    DECLARE @notificationLogStatusColumnId INT = COLUMNPROPERTY(OBJECT_ID(N'dbo.notification_log'), 'status', 'ColumnId');
+    DECLARE @dropStatusConstraintSql NVARCHAR(MAX);
+
+    SELECT @dropStatusConstraintSql = STRING_AGG(
+        N'ALTER TABLE dbo.notification_log DROP CONSTRAINT [' + cc.name + N'];',
+        N' '
+    )
+    FROM sys.check_constraints cc
+    WHERE cc.parent_object_id = OBJECT_ID(N'dbo.notification_log')
+      AND cc.parent_column_id = @notificationLogStatusColumnId;
+
+    IF @dropStatusConstraintSql IS NOT NULL AND LEN(@dropStatusConstraintSql) > 0
+        EXEC sp_executesql @dropStatusConstraintSql;
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM sys.check_constraints
+        WHERE name = N'CK_notification_log_status'
+          AND parent_object_id = OBJECT_ID(N'dbo.notification_log')
+    )
+    BEGIN
+        ALTER TABLE dbo.notification_log
+        ADD CONSTRAINT CK_notification_log_status
+            CHECK (status IN ('queued', 'sent', 'delivered', 'failed', 'stubbed', 'skipped'));
+    END
+END
+
 -- ---------------------------------------------------------------------------
 -- 10. SMSConsentLog  (audit trail of opt-in / opt-out actions)
 -- ---------------------------------------------------------------------------
