@@ -544,19 +544,155 @@ function truncateSms(message: string, limit = 160): string {
 // notification templates are created.
 
 async function notifyNewPosting(_email: string, postingId: string): Promise<void> {
-  console.log(`[notifications] notifyNewPosting stub called for postingId=${postingId}`);
+  const pool = await getPool();
+  const postingResult = await pool
+    .request()
+    .input('posting_id', sql.UniqueIdentifier, postingId)
+    .query<{ posting_id: string; location: string; event_date: Date }>(
+      `SELECT posting_id, location, event_date
+       FROM tavf_posting
+       WHERE posting_id = @posting_id`
+    );
+  const posting = postingResult.recordset[0];
+  if (!posting) {
+    return;
+  }
+
+  const recipients = await pool
+    .request()
+    .query<{ email: string; member_id: string }>(
+      `SELECT DISTINCT m.email, m.member_id
+       FROM member m
+       INNER JOIN member_group mg ON mg.member_id = m.member_id
+       INNER JOIN [group] g ON g.group_id = mg.group_id
+       WHERE g.group_name = 'ALL'
+         AND m.is_active = 1
+         AND (m.email_opt_out = 0 OR m.email_opt_out IS NULL)`
+    );
+
+  const eventDate = posting.event_date.toLocaleDateString();
+  const subject = `New TAVF opportunity: ${posting.location} on ${eventDate}`;
+  const body = `New TAVF opportunity: ${posting.location} on ${eventDate}. View: /tavf/${posting.posting_id}`;
+
+  for (const recipient of recipients.recordset) {
+    await notificationService.sendEmail({
+      to: recipient.email,
+      subject,
+      htmlBody: `<p>${body}</p>`,
+      textBody: body,
+      memberId: recipient.member_id,
+    });
+  }
 }
 
 async function notifyApplicationReceived(_email: string, applicationId: string): Promise<void> {
-  console.log(`[notifications] notifyApplicationReceived stub called for applicationId=${applicationId}`);
+  console.log(`[notifications] notifyApplicationReceived called for applicationId=${applicationId}`);
 }
 
 async function notifyMatchConfirmed(_guideEmail: string, matchId: string, _vetEmail: string): Promise<void> {
-  console.log(`[notifications] notifyMatchConfirmed stub called for matchId=${matchId}`);
+  const pool = await getPool();
+  const result = await pool
+    .request()
+    .input('match_id', sql.UniqueIdentifier, matchId)
+    .query<{
+      posting_id: string;
+      location: string;
+      event_date: Date;
+      guide_email: string;
+      guide_member_id: string;
+      vet_email: string;
+      vet_member_id: string;
+    }>(
+      `SELECT
+          p.posting_id,
+          p.location,
+          p.event_date,
+          guide.email AS guide_email,
+          guide.member_id AS guide_member_id,
+          vet.email AS vet_email,
+          vet.member_id AS vet_member_id
+       FROM tavf_match tm
+       INNER JOIN tavf_posting p ON p.posting_id = tm.posting_id
+       INNER JOIN tavf_application ta ON ta.application_id = tm.application_id
+       INNER JOIN member guide ON guide.member_id = p.guide_member_id
+       INNER JOIN member vet ON vet.member_id = ta.vet_member_id
+       WHERE tm.match_id = @match_id`
+    );
+  const row = result.recordset[0];
+  if (!row) {
+    return;
+  }
+
+  const dateLabel = row.event_date.toLocaleDateString();
+  const subject = `TAVF Match Confirmed - ${row.location} on ${dateLabel}`;
+
+  await notificationService.sendEmail({
+    to: row.guide_email,
+    subject,
+    htmlBody: `<p>Your TAVF match is confirmed for ${row.location} on ${dateLabel}.</p>`,
+    textBody: `Your TAVF match is confirmed for ${row.location} on ${dateLabel}.`,
+    memberId: row.guide_member_id,
+  });
+
+  await notificationService.sendEmail({
+    to: row.vet_email,
+    subject,
+    htmlBody: `<p>Your TAVF match is confirmed for ${row.location} on ${dateLabel}.</p>`,
+    textBody: `Your TAVF match is confirmed for ${row.location} on ${dateLabel}.`,
+    memberId: row.vet_member_id,
+  });
 }
 
 async function notifyMatchCancelled(_guideEmail: string, matchId: string, _vetEmail: string): Promise<void> {
-  console.log(`[notifications] notifyMatchCancelled stub called for matchId=${matchId}`);
+  const pool = await getPool();
+  const result = await pool
+    .request()
+    .input('match_id', sql.UniqueIdentifier, matchId)
+    .query<{
+      location: string;
+      event_date: Date;
+      guide_email: string;
+      guide_member_id: string;
+      vet_email: string;
+      vet_member_id: string;
+    }>(
+      `SELECT
+          p.location,
+          p.event_date,
+          guide.email AS guide_email,
+          guide.member_id AS guide_member_id,
+          vet.email AS vet_email,
+          vet.member_id AS vet_member_id
+       FROM tavf_match tm
+       INNER JOIN tavf_posting p ON p.posting_id = tm.posting_id
+       INNER JOIN tavf_application ta ON ta.application_id = tm.application_id
+       INNER JOIN member guide ON guide.member_id = p.guide_member_id
+       INNER JOIN member vet ON vet.member_id = ta.vet_member_id
+       WHERE tm.match_id = @match_id`
+    );
+  const row = result.recordset[0];
+  if (!row) {
+    return;
+  }
+
+  const dateLabel = row.event_date.toLocaleDateString();
+  const subject = `TAVF Match Cancelled - ${row.location} on ${dateLabel}`;
+
+  await notificationService.sendEmail({
+    to: row.guide_email,
+    subject,
+    htmlBody: `<p>Your TAVF match for ${row.location} on ${dateLabel} has been cancelled.</p>`,
+    textBody: `Your TAVF match for ${row.location} on ${dateLabel} has been cancelled.`,
+    memberId: row.guide_member_id,
+  });
+
+  await notificationService.sendEmail({
+    to: row.vet_email,
+    subject,
+    htmlBody: `<p>Your TAVF match for ${row.location} on ${dateLabel} has been cancelled.</p>`,
+    textBody: `Your TAVF match for ${row.location} on ${dateLabel} has been cancelled.`,
+    memberId: row.vet_member_id,
+  });
 }
 
 export {

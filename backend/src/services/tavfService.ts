@@ -283,6 +283,19 @@ export async function getMatch(matchId: string): Promise<TavfMatch | null> {
 export async function createMatch(input: CreateMatchInput): Promise<TavfMatch> {
   const pool = await getPool();
 
+  const postingResult = await pool
+    .request()
+    .input('posting_id', sql.UniqueIdentifier, input.posting_id)
+    .query<{ posting_id: string; location: string; event_date: Date }>(
+      `SELECT posting_id, location, event_date
+       FROM tavf_posting
+       WHERE posting_id = @posting_id`
+    );
+  const posting = postingResult.recordset[0];
+  if (!posting) {
+    throw new Error('Posting not found for match creation.');
+  }
+
   // Insert the match record
   const matchResult = await pool
     .request()
@@ -324,12 +337,22 @@ export async function createMatch(input: CreateMatchInput): Promise<TavfMatch> {
       WHERE posting_id = @posting_id
     `);
 
-  // Stubbed notifications
-  await notifications.notifyMatchConfirmed(
-    `vet@stub.local`,
-    `guide@stub.local`,
-    match.match_id
-  );
+  // Auto-create corresponding event for the confirmed match.
+  await pool
+    .request()
+    .input('title', sql.NVarChar(200), `Take a Vet Fishing — ${posting.location}`)
+    .input('event_date', sql.DateTime, posting.event_date)
+    .input('location', sql.NVarChar(300), posting.location)
+    .input('capacity', sql.Int, 2)
+    .input('created_by', sql.UniqueIdentifier, input.matched_by ?? null)
+    .query(
+      `INSERT INTO event
+         (event_id, title, event_date, location, capacity, status, created_by, created_at, updated_at)
+       VALUES
+         (NEWID(), @title, @event_date, @location, @capacity, 'published', @created_by, GETUTCDATE(), GETUTCDATE())`
+    );
+
+  await notifications.notifyMatchConfirmed('', match.match_id, '');
 
   return match;
 }
@@ -374,12 +397,7 @@ export async function cancelMatch(matchId: string): Promise<TavfMatch | null> {
       WHERE posting_id = @posting_id
     `);
 
-  // Stubbed notifications
-  await notifications.notifyMatchCancelled(
-    `vet@stub.local`,
-    `guide@stub.local`,
-    matchId
-  );
+  await notifications.notifyMatchCancelled('', matchId, '');
 
   return updated;
 }
