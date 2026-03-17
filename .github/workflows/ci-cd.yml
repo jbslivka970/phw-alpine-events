@@ -63,6 +63,7 @@ jobs:
         cp -R backend/node_modules deploy-package/node_modules
         cp backend/package.json deploy-package/package.json
         cp backend/package-lock.json deploy-package/package-lock.json
+        cp backend/server.js deploy-package/server.js
         cp backend/web.config deploy-package/web.config
 
     - name: Deploy to Azure
