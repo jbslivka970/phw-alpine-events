@@ -83,11 +83,19 @@ function loadDbConfig(): DbConfig {
 }
 
 function loadAuthConfig(): AuthConfig {
-  const tenantName = optionalEnv('AZURE_AD_B2C_TENANT_NAME') ?? '';
-  const tenantId = optionalEnv('AZURE_TENANT_ID') ?? '';
+  const tenantName = optionalEnv('AZURE_EXTERNAL_TENANT_NAME') ?? optionalEnv('AZURE_AD_B2C_TENANT_NAME') ?? '';
+  const tenantId = optionalEnv('AZURE_EXTERNAL_TENANT_ID') ?? optionalEnv('AZURE_TENANT_ID') ?? '';
   const clientId = optionalEnv('AZURE_CLIENT_ID') ?? '';
-  const policyName = optionalEnv('AZURE_AD_B2C_POLICY_NAME', 'B2C_1_signupsignin') ?? 'B2C_1_signupsignin';
-  const isConfigured = Boolean(tenantName && tenantId && clientId);
+  const policyName = optionalEnv('AZURE_EXTERNAL_USER_FLOW')
+    ?? optionalEnv('AZURE_AD_B2C_POLICY_NAME', 'B2C_1_signupsignin')
+    ?? 'B2C_1_signupsignin';
+  const authorityHost = optionalEnv('AZURE_AUTHORITY_HOST') ?? 'b2clogin.com';
+  const issuerOverride = optionalEnv('AZURE_AUTH_ISSUER') ?? '';
+  const jwksOverride = optionalEnv('AZURE_AUTH_JWKS_URI') ?? '';
+
+  const issuer = issuerOverride || `https://${tenantName}.${authorityHost}/${tenantId}/v2.0/`;
+  const jwksUri = jwksOverride || `https://${tenantName}.${authorityHost}/${tenantId}/discovery/v2.0/keys?p=${policyName}`;
+  const isConfigured = Boolean(clientId && issuer && jwksUri);
 
   return {
     tenantName,
@@ -95,8 +103,8 @@ function loadAuthConfig(): AuthConfig {
     clientId,
     policyName,
     isConfigured,
-    issuer: `https://${tenantName}.b2clogin.com/${tenantId}/v2.0/`,
-    jwksUri: `https://${tenantName}.b2clogin.com/${tenantId}/discovery/v2.0/keys?p=${policyName}`,
+    issuer,
+    jwksUri,
   };
 }
 

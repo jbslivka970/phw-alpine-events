@@ -198,6 +198,31 @@ az deployment group create \
 
 After provisioning, download the App Service publish profile and store it in the repository secret `AZUREAPPSERVICE_PUBLISHPROFILE`.
 
+## Microsoft Entra External ID Setup
+
+Effective May 1, 2025, Azure AD B2C is no longer available for new customer purchases. Use Microsoft Entra External ID for new deployments.
+
+Use this flow to provision identity for production/staging.
+
+1. Create or select an External ID tenant (Azure Portal).
+2. Link the External ID tenant to your subscription resource group.
+3. In that tenant, create app registrations:
+  - Backend API app registration
+  - Frontend SPA app registration
+4. In backend app registration:
+  - Set Application ID URI (for example `api://<backend-app-id>`)
+  - Add delegated scope (for example `access_as_user`)
+5. In frontend app registration:
+  - Add SPA redirect URI for your frontend origin
+  - Grant API permission to backend scope
+6. Create sign-up/sign-in user flow (for example `B2C_1_signupsignin`, or your chosen flow name).
+
+When you have the External ID values, apply backend App Service auth settings with:
+
+`./scripts/configure-external-id-appsettings.sh --resource-group <rg> --webapp <webapp> --tenant-name <tenant-name> --tenant-id <tenant-id> --backend-client-id <backend-app-id> --frontend-client-id <frontend-app-id> --authority <authority-base-url> --issuer <issuer-url> --jwks-uri <jwks-url> --policy-name B2C_1_signupsignin`
+
+Then set frontend environment values in your frontend host using the printed `VITE_*` outputs from the script.
+
 ## License
 
 Internal use only.
