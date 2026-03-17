@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { reportsApi } from '../api/reports';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -7,13 +8,15 @@ import { useState } from 'react';
 export interface EventSummaryRow {
   event_id: string;
   title: string;
-  start_date: string;
-  location: string;
+  event_date: string;
+  location: string | null;
   status: 'draft' | 'published' | 'cancelled' | 'completed';
   capacity: number | null;
-  rsvp_count: number;
+  yes_count: number;
+  no_count: number;
+  maybe_count: number;
+  waitlist_count: number;
   attended_count: number;
-  targeted_groups: string[];
 }
 
 export interface ReportSummary {
@@ -22,69 +25,6 @@ export interface ReportSummary {
   total_attended: number;
   avg_fill_rate: number; // 0–1
   events: EventSummaryRow[];
-}
-
-type ExportFormat = 'csv' | 'pdf';
-
-// ---------------------------------------------------------------------------
-// Placeholder data hook
-// ---------------------------------------------------------------------------
-
-function usePlaceholderSummary(fromDate: string, toDate: string): ReportSummary {
-  // TODO: replace with real API call — GET /api/reports/summary?from=&to=
-  void fromDate; void toDate;
-  return {
-    total_events: 3,
-    total_rsvps: 52,
-    total_attended: 44,
-    avg_fill_rate: 0.71,
-    events: [
-      {
-        event_id: 'r1',
-        title: 'Spring Hike',
-        start_date: new Date().toISOString(),
-        location: 'Trailhead A',
-        status: 'completed',
-        capacity: 20,
-        rsvp_count: 18,
-        attended_count: 15,
-        targeted_groups: ['All Members'],
-      },
-      {
-        event_id: 'r2',
-        title: 'Board Meeting',
-        start_date: new Date(Date.now() - 7 * 86400000).toISOString(),
-        location: 'Community Center',
-        status: 'completed',
-        capacity: 30,
-        rsvp_count: 24,
-        attended_count: 22,
-        targeted_groups: ['Board'],
-      },
-      {
-        event_id: 'r3',
-        title: 'Skill Workshop',
-        start_date: new Date(Date.now() + 7 * 86400000).toISOString(),
-        location: 'Mountain Base',
-        status: 'published',
-        capacity: null,
-        rsvp_count: 10,
-        attended_count: 7,
-        targeted_groups: ['Beginners'],
-      },
-    ],
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Export stub
-// ---------------------------------------------------------------------------
-
-function triggerExport(format: ExportFormat, from: string, to: string) {
-  // TODO: call GET /api/reports/export?format=<format>&from=<from>&to=<to>
-  //       then download the returned file blob.
-  console.log('[Reports] export requested', { format, from, to });
-  alert(`Export as ${format.toUpperCase()} — feature coming soon.\nRange: ${from} → ${to}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -105,16 +45,17 @@ function StatCard({ label, value }: { label: string; value: string | number }) {
 // ---------------------------------------------------------------------------
 
 function SummaryRow({ row }: { row: EventSummaryRow }) {
-  const startDate = new Date(row.start_date).toLocaleDateString(undefined, {
+  const startDate = new Date(row.event_date).toLocaleDateString(undefined, {
     month: 'short', day: 'numeric', year: 'numeric',
   });
+  const rsvpCount = row.yes_count + row.no_count + row.maybe_count + row.waitlist_count;
   const fillRate =
-    row.capacity && row.capacity > 0
-      ? `${Math.round((row.rsvp_count / row.capacity) * 100)}%`
+    row.capacity !== null && row.capacity > 0
+      ? `${Math.round((row.yes_count / row.capacity) * 100)}%`
       : '—';
   const attendRate =
-    row.rsvp_count > 0
-      ? `${Math.round((row.attended_count / row.rsvp_count) * 100)}%`
+    rsvpCount > 0
+      ? `${Math.round((row.attended_count / rsvpCount) * 100)}%`
       : '—';
 
   return (
@@ -126,11 +67,13 @@ function SummaryRow({ row }: { row: EventSummaryRow }) {
         <span className={`status-pill status-pill--${row.status}`}>{row.status}</span>
       </td>
       <td>{row.capacity ?? '∞'}</td>
-      <td>{row.rsvp_count}</td>
+      <td>{row.yes_count}</td>
+      <td>{row.no_count}</td>
+      <td>{row.maybe_count}</td>
+      <td>{row.waitlist_count}</td>
       <td>{row.attended_count}</td>
       <td>{fillRate}</td>
       <td>{attendRate}</td>
-      <td>{row.targeted_groups.join(', ')}</td>
     </tr>
   );
 }
@@ -140,20 +83,31 @@ function SummaryRow({ row }: { row: EventSummaryRow }) {
 // ---------------------------------------------------------------------------
 
 function ExportButtons({ fromDate, toDate }: { fromDate: string; toDate: string }) {
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+
+  async function onExport() {
+    setIsExporting(true);
+    setExportError(null);
+    try {
+      await reportsApi.downloadExport(fromDate, toDate);
+    } catch (error) {
+      setExportError(error instanceof Error ? error.message : 'Export failed.');
+    } finally {
+      setIsExporting(false);
+    }
+  }
+
   return (
     <div className="export-actions">
       <button
         className="btn btn-primary"
-        onClick={() => triggerExport('csv', fromDate, toDate)}
+        onClick={onExport}
+        disabled={isExporting}
       >
-        Download CSV
+        {isExporting ? 'Exporting…' : 'Export CSV'}
       </button>
-      <button
-        className="btn btn-secondary"
-        onClick={() => triggerExport('pdf', fromDate, toDate)}
-      >
-        Download PDF
-      </button>
+      {exportError && <p className="members-error">{exportError}</p>}
     </div>
   );
 }
@@ -170,8 +124,49 @@ function ReportsPage() {
 
   const [fromDate, setFromDate] = useState(firstOfMonth);
   const [toDate, setToDate] = useState(todayIso);
+  const [summary, setSummary] = useState<ReportSummary>({
+    total_events: 0,
+    total_rsvps: 0,
+    total_attended: 0,
+    avg_fill_rate: 0,
+    events: [],
+  });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const summary = usePlaceholderSummary(fromDate, toDate);
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    setError(null);
+    reportsApi
+      .summary(fromDate, toDate)
+      .then((data) => {
+        if (!active) {
+          return;
+        }
+        setSummary({
+          total_events: data.total_events,
+          total_rsvps: data.total_rsvps,
+          total_attended: data.total_attended,
+          avg_fill_rate: data.avg_fill_rate,
+          events: data.events as EventSummaryRow[],
+        });
+      })
+      .catch((err: unknown) => {
+        if (!active) {
+          return;
+        }
+        setError(err instanceof Error ? err.message : 'Failed to load report summary.');
+      })
+      .finally(() => {
+        if (active) {
+          setLoading(false);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [fromDate, toDate]);
 
   const fillRatePct = `${Math.round(summary.avg_fill_rate * 100)}%`;
   const attendRate =
@@ -206,6 +201,8 @@ function ReportsPage() {
       </div>
 
       {/* Top-level stat cards */}
+      {error && <p className="members-error">{error}</p>}
+      {loading && <p className="members-loading">Loading report summary...</p>}
       <div className="stat-grid">
         <StatCard label="Total Events" value={summary.total_events} />
         <StatCard label="Total RSVPs" value={summary.total_rsvps} />
@@ -225,17 +222,19 @@ function ReportsPage() {
               <th>Location</th>
               <th>Status</th>
               <th>Capacity</th>
-              <th>RSVPs</th>
+              <th>Yes</th>
+              <th>No</th>
+              <th>Maybe</th>
+              <th>Waitlist</th>
               <th>Attended</th>
               <th>Fill %</th>
               <th>Attend %</th>
-              <th>Groups</th>
             </tr>
           </thead>
           <tbody>
             {summary.events.length === 0 ? (
               <tr>
-                <td colSpan={10} className="empty-state">No events in this range.</td>
+                <td colSpan={12} className="empty-state">No events in this range.</td>
               </tr>
             ) : (
               summary.events.map((row) => <SummaryRow key={row.event_id} row={row} />)

@@ -80,4 +80,18 @@ async function apiDelete<T>(path: string): Promise<T> {
   return parseResponse<T>(response);
 }
 
-export { BASE_URL, setTokenGetter, apiDelete, apiGet, apiPatch, apiPost, apiPut };
+async function apiGetBlob(path: string): Promise<{ blob: Blob; headers: Headers }> {
+  const response = await fetch(`${BASE_URL}${path}`, {
+    method: 'GET',
+    headers: await buildHeaders(),
+  });
+
+  if (!response.ok) {
+    const message = await response.text().catch(() => response.statusText);
+    throw new Error(`API ${response.status}: ${message}`);
+  }
+
+  return { blob: await response.blob(), headers: response.headers };
+}
+
+export { BASE_URL, setTokenGetter, apiDelete, apiGet, apiGetBlob, apiPatch, apiPost, apiPut };

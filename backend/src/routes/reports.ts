@@ -1,4 +1,8 @@
 import { Router, Request, Response } from 'express';
+import { getPool, sql } from '../db';
+import authenticate from '../middleware/auth';
+import { apiLimiter } from '../middleware/rateLimiter';
+import { requireAdmin } from '../middleware/rbac';
 
 const router = Router();
 
@@ -9,13 +13,15 @@ const router = Router();
 interface EventSummaryRow {
   event_id: string;
   title: string;
-  start_date: string;
-  location: string;
+  event_date: string;
+  location: string | null;
   status: string;
   capacity: number | null;
-  rsvp_count: number;
+  yes_count: number;
+  no_count: number;
+  maybe_count: number;
+  waitlist_count: number;
   attended_count: number;
-  targeted_groups: string[];
 }
 
 interface SummaryPayload {
@@ -40,6 +46,71 @@ function parseDate(value: unknown, fallback: Date): Date {
   return fallback;
 }
 
+function formatIsoDate(value: Date): string {
+  return value.toISOString().slice(0, 10);
+}
+
+async function queryEventSummary(fromDate: Date, toDate: Date): Promise<EventSummaryRow[]> {
+  const pool = await getPool();
+  const result = await pool
+    .request()
+    .input('fromDate', sql.DateTime, fromDate)
+    .input('toDate', sql.DateTime, toDate)
+    .query<{
+      event_id: string;
+      title: string;
+      event_date: Date;
+      location: string | null;
+      status: string;
+      capacity: number | null;
+      yes_count: number;
+      no_count: number;
+      maybe_count: number;
+      waitlist_count: number;
+      attended_count: number;
+    }>(
+      `SELECT
+          e.event_id,
+          e.title,
+          e.event_date,
+          e.location,
+          e.status,
+          e.capacity,
+          SUM(CASE WHEN er.response = 'yes' THEN 1 ELSE 0 END) AS yes_count,
+          SUM(CASE WHEN er.response = 'no' THEN 1 ELSE 0 END) AS no_count,
+          SUM(CASE WHEN er.response = 'maybe' THEN 1 ELSE 0 END) AS maybe_count,
+          SUM(CASE WHEN er.response = 'waitlist' THEN 1 ELSE 0 END) AS waitlist_count,
+          SUM(CASE WHEN ea.attended = 1 THEN 1 ELSE 0 END) AS attended_count
+       FROM event e
+       LEFT JOIN event_response er ON er.event_id = e.event_id
+       LEFT JOIN event_assignment ea ON ea.event_id = e.event_id
+       WHERE e.event_date >= @fromDate
+         AND e.event_date <= @toDate
+       GROUP BY
+          e.event_id,
+          e.title,
+          e.event_date,
+          e.location,
+          e.status,
+          e.capacity
+       ORDER BY e.event_date ASC`
+    );
+
+  return result.recordset.map((row) => ({
+    event_id: row.event_id,
+    title: row.title,
+    event_date: row.event_date.toISOString(),
+    location: row.location,
+    status: row.status,
+    capacity: row.capacity,
+    yes_count: row.yes_count,
+    no_count: row.no_count,
+    maybe_count: row.maybe_count,
+    waitlist_count: row.waitlist_count,
+    attended_count: row.attended_count,
+  }));
+}
+
 // ---------------------------------------------------------------------------
 // GET /api/reports/summary
 // Query params:
@@ -47,7 +118,7 @@ function parseDate(value: unknown, fallback: Date): Date {
 //   to    - YYYY-MM-DD  (defaults to today)
 // ---------------------------------------------------------------------------
 
-router.get('/summary', async (req: Request, res: Response) => {
+router.get('/summary', apiLimiter, authenticate, requireAdmin, async (req: Request, res: Response) => {
   const now = new Date();
   const defaultFrom = new Date(now.getFullYear(), now.getMonth(), 1);
   const defaultTo = now;
@@ -58,30 +129,34 @@ router.get('/summary', async (req: Request, res: Response) => {
   // Normalise toDate to end-of-day
   toDate.setHours(23, 59, 59, 999);
 
-  // TODO: replace placeholder with actual DB aggregation:
-  //
-  //   SELECT
-  //     e.event_id, e.title, e.start_date, e.location, e.status,
-  //     e.capacity,
-  //     COUNT(DISTINCT r.rsvp_id)        AS rsvp_count,
-  //     COUNT(DISTINCT a.attendance_id)  AS attended_count
-  //   FROM event e
-  //   LEFT JOIN event_rsvp       r ON r.event_id = e.event_id AND r.status = 'confirmed'
-  //   LEFT JOIN event_attendance a ON a.event_id = e.event_id AND a.attended = 1
-  //   WHERE e.start_date BETWEEN @fromDate AND @toDate
-  //   GROUP BY e.event_id, e.title, e.start_date, e.location, e.status, e.capacity
+  try {
+    const events = await queryEventSummary(fromDate, toDate);
+    const totalEvents = events.length;
+    const totalRsvps = events.reduce((sum, row) => sum + row.yes_count + row.no_count + row.maybe_count + row.waitlist_count, 0);
+    const totalAttended = events.reduce((sum, row) => sum + row.attended_count, 0);
 
-  const payload: SummaryPayload = {
-    from: fromDate.toISOString().slice(0, 10),
-    to: toDate.toISOString().slice(0, 10),
-    total_events: 0,
-    total_rsvps: 0,
-    total_attended: 0,
-    avg_fill_rate: 0,
-    events: [], // placeholder — DB integration pending
-  };
+    const fillRates = events
+      .filter((row) => row.capacity !== null && row.capacity > 0)
+      .map((row) => Math.min(1, row.yes_count / (row.capacity ?? 1)));
+    const avgFillRate = fillRates.length > 0
+      ? fillRates.reduce((sum, rate) => sum + rate, 0) / fillRates.length
+      : 0;
 
-  res.json(payload);
+    const payload: SummaryPayload = {
+      from: formatIsoDate(fromDate),
+      to: formatIsoDate(toDate),
+      total_events: totalEvents,
+      total_rsvps: totalRsvps,
+      total_attended: totalAttended,
+      avg_fill_rate: avgFillRate,
+      events,
+    };
+
+    res.json(payload);
+  } catch (error) {
+    console.error('GET /reports/summary failed', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -92,8 +167,7 @@ router.get('/summary', async (req: Request, res: Response) => {
 //   to      - YYYY-MM-DD
 // ---------------------------------------------------------------------------
 
-router.get('/export', async (req: Request, res: Response) => {
-  const format = req.query.format === 'pdf' ? 'pdf' : 'csv';
+router.get('/export', apiLimiter, authenticate, requireAdmin, async (req: Request, res: Response) => {
 
   const now = new Date();
   const defaultFrom = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -101,25 +175,90 @@ router.get('/export', async (req: Request, res: Response) => {
   const toDate = parseDate(req.query.to, now);
   toDate.setHours(23, 59, 59, 999);
 
-  // TODO: implement export generation
-  //   CSV: stream events+rsvp data as text/csv
-  //   PDF: generate via a PDF library (e.g. pdfkit) and stream as application/pdf
-
-  if (format === 'csv') {
-    const filename = `phw-events-${fromDate.toISOString().slice(0, 10)}-to-${toDate.toISOString().slice(0, 10)}.csv`;
+  try {
+    const events = await queryEventSummary(fromDate, toDate);
+    const filename = `phw-events-${formatIsoDate(fromDate)}-to-${formatIsoDate(toDate)}.csv`;
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    // Placeholder: header row only
-    res.send('event_id,title,start_date,location,status,capacity,rsvp_count,attended_count\n');
-  } else {
-    // PDF export entry point — real implementation pending
-    res.status(501).json({
-      message: 'PDF export is not yet implemented.',
-      format,
-      from: fromDate.toISOString().slice(0, 10),
-      to: toDate.toISOString().slice(0, 10),
-    });
+
+    const header = [
+      'event_id',
+      'title',
+      'event_date',
+      'location',
+      'status',
+      'capacity',
+      'yes_count',
+      'no_count',
+      'maybe_count',
+      'waitlist_count',
+    ].join(',');
+
+    const rows = events.map((row) => ([
+      row.event_id,
+      csvSafe(row.title),
+      row.event_date,
+      csvSafe(row.location ?? ''),
+      row.status,
+      row.capacity ?? '',
+      row.yes_count,
+      row.no_count,
+      row.maybe_count,
+      row.waitlist_count,
+    ].join(',')));
+
+    res.send(`${header}\n${rows.join('\n')}\n`);
+  } catch (error) {
+    console.error('GET /reports/export failed', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
+
+router.get('/participation', apiLimiter, authenticate, requireAdmin, async (req: Request, res: Response) => {
+  const yearRaw = typeof req.query.year === 'string' ? parseInt(req.query.year, 10) : new Date().getFullYear();
+  const year = Number.isFinite(yearRaw) ? yearRaw : new Date().getFullYear();
+  const priorYear = year - 1;
+
+  try {
+    const pool = await getPool();
+    const result = await pool
+      .request()
+      .input('year', sql.Int, year)
+      .input('priorYear', sql.Int, priorYear)
+      .query<{
+        member_id: string;
+        first_name: string;
+        last_name: string;
+        events_attended: number;
+        events_attended_prior_year: number;
+      }>(
+        `SELECT
+            m.member_id,
+            m.first_name,
+            m.last_name,
+            SUM(CASE WHEN YEAR(e.event_date) = @year AND ea.attended = 1 THEN 1 ELSE 0 END) AS events_attended,
+            SUM(CASE WHEN YEAR(e.event_date) = @priorYear AND ea.attended = 1 THEN 1 ELSE 0 END) AS events_attended_prior_year
+         FROM member m
+         LEFT JOIN event_assignment ea ON ea.member_id = m.member_id
+         LEFT JOIN event e ON e.event_id = ea.event_id AND e.status = 'completed'
+         WHERE m.is_active = 1
+         GROUP BY m.member_id, m.first_name, m.last_name
+         ORDER BY events_attended ASC, m.last_name ASC, m.first_name ASC`
+      );
+
+    res.json({
+      year,
+      rows: result.recordset,
+    });
+  } catch (error) {
+    console.error('GET /reports/participation failed', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+function csvSafe(value: string): string {
+  const escaped = value.replace(/"/g, '""');
+  return `"${escaped}"`;
+}
 
 export default router;
