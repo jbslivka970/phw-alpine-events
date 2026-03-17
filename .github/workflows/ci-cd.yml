@@ -11,12 +11,16 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
 
     - name: Setup Node.js
-      uses: actions/setup-node@v3
+      uses: actions/setup-node@v4
       with:
         node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: |
+          frontend/package-lock.json
+          backend/package-lock.json
 
     - name: Install frontend dependencies
       run: cd frontend && npm ci
@@ -31,7 +35,8 @@ jobs:
       run: cd backend && npm run build
 
     - name: Deploy to Azure
-      uses: azure/webapps-deploy@v2
+      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+      uses: azure/webapps-deploy@v3
       with:
         app-name: 'phw-alpine-events'
         slot-name: 'production'
