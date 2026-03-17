@@ -1,14 +1,16 @@
 import sql from 'mssql';
+import { loadDbConfig } from './config';
 
 let pool: sql.ConnectionPool | null = null;
 
 function getConnectionConfig(): sql.config {
+  const cfg = loadDbConfig();
   return {
-    server: process.env['DB_HOST'] ?? '',
-    port: parseInt(process.env['DB_PORT'] ?? '1433', 10),
-    database: process.env['DB_NAME'] ?? '',
-    user: process.env['DB_USER'] ?? '',
-    password: process.env['DB_PASSWORD'] ?? '',
+    server: cfg.server,
+    port: cfg.port,
+    database: cfg.database,
+    user: cfg.user,
+    password: cfg.password,
     options: {
       encrypt: true,
       trustServerCertificate: false,
