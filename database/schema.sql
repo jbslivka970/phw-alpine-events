@@ -22,10 +22,40 @@ CREATE TABLE member (
     updated_at DATETIME DEFAULT GETDATE()
 );
 
--- Add more tables as per PRD...
-
--- Indexes and constraints
 CREATE INDEX idx_member_email ON member(email);
-CREATE INDEX idx_member_composite ON member(email, first_name, last_name);
+-- Composite matching key per PRD: email + first_name + last_name.
+-- Email is always stored lowercase (enforced by service layer), so the index is case-consistent.
+CREATE UNIQUE INDEX idx_member_composite ON member(email, first_name, last_name);
 
--- System groups seeded separately
+-- Groups (custom and system)
+CREATE TABLE [group] (
+    group_id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+    name NVARCHAR(100) NOT NULL,
+    description NVARCHAR(500),
+    is_system BIT DEFAULT 0 NOT NULL,
+    created_at DATETIME DEFAULT GETDATE(),
+    updated_at DATETIME DEFAULT GETDATE()
+);
+
+CREATE UNIQUE INDEX idx_group_name ON [group](name);
+
+-- Member-Group junction table
+CREATE TABLE member_group (
+    member_id UNIQUEIDENTIFIER NOT NULL REFERENCES member(member_id),
+    group_id  UNIQUEIDENTIFIER NOT NULL REFERENCES [group](group_id),
+    assigned_at DATETIME DEFAULT GETDATE(),
+    CONSTRAINT pk_member_group PRIMARY KEY (member_id, group_id)
+);
+
+CREATE INDEX idx_member_group_group ON member_group(group_id);
+
+-- Seed system groups (idempotent – use MERGE)
+MERGE [group] AS target
+USING (VALUES
+    ('All Members',       'Automatically includes all active members.',     1),
+    ('SMS Opt-In',        'Members who have opted in to SMS notifications.',1),
+    ('Email Opt-In',      'Members who have not opted out of email.',       1)
+) AS source (name, description, is_system)
+ON target.name = source.name
+WHEN NOT MATCHED THEN
+    INSERT (name, description, is_system) VALUES (source.name, source.description, source.is_system);
