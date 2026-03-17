@@ -26,6 +26,13 @@ interface DbConfig {
   password: string;
 }
 
+interface AcsConfig {
+  isConfigured: boolean;
+  connectionString?: string;
+  emailFrom?: string;
+  smsFrom?: string;
+}
+
 /**
  * Reads a required environment variable.  Throws in non-test environments if
  * the variable is missing so misconfigured deployments fail at startup instead
@@ -90,5 +97,29 @@ function loadAuthConfig(): AuthConfig {
   };
 }
 
-export { loadAuthConfig, loadDbConfig, loadServerConfig };
-export type { AuthConfig, DbConfig, ServerConfig };
+function loadAcsConfig(): AcsConfig {
+  const connectionString = optionalEnv('ACS_CONNECTION_STRING');
+  const emailFrom = optionalEnv('ACS_EMAIL_FROM');
+  const smsFrom = optionalEnv('ACS_SMS_FROM');
+
+  if (!connectionString) {
+    return {
+      isConfigured: false,
+      smsFrom,
+    };
+  }
+
+  if (!emailFrom) {
+    throw new Error('[config] ACS_EMAIL_FROM must be set when ACS_CONNECTION_STRING is configured.');
+  }
+
+  return {
+    isConfigured: true,
+    connectionString,
+    emailFrom,
+    smsFrom,
+  };
+}
+
+export { loadAcsConfig, loadAuthConfig, loadDbConfig, loadServerConfig };
+export type { AcsConfig, AuthConfig, DbConfig, ServerConfig };
