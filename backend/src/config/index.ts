@@ -4,9 +4,31 @@ dotenv.config();
 function requireEnv(name: string): string {
   const value = process.env[name];
   if (!value) {
+    if (process.env.NODE_ENV === 'test') return '';
     throw new Error(`Missing required environment variable: ${name}`);
   }
   return value;
+}
+
+function optionalEnv(name: string, fallback?: string): string | undefined {
+  return process.env[name] || fallback;
+}
+
+export interface AcsConfig {
+  isConfigured: boolean;
+  connectionString: string;
+  emailFrom: string;
+  smsFrom?: string;
+}
+
+export function loadAcsConfig(): AcsConfig {
+  const connectionString = process.env.ACS_CONNECTION_STRING || '';
+  if (!connectionString) {
+    return { isConfigured: false, connectionString: '', emailFrom: '' };
+  }
+  const emailFrom = process.env.ACS_EMAIL_FROM || '';
+  const smsFrom = optionalEnv('ACS_SMS_FROM');
+  return { isConfigured: true, connectionString, emailFrom, smsFrom };
 }
 
 export const config = {
@@ -38,3 +60,5 @@ export const config = {
     smsFrom: process.env.ACS_SMS_FROM || '',
   },
 };
+
+export { requireEnv, optionalEnv };

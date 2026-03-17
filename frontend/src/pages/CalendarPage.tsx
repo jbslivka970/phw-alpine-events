@@ -1,20 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { calendarApi, CalendarEvent } from '../api/calendar';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
-
-export interface CalendarEvent {
-  event_id: string;
-  title: string;
-  start_date: string; // ISO date string
-  end_date: string;
-  location: string;
-  capacity: number | null;
-  rsvp_count: number;
-  status: 'draft' | 'published' | 'cancelled' | 'completed';
-  targeted_groups: string[];
-}
 
 type ViewMode = 'month' | 'list';
 
@@ -44,7 +33,7 @@ function sameDay(a: Date, b: Date): boolean {
 // Returns a CSS class string representing fill level
 function capacityClass(event: CalendarEvent): string {
   if (event.capacity === null || event.capacity === 0) return 'cap-none';
-  const ratio = event.rsvp_count / event.capacity;
+  const ratio = event.yes_count / event.capacity;
   if (ratio >= 1) return 'cap-full';
   if (ratio >= 0.75) return 'cap-high';
   if (ratio >= 0.4) return 'cap-medium';
@@ -54,9 +43,9 @@ function capacityClass(event: CalendarEvent): string {
 function capacityLabel(event: CalendarEvent): string {
   if (event.capacity === null) return '';
   if (event.capacity === 0) return 'Unlimited';
-  const remaining = event.capacity - event.rsvp_count;
+  const remaining = event.capacity - event.yes_count;
   if (remaining <= 0) return 'FULL';
-  return `${event.rsvp_count}/${event.capacity}`;
+  return `${event.yes_count}/${event.capacity}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -73,7 +62,7 @@ function EventChip({ event }: { event: CalendarEvent }) {
   return (
     <div
       className={`event-chip status-${event.status}`}
-      title={`${event.title} — ${event.location}`}
+      title={`${event.title} — ${event.location ?? ''}`}
     >
       <span className="event-chip-title">{event.title}</span>
       <CapacityBadge event={event} />
@@ -98,13 +87,11 @@ function MonthView({
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const today = new Date();
 
-  // Build grid cells — leading empty cells + day cells
   const cells: Array<number | null> = [
     ...Array(firstDay).fill(null),
     ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
   ];
 
-  // Pad to complete last row
   while (cells.length % 7 !== 0) cells.push(null);
 
   return (
@@ -120,7 +107,7 @@ function MonthView({
             return <div key={`empty-${idx}`} className="day-cell day-cell--empty" />;
           }
           const cellDate = new Date(year, month, day);
-          const dayEvents = events.filter((e) => sameDay(isoToDate(e.start_date), cellDate));
+          const dayEvents = events.filter((e) => sameDay(isoToDate(e.event_date), cellDate));
           const isToday = sameDay(cellDate, today);
           return (
             <div key={day} className={`day-cell${isToday ? ' day-cell--today' : ''}`}>
@@ -143,7 +130,7 @@ function MonthView({
 // ---------------------------------------------------------------------------
 
 function ListItem({ event }: { event: CalendarEvent }) {
-  const start = isoToDate(event.start_date);
+  const start = isoToDate(event.event_date);
   const dateStr = start.toLocaleDateString(undefined, {
     weekday: 'short', month: 'short', day: 'numeric',
   });
@@ -157,7 +144,7 @@ function ListItem({ event }: { event: CalendarEvent }) {
       </div>
       <div className="list-item-body">
         <span className="list-title">{event.title}</span>
-        <span className="list-location">{event.location}</span>
+        <span className="list-location">{event.location ?? ''}</span>
         {event.targeted_groups.length > 0 && (
           <span className="list-groups">{event.targeted_groups.join(', ')}</span>
         )}
@@ -172,7 +159,7 @@ function ListItem({ event }: { event: CalendarEvent }) {
 
 function ListView({ events }: { events: CalendarEvent[] }) {
   const sorted = [...events].sort(
-    (a, b) => new Date(a.start_date).getTime() - new Date(b.start_date).getTime(),
+    (a, b) => new Date(a.event_date).getTime() - new Date(b.event_date).getTime(),
   );
 
   if (sorted.length === 0) {
@@ -189,49 +176,6 @@ function ListView({ events }: { events: CalendarEvent[] }) {
 }
 
 // ---------------------------------------------------------------------------
-// Placeholder fetch hook
-// ---------------------------------------------------------------------------
-
-function usePlaceholderEvents(_year: number, _month: number): CalendarEvent[] {
-  // TODO: replace with real API call — GET /api/calendar?month=YYYY-MM
-  return [
-    {
-      event_id: 'placeholder-1',
-      title: 'Sample Hike',
-      start_date: new Date(_year, _month, 10, 9, 0).toISOString(),
-      end_date: new Date(_year, _month, 10, 15, 0).toISOString(),
-      location: 'Trailhead A',
-      capacity: 20,
-      rsvp_count: 14,
-      status: 'published',
-      targeted_groups: ['All Members'],
-    },
-    {
-      event_id: 'placeholder-2',
-      title: 'Board Meeting',
-      start_date: new Date(_year, _month, 18, 18, 30).toISOString(),
-      end_date: new Date(_year, _month, 18, 20, 0).toISOString(),
-      location: 'Community Center',
-      capacity: 30,
-      rsvp_count: 30,
-      status: 'published',
-      targeted_groups: ['Board'],
-    },
-    {
-      event_id: 'placeholder-3',
-      title: 'Skill Workshop',
-      start_date: new Date(_year, _month, 25, 8, 0).toISOString(),
-      end_date: new Date(_year, _month, 25, 17, 0).toISOString(),
-      location: 'Mountain Base',
-      capacity: null,
-      rsvp_count: 8,
-      status: 'draft',
-      targeted_groups: ['Beginners'],
-    },
-  ];
-}
-
-// ---------------------------------------------------------------------------
 // CalendarPage
 // ---------------------------------------------------------------------------
 
@@ -240,8 +184,27 @@ function CalendarPage() {
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth());
   const [view, setView] = useState<ViewMode>('month');
+  const [events, setEvents] = useState<CalendarEvent[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const events = usePlaceholderEvents(year, month);
+  const fetchEvents = useCallback(async (y: number, m: number) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const monthStr = `${y}-${String(m + 1).padStart(2, '0')}`;
+      const data = await calendarApi.getMonth(monthStr);
+      setEvents(data.events);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load calendar');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void fetchEvents(year, month);
+  }, [year, month, fetchEvents]);
 
   function prevMonth() {
     if (month === 0) { setMonth(11); setYear((y) => y - 1); }
@@ -289,13 +252,19 @@ function CalendarPage() {
         <span className="legend-item cap-none">No cap</span>
       </div>
 
-      {view === 'month' ? (
-        <MonthView year={year} month={month} events={events} />
-      ) : (
-        <ListView events={events} />
+      {loading && <p className="loading-state">Loading events…</p>}
+      {error && <p className="error-state">{error}</p>}
+
+      {!loading && !error && (
+        view === 'month' ? (
+          <MonthView year={year} month={month} events={events} />
+        ) : (
+          <ListView events={events} />
+        )
       )}
     </div>
   );
 }
 
-export { CalendarPage }
+export { CalendarPage };
+export type { CalendarEvent };

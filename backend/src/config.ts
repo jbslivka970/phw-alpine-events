@@ -90,5 +90,22 @@ function loadAuthConfig(): AuthConfig {
   };
 }
 
-export { loadAuthConfig, loadDbConfig, loadServerConfig };
+export interface AcsConfig {
+  isConfigured: boolean;
+  connectionString: string;
+  emailFrom: string;
+  smsFrom?: string;
+}
+
+function loadAcsConfig(): AcsConfig {
+  const connectionString = optionalEnv('ACS_CONNECTION_STRING') ?? '';
+  if (!connectionString) {
+    return { isConfigured: false, connectionString: '', emailFrom: '' };
+  }
+  const emailFrom = optionalEnv('ACS_EMAIL_FROM') ?? '';
+  const smsFrom = optionalEnv('ACS_SMS_FROM');
+  return { isConfigured: true, connectionString, emailFrom, smsFrom };
+}
+
+export { loadAuthConfig, loadDbConfig, loadServerConfig, loadAcsConfig };
 export type { AuthConfig, DbConfig, ServerConfig };

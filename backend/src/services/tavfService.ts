@@ -331,6 +331,32 @@ export async function createMatch(input: CreateMatchInput): Promise<TavfMatch> {
     match.match_id
   );
 
+  // Auto-create an event for the matched posting
+  try {
+    const postingResult = await pool
+      .request()
+      .input('posting_id', sql.UniqueIdentifier, input.posting_id)
+      .query<{ event_date: string; location: string; capacity: number }>(
+        `SELECT event_date, location, capacity FROM tavf_posting WHERE posting_id = @posting_id`
+      );
+    const posting = postingResult.recordset[0];
+    if (posting) {
+      await pool
+        .request()
+        .input('title', sql.NVarChar(300), `Take a Vet Fishing — ${posting.location}`)
+        .input('event_date', sql.DateTime, new Date(posting.event_date))
+        .input('location', sql.NVarChar(500), posting.location)
+        .input('capacity', sql.Int, 2)
+        .query(`
+          INSERT INTO event (title, event_date, location, capacity, status, description)
+          VALUES (@title, @event_date, @location, @capacity, 'published',
+                  'Auto-created from TAVF match')
+        `);
+    }
+  } catch (eventErr) {
+    console.error('[tavfService] Failed to auto-create event for match', eventErr);
+  }
+
   return match;
 }
 
