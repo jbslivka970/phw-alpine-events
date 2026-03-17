@@ -7,6 +7,8 @@ interface MemberRecord {
   email: string;
   mobile_phone: string | null;
   sms_opt_in: boolean;
+  sms_opt_in_date?: string | null;
+  sms_opt_out_date?: string | null;
   email_opt_out: boolean;
   is_active: boolean;
   created_at: string;
@@ -18,6 +20,22 @@ interface ListMembersResponse {
   total: number;
   page: number;
   pageSize: number;
+}
+
+interface SmsConsentLogRow {
+  consent_log_id: string;
+  member_id: string;
+  action: 'opt_in' | 'opt_out';
+  source: 'import' | 'manual' | 'reply' | 'api' | 'system';
+  recorded_at: string;
+  notes: string | null;
+}
+
+interface MemberParticipation {
+  member_id: string;
+  year: number;
+  events_attended: number;
+  events_attended_prior_year: number;
 }
 
 const membersApi = {
@@ -34,8 +52,22 @@ const membersApi = {
   groups: (id: string) => apiGet<unknown[]>(`/members/${id}/groups`),
   create: (data: Partial<MemberRecord>) => apiPost<MemberRecord>('/members', data),
   update: (id: string, data: Partial<MemberRecord>) => apiPatch<MemberRecord>(`/members/${id}`, data),
+  updateSmsConsent: (id: string, sms_opt_in: boolean) =>
+    apiPatch<MemberRecord>(`/members/${id}/sms-consent`, { sms_opt_in }),
+  consentLog: (id: string) => apiGet<SmsConsentLogRow[]>(`/members/${id}/sms-consent-log`),
+  participation: (id: string) => apiGet<MemberParticipation>(`/members/${id}/participation`),
+  rsvps: (id: string) => apiGet<Array<{
+    response_id: string;
+    response: 'yes' | 'no' | 'maybe' | 'waitlist';
+    responded_at: string;
+    event_id: string;
+    title: string;
+    event_date: string;
+    location: string | null;
+    status: string;
+  }>>(`/members/${id}/rsvps`),
   remove: (id: string) => apiDelete<{ message: string; member: MemberRecord }>(`/members/${id}`),
 };
 
 export { membersApi };
-export type { MemberRecord, ListMembersResponse };
+export type { MemberRecord, ListMembersResponse, SmsConsentLogRow, MemberParticipation };

@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
 import { membersApi } from '../api/members'
 import type { MemberRecord } from '../api/members'
+import { useAuth } from '../hooks/useAuth'
 
 interface MemberEditState {
   first_name: string
@@ -25,6 +26,7 @@ function toEditState(m: MemberRecord): MemberEditState {
 }
 
 function MembersPage() {
+  const { isAdmin } = useAuth()
   const [search, setSearch] = useState('')
   const [members, setMembers] = useState<MemberRecord[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -32,6 +34,13 @@ function MembersPage() {
   const [selected, setSelected] = useState<MemberRecord | null>(null)
   const [edit, setEdit] = useState<MemberEditState | null>(null)
   const [isSaving, setIsSaving] = useState(false)
+  const [consentLog, setConsentLog] = useState<Array<{
+    consent_log_id: string
+    action: string
+    source: string
+    recorded_at: string
+    notes: string | null
+  }>>([])
 
   const totalLabel = useMemo(
     () => `${members.length} member${members.length === 1 ? '' : 's'}`,
@@ -53,6 +62,13 @@ function MembersPage() {
   function startEdit(m: MemberRecord) {
     setSelected(m)
     setEdit(toEditState(m))
+    if (isAdmin()) {
+      membersApi.consentLog(m.member_id)
+        .then(setConsentLog)
+        .catch(() => setConsentLog([]))
+    } else {
+      setConsentLog([])
+    }
   }
 
   function closeEditor() {
@@ -77,6 +93,23 @@ function MembersPage() {
       setError(err instanceof Error ? err.message : 'Save failed')
     } finally {
       setIsSaving(false)
+    }
+  }
+
+  async function handleSmsToggle(memberId: string, smsOptIn: boolean) {
+    try {
+      const updated = await membersApi.updateSmsConsent(memberId, smsOptIn)
+      setMembers((cur) => cur.map((m) => (m.member_id === updated.member_id ? updated : m)))
+      if (selected?.member_id === memberId) {
+        setSelected(updated)
+        setEdit(toEditState(updated))
+        if (isAdmin()) {
+          const logs = await membersApi.consentLog(memberId)
+          setConsentLog(logs)
+        }
+      }
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'SMS consent update failed')
     }
   }
 
@@ -133,7 +166,20 @@ function MembersPage() {
             <input className="members-input" value={edit.last_name} onChange={(e) => setEdit({ ...edit, last_name: e.target.value })} placeholder="Last name" required />
             <input className="members-input" value={edit.email} onChange={(e) => setEdit({ ...edit, email: e.target.value })} placeholder="Email" required />
             <input className="members-input" value={edit.mobile_phone} onChange={(e) => setEdit({ ...edit, mobile_phone: e.target.value })} placeholder="Phone" />
-            <label className="members-checkbox"><input type="checkbox" checked={edit.sms_opt_in} onChange={(e) => setEdit({ ...edit, sms_opt_in: e.target.checked })} /> SMS opt-in</label>
+            <label className="members-checkbox">
+              <input
+                type="checkbox"
+                checked={edit.sms_opt_in}
+                onChange={(e) => {
+                  setEdit({ ...edit, sms_opt_in: e.target.checked })
+                  void handleSmsToggle(selected.member_id, e.target.checked)
+                }}
+              />
+              SMS opt-in
+            </label>
+            <p className="page__subtitle" style={{ margin: 0 }}>
+              SMS: {edit.sms_opt_in ? `Opted In${selected?.sms_opt_in_date ? ` (since ${new Date(selected.sms_opt_in_date).toLocaleDateString()})` : ''}` : 'Opted Out'}
+            </p>
             <label className="members-checkbox"><input type="checkbox" checked={edit.email_opt_out} onChange={(e) => setEdit({ ...edit, email_opt_out: e.target.checked })} /> Email opt-out</label>
             <label className="members-checkbox"><input type="checkbox" checked={edit.is_active} onChange={(e) => setEdit({ ...edit, is_active: e.target.checked })} /> Active</label>
             <div className="members-actions">
@@ -141,6 +187,36 @@ function MembersPage() {
               <button className="btn btn--primary btn--sm" type="submit" disabled={isSaving}>{isSaving ? 'Saving…' : 'Save changes'}</button>
             </div>
           </form>
+
+          {isAdmin() && (
+            <div style={{ marginTop: 16 }}>
+              <h3>SMS Consent Audit Log</h3>
+              <table className="members-table">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Action</th>
+                    <th>Source</th>
+                    <th>Notes</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {consentLog.length === 0 ? (
+                    <tr>
+                      <td colSpan={4}>No consent log entries.</td>
+                    </tr>
+                  ) : consentLog.map((row) => (
+                    <tr key={row.consent_log_id}>
+                      <td>{new Date(row.recorded_at).toLocaleString()}</td>
+                      <td>{row.action === 'opt_in' ? 'Opt In' : 'Opt Out'}</td>
+                      <td>{row.source}</td>
+                      <td>{row.notes ?? '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </section>
       )}
     </div>
