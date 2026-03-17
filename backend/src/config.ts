@@ -18,21 +18,65 @@ interface AuthConfig {
   jwksUri: string;
 }
 
-function loadServerConfig(): ServerConfig {
-  const corsOrigin = process.env['CORS_ORIGIN'];
+interface DbConfig {
+  server: string;
+  port: number;
+  database: string;
+  user: string;
+  password: string;
+}
 
+/**
+ * Reads a required environment variable.  Throws in non-test environments if
+ * the variable is missing so misconfigured deployments fail at startup instead
+ * of generating confusing runtime errors.
+ */
+function requireEnv(name: string): string {
+  const value = process.env[name];
+  if (!value) {
+    const isTest = process.env['NODE_ENV'] === 'test';
+    if (!isTest) {
+      throw new Error(`[config] Required environment variable "${name}" is not set. Refusing to start.`);
+    }
+    return '';
+  }
+  return value;
+}
+
+/**
+ * Optional env var with a fallback.
+ */
+function optionalEnv(name: string, fallback?: string): string | undefined {
+  return process.env[name] ?? fallback;
+}
+
+function loadServerConfig(): ServerConfig {
+  const corsOrigin = optionalEnv('CORS_ORIGIN');
   return {
-    port: parseInt(process.env['PORT'] ?? '3001', 10),
-    nodeEnv: process.env['NODE_ENV'] ?? 'development',
+    port: parseInt(optionalEnv('PORT', '3001') ?? '3001', 10),
+    nodeEnv: optionalEnv('NODE_ENV', 'development') ?? 'development',
     ...(corsOrigin ? { corsOrigin } : {}),
   };
 }
 
+function loadDbConfig(): DbConfig {
+  const nodeEnv = optionalEnv('NODE_ENV', 'development') ?? 'development';
+  const isProd = nodeEnv === 'production';
+
+  return {
+    server: isProd ? requireEnv('DB_HOST') : (optionalEnv('DB_HOST') ?? ''),
+    port: parseInt(optionalEnv('DB_PORT', '1433') ?? '1433', 10),
+    database: isProd ? requireEnv('DB_NAME') : (optionalEnv('DB_NAME') ?? ''),
+    user: isProd ? requireEnv('DB_USER') : (optionalEnv('DB_USER') ?? ''),
+    password: isProd ? requireEnv('DB_PASSWORD') : (optionalEnv('DB_PASSWORD') ?? ''),
+  };
+}
+
 function loadAuthConfig(): AuthConfig {
-  const tenantName = process.env['AZURE_AD_B2C_TENANT_NAME'] ?? '';
-  const tenantId = process.env['AZURE_TENANT_ID'] ?? '';
-  const clientId = process.env['AZURE_CLIENT_ID'] ?? '';
-  const policyName = process.env['AZURE_AD_B2C_POLICY_NAME'] ?? 'B2C_1_signupsignin';
+  const tenantName = optionalEnv('AZURE_AD_B2C_TENANT_NAME') ?? '';
+  const tenantId = optionalEnv('AZURE_TENANT_ID') ?? '';
+  const clientId = optionalEnv('AZURE_CLIENT_ID') ?? '';
+  const policyName = optionalEnv('AZURE_AD_B2C_POLICY_NAME', 'B2C_1_signupsignin') ?? 'B2C_1_signupsignin';
   const isConfigured = Boolean(tenantName && tenantId && clientId);
 
   return {
@@ -46,5 +90,5 @@ function loadAuthConfig(): AuthConfig {
   };
 }
 
-export { loadAuthConfig, loadServerConfig };
-export type { AuthConfig, ServerConfig };
+export { loadAuthConfig, loadDbConfig, loadServerConfig };
+export type { AuthConfig, DbConfig, ServerConfig };
