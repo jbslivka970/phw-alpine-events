@@ -61,6 +61,7 @@ jobs:
     - name: Prepare deployment package
       run: |
         rm -rf deploy-package
+        rm -f release.zip
         mkdir -p deploy-package
         cp -R backend/dist deploy-package/dist
         cp -R backend/node_modules deploy-package/node_modules
@@ -68,6 +69,8 @@ jobs:
         cp backend/package-lock.json deploy-package/package-lock.json
         cp backend/server.js deploy-package/server.js
         cp backend/web.config deploy-package/web.config
+        cd deploy-package
+        zip -r ../release.zip .
 
     - name: Deploy to Azure
       uses: azure/webapps-deploy@v2
@@ -75,4 +78,4 @@ jobs:
         app-name: ${{ vars.AZURE_WEBAPP_NAME }}
         slot-name: 'production'
         publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE }}
-        package: deploy-package
+        package: release.zip
