@@ -110,7 +110,11 @@ function loadAcsConfig(): AcsConfig {
   }
 
   if (!emailFrom) {
-    throw new Error('[config] ACS_EMAIL_FROM must be set when ACS_CONNECTION_STRING is configured.');
+    return {
+      isConfigured: false,
+      connectionString,
+      smsFrom,
+    };
   }
 
   return {
