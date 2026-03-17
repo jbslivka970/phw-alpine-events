@@ -11,6 +11,31 @@ function missingEnvVars(names: readonly string[]): string[] {
   return names.filter((name) => !process.env[name]);
 }
 
+function missingAuthVars(): string[] {
+  const hasClientId = Boolean(process.env['AZURE_CLIENT_ID']);
+  const hasExplicitExternalId = Boolean(process.env['AZURE_AUTH_ISSUER'] && process.env['AZURE_AUTH_JWKS_URI']);
+  const hasLegacyDiscovery = Boolean(
+    (process.env['AZURE_EXTERNAL_TENANT_NAME'] && process.env['AZURE_EXTERNAL_TENANT_ID'])
+      || (process.env['AZURE_AD_B2C_TENANT_NAME'] && process.env['AZURE_TENANT_ID'])
+  );
+
+  if (hasClientId && (hasExplicitExternalId || hasLegacyDiscovery)) {
+    return [];
+  }
+
+  const missing: string[] = [];
+
+  if (!hasClientId) {
+    missing.push('AZURE_CLIENT_ID');
+  }
+
+  if (!hasExplicitExternalId && !hasLegacyDiscovery) {
+    missing.push('AZURE_AUTH_ISSUER_OR_TENANT_DISCOVERY_CONFIG');
+  }
+
+  return missing;
+}
+
 // Liveness — always 200 if the process is running
 router.get('/', (_req: Request, res: Response) => {
   res.json({
@@ -37,7 +62,7 @@ router.get('/startup', (_req: Request, res: Response) => {
   const authConfig = loadAuthConfig();
   const acsConfig = loadAcsConfig();
   const dbMissing = missingEnvVars(REQUIRED_DB_ENV_VARS);
-  const authMissing = missingEnvVars(REQUIRED_AUTH_ENV_VARS);
+  const authMissing = missingAuthVars();
   const isProd = process.env['NODE_ENV'] === 'production';
 
   const summary = {
