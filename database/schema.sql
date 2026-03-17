@@ -355,3 +355,61 @@ IF NOT EXISTS (SELECT 1 FROM dbo.[group] WHERE group_name = 'MENTORS')
 IF NOT EXISTS (SELECT 1 FROM dbo.[group] WHERE group_name = 'PARTICIPANTS')
     INSERT INTO dbo.[group] (group_id, group_name, description, is_system)
     VALUES (NEWID(), 'PARTICIPANTS', 'Program participants (veterans)', 1);
+
+-- ============================================================
+-- TAVF (Take a Vet Fishing) Tables
+-- ============================================================
+
+IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'tavf_posting')
+BEGIN
+    CREATE TABLE dbo.tavf_posting (
+        posting_id      UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+        guide_member_id UNIQUEIDENTIFIER NOT NULL REFERENCES dbo.member(member_id),
+        event_date      DATE NOT NULL,
+        location        NVARCHAR(500) NOT NULL,
+        capacity        INT NOT NULL DEFAULT 1,
+        species         NVARCHAR(200),
+        description     NVARCHAR(2000),
+        status          NVARCHAR(20) NOT NULL DEFAULT 'open'
+                            CONSTRAINT chk_tavf_posting_status CHECK (status IN ('open', 'filled', 'cancelled')),
+        created_at      DATETIME NOT NULL DEFAULT GETDATE(),
+        updated_at      DATETIME NOT NULL DEFAULT GETDATE()
+    );
+    CREATE INDEX idx_tavf_posting_guide  ON dbo.tavf_posting(guide_member_id);
+    CREATE INDEX idx_tavf_posting_date   ON dbo.tavf_posting(event_date);
+    CREATE INDEX idx_tavf_posting_status ON dbo.tavf_posting(status);
+END;
+
+IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'tavf_application')
+BEGIN
+    CREATE TABLE dbo.tavf_application (
+        application_id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+        posting_id     UNIQUEIDENTIFIER NOT NULL REFERENCES dbo.tavf_posting(posting_id),
+        vet_member_id  UNIQUEIDENTIFIER NOT NULL REFERENCES dbo.member(member_id),
+        notes          NVARCHAR(1000),
+        status         NVARCHAR(20) NOT NULL DEFAULT 'pending'
+                           CONSTRAINT chk_tavf_application_status CHECK (status IN ('pending', 'matched', 'waitlisted', 'withdrawn')),
+        applied_at     DATETIME NOT NULL DEFAULT GETDATE(),
+        updated_at     DATETIME NOT NULL DEFAULT GETDATE(),
+        CONSTRAINT uq_tavf_application UNIQUE (posting_id, vet_member_id)
+    );
+    CREATE INDEX idx_tavf_application_posting ON dbo.tavf_application(posting_id);
+    CREATE INDEX idx_tavf_application_vet     ON dbo.tavf_application(vet_member_id);
+END;
+
+IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'tavf_match')
+BEGIN
+    CREATE TABLE dbo.tavf_match (
+        match_id       UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+        posting_id     UNIQUEIDENTIFIER NOT NULL REFERENCES dbo.tavf_posting(posting_id),
+        application_id UNIQUEIDENTIFIER NOT NULL REFERENCES dbo.tavf_application(application_id),
+        matched_by     UNIQUEIDENTIFIER REFERENCES dbo.member(member_id),
+        matched_at     DATETIME NOT NULL DEFAULT GETDATE(),
+        status         NVARCHAR(20) NOT NULL DEFAULT 'confirmed'
+                           CONSTRAINT chk_tavf_match_status CHECK (status IN ('confirmed', 'cancelled')),
+        notes          NVARCHAR(1000),
+        CONSTRAINT uq_tavf_match UNIQUE (posting_id, application_id)
+    );
+    CREATE INDEX idx_tavf_match_posting     ON dbo.tavf_match(posting_id);
+    CREATE INDEX idx_tavf_match_application ON dbo.tavf_match(application_id);
+END;

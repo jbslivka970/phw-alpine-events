@@ -1,7 +1,14 @@
 import { Router, Request, Response } from 'express';
+import authenticate from '../middleware/auth';
+import { apiLimiter, writeLimiter } from '../middleware/rateLimiter';
+import { requireAnyAuthenticatedRole, requireEventCreatorOrAdmin } from '../middleware/rbac';
 import * as tavf from '../services/tavfService';
 
 const router = Router();
+
+// All TAVF routes require authentication
+router.use(authenticate);
+router.use(requireAnyAuthenticatedRole);
 
 // ---------------------------------------------------------------------------
 // Postings
@@ -11,7 +18,7 @@ const router = Router();
  * GET /api/tavf/postings
  * Query params: status (open|filled|cancelled)
  */
-router.get('/postings', async (req: Request, res: Response): Promise<void> => {
+router.get('/postings', apiLimiter, async (req: Request, res: Response): Promise<void> => {
   try {
     const status = req.query['status'] as tavf.PostingStatus | undefined;
     const postings = await tavf.listPostings(status ? { status } : {});
@@ -25,7 +32,7 @@ router.get('/postings', async (req: Request, res: Response): Promise<void> => {
 /**
  * GET /api/tavf/postings/:id
  */
-router.get('/postings/:id', async (req: Request, res: Response): Promise<void> => {
+router.get('/postings/:id', apiLimiter, async (req: Request, res: Response): Promise<void> => {
   try {
     const posting = await tavf.getPosting(req.params['id']!);
     if (!posting) {
@@ -43,7 +50,7 @@ router.get('/postings/:id', async (req: Request, res: Response): Promise<void> =
  * POST /api/tavf/postings
  * Body: CreatePostingInput
  */
-router.post('/postings', async (req: Request, res: Response): Promise<void> => {
+router.post('/postings', writeLimiter, requireEventCreatorOrAdmin, async (req: Request, res: Response): Promise<void> => {
   try {
     const { guide_member_id, event_date, location, capacity, species, description } = req.body as tavf.CreatePostingInput;
     if (!guide_member_id || !event_date || !location || !capacity) {
@@ -62,7 +69,7 @@ router.post('/postings', async (req: Request, res: Response): Promise<void> => {
  * PATCH /api/tavf/postings/:id
  * Body: UpdatePostingInput
  */
-router.patch('/postings/:id', async (req: Request, res: Response): Promise<void> => {
+router.patch('/postings/:id', writeLimiter, requireEventCreatorOrAdmin, async (req: Request, res: Response): Promise<void> => {
   try {
     const updated = await tavf.updatePosting(req.params['id']!, req.body as tavf.UpdatePostingInput);
     if (!updated) {

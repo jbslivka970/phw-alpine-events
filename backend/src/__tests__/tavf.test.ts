@@ -6,7 +6,7 @@
 
 import request from 'supertest';
 import express from 'express';
-import { authenticate } from '../middleware/auth';
+import authenticate from '../middleware/auth';
 import tavfRouter from '../routes/tavf';
 import * as tavfService from '../services/tavfService';
 
