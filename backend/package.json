@@ -15,7 +15,9 @@
     "@azure/communication-sms": "^1.0.0",
     "@azure/functions": "^3.5.1",
     "@azure/identity": "^3.2.0",
+    "@types/multer": "^2.1.0",
     "cors": "^2.8.5",
+    "csv-parse": "^6.2.0",
     "dotenv": "^16.0.3",
     "express": "^4.18.2",
     "express-rate-limit": "^7.5.1",
@@ -23,7 +25,8 @@
     "joi": "^17.9.2",
     "jsonwebtoken": "^9.0.3",
     "jwks-rsa": "^3.2.2",
-    "mssql": "^9.1.1"
+    "mssql": "^9.1.1",
+    "multer": "^2.1.1"
   },
   "devDependencies": {
     "@types/cors": "^2.8.13",
