@@ -55,10 +55,20 @@ jobs:
     - name: Build backend
       run: cd backend && npm run build
 
+    - name: Prepare deployment package
+      run: |
+        rm -rf deploy-package
+        mkdir -p deploy-package
+        cp -R backend/dist deploy-package/dist
+        cp -R backend/node_modules deploy-package/node_modules
+        cp backend/package.json deploy-package/package.json
+        cp backend/package-lock.json deploy-package/package-lock.json
+        cp backend/web.config deploy-package/web.config
+
     - name: Deploy to Azure
       uses: azure/webapps-deploy@v2
       with:
         app-name: ${{ vars.AZURE_WEBAPP_NAME }}
         slot-name: 'production'
         publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE }}
-        package: backend
+        package: deploy-package
