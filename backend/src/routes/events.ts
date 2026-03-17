@@ -230,8 +230,15 @@ router.put('/:id/status', writeLimiter, authenticate, requireEventCreatorOrAdmin
     const existingResult = await pool
       .request()
       .input('event_id', sql.UniqueIdentifier, req.params.id)
-      .query<{ event_id: string; status: string; title: string }>(
-        'SELECT event_id, status, title FROM event WHERE event_id = @event_id'
+      .query<{
+        event_id: string;
+        status: string;
+        title: string;
+        event_date: Date | string;
+        location: string | null;
+        description: string | null;
+      }>(
+        'SELECT event_id, status, title, event_date, location, description FROM event WHERE event_id = @event_id'
       );
 
     const existing = existingResult.recordset[0];
@@ -258,15 +265,21 @@ router.put('/:id/status', writeLimiter, authenticate, requireEventCreatorOrAdmin
       );
 
     if (newStatus === 'published') {
-      sendEventPublishedNotification({
-        eventId: existing.event_id,
-        eventTitle: existing.title,
+      await sendEventPublishedNotification({
+        event_id: existing.event_id,
+        title: existing.title,
+        event_date: existing.event_date,
+        location: existing.location,
+        description: existing.description,
       });
     }
     if (newStatus === 'cancelled') {
-      sendEventCancelledNotification({
-        eventId: existing.event_id,
-        eventTitle: existing.title,
+      await sendEventCancelledNotification({
+        event_id: existing.event_id,
+        title: existing.title,
+        event_date: existing.event_date,
+        location: existing.location,
+        description: existing.description,
       });
     }
 
