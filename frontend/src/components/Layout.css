@@ -1,0 +1,69 @@
+/* Layout shell */
+.layout {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  font-family: system-ui, sans-serif;
+}
+
+.layout-header {
+  background: #1a3c5e;
+  color: #fff;
+  padding: 0.75rem 1.5rem;
+  font-size: 1.2rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+
+.layout-logo {
+  user-select: none;
+}
+
+.layout-body {
+  display: flex;
+  flex: 1;
+}
+
+.layout-nav {
+  width: 180px;
+  min-width: 180px;
+  background: #f4f6f8;
+  border-right: 1px solid #dde1e6;
+  padding: 1rem 0;
+}
+
+.layout-nav ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.layout-nav li {
+  margin: 0;
+}
+
+.layout-nav a {
+  display: block;
+  padding: 0.6rem 1.25rem;
+  color: #333;
+  text-decoration: none;
+  font-size: 0.95rem;
+  border-left: 3px solid transparent;
+  transition: background 0.15s;
+}
+
+.layout-nav a:hover {
+  background: #e4e9ef;
+}
+
+.layout-nav a.active {
+  border-left-color: #1a3c5e;
+  background: #e4e9ef;
+  font-weight: 600;
+  color: #1a3c5e;
+}
+
+.layout-main {
+  flex: 1;
+  padding: 1.5rem 2rem;
+}
