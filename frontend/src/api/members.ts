@@ -14,7 +14,7 @@ interface MemberRecord {
 }
 
 interface ListMembersResponse {
-  members: MemberRecord[];
+  data: MemberRecord[];
   total: number;
   page: number;
   pageSize: number;
