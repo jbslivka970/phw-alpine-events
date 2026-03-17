@@ -5,6 +5,7 @@ import type { AppRole } from '../authConfig'
 import { setTokenGetter } from '../api/client'
 
 interface AuthUser {
+  id: string
   name: string
   email: string
   roles: AppRole[]
@@ -21,6 +22,7 @@ function useAuth() {
 
   const user: AuthUser | null = account
     ? {
+        id: account.localAccountId,
         name: account.name ?? account.username ?? 'User',
         email: account.username,
         roles: rawRoles.filter((role): role is AppRole => Object.values(ROLES).includes(role as AppRole)),

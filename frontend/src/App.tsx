@@ -11,6 +11,9 @@ import { LoginPage } from './pages/LoginPage'
 import { ImportPage } from './pages/ImportPage'
 import { MembersPage } from './pages/MembersPage'
 import { ReportsPage } from './pages/ReportsPage'
+import { TavfListPage } from './pages/TavfListPage'
+import { TavfNewPage } from './pages/TavfNewPage'
+import { TavfDetailPage } from './pages/TavfDetailPage'
 
 function App() {
   return (
@@ -29,6 +32,16 @@ function App() {
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/events" element={<EventsPage />} />
           <Route path="/calendar" element={<CalendarPage />} />
+          <Route path="/tavf" element={<TavfListPage />} />
+          <Route
+            path="/tavf/new"
+            element={
+              <ProtectedRoute requiredRole={ROLES.EVENT_CREATOR}>
+                <TavfNewPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route path="/tavf/:id" element={<TavfDetailPage />} />
           <Route
             path="/members"
             element={

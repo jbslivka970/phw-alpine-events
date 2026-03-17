@@ -36,6 +36,7 @@ function AppShell() {
           <NavLink to="/dashboard" className={navClass}>Dashboard</NavLink>
           <NavLink to="/events" className={navClass}>Events</NavLink>
           <NavLink to="/calendar" className={navClass}>Calendar</NavLink>
+          <NavLink to="/tavf" className={navClass}>Take a Vet Fishing</NavLink>
           {isAdmin() && <NavLink to="/members" className={navClass}>Members</NavLink>}
           {isAdmin() && <NavLink to="/import" className={navClass}>Import</NavLink>}
           {isAdmin() && <NavLink to="/reports" className={navClass}>Reports</NavLink>}
