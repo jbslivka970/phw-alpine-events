@@ -7,6 +7,7 @@ import healthRouter from './health';
 import importRouter from './import';
 import membersRouter from './members';
 import reportsRouter from './reports';
+import tavfRouter from './tavf';
 
 const router = Router();
 
@@ -18,5 +19,6 @@ router.use('/members', membersRouter);
 router.use('/groups', groupsRouter);
 router.use('/import', importRouter);
 router.use('/reports', reportsRouter);
+router.use('/tavf', tavfRouter);
 
 export default router;

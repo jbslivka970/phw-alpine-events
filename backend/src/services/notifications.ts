@@ -226,8 +226,32 @@ function toNullableUuid(value: string | undefined): string | null {
   return uuidV4Like.test(value) ? value : null;
 }
 
+// ── TaVF notification stubs ────────────────────────────────────────────────────
+// These are currently no-ops. Wire up real email/SMS sends when TAVF
+// notification templates are created.
+
+async function notifyNewPosting(_email: string, postingId: string): Promise<void> {
+  console.log(`[notifications] notifyNewPosting stub called for postingId=${postingId}`);
+}
+
+async function notifyApplicationReceived(_email: string, applicationId: string): Promise<void> {
+  console.log(`[notifications] notifyApplicationReceived stub called for applicationId=${applicationId}`);
+}
+
+async function notifyMatchConfirmed(_guideEmail: string, matchId: string, _vetEmail: string): Promise<void> {
+  console.log(`[notifications] notifyMatchConfirmed stub called for matchId=${matchId}`);
+}
+
+async function notifyMatchCancelled(_guideEmail: string, matchId: string, _vetEmail: string): Promise<void> {
+  console.log(`[notifications] notifyMatchCancelled stub called for matchId=${matchId}`);
+}
+
 export {
   NotificationService,
+  notifyApplicationReceived,
+  notifyMatchCancelled,
+  notifyMatchConfirmed,
+  notifyNewPosting,
   sendEventCancelledNotification,
   sendEventPublishedNotification,
   sendRsvpConfirmation,
