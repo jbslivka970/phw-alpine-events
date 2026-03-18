@@ -1,21 +1,21 @@
 :root {
-  color: #173042;
-  background:
-    radial-gradient(circle at top left, rgba(224, 238, 243, 0.95), rgba(244, 247, 249, 0.95) 45%),
-    linear-gradient(180deg, #f6f8f9 0%, #eef3f5 100%);
+  color: #1d1f22;
+  background: linear-gradient(180deg, #e9ecee 0%, #f6f7f8 100%);
   font-family: 'Segoe UI', 'Helvetica Neue', sans-serif;
   font-size: 16px;
   line-height: 1.5;
-  --surface: rgba(255, 255, 255, 0.88);
+  --surface: rgba(255, 255, 255, 0.92);
   --surface-strong: #ffffff;
-  --border: rgba(23, 48, 66, 0.12);
-  --text: #173042;
-  --muted: #5f7483;
-  --primary: #18556f;
-  --primary-strong: #123f53;
-  --accent: #d88a2d;
-  --shadow: 0 14px 38px rgba(18, 42, 56, 0.12);
-  --radius: 18px;
+  --border: rgba(29, 31, 34, 0.16);
+  --text: #1d1f22;
+  --muted: #5f6d72;
+  --primary: #8d9ca1;
+  --primary-strong: #1d1f22;
+  --accent: #8d9ca1;
+  --accent-strong: #6f7f84;
+  --shadow: 0 4px 16px rgba(10, 12, 14, 0.14);
+  --radius: 5px;
+  --radius-lg: 10px;
 }
 
 * {
@@ -49,7 +49,7 @@ textarea {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 999px;
+  border-radius: var(--radius);
   border: 1px solid transparent;
   padding: 0.7rem 1.25rem;
   font-weight: 600;
@@ -62,8 +62,8 @@ textarea {
 }
 
 .btn--primary {
-  background: linear-gradient(135deg, var(--primary), #25708f);
-  color: #fff;
+  background: linear-gradient(135deg, #1f2326, #30373b);
+  color: #f3f6f7;
 }
 
 .btn--outline {
@@ -74,11 +74,25 @@ textarea {
 
 .btn--sm {
   padding: 0.5rem 0.95rem;
+  font-size: 0.82rem;
 }
 
 .btn--lg {
   min-width: 14rem;
   padding: 0.9rem 1.4rem;
+}
+
+/* Light-surface contexts: reuse btn--outline with dark ink */
+.btn--outline-light {
+  background: transparent;
+  border-color: var(--border);
+  border-width: 1.5px;
+  color: var(--primary);
+}
+.btn--outline-light:hover {
+  border-color: var(--primary);
+  background: rgba(141, 156, 161, 0.10);
+  transform: none;
 }
 
 .app-shell {
@@ -95,10 +109,10 @@ textarea {
   align-items: center;
   gap: 1.25rem;
   padding: 1rem 1.5rem;
-  background: rgba(13, 44, 58, 0.92);
+  background: rgba(22, 24, 28, 0.97);
   backdrop-filter: blur(12px);
   color: #f4f8fa;
-  box-shadow: 0 6px 20px rgba(12, 31, 41, 0.18);
+  box-shadow: 0 2px 12px rgba(8, 9, 10, 0.34);
 }
 
 .app-header__brand {
@@ -115,11 +129,18 @@ textarea {
   min-width: 3rem;
   height: 3rem;
   padding: 0 0.75rem;
-  border-radius: 999px;
-  background: linear-gradient(135deg, var(--accent), #f1b261);
-  color: #102b3a;
+  border-radius: var(--radius);
+  background: linear-gradient(135deg, #1f2326, #31383c);
+  color: #fff;
   font-weight: 800;
   letter-spacing: 0.12em;
+}
+
+.app-header__logo-mark {
+  width: 80px;
+  height: 32px;
+  object-fit: contain;
+  flex: 0 0 auto;
 }
 
 .app-header__title {
@@ -137,14 +158,14 @@ textarea {
 }
 
 .app-nav__link {
-  border-radius: 999px;
+  border-radius: var(--radius);
   padding: 0.55rem 0.9rem;
-  color: rgba(244, 248, 250, 0.78);
+  color: rgba(226, 236, 239, 0.82);
 }
 
 .app-nav__link:hover,
 .app-nav__link--active {
-  background: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.14);
   color: #fff;
 }
 
@@ -162,9 +183,9 @@ textarea {
 }
 
 .app-header__role {
-  border-radius: 999px;
+  border-radius: var(--radius);
   padding: 0.2rem 0.55rem;
-  background: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.16);
   font-size: 0.72rem;
   letter-spacing: 0.05em;
 }
@@ -233,26 +254,35 @@ textarea {
   place-items: center;
   padding: 1.5rem;
   background:
-    linear-gradient(135deg, rgba(19, 63, 83, 0.92), rgba(24, 85, 111, 0.82)),
-    radial-gradient(circle at top, rgba(216, 138, 45, 0.35), transparent 40%);
+    linear-gradient(165deg, rgba(16, 18, 21, 0.97), rgba(28, 32, 36, 0.92)),
+    radial-gradient(circle at bottom right, rgba(141, 156, 161, 0.38), transparent 60%);
 }
 
 .login-card {
   width: min(460px, 100%);
   padding: 2rem;
   text-align: center;
-  background: rgba(255, 255, 255, 0.95);
+  background: rgba(248, 250, 251, 0.96);
+}
+
+.login-card__logo {
+  width: min(440px, 100%);
+  max-height: 260px;
+  object-fit: contain;
+  margin: 0 auto 1rem;
+  display: block;
 }
 
 .login-card__title {
-  margin: 1rem 0 0.25rem;
-  font-size: 2rem;
+  margin: 0.55rem 0 0.25rem;
+  font-size: 1.85rem;
+  line-height: 1.15;
 }
 
 .login-card__subtitle {
   margin: 0;
   color: var(--muted);
-  letter-spacing: 0.08em;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
   font-size: 0.78rem;
 }
@@ -276,7 +306,7 @@ textarea {
 .members-input {
   width: 100%;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius);
   padding: 0.6rem 0.75rem;
   background: #fff;
 }
@@ -304,7 +334,7 @@ textarea {
   border-bottom: 1px solid var(--border);
 }
 
-.members-table th { background: rgba(24, 85, 111, 0.08); }
+.members-table th { background: rgba(141, 156, 161, 0.14); }
 
 .members-loading { margin: 1rem; color: var(--muted); }
 

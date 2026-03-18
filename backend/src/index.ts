@@ -24,6 +24,8 @@ if (aiKey) {
 
 import { loadServerConfig } from './config';
 import { errorHandler, notFoundHandler } from './middleware/error';
+import { runReminderJob } from './jobs/reminderJob';
+import { runTavfExpiryJob } from './jobs/tavfExpiryJob';
 import apiRouter from './routes';
 
 const app = express();
@@ -44,6 +46,94 @@ app.use('/api/v1', apiRouter);
 app.use(notFoundHandler);
 
 app.use(errorHandler);
+
+let reminderTimer: NodeJS.Timeout | undefined;
+let tavfExpiryTimer: NodeJS.Timeout | undefined;
+
+function parseMs(value: string | undefined, fallback: number): number {
+  if (!value) {
+    return fallback;
+  }
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function parseBool(value: string | undefined, fallback: boolean): boolean {
+  if (value === undefined) {
+    return fallback;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) {
+    return true;
+  }
+  if (['0', 'false', 'no', 'off'].includes(normalized)) {
+    return false;
+  }
+  return fallback;
+}
+
+function scheduleJobs(): void {
+  const jobsEnabled = parseBool(process.env['JOBS_ENABLED'], nodeEnv !== 'test');
+  if (!jobsEnabled) {
+    console.log('[scheduler] Jobs disabled via JOBS_ENABLED');
+    return;
+  }
+
+  const reminderIntervalMs = parseMs(process.env['REMINDER_JOB_INTERVAL_MS'], 60 * 60 * 1000);
+  const reminderLookAheadHours = parseMs(process.env['REMINDER_LOOKAHEAD_HOURS'], 48);
+  const tavfExpiryIntervalMs = parseMs(process.env['TAVF_EXPIRY_JOB_INTERVAL_MS'], 24 * 60 * 60 * 1000);
+
+  const runReminder = async (): Promise<void> => {
+    try {
+      await runReminderJob(reminderLookAheadHours);
+    } catch (error) {
+      console.error('[scheduler] reminder job failed', error);
+    }
+  };
+
+  const runTavfExpiry = async (): Promise<void> => {
+    try {
+      await runTavfExpiryJob();
+    } catch (error) {
+      console.error('[scheduler] tavf expiry job failed', error);
+    }
+  };
+
+  void runReminder();
+  void runTavfExpiry();
+
+  reminderTimer = setInterval(() => {
+    void runReminder();
+  }, reminderIntervalMs);
+  tavfExpiryTimer = setInterval(() => {
+    void runTavfExpiry();
+  }, tavfExpiryIntervalMs);
+
+  console.log(JSON.stringify({
+    level: 'info',
+    event: 'jobs_scheduled',
+    reminderIntervalMs,
+    reminderLookAheadHours,
+    tavfExpiryIntervalMs,
+    timestamp: new Date().toISOString(),
+  }));
+}
+
+scheduleJobs();
+
+function clearSchedulers(): void {
+  if (reminderTimer) {
+    clearInterval(reminderTimer);
+    reminderTimer = undefined;
+  }
+  if (tavfExpiryTimer) {
+    clearInterval(tavfExpiryTimer);
+    tavfExpiryTimer = undefined;
+  }
+}
+
+process.on('SIGINT', clearSchedulers);
+process.on('SIGTERM', clearSchedulers);
 
 // Start server
 app.listen(port, () => {

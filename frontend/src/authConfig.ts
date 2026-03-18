@@ -12,14 +12,19 @@ const authorityOverride = import.meta.env.VITE_AZURE_AUTHORITY as string | undef
 const knownAuthorityOverride = import.meta.env.VITE_AZURE_KNOWN_AUTHORITY as string | undefined
 const apiScope = import.meta.env.VITE_API_SCOPE as string | undefined
 
-if (import.meta.env.PROD && (!clientId || !tenantId || !tenantName || !policyName)) {
-  throw new Error('Azure AD B2C frontend configuration is incomplete.')
+const hasB2CConfig = Boolean(tenantName && policyName)
+const hasExternalIdConfig = Boolean(tenantName && tenantId)
+
+if (import.meta.env.PROD && (!clientId || (!authorityOverride && !hasB2CConfig && !hasExternalIdConfig))) {
+  throw new Error('Azure AD frontend configuration is incomplete (B2C/External ID).')
 }
 
 const fallbackAuthority = 'https://login.microsoftonline.com/common'
 const authority = authorityOverride
   ?? (tenantName && policyName
     ? `https://${tenantName}.b2clogin.com/${tenantName}.onmicrosoft.com/${policyName}`
+    : tenantName && tenantId
+      ? `https://${tenantName}.ciamlogin.com/${tenantId}`
     : fallbackAuthority)
 
 const authorityHost = (() => {

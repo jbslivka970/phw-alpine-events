@@ -4,6 +4,8 @@ interface GroupRecord {
   group_id: string;
   group_name: string;
   description: string | null;
+  is_system: boolean;
+  created_at?: string;
 }
 
 const groupsApi = {

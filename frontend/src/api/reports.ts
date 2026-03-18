@@ -46,7 +46,7 @@ const reportsApi = {
     const response = await apiGetBlob(`/reports/export?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
     const disposition = response.headers.get('content-disposition') ?? '';
     const match = disposition.match(/filename="?([^";]+)"?/i);
-    const filename = match?.[1] ?? `phw-events-${from}-to-${to}.csv`;
+    const filename = match?.[1] ?? `project-healing-waters-events-${from}-to-${to}.csv`;
 
     const url = URL.createObjectURL(response.blob);
     const anchor = document.createElement('a');

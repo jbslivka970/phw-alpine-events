@@ -28,8 +28,17 @@ function AppShell() {
     <div className="app-shell">
       <header className="app-header">
         <div className="app-header__brand">
-          <span className="app-header__badge">PHW</span>
-          <span className="app-header__title">Alpine Events</span>
+          <img
+            className="app-header__logo-mark"
+            src="/branding/phw-mark-slate.png"
+            alt="Project Healing Waters fish mark"
+            onError={(event) => {
+              event.currentTarget.style.display = 'none'
+            }}
+          />
+          <div>
+            <span className="app-header__title">Project Healing Waters Alpine Events</span>
+          </div>
         </div>
 
         <nav className="app-nav" aria-label="Main navigation">
@@ -38,6 +47,7 @@ function AppShell() {
           <NavLink to="/calendar" className={navClass}>Calendar</NavLink>
           <NavLink to="/tavf" className={navClass}>Take a Vet Fishing</NavLink>
           {isAdmin() && <NavLink to="/members" className={navClass}>Members</NavLink>}
+          {isAdmin() && <NavLink to="/groups" className={navClass}>Groups</NavLink>}
           {isAdmin() && <NavLink to="/import" className={navClass}>Import</NavLink>}
           {isAdmin() && <NavLink to="/reports" className={navClass}>Reports</NavLink>}
           {isAdmin() && <NavLink to="/admin" className={navClass}>Admin</NavLink>}
@@ -59,7 +69,7 @@ function AppShell() {
       </main>
 
       <footer className="app-footer">
-        <p>PHW Colorado Alpine Chapter</p>
+        <p>🎣 Project Healing Waters — Colorado Alpine Chapter</p>
       </footer>
     </div>
   )

@@ -107,6 +107,7 @@ function TavfDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { isAdmin, canCreateEvents, user } = useAuth();
+  const isAdminUser = isAdmin();
 
   const [posting, setPosting] = useState<TavfPosting | null>(null);
   const [applications, setApplications] = useState<TavfApplication[]>([]);
@@ -127,7 +128,7 @@ function TavfDetailPage() {
       const [p, apps, allMatches] = await Promise.all([
         tavfApi.getPosting(id),
         tavfApi.listApplications(id),
-        isAdmin() ? tavfApi.listMatches() : Promise.resolve([]),
+        isAdminUser ? tavfApi.listMatches() : Promise.resolve([]),
       ]);
       setPosting(p);
       setApplications(apps);
@@ -137,7 +138,7 @@ function TavfDetailPage() {
     } finally {
       setLoading(false);
     }
-  }, [id, isAdmin]);
+  }, [id, isAdminUser]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -298,7 +299,7 @@ function TavfDetailPage() {
                     <th>Status</th>
                     <th>Notes</th>
                     <th>Applied</th>
-                    {isAdmin() && <th>Actions</th>}
+                    {isAdminUser && <th>Actions</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -307,7 +308,7 @@ function TavfDetailPage() {
                       key={app.application_id}
                       application={app}
                       matches={matches}
-                      isAdmin={isAdmin()}
+                      isAdmin={isAdminUser}
                       postingId={posting.posting_id}
                       onStatusChange={handleStatusChange}
                       onMatch={handleMatch}

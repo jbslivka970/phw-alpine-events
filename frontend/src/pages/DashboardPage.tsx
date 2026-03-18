@@ -14,6 +14,7 @@ function DashboardPage() {
   })
 
   const nowIso = useMemo(() => new Date().toISOString(), [])
+  const isAdminUser = isAdmin()
 
   useEffect(() => {
     let active = true
@@ -33,7 +34,7 @@ function DashboardPage() {
         }))
       setUpcoming(next)
 
-      if (isAdmin()) {
+      if (isAdminUser) {
         const thisYear = new Date().getFullYear()
         const totalEventsThisYear = rows.filter((event) => new Date(event.event_date).getFullYear() === thisYear).length
         setStats((cur) => ({ ...cur, totalEventsThisYear, upcomingEvents: next.length }))
@@ -64,7 +65,7 @@ function DashboardPage() {
         })
     }
 
-    if (isAdmin()) {
+    if (isAdminUser) {
       membersApi.list({ page: 1, pageSize: 1, isActive: true })
         .then((res) => {
           if (active) {
@@ -81,7 +82,7 @@ function DashboardPage() {
     return () => {
       active = false
     }
-  }, [isAdmin, nowIso, user?.id])
+  }, [isAdminUser, nowIso, user?.id])
 
   return (
     <div className="page">
@@ -115,7 +116,7 @@ function DashboardPage() {
         </div>
         <div className="card">
           <h2 className="card__title">Quick Stats</h2>
-          {isAdmin() ? (
+          {isAdminUser ? (
             <ul>
               <li>Total active members: {stats.totalMembers}</li>
               <li>Total events this year: {stats.totalEventsThisYear}</li>

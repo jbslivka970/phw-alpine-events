@@ -5,6 +5,7 @@ import { AppShell } from './components/AppShell'
 import { ProtectedRoute } from './components/ProtectedRoute'
 import { AdminPage } from './pages/AdminPage'
 import { CalendarPage } from './pages/CalendarPage'
+import { GroupsPage } from './pages/GroupsPage'
 import { DashboardPage } from './pages/DashboardPage'
 import { EventsPage } from './pages/EventsPage'
 import { EventAssignmentPage } from './pages/EventAssignmentPage'
@@ -51,6 +52,14 @@ function App() {
             }
           />
           <Route path="/tavf/:id" element={<TavfDetailPage />} />
+          <Route
+            path="/groups"
+            element={
+              <ProtectedRoute requiredRole={ROLES.ADMIN}>
+                <GroupsPage />
+              </ProtectedRoute>
+            }
+          />
           <Route
             path="/members"
             element={

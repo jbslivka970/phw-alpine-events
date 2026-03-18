@@ -14,7 +14,7 @@ export default function Layout() {
   return (
     <div className="layout">
       <header className="layout-header">
-        <span className="layout-logo">PHW Alpine Events</span>
+        <span className="layout-logo">Project Healing Waters Alpine Events</span>
       </header>
       <div className="layout-body">
         <nav className="layout-nav">

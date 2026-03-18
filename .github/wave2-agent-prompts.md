@@ -4,6 +4,31 @@ Sequential prompts for GitHub Copilot coding agents. Merge each PR before starti
 
 ---
 
+## Status Annotation (as of 2026-03-18)
+
+This section is a manual-review aid and reflects current observed code state.
+
+### Requested 3-step work mapping
+
+- Step 1 (backend tests): PR 31 -> DONE (new backend route test suites added and passing)
+- Step 2 (real admin endpoints): Not part of a single Wave 2 PR title, but now DONE in backend admin routes
+- Step 3 (scheduler wiring): PR 30 relation (TAVF expiry operationalization) -> DONE (startup scheduler now wired)
+
+### PR status summary
+
+- PR 22: DONE
+- PR 23: DONE
+- PR 24: DONE
+- PR 25: DONE
+- PR 26: DONE
+- PR 27: DONE
+- PR 28: DONE
+- PR 29: DONE
+- PR 30: DONE
+- PR 31: PARTIAL (broad route coverage is in place and passing, but notification unit tests do not yet cover AcsEmailService/AcsSmsService internals and truncateSms behavior as explicitly requested)
+
+---
+
 ## Global Context (include with every agent prompt)
 
 Each cloud agent should know the following about the codebase:
@@ -112,7 +137,7 @@ Before PRs 22–24 can send real notifications, you need to provision ACS in Azu
 
 ---
 
-## PR 22 — Wire ACS Email Service
+## PR 22 — Wire ACS Email Service [DONE]
 
 ```
 Title: feat: Wire Azure Communication Services email sending
@@ -163,7 +188,7 @@ IMPORTANT implementation detail:
 
 ---
 
-## PR 23 — Wire ACS SMS Service
+## PR 23 — Wire ACS SMS Service [DONE]
 
 ```
 Title: feat: Wire Azure Communication Services SMS sending
@@ -212,7 +237,7 @@ Requirements:
 
 ---
 
-## PR 24 — Email Templates + Event Notification Dispatch
+## PR 24 — Email Templates + Event Notification Dispatch [DONE]
 
 ```
 Title: feat: Build email templates and wire event publish/cancel dispatch
@@ -279,7 +304,7 @@ PART B — Event Publish Dispatch:
 
 ---
 
-## PR 25 — Calendar Backend + Frontend Wiring
+## PR 25 — Calendar Backend + Frontend Wiring [DONE]
 
 ```
 Title: feat: Wire calendar backend DB queries and connect frontend
@@ -331,7 +356,7 @@ PART C — Frontend CalendarPage:
 
 ---
 
-## PR 26 — Reports Backend + Admin Summary Grid + CSV Export
+## PR 26 — Reports Backend + Admin Summary Grid + CSV Export [DONE]
 
 ```
 Title: feat: Wire reports backend with real DB queries, admin summary grid, and CSV export
@@ -393,7 +418,7 @@ PART B — Frontend:
 
 ---
 
-## PR 27 — SMS Opt-In/Out UI + Consent Audit Log
+## PR 27 — SMS Opt-In/Out UI + Consent Audit Log [DONE]
 
 ```
 Title: feat: Add SMS opt-in toggle to member profile and consent audit log UI
@@ -435,7 +460,7 @@ PART B — Frontend:
 
 ---
 
-## PR 28 — Event Assignment + Attendance Tracking
+## PR 28 — Event Assignment + Attendance Tracking [DONE]
 
 ```
 Title: feat: Add event assignment UI and post-event attendance marking
@@ -487,7 +512,7 @@ PART B — Frontend:
 
 ---
 
-## PR 29 — Dashboard Wiring
+## PR 29 — Dashboard Wiring [DONE]
 
 ```
 Title: feat: Wire dashboard with real upcoming events, RSVPs, and stats
@@ -513,7 +538,7 @@ Requirements:
 
 ---
 
-## PR 30 — TAVF Polish (Auto-Create Event, Notifications, Expiry)
+## PR 30 — TAVF Polish (Auto-Create Event, Notifications, Expiry) [DONE]
 
 ```
 Title: feat: TAVF auto-create event on match, posting notifications, 30-day expiry
@@ -553,7 +578,7 @@ Requirements:
 
 ---
 
-## PR 31 — Backend Unit Tests
+## PR 31 — Backend Unit Tests [PARTIAL]
 
 ```
 Title: test: Add unit tests for events, members, groups, import, and notification routes
