@@ -87,9 +87,9 @@ const rsvpApi = {
 };
 
 const emailRsvpApi = {
-  get: (token: string) => apiGet<PublicRsvpContext>(`/rsvp?token=${encodeURIComponent(token)}`),
+  get: (token: string) => apiPost<PublicRsvpContext>('/sms/inbound', { token }),
   submit: (token: string, payload: { response: RsvpRecord['response'] }) =>
-    apiPost<RsvpRecord>(`/rsvp?token=${encodeURIComponent(token)}`, payload),
+    apiPost<RsvpRecord>('/sms/inbound', { token, ...payload }),
 };
 
 const assignmentsApi = {

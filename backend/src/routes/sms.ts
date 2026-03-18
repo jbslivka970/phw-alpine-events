@@ -3,12 +3,14 @@ import { getPool, sql } from '../db';
 import { writeLimiter } from '../middleware/rateLimiter';
 import { notificationService } from '../services/notifications';
 import {
+  VALID_RESPONSES,
   listPendingEventsForMember,
   recordRsvpResponse,
   RsvpError,
   type PendingEvent,
   type RsvpResponse,
 } from '../services/rsvpService';
+import { verifyRsvpToken } from '../services/rsvpLinkService';
 import { toE164 } from '../utils/phone';
 
 const router = Router();
@@ -26,6 +28,41 @@ const RESPONSE_MAP: Record<string, RsvpResponse> = {
 
 router.post('/inbound', writeLimiter, async (req, res) => {
   try {
+    if (isTokenizedRsvpPayload(req.body)) {
+      const tokenPayload = req.body as { token: string; response?: string };
+      const token = verifyRsvpToken(tokenPayload.token);
+
+      if (typeof tokenPayload.response === 'string' && tokenPayload.response.trim().length > 0) {
+        const response = tokenPayload.response.toLowerCase();
+        if (!VALID_RESPONSES.includes(response as RsvpResponse)) {
+          res.status(400).json({ error: `response must be one of: ${VALID_RESPONSES.join(', ')}` });
+          return;
+        }
+
+        const record = await recordRsvpResponse({
+          eventId: token.eventId,
+          memberId: token.memberId,
+          response: response as RsvpResponse,
+          notes: 'Recorded from tokenized RSVP link',
+        });
+
+        res.json(record);
+        return;
+      }
+
+      const context = await getTokenizedRsvpContext(token.eventId, token.memberId);
+      if (!context) {
+        res.status(404).json({ error: 'Event invite not found' });
+        return;
+      }
+
+      res.json({
+        ...context,
+        token_expires_at: token.expiresAt ?? null,
+      });
+      return;
+    }
+
     const payload = extractInboundPayload(req.body);
 
     if (payload.kind === 'validation') {
@@ -217,6 +254,76 @@ function buildAmbiguityReply(pendingEvents: PendingEvent[]): string {
     .map((event, index) => `${index + 1}) ${event.title}`)
     .join(' ');
   return `PHW Alpine: You have multiple open invites. Reply like 'Y 1', 'N 1', 'M 1', or 'W 1'. ${eventList}`;
+}
+
+function isTokenizedRsvpPayload(body: unknown): boolean {
+  if (!body || Array.isArray(body) || typeof body !== 'object') {
+    return false;
+  }
+
+  const token = (body as Record<string, unknown>).token;
+  return typeof token === 'string' && token.length > 0;
+}
+
+async function getTokenizedRsvpContext(eventId: string, memberId: string): Promise<{
+  event_id: string;
+  title: string;
+  description: string | null;
+  location: string | null;
+  event_date: string;
+  end_date: string | null;
+  capacity: number | null;
+  status: string;
+  member_id: string;
+  first_name: string | null;
+  current_response: string | null;
+} | null> {
+  const pool = await getPool();
+  const result = await pool
+    .request()
+    .input('event_id', sql.UniqueIdentifier, eventId)
+    .input('member_id', sql.UniqueIdentifier, memberId)
+    .query<{
+      event_id: string;
+      title: string;
+      description: string | null;
+      location: string | null;
+      event_date: string;
+      end_date: string | null;
+      capacity: number | null;
+      status: string;
+      member_id: string;
+      first_name: string | null;
+      current_response: string | null;
+    }>(
+      `SELECT
+          e.event_id,
+          e.title,
+          e.description,
+          e.location,
+          e.event_date,
+          e.end_date,
+          e.capacity,
+          e.status,
+          m.member_id,
+          m.first_name,
+          er.response AS current_response
+       FROM event e
+       INNER JOIN member m ON m.member_id = @member_id
+       LEFT JOIN event_response er ON er.event_id = e.event_id AND er.member_id = m.member_id
+       WHERE e.event_id = @event_id`
+    );
+
+  return result.recordset[0] ?? null;
+}
+
+function getToken(query: Record<string, unknown>): string {
+  const queryToken = query.token;
+  if (typeof queryToken === 'string' && queryToken.length > 0) {
+    return queryToken;
+  }
+
+  throw new Error('token is required');
 }
 
 function extractInboundPayload(body: unknown):
