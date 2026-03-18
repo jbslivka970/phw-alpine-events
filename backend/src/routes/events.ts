@@ -9,6 +9,8 @@ import {
   sendEventCancelledNotification,
   sendEventPublishedNotification,
 } from '../services/notifications';
+import { recordRsvpResponse, RsvpError, VALID_RESPONSES, type RsvpResponse } from '../services/rsvpService';
+import { verifyRsvpToken } from '../services/rsvpLinkService';
 
 const router = Router();
 
@@ -20,6 +22,172 @@ const STATUS_TRANSITIONS: Record<string, string[]> = {
 };
 
 router.use('/:eventId/rsvp', rsvpRouter);
+
+function getRsvpToken(req: { params: Record<string, string | undefined>; query: Record<string, unknown> }): string {
+  const pathToken = req.params.token;
+  if (pathToken) {
+    return pathToken;
+  }
+
+  const queryToken = req.query.token;
+  if (typeof queryToken === 'string' && queryToken.length > 0) {
+    return queryToken;
+  }
+
+  throw new Error('token is required');
+}
+
+async function getPublicRsvpContext(tokenString: string): Promise<{
+  event_id: string;
+  title: string;
+  description: string | null;
+  location: string | null;
+  event_date: string;
+  end_date: string | null;
+  capacity: number | null;
+  status: string;
+  member_id: string;
+  first_name: string | null;
+  current_response: string | null;
+  token_expires_at: string | null;
+} | null> {
+  const token = verifyRsvpToken(tokenString);
+  const pool = await getPool();
+  const result = await pool
+    .request()
+    .input('event_id', sql.UniqueIdentifier, token.eventId)
+    .input('member_id', sql.UniqueIdentifier, token.memberId)
+    .query<{
+      event_id: string;
+      title: string;
+      description: string | null;
+      location: string | null;
+      event_date: string;
+      end_date: string | null;
+      capacity: number | null;
+      status: string;
+      member_id: string;
+      first_name: string | null;
+      current_response: string | null;
+    }>(
+      `SELECT
+          e.event_id,
+          e.title,
+          e.description,
+          e.location,
+          e.event_date,
+          e.end_date,
+          e.capacity,
+          e.status,
+          m.member_id,
+          m.first_name,
+          er.response AS current_response
+       FROM event e
+       INNER JOIN member m ON m.member_id = @member_id
+       LEFT JOIN event_response er ON er.event_id = e.event_id AND er.member_id = m.member_id
+       WHERE e.event_id = @event_id`
+    );
+
+  const row = result.recordset[0];
+  if (!row) {
+    return null;
+  }
+
+  return {
+    ...row,
+    token_expires_at: token.expiresAt ?? null,
+  };
+}
+
+async function submitPublicRsvp(tokenString: string, response: string): Promise<unknown> {
+  const token = verifyRsvpToken(tokenString);
+
+  return recordRsvpResponse({
+    eventId: token.eventId,
+    memberId: token.memberId,
+    response: response as RsvpResponse,
+    notes: 'Recorded from tokenized RSVP link',
+  });
+}
+
+router.get('/rsvp', apiLimiter, async (req, res) => {
+  try {
+    const row = await getPublicRsvpContext(getRsvpToken(req));
+    if (!row) {
+      res.status(404).json({ error: 'Event invite not found' });
+      return;
+    }
+
+    res.json(row);
+  } catch (error) {
+    console.error('GET /events/rsvp failed', error);
+    res.status(401).json({ error: error instanceof Error ? error.message : 'Invalid or expired RSVP token' });
+  }
+});
+
+router.post('/rsvp', writeLimiter, async (req, res) => {
+  try {
+    const response = (req.body?.response as string | undefined)?.toLowerCase();
+
+    if (!response) {
+      res.status(400).json({ error: `response must be one of: ${VALID_RESPONSES.join(', ')}` });
+      return;
+    }
+    if (!VALID_RESPONSES.includes(response as RsvpResponse)) {
+      res.status(400).json({ error: `response must be one of: ${VALID_RESPONSES.join(', ')}` });
+      return;
+    }
+
+    const record = await submitPublicRsvp(getRsvpToken(req), response);
+
+    res.json(record);
+  } catch (error) {
+    if (error instanceof RsvpError) {
+      res.status(error.statusCode).json({ error: error.message });
+      return;
+    }
+
+    console.error('POST /events/rsvp failed', error);
+    res.status(401).json({ error: error instanceof Error ? error.message : 'Invalid or expired RSVP token' });
+  }
+});
+
+router.get('/rsvp/:token', apiLimiter, async (req, res) => {
+  try {
+    const row = await getPublicRsvpContext(req.params.token);
+    if (!row) {
+      res.status(404).json({ error: 'Event invite not found' });
+      return;
+    }
+    res.json(row);
+  } catch (error) {
+    console.error('GET /events/rsvp/:token failed', error);
+    res.status(401).json({ error: error instanceof Error ? error.message : 'Invalid or expired RSVP token' });
+  }
+});
+
+router.post('/rsvp/:token', writeLimiter, async (req, res) => {
+  try {
+    const response = (req.body?.response as string | undefined)?.toLowerCase();
+    if (!response) {
+      res.status(400).json({ error: `response must be one of: ${VALID_RESPONSES.join(', ')}` });
+      return;
+    }
+    if (!VALID_RESPONSES.includes(response as RsvpResponse)) {
+      res.status(400).json({ error: `response must be one of: ${VALID_RESPONSES.join(', ')}` });
+      return;
+    }
+    const record = await submitPublicRsvp(req.params.token, response);
+    res.json(record);
+  } catch (error) {
+    if (error instanceof RsvpError) {
+      res.status(error.statusCode).json({ error: error.message });
+      return;
+    }
+    console.error('POST /events/rsvp/:token failed', error);
+    res.status(401).json({ error: error instanceof Error ? error.message : 'Invalid or expired RSVP token' });
+  }
+});
 
 router.get('/', apiLimiter, authenticate, requireAnyAuthenticatedRole, async (req, res) => {
   try {

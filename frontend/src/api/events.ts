@@ -33,6 +33,21 @@ interface RsvpRecord {
   mobile_phone?: string;
 }
 
+interface PublicRsvpContext {
+  event_id: string;
+  title: string;
+  description: string | null;
+  location: string | null;
+  event_date: string;
+  end_date: string | null;
+  capacity: number | null;
+  status: 'draft' | 'published' | 'completed' | 'cancelled';
+  member_id: string;
+  first_name: string | null;
+  current_response: RsvpRecord['response'] | null;
+  token_expires_at: string | null;
+}
+
 interface EventAssignmentRecord {
   assignment_id: string;
   member_id: string;
@@ -71,6 +86,12 @@ const rsvpApi = {
   remove: (eventId: string, memberId: string) => apiDelete<void>(`/events/${eventId}/rsvp/${memberId}`),
 };
 
+const emailRsvpApi = {
+  get: (token: string) => apiGet<PublicRsvpContext>(`/rsvp?token=${encodeURIComponent(token)}`),
+  submit: (token: string, payload: { response: RsvpRecord['response'] }) =>
+    apiPost<RsvpRecord>(`/rsvp?token=${encodeURIComponent(token)}`, payload),
+};
+
 const assignmentsApi = {
   list: (eventId: string) => apiGet<EventAssignmentRecord[]>(`/events/${eventId}/assignments`),
   create: (eventId: string, payload: { member_id: string; role: 'MENTOR' | 'PARTICIPANT' }) =>
@@ -81,5 +102,5 @@ const assignmentsApi = {
     apiPatch<EventAssignmentRecord>(`/events/${eventId}/assignments/${assignmentId}/attendance`, payload),
 };
 
-export { assignmentsApi, eventsApi, rsvpApi };
-export type { EventRecord, RsvpRecord, EventAssignmentRecord };
+export { assignmentsApi, emailRsvpApi, eventsApi, rsvpApi };
+export type { EventRecord, RsvpRecord, EventAssignmentRecord, PublicRsvpContext };

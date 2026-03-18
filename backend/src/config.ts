@@ -33,6 +33,13 @@ interface AcsConfig {
   smsFrom?: string;
 }
 
+interface RsvpLinkConfig {
+  isConfigured: boolean;
+  frontendBaseUrl: string;
+  tokenSecret: string;
+  tokenExpiryHours: number;
+}
+
 /**
  * Reads a required environment variable.  Throws in non-test environments if
  * the variable is missing so misconfigured deployments fail at startup instead
@@ -136,5 +143,25 @@ function loadAcsConfig(): AcsConfig {
   };
 }
 
-export { loadAcsConfig, loadAuthConfig, loadDbConfig, loadServerConfig };
-export type { AcsConfig, AuthConfig, DbConfig, ServerConfig };
+function loadRsvpLinkConfig(): RsvpLinkConfig {
+  const nodeEnv = optionalEnv('NODE_ENV', 'development') ?? 'development';
+  const frontendBaseUrl = (
+    optionalEnv('FRONTEND_APP_URL')
+    ?? optionalEnv('PUBLIC_APP_URL')
+    ?? optionalEnv('CORS_ORIGIN')
+    ?? (nodeEnv === 'production' ? '' : 'http://localhost:5173')
+  ).replace(/\/$/, '');
+  const tokenSecret = optionalEnv('RSVP_TOKEN_SECRET', nodeEnv === 'production' ? undefined : 'dev-rsvp-secret') ?? '';
+  const rawExpiry = optionalEnv('RSVP_TOKEN_EXPIRY_HOURS', '168') ?? '168';
+  const parsedExpiry = Number.parseInt(rawExpiry, 10);
+
+  return {
+    isConfigured: Boolean(frontendBaseUrl && tokenSecret),
+    frontendBaseUrl,
+    tokenSecret,
+    tokenExpiryHours: Number.isNaN(parsedExpiry) ? 168 : parsedExpiry,
+  };
+}
+
+export { loadAcsConfig, loadAuthConfig, loadDbConfig, loadRsvpLinkConfig, loadServerConfig };
+export type { AcsConfig, AuthConfig, DbConfig, RsvpLinkConfig, ServerConfig };

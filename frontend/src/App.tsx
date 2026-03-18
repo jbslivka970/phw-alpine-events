@@ -12,16 +12,25 @@ import { EventAssignmentPage } from './pages/EventAssignmentPage'
 import { LoginPage } from './pages/LoginPage'
 import { ImportPage } from './pages/ImportPage'
 import { MembersPage } from './pages/MembersPage'
+import { NotificationPreferencesPage } from './pages/NotificationPreferencesPage'
+import { PrivacyPolicyPage } from './pages/PrivacyPolicyPage'
+import { PublicRsvpPage } from './pages/PublicRsvpPage'
 import { ReportsPage } from './pages/ReportsPage'
+import { SmsProgramPage } from './pages/SmsProgramPage'
 import { TavfListPage } from './pages/TavfListPage'
 import { TavfNewPage } from './pages/TavfNewPage'
 import { TavfDetailPage } from './pages/TavfDetailPage'
+import { TermsPage } from './pages/TermsPage'
 
 function App() {
   return (
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/privacy" element={<PrivacyPolicyPage />} />
+        <Route path="/terms" element={<TermsPage />} />
+        <Route path="/sms-program" element={<SmsProgramPage />} />
+        <Route path="/rsvp/:token" element={<PublicRsvpPage />} />
 
         <Route
           element={
@@ -32,6 +41,7 @@ function App() {
         >
           <Route index element={<Navigate to="/dashboard" replace />} />
           <Route path="/dashboard" element={<DashboardPage />} />
+          <Route path="/preferences" element={<NotificationPreferencesPage />} />
           <Route path="/events" element={<EventsPage />} />
           <Route
             path="/events/:id/assign"

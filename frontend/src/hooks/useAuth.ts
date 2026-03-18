@@ -20,9 +20,13 @@ function useAuth() {
     ? (account?.idTokenClaims?.roles as string[])
     : []
 
+  const subjectClaim = typeof account?.idTokenClaims?.sub === 'string'
+    ? account.idTokenClaims.sub
+    : null
+
   const user: AuthUser | null = account
     ? {
-        id: account.localAccountId,
+        id: subjectClaim ?? account.localAccountId,
         name: account.name ?? account.username ?? 'User',
         email: account.username,
         roles: rawRoles.filter((role): role is AppRole => Object.values(ROLES).includes(role as AppRole)),

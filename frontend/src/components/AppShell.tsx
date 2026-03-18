@@ -43,6 +43,7 @@ function AppShell() {
 
         <nav className="app-nav" aria-label="Main navigation">
           <NavLink to="/dashboard" className={navClass}>Dashboard</NavLink>
+          <NavLink to="/preferences" className={navClass}>Preferences</NavLink>
           <NavLink to="/events" className={navClass}>Events</NavLink>
           <NavLink to="/calendar" className={navClass}>Calendar</NavLink>
           <NavLink to="/tavf" className={navClass}>Take a Vet Fishing</NavLink>

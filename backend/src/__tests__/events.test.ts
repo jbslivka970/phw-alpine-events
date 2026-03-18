@@ -2,6 +2,7 @@ import express from 'express';
 import request from 'supertest';
 import eventsRouter from '../routes/events';
 import { getPool } from '../db';
+import { createRsvpToken } from '../services/rsvpLinkService';
 
 jest.mock('../db', () => ({
   getPool: jest.fn(),
@@ -37,6 +38,7 @@ jest.mock('../middleware/rateLimiter', () => ({
 jest.mock('../services/notifications', () => ({
   sendEventPublishedNotification: jest.fn(),
   sendEventCancelledNotification: jest.fn(),
+  sendRsvpConfirmation: jest.fn(),
 }));
 
 interface MockRequest {
@@ -114,5 +116,53 @@ describe('events routes', () => {
 
     expect(res.status).toBe(400);
     expect(res.body.error).toContain('title and event_date are required');
+  });
+
+  it('GET /api/events/rsvp/:token returns public RSVP context', async () => {
+    const token = createRsvpToken('00000000-0000-0000-0000-000000000101', '00000000-0000-0000-0000-000000000202');
+    const mockRequest = createRequest(async () => ({
+      recordset: [{
+        event_id: '00000000-0000-0000-0000-000000000101',
+        title: 'Fly Tying 101',
+        description: 'Intro event',
+        location: 'Denver',
+        event_date: '2026-04-01T18:00:00.000Z',
+        end_date: null,
+        capacity: 12,
+        status: 'published',
+        member_id: '00000000-0000-0000-0000-000000000202',
+        first_name: 'Pat',
+        current_response: null,
+      }],
+    }));
+    (getPool as jest.Mock).mockResolvedValue({ request: () => mockRequest });
+
+    const res = await request(app).get(`/api/events/rsvp/${token}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.title).toBe('Fly Tying 101');
+    expect(res.body.member_id).toBe('00000000-0000-0000-0000-000000000202');
+  });
+
+  it('POST /api/events/rsvp/:token records a public RSVP response', async () => {
+    const token = createRsvpToken('00000000-0000-0000-0000-000000000101', '00000000-0000-0000-0000-000000000202');
+    const queue = [
+      { recordset: [{ event_id: '00000000-0000-0000-0000-000000000101', title: 'Fly Tying 101', status: 'published', capacity: 12, event_date: new Date('2026-04-01T18:00:00.000Z') }] },
+      { recordset: [{ yes_count: 0 }] },
+      { recordset: [{ response_id: 'response-1', event_id: '00000000-0000-0000-0000-000000000101', member_id: '00000000-0000-0000-0000-000000000202', response: 'yes', responded_at: new Date('2026-03-18T12:00:00.000Z'), notes: 'Recorded from tokenized RSVP link' }] },
+      { recordset: [{ first_name: 'Pat', email: 'pat@example.com', mobile_phone: '+13035551212', sms_opt_in: true }] },
+    ];
+    const mockRequest = {
+      input: jest.fn().mockReturnThis(),
+      query: jest.fn().mockImplementation(async () => queue.shift() ?? { recordset: [] }),
+    };
+    (getPool as jest.Mock).mockResolvedValue({ request: () => mockRequest });
+
+    const res = await request(app)
+      .post(`/api/events/rsvp/${token}`)
+      .send({ response: 'yes' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.response).toBe('yes');
   });
 });

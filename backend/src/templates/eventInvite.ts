@@ -15,7 +15,14 @@ const eventInviteTemplate: NotificationTemplate = {
         <p style="margin:0;"><strong>📍 Location:</strong> {{location}}</p>
       </div>
       <p style="margin-top:16px;">{{description}}</p>
-      <p><a href="{{rsvpUrl}}">RSVP Here</a></p>
+      <p style="margin:16px 0 8px;"><strong>RSVP in one click:</strong></p>
+      <p style="margin:0 0 16px;display:flex;flex-wrap:wrap;gap:8px;">
+        <a href="{{yesUrl}}" style="display:inline-block;padding:10px 14px;border-radius:999px;background:#155724;color:#ffffff;text-decoration:none;">Yes</a>
+        <a href="{{noUrl}}" style="display:inline-block;padding:10px 14px;border-radius:999px;background:#721c24;color:#ffffff;text-decoration:none;">No</a>
+        <a href="{{maybeUrl}}" style="display:inline-block;padding:10px 14px;border-radius:999px;background:#856404;color:#ffffff;text-decoration:none;">Maybe</a>
+        <a href="{{waitlistUrl}}" style="display:inline-block;padding:10px 14px;border-radius:999px;background:#383d41;color:#ffffff;text-decoration:none;">Waitlist</a>
+      </p>
+      <p><a href="{{rsvpUrl}}">Open RSVP Page</a></p>
       <p style="margin-top:20px;">Project Healing Waters Fly Fishing — Colorado Alpine Chapter</p>
       <p style="font-size:12px;color:#6b7280;">You are receiving this email because you are part of PHW Alpine communications. To unsubscribe, update your email preferences in your member profile.</p>
     </div>
@@ -30,6 +37,10 @@ const eventInviteTemplate: NotificationTemplate = {
     { name: 'location', description: 'Event location', required: true },
     { name: 'description', description: 'Event description', required: true },
     { name: 'rsvpUrl', description: 'RSVP URL', required: true },
+    { name: 'yesUrl', description: 'One-click yes RSVP URL', required: true },
+    { name: 'noUrl', description: 'One-click no RSVP URL', required: true },
+    { name: 'maybeUrl', description: 'One-click maybe RSVP URL', required: true },
+    { name: 'waitlistUrl', description: 'One-click waitlist RSVP URL', required: true },
   ],
 };
 

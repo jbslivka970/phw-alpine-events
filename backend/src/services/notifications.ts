@@ -6,6 +6,7 @@ import { renderTemplate } from '../templates/NotificationTemplate';
 import { eventCancellationTemplate } from '../templates/eventCancellation';
 import { eventInviteTemplate } from '../templates/eventInvite';
 import { rsvpConfirmationTemplate } from '../templates/rsvpConfirmation';
+import { buildMemberRsvpUrls } from './rsvpLinkService';
 
 interface RsvpNotificationPayload {
   eventId: string;
@@ -45,6 +46,7 @@ interface SendSmsOptions {
   templateId?: string;
   memberId?: string;
   eventId?: string;
+  bypassOptInCheck?: boolean;
 }
 
 interface IEmailService {
@@ -195,7 +197,7 @@ class NotificationService {
       console.warn('[NotificationService] SMS exceeded 160 characters and was truncated.');
     }
 
-    if (options.memberId) {
+    if (options.memberId && !options.bypassOptInCheck) {
       const smsOptIn = await this.memberHasSmsOptIn(options.memberId);
       if (!smsOptIn) {
         await this.writeNotificationLog({
@@ -379,9 +381,8 @@ async function sendEventPublishedNotification(payload: EventNotificationPayload)
          AND m.member_id IS NOT NULL`
     );
 
-  const variables = buildEventVariables(payload);
-
   for (const recipient of recipientsResult.recordset) {
+    const variables = buildEventVariables(payload, recipient.member_id);
     if (!recipient.email_opt_out && recipient.email) {
       await notificationService.sendEmail({
         to: recipient.email,
@@ -503,14 +504,38 @@ function toNullableUuid(value: string | undefined): string | null {
   return uuidV4Like.test(value) ? value : null;
 }
 
-function buildEventVariables(payload: EventNotificationPayload): Record<string, string> {
+function buildEventVariables(payload: EventNotificationPayload, memberId?: string): Record<string, string> {
   const eventDate = formatEventDate(payload.event_date);
+  const defaultRsvpUrl = `/events/${payload.event_id}`;
+  let rsvpUrl = defaultRsvpUrl;
+  let yesUrl = defaultRsvpUrl;
+  let noUrl = defaultRsvpUrl;
+  let maybeUrl = defaultRsvpUrl;
+  let waitlistUrl = defaultRsvpUrl;
+
+  if (memberId) {
+    try {
+      const personalizedUrls = buildMemberRsvpUrls(payload.event_id, memberId);
+      rsvpUrl = personalizedUrls.landingUrl;
+      yesUrl = personalizedUrls.yesUrl;
+      noUrl = personalizedUrls.noUrl;
+      maybeUrl = personalizedUrls.maybeUrl;
+      waitlistUrl = personalizedUrls.waitlistUrl;
+    } catch (error) {
+      console.warn('[NotificationService] Failed to build personalized RSVP links; falling back to generic URL.', error);
+    }
+  }
+
   return {
     eventTitle: payload.title,
     eventDate,
     location: payload.location ?? 'TBD',
     description: payload.description ?? 'No additional details were provided.',
-    rsvpUrl: `/events/${payload.event_id}`,
+    rsvpUrl,
+    yesUrl,
+    noUrl,
+    maybeUrl,
+    waitlistUrl,
   };
 }
 

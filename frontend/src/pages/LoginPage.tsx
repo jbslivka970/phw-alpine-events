@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { useIsAuthenticated } from '@azure/msal-react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 
 function LoginPage() {
@@ -31,6 +31,11 @@ function LoginPage() {
           Sign in with your configured chapter identity provider to access event management.
         </p>
         <button className="btn btn--primary btn--lg" onClick={login}>Sign in</button>
+        <div className="login-card__links">
+          <Link to="/privacy">Privacy Policy</Link>
+          <Link to="/terms">Terms</Link>
+          <Link to="/sms-program">SMS Program</Link>
+        </div>
       </div>
     </div>
   )
