@@ -218,6 +218,8 @@ CREATE TABLE dbo.notification_log (
     recipient    NVARCHAR(255)    NOT NULL,  -- email address or phone number
     status       NVARCHAR(20)     NOT NULL
         CHECK (status IN ('queued', 'sent', 'delivered', 'failed', 'stubbed')),
+    operation_type NVARCHAR(50)   NULL,
+    operation_reason NVARCHAR(500) NULL,
     provider_id  NVARCHAR(255)    NULL,  -- message-ID returned by Azure Communication Services
     error_detail NVARCHAR(MAX)    NULL,
     sent_at      DATETIME         NOT NULL DEFAULT GETUTCDATE(),
@@ -233,6 +235,12 @@ CREATE TABLE dbo.notification_log (
 -- Ensure notification_log status constraint includes 'skipped' for SMS opt-out handling.
 IF OBJECT_ID(N'dbo.notification_log', N'U') IS NOT NULL
 BEGIN
+    IF COL_LENGTH('dbo.notification_log', 'operation_type') IS NULL
+        ALTER TABLE dbo.notification_log ADD operation_type NVARCHAR(50) NULL;
+
+    IF COL_LENGTH('dbo.notification_log', 'operation_reason') IS NULL
+        ALTER TABLE dbo.notification_log ADD operation_reason NVARCHAR(500) NULL;
+
     DECLARE @notificationLogStatusColumnId INT = COLUMNPROPERTY(OBJECT_ID(N'dbo.notification_log'), 'status', 'ColumnId');
     DECLARE @dropStatusConstraintSql NVARCHAR(MAX);
 

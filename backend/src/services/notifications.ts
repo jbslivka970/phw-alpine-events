@@ -5,6 +5,7 @@ import { loadAcsConfig } from '../config';
 import { renderTemplate } from '../templates/NotificationTemplate';
 import { eventCancellationTemplate } from '../templates/eventCancellation';
 import { eventInviteTemplate } from '../templates/eventInvite';
+import { eventUpdateTemplate } from '../templates/eventUpdate';
 import { rsvpConfirmationTemplate } from '../templates/rsvpConfirmation';
 import { buildMemberRsvpUrls } from './rsvpLinkService';
 
@@ -28,6 +29,12 @@ interface EventNotificationPayload {
   event_date: Date | string;
   location: string | null;
   description: string | null;
+  updateReason?: string | null;
+}
+
+interface EventUpdateNotificationPayload extends EventNotificationPayload {
+  changedFields: string[];
+  updateReason?: string | null;
 }
 
 interface SendEmailOptions {
@@ -38,6 +45,8 @@ interface SendEmailOptions {
   templateId?: string;
   memberId?: string;
   eventId?: string;
+  operationType?: string;
+  operationReason?: string;
 }
 
 interface SendSmsOptions {
@@ -47,6 +56,8 @@ interface SendSmsOptions {
   memberId?: string;
   eventId?: string;
   bypassOptInCheck?: boolean;
+  operationType?: string;
+  operationReason?: string;
 }
 
 interface IEmailService {
@@ -186,6 +197,8 @@ class NotificationService {
       eventId: options.eventId,
       memberId: options.memberId,
       templateId: options.templateId,
+      operationType: options.operationType,
+      operationReason: options.operationReason,
       errorDetail: errorMessage,
       providerId,
     });
@@ -207,6 +220,8 @@ class NotificationService {
           eventId: options.eventId,
           memberId: options.memberId,
           templateId: options.templateId,
+          operationType: options.operationType,
+          operationReason: options.operationReason,
         });
         return;
       }
@@ -233,6 +248,8 @@ class NotificationService {
       eventId: options.eventId,
       memberId: options.memberId,
       templateId: options.templateId,
+      operationType: options.operationType,
+      operationReason: options.operationReason,
       errorDetail: errorMessage,
       providerId,
     });
@@ -285,6 +302,8 @@ class NotificationService {
     eventId?: string;
     memberId?: string;
     templateId?: string;
+    operationType?: string;
+    operationReason?: string;
     errorDetail?: string;
     providerId?: string;
   }): Promise<void> {
@@ -298,13 +317,15 @@ class NotificationService {
         .input('channel', sql.NVarChar(10), entry.channel)
         .input('recipient', sql.NVarChar(255), entry.recipient)
         .input('status', sql.NVarChar(20), entry.status)
+        .input('operation_type', sql.NVarChar(50), entry.operationType ?? null)
+        .input('operation_reason', sql.NVarChar(500), entry.operationReason ?? null)
         .input('provider_id', sql.NVarChar(255), entry.providerId ?? null)
         .input('error_detail', sql.NVarChar(sql.MAX), entry.errorDetail ?? null)
         .query(
           `INSERT INTO notification_log
-            (log_id, event_id, member_id, template_id, channel, recipient, status, provider_id, error_detail, sent_at)
+            (log_id, event_id, member_id, template_id, channel, recipient, status, operation_type, operation_reason, provider_id, error_detail, sent_at)
            VALUES
-            (NEWID(), @event_id, @member_id, @template_id, @channel, @recipient, @status, @provider_id, @error_detail, GETUTCDATE())`
+            (NEWID(), @event_id, @member_id, @template_id, @channel, @recipient, @status, @operation_type, @operation_reason, @provider_id, @error_detail, GETUTCDATE())`
         );
     } catch (error) {
       console.error('[NotificationService] Failed to write notification_log', error);
@@ -394,6 +415,7 @@ async function sendEventPublishedNotification(payload: EventNotificationPayload)
         templateId: eventInviteTemplate.templateId,
         memberId: recipient.member_id,
         eventId: payload.event_id,
+        operationType: 'event_published',
       });
     }
 
@@ -404,6 +426,7 @@ async function sendEventPublishedNotification(payload: EventNotificationPayload)
         templateId: eventInviteTemplate.templateId,
         memberId: recipient.member_id,
         eventId: payload.event_id,
+        operationType: 'event_published',
       });
     }
   }
@@ -421,6 +444,7 @@ async function sendEventCancelledNotification(payload: EventNotificationPayload)
       mobile_phone: string | null;
       sms_opt_in: boolean;
       email_opt_out: boolean;
+      response_channel: string | null;
     }>(
       `SELECT DISTINCT
           m.member_id,
@@ -428,17 +452,35 @@ async function sendEventCancelledNotification(payload: EventNotificationPayload)
           m.email,
           m.mobile_phone,
           m.sms_opt_in,
-          m.email_opt_out
+          m.email_opt_out,
+          er.response_channel
        FROM event_response er
        INNER JOIN member m ON m.member_id = er.member_id
        WHERE er.event_id = @event_id
-         AND er.response IN ('yes', 'maybe', 'waitlist')`
+         AND er.response IN ('yes', 'no', 'maybe', 'waitlist')`
     );
 
   const variables = buildEventVariables(payload);
 
   for (const recipient of recipientsResult.recordset) {
-    if (!recipient.email_opt_out && recipient.email) {
+    const preferredChannel = pickPreferredChannel(recipient.response_channel);
+    const canEmail = Boolean(!recipient.email_opt_out && recipient.email);
+    const canSms = Boolean(recipient.mobile_phone && recipient.sms_opt_in);
+
+    if (preferredChannel === 'sms' && canSms) {
+      await notificationService.sendSms({
+        to: recipient.mobile_phone as string,
+        message: renderTemplate(eventCancellationTemplate.smsBodyTemplate ?? '', variables),
+        templateId: eventCancellationTemplate.templateId,
+        memberId: recipient.member_id,
+        eventId: payload.event_id,
+        operationType: 'event_cancelled',
+        operationReason: payload.updateReason ?? undefined,
+      });
+      continue;
+    }
+
+    if (canEmail) {
       await notificationService.sendEmail({
         to: recipient.email,
         subject: renderTemplate(eventCancellationTemplate.subjectTemplate ?? '', variables),
@@ -447,16 +489,105 @@ async function sendEventCancelledNotification(payload: EventNotificationPayload)
         templateId: eventCancellationTemplate.templateId,
         memberId: recipient.member_id,
         eventId: payload.event_id,
+        operationType: 'event_cancelled',
+        operationReason: payload.updateReason ?? undefined,
       });
+      continue;
     }
 
-    if (recipient.mobile_phone && recipient.sms_opt_in) {
+    if (canSms) {
       await notificationService.sendSms({
-        to: recipient.mobile_phone,
+        to: recipient.mobile_phone as string,
         message: renderTemplate(eventCancellationTemplate.smsBodyTemplate ?? '', variables),
         templateId: eventCancellationTemplate.templateId,
         memberId: recipient.member_id,
         eventId: payload.event_id,
+        operationType: 'event_cancelled',
+        operationReason: payload.updateReason ?? undefined,
+      });
+    }
+  }
+}
+
+async function sendEventUpdatedNotification(payload: EventUpdateNotificationPayload): Promise<void> {
+  if (payload.changedFields.length === 0) {
+    return;
+  }
+
+  const pool = await getPool();
+  const recipientsResult = await pool
+    .request()
+    .input('event_id', sql.UniqueIdentifier, payload.event_id)
+    .query<{
+      member_id: string;
+      email: string;
+      mobile_phone: string | null;
+      sms_opt_in: boolean;
+      email_opt_out: boolean;
+      response_channel: string | null;
+    }>(
+      `SELECT DISTINCT
+          m.member_id,
+          m.email,
+          m.mobile_phone,
+          m.sms_opt_in,
+          m.email_opt_out,
+          er.response_channel
+       FROM event_response er
+       INNER JOIN member m ON m.member_id = er.member_id
+       WHERE er.event_id = @event_id
+         AND er.response IN ('yes', 'maybe', 'waitlist')`
+    );
+
+  const changeSummary = summarizeChangedFields(payload.changedFields);
+
+  for (const recipient of recipientsResult.recordset) {
+    const variables = {
+      ...buildEventVariables(payload, recipient.member_id),
+      changeSummary,
+      updateReason: payload.updateReason?.trim() || 'Schedule or logistics were adjusted by the coordinator.',
+    };
+    const preferredChannel = pickPreferredChannel(recipient.response_channel);
+    const canEmail = Boolean(!recipient.email_opt_out && recipient.email);
+    const canSms = Boolean(recipient.mobile_phone && recipient.sms_opt_in);
+
+    if (preferredChannel === 'sms' && canSms) {
+      await notificationService.sendSms({
+        to: recipient.mobile_phone as string,
+        message: renderTemplate(eventUpdateTemplate.smsBodyTemplate ?? '', variables),
+        templateId: eventUpdateTemplate.templateId,
+        memberId: recipient.member_id,
+        eventId: payload.event_id,
+        operationType: 'event_updated',
+        operationReason: payload.updateReason ?? undefined,
+      });
+      continue;
+    }
+
+    if (canEmail) {
+      await notificationService.sendEmail({
+        to: recipient.email,
+        subject: renderTemplate(eventUpdateTemplate.subjectTemplate ?? '', variables),
+        htmlBody: renderTemplate(eventUpdateTemplate.htmlBodyTemplate ?? '', variables),
+        textBody: renderTemplate(eventUpdateTemplate.textBodyTemplate ?? '', variables),
+        templateId: eventUpdateTemplate.templateId,
+        memberId: recipient.member_id,
+        eventId: payload.event_id,
+        operationType: 'event_updated',
+        operationReason: payload.updateReason ?? undefined,
+      });
+      continue;
+    }
+
+    if (canSms) {
+      await notificationService.sendSms({
+        to: recipient.mobile_phone as string,
+        message: renderTemplate(eventUpdateTemplate.smsBodyTemplate ?? '', variables),
+        templateId: eventUpdateTemplate.templateId,
+        memberId: recipient.member_id,
+        eventId: payload.event_id,
+        operationType: 'event_updated',
+        operationReason: payload.updateReason ?? undefined,
       });
     }
   }
@@ -479,6 +610,7 @@ function sendRsvpConfirmation(payload: RsvpNotificationPayload): void {
       templateId: rsvpConfirmationTemplate.templateId,
       memberId: payload.memberId,
       eventId: payload.eventId,
+      operationType: 'rsvp_confirmation',
     });
   }
 
@@ -489,6 +621,7 @@ function sendRsvpConfirmation(payload: RsvpNotificationPayload): void {
       templateId: rsvpConfirmationTemplate.templateId,
       memberId: payload.memberId,
       eventId: payload.eventId,
+      operationType: 'rsvp_confirmation',
     });
   }
 
@@ -568,6 +701,32 @@ function truncateSms(message: string, limit = 160): string {
     return '.'.repeat(Math.max(limit, 0));
   }
   return `${message.slice(0, limit - 3)}...`;
+}
+
+function pickPreferredChannel(responseChannel: string | null | undefined): 'email' | 'sms' {
+  const normalized = responseChannel?.toLowerCase();
+  if (!normalized) {
+    return 'email';
+  }
+  if (normalized.includes('sms')) {
+    return 'sms';
+  }
+  return 'email';
+}
+
+function summarizeChangedFields(changedFields: string[]): string {
+  const labels: Record<string, string> = {
+    title: 'title',
+    description: 'description',
+    location: 'location',
+    event_date: 'event date/time',
+    end_date: 'end time',
+    capacity: 'capacity',
+  };
+
+  return changedFields
+    .map((field) => labels[field] ?? field)
+    .join(', ');
 }
 
 // ── TaVF notification stubs ────────────────────────────────────────────────────
@@ -736,6 +895,7 @@ export {
   AcsSmsService,
   sendEventCancelledNotification,
   sendEventPublishedNotification,
+  sendEventUpdatedNotification,
   sendRsvpConfirmation,
   StubEmailService,
   StubSmsService,
@@ -743,6 +903,7 @@ export {
 };
 export type {
   EventNotificationPayload,
+  EventUpdateNotificationPayload,
   RsvpNotificationPayload,
   SendEmailOptions,
   SendSmsOptions,

@@ -8,6 +8,7 @@ import rsvpRouter from './rsvp';
 import {
   sendEventCancelledNotification,
   sendEventPublishedNotification,
+  sendEventUpdatedNotification,
 } from '../services/notifications';
 import { recordRsvpResponse, RsvpError, VALID_RESPONSES, type RsvpResponse } from '../services/rsvpService';
 import { verifyRsvpToken } from '../services/rsvpLinkService';
@@ -311,7 +312,17 @@ router.put('/:id', writeLimiter, authenticate, requireEventCreatorOrAdmin, async
     const existingResult = await pool
       .request()
       .input('event_id', sql.UniqueIdentifier, req.params.id)
-      .query<{ status: string }>('SELECT status FROM event WHERE event_id = @event_id');
+      .query<{
+        status: string;
+        title: string;
+        description: string | null;
+        location: string | null;
+        event_date: Date | string;
+        end_date: Date | string | null;
+        capacity: number | null;
+      }>(
+        'SELECT status, title, description, location, event_date, end_date, capacity FROM event WHERE event_id = @event_id'
+      );
 
     const existing = existingResult.recordset[0];
     if (!existing) {
@@ -322,6 +333,33 @@ router.put('/:id', writeLimiter, authenticate, requireEventCreatorOrAdmin, async
     if (existing.status === 'completed' || existing.status === 'cancelled') {
       res.status(409).json({ error: `Cannot edit event in ${existing.status} status` });
       return;
+    }
+
+    const changedFields: string[] = [];
+    const proposedTitle = req.body?.title;
+    const proposedDescription = req.body?.description;
+    const proposedLocation = req.body?.location;
+    const proposedEventDate = req.body?.event_date;
+    const proposedEndDate = req.body?.end_date;
+    const proposedCapacity = req.body?.capacity;
+
+    if (proposedTitle !== undefined && normalizeString(proposedTitle) !== normalizeString(existing.title)) {
+      changedFields.push('title');
+    }
+    if (proposedDescription !== undefined && normalizeString(proposedDescription) !== normalizeString(existing.description)) {
+      changedFields.push('description');
+    }
+    if (proposedLocation !== undefined && normalizeString(proposedLocation) !== normalizeString(existing.location)) {
+      changedFields.push('location');
+    }
+    if (proposedEventDate !== undefined && toUtcMillis(proposedEventDate) !== toUtcMillis(existing.event_date)) {
+      changedFields.push('event_date');
+    }
+    if (proposedEndDate !== undefined && toUtcMillis(proposedEndDate) !== toUtcMillis(existing.end_date)) {
+      changedFields.push('end_date');
+    }
+    if (proposedCapacity !== undefined && normalizeNumber(proposedCapacity) !== normalizeNumber(existing.capacity)) {
+      changedFields.push('capacity');
     }
 
     const updates: string[] = ['updated_at = GETUTCDATE()'];
@@ -379,6 +417,18 @@ router.put('/:id', writeLimiter, authenticate, requireEventCreatorOrAdmin, async
              VALUES (@target_id, @event_id, @group_id, NULL)`
           );
       }
+    }
+
+    if (existing.status === 'published' && changedFields.length > 0) {
+      await sendEventUpdatedNotification({
+        event_id: req.params.id,
+        title: updated.recordset[0].title,
+        event_date: updated.recordset[0].event_date,
+        location: updated.recordset[0].location,
+        description: updated.recordset[0].description,
+        changedFields,
+        updateReason: (req.body?.update_reason as string | undefined) ?? (req.body?.reason as string | undefined) ?? null,
+      });
     }
 
     res.json(updated.recordset[0]);
@@ -450,6 +500,7 @@ router.put('/:id/status', writeLimiter, authenticate, requireEventCreatorOrAdmin
         event_date: existing.event_date,
         location: existing.location,
         description: existing.description,
+        updateReason: (req.body?.reason as string | undefined) ?? (req.body?.cancellation_reason as string | undefined) ?? null,
       });
     }
 
@@ -459,6 +510,34 @@ router.put('/:id/status', writeLimiter, authenticate, requireEventCreatorOrAdmin
     res.status(500).json({ error: 'Internal server error' });
   }
 });
+
+function normalizeString(value: unknown): string | null {
+  if (value === undefined || value === null) {
+    return null;
+  }
+
+  const text = String(value).trim();
+  return text.length === 0 ? null : text;
+}
+
+function normalizeNumber(value: unknown): number | null {
+  if (value === undefined || value === null || value === '') {
+    return null;
+  }
+
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function toUtcMillis(value: unknown): number | null {
+  if (value === undefined || value === null || value === '') {
+    return null;
+  }
+
+  const date = value instanceof Date ? value : new Date(String(value));
+  const millis = date.getTime();
+  return Number.isNaN(millis) ? null : millis;
+}
 
 router.get('/:id/assignments', apiLimiter, authenticate, requireAnyAuthenticatedRole, async (req, res) => {
   try {

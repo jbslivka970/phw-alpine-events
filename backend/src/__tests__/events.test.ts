@@ -3,6 +3,7 @@ import request from 'supertest';
 import eventsRouter from '../routes/events';
 import { getPool } from '../db';
 import { createRsvpToken } from '../services/rsvpLinkService';
+import { sendEventUpdatedNotification } from '../services/notifications';
 
 jest.mock('../db', () => ({
   getPool: jest.fn(),
@@ -38,6 +39,7 @@ jest.mock('../middleware/rateLimiter', () => ({
 jest.mock('../services/notifications', () => ({
   sendEventPublishedNotification: jest.fn(),
   sendEventCancelledNotification: jest.fn(),
+  sendEventUpdatedNotification: jest.fn(),
   sendRsvpConfirmation: jest.fn(),
 }));
 
@@ -109,6 +111,105 @@ describe('events routes', () => {
     expect(res.status).toBe(409);
     expect(res.body.error).toContain('Cannot transition');
     expect(updateRequest.query).not.toHaveBeenCalled();
+  });
+
+  it('PUT /api/events/:id sends update notifications for published events with changed fields', async () => {
+    const queue = [
+      {
+        recordset: [
+          {
+            status: 'published',
+            title: 'Fly Tying 101',
+            description: 'Intro event',
+            location: 'Denver',
+            event_date: '2026-04-01T18:00:00.000Z',
+            end_date: null,
+            capacity: 12,
+          },
+        ],
+      },
+      {
+        recordset: [
+          {
+            event_id: 'event-1',
+            title: 'Fly Tying 101',
+            description: 'Intro event',
+            location: 'Denver',
+            event_date: '2026-04-02T18:00:00.000Z',
+            end_date: null,
+            capacity: 12,
+            status: 'published',
+          },
+        ],
+      },
+    ];
+    const mockRequest = {
+      input: jest.fn().mockReturnThis(),
+      query: jest.fn().mockImplementation(async () => queue.shift() ?? { recordset: [] }),
+    };
+    (getPool as jest.Mock).mockResolvedValue({ request: () => mockRequest });
+
+    const res = await request(app)
+      .put('/api/events/event-1')
+      .send({ event_date: '2026-04-02T18:00:00.000Z', update_reason: 'Weather shift' });
+
+    expect(res.status).toBe(200);
+    expect(sendEventUpdatedNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event_id: 'event-1',
+        updateReason: 'Weather shift',
+      })
+    );
+    expect(sendEventUpdatedNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        changedFields: expect.arrayContaining(['event_date']),
+      })
+    );
+  });
+
+  it('PUT /api/events/:id skips update notifications when no tracked field changed', async () => {
+    const queue = [
+      {
+        recordset: [
+          {
+            status: 'published',
+            title: 'Fly Tying 101',
+            description: 'Intro event',
+            location: 'Denver',
+            event_date: '2026-04-01T18:00:00.000Z',
+            end_date: null,
+            capacity: 12,
+          },
+        ],
+      },
+      {
+        recordset: [
+          {
+            event_id: 'event-1',
+            title: 'Fly Tying 101',
+            description: 'Intro event',
+            location: 'Denver',
+            event_date: '2026-04-01T18:00:00.000Z',
+            end_date: null,
+            capacity: 12,
+            status: 'published',
+          },
+        ],
+      },
+      { recordset: [] },
+    ];
+    const mockRequest = {
+      input: jest.fn().mockReturnThis(),
+      query: jest.fn().mockImplementation(async () => queue.shift() ?? { recordset: [] }),
+    };
+    (getPool as jest.Mock).mockResolvedValue({ request: () => mockRequest });
+
+    const res = await request(app)
+      .put('/api/events/event-1')
+      .send({ notification_targets: [{ group_id: '00000000-0000-0000-0000-000000000111' }] });
+
+    expect(res.status).toBe(200);
+    expect(sendEventUpdatedNotification).not.toHaveBeenCalled();
   });
 
   it('POST /api/events validates required fields', async () => {
