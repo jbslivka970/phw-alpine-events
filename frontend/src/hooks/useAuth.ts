@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useIsAuthenticated, useMsal } from '@azure/msal-react'
 import { loginRequest, ROLES } from '../authConfig'
 import type { AppRole } from '../authConfig'
@@ -16,13 +16,46 @@ function useAuth() {
   const isAuthenticated = useIsAuthenticated()
   const account = accounts[0] ?? null
 
-  const claims = account?.idTokenClaims as Record<string, unknown> | undefined
+  const accountClaims = account?.idTokenClaims as Record<string, unknown> | undefined
+  const [resolvedRoles, setResolvedRoles] = useState<AppRole[]>(() => mapRoles(accountClaims))
 
-  const rawRoleValues = extractRoleValues(claims)
-  const roles = rawRoleValues
-    .map(normalizeRole)
-    .filter((role): role is AppRole => Boolean(role))
-    .filter((role, index, all) => all.indexOf(role) === index)
+  useEffect(() => {
+    setResolvedRoles(mapRoles(accountClaims))
+  }, [accountClaims])
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function refreshClaims() {
+      if (!account) {
+        if (!cancelled) {
+          setResolvedRoles([])
+        }
+        return
+      }
+
+      try {
+        const tokenResponse = await instance.acquireTokenSilent({
+          ...loginRequest,
+          account,
+          forceRefresh: true,
+        })
+
+        if (!cancelled) {
+          const refreshedClaims = tokenResponse.idTokenClaims as Record<string, unknown> | undefined
+          setResolvedRoles(mapRoles(refreshedClaims))
+        }
+      } catch {
+        // Keep previously derived roles if forced refresh is unavailable.
+      }
+    }
+
+    void refreshClaims()
+
+    return () => {
+      cancelled = true
+    }
+  }, [account, instance])
 
   const subjectClaim = typeof account?.idTokenClaims?.sub === 'string'
     ? account.idTokenClaims.sub
@@ -33,7 +66,7 @@ function useAuth() {
         id: subjectClaim ?? account.localAccountId,
         name: account.name ?? account.username ?? 'User',
         email: account.username,
-        roles,
+        roles: resolvedRoles,
       }
     : null
 
@@ -105,6 +138,14 @@ function extractRoleValues(claims: Record<string, unknown> | undefined): string[
   }
 
   return values
+}
+
+function mapRoles(claims: Record<string, unknown> | undefined): AppRole[] {
+  const rawRoleValues = extractRoleValues(claims)
+  return rawRoleValues
+    .map(normalizeRole)
+    .filter((role): role is AppRole => Boolean(role))
+    .filter((role, index, all) => all.indexOf(role) === index)
 }
 
 function normalizeRole(value: string): AppRole | null {
