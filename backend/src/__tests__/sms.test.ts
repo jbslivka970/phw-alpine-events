@@ -176,6 +176,31 @@ describe('sms routes', () => {
     );
   });
 
+  it('POST /api/sms/inbound returns out-of-range hint for indexed response', async () => {
+    const queryResults: QueryResult[] = [
+      { recordset: [{ member_id: 'member-1', mobile_phone: '+13035551212' }] },
+      {
+        recordset: [
+          { event_id: 'event-1', title: 'Climb Night', event_date: new Date('2025-01-01T18:00:00Z'), location: 'Gym' },
+          { event_id: 'event-2', title: 'Ski Tour', event_date: new Date('2025-01-03T18:00:00Z'), location: 'Trailhead' },
+        ],
+      },
+    ];
+    const mockRequest = {
+      input: jest.fn().mockReturnThis(),
+      query: jest.fn().mockImplementation(async () => queryResults.shift() ?? { recordset: [] }),
+    };
+    (getPool as jest.Mock).mockResolvedValue({ request: () => mockRequest });
+
+    const res = await request(app)
+      .post('/api/sms/inbound')
+      .send({ from: '+13035551212', message: 'Y 9' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('multiple_pending_events');
+    expect(res.body.reply).toContain('out of range');
+  });
+
   it('POST /api/sms/inbound responds to Event Grid validation requests', async () => {
     const res = await request(app)
       .post('/api/sms/inbound')

@@ -16,13 +16,23 @@ interface CsvRow {
   emailOptOut: boolean;
 }
 
-type RowAction = 'new' | 'update' | 'unchanged' | 'error';
+type RowAction = 'new' | 'update' | 'unchanged' | 'conflict' | 'error';
+
+type ConflictResolution = 'create' | 'skip';
+
+interface ExistingMemberConflict {
+  memberId: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+}
 
 interface PreviewRow {
   rowNumber: number;
   action: RowAction;
   data: CsvRow;
   existingMemberId?: string;
+  conflictMembers?: ExistingMemberConflict[];
   errorMessage?: string;
 }
 
@@ -33,6 +43,7 @@ interface ImportPreview {
   newRows: number;
   updatedRows: number;
   unchangedRows: number;
+  conflictRows: number;
   skippedRows: number;
   errorRows: number;
   rows: PreviewRow[];
@@ -44,6 +55,15 @@ interface CommitResult {
   committed: number;
   errors: number;
   rowErrors: Array<{ rowNumber: number; errorMessage: string }>;
+  summary: {
+    totalRows: number;
+    newRows: number;
+    updatedRows: number;
+    unchangedRows: number;
+    conflictRows: number;
+    skippedRows: number;
+    errorRows: number;
+  };
 }
 
 interface ImportLogEntry {
@@ -70,7 +90,12 @@ interface ExistingMember {
 
 interface MatchOutcome {
   match: ExistingMember | null;
+  sameEmailMembers?: ExistingMember[];
   conflictReason?: string;
+}
+
+interface CommitOptions {
+  conflictResolutions?: Record<string, ConflictResolution>;
 }
 
 const sessions = new Map<string, { expiresAt: number; preview: ImportPreview }>();
@@ -194,8 +219,10 @@ async function findExistingMember(row: CsvRow): Promise<MatchOutcome> {
     );
 
   const byEmail = result.recordset;
+  const firstName = row.firstName.trim().toLowerCase();
+  const lastName = row.lastName.trim().toLowerCase();
   const exactMatches = byEmail.filter(
-    (member) => member.first_name === row.firstName && member.last_name === row.lastName
+    (member) => member.first_name.trim().toLowerCase() === firstName && member.last_name.trim().toLowerCase() === lastName
   );
 
   if (exactMatches.length > 1) {
@@ -212,6 +239,7 @@ async function findExistingMember(row: CsvRow): Promise<MatchOutcome> {
   if (byEmail.length > 0) {
     return {
       match: null,
+      sameEmailMembers: byEmail,
       conflictReason: `Email already exists for ${byEmail.length} different member record(s). Shared-email households must be mapped by exact first/last name.`,
     };
   }
@@ -226,6 +254,7 @@ async function generatePreview(buffer: Buffer, fileName: string, sessionId: stri
   let newRows = 0;
   let updatedRows = 0;
   let unchangedRows = 0;
+  let conflictRows = 0;
   let errorRows = 0;
 
   for (const row of rows) {
@@ -240,16 +269,22 @@ async function generatePreview(buffer: Buffer, fileName: string, sessionId: stri
       continue;
     }
 
-    const { match: existing, conflictReason } = await findExistingMember(row);
+    const { match: existing, conflictReason, sameEmailMembers } = await findExistingMember(row);
 
     if (conflictReason) {
       previewRows.push({
         rowNumber: row.rowNumber,
-        action: 'error',
+        action: 'conflict',
         data: row,
+        conflictMembers: (sameEmailMembers ?? []).map((member) => ({
+          memberId: member.member_id,
+          firstName: member.first_name,
+          lastName: member.last_name,
+          email: member.email,
+        })),
         errorMessage: conflictReason,
       });
-      errorRows++;
+      conflictRows++;
       continue;
     }
 
@@ -288,6 +323,7 @@ async function generatePreview(buffer: Buffer, fileName: string, sessionId: stri
     newRows,
     updatedRows,
     unchangedRows,
+    conflictRows,
     skippedRows: 0,
     errorRows,
     rows: previewRows,
@@ -295,12 +331,16 @@ async function generatePreview(buffer: Buffer, fileName: string, sessionId: stri
   };
 }
 
-async function commitImport(preview: ImportPreview): Promise<CommitResult> {
+async function commitImport(preview: ImportPreview, options?: CommitOptions): Promise<CommitResult> {
   const pool = await getPool();
   const tx = new sql.Transaction(pool);
   const importId = crypto.randomUUID();
   const rowErrors: Array<{ rowNumber: number; errorMessage: string }> = [];
+  const conflictResolutions = options?.conflictResolutions ?? {};
   let committed = 0;
+  let inserted = 0;
+  let updated = 0;
+  let skipped = 0;
 
   await tx.begin();
   try {
@@ -319,18 +359,36 @@ async function commitImport(preview: ImportPreview): Promise<CommitResult> {
           (@import_id, @file_name, @rows_processed, @rows_inserted, @rows_updated, @rows_skipped, @rows_errored, 'running', GETUTCDATE())`
       );
 
-    let inserted = 0;
-    let updated = 0;
-
     for (const row of preview.rows) {
-      if (row.action === 'error' || row.action === 'unchanged') {
+      if (row.action === 'error') {
         continue;
+      }
+
+      if (row.action === 'unchanged') {
+        skipped++;
+        continue;
+      }
+
+      if (row.action === 'conflict') {
+        const resolution = conflictResolutions[String(row.rowNumber)];
+        if (resolution === 'skip') {
+          skipped++;
+          continue;
+        }
+
+        if (resolution !== 'create') {
+          rowErrors.push({
+            rowNumber: row.rowNumber,
+            errorMessage: 'Conflict row is missing a resolution. Choose create or skip before commit.',
+          });
+          continue;
+        }
       }
 
       try {
         const hash = computeRowHash(row.data);
 
-        if (row.action === 'new') {
+        if (row.action === 'new' || row.action === 'conflict') {
           await new sql.Request(tx)
             .input('member_id', sql.UniqueIdentifier, crypto.randomUUID())
             .input('first_name', sql.NVarChar, row.data.firstName)
@@ -396,12 +454,14 @@ async function commitImport(preview: ImportPreview): Promise<CommitResult> {
       .input('import_id', sql.UniqueIdentifier, importId)
       .input('rows_inserted', sql.Int, inserted)
       .input('rows_updated', sql.Int, updated)
+      .input('rows_skipped', sql.Int, skipped)
       .input('rows_errored', sql.Int, preview.errorRows + rowErrors.length)
       .input('error_detail', sql.NVarChar(sql.MAX), rowErrors.length ? JSON.stringify(rowErrors) : null)
       .query(
         `UPDATE import_log SET
            rows_inserted = @rows_inserted,
            rows_updated = @rows_updated,
+           rows_skipped = @rows_skipped,
            rows_errored = @rows_errored,
            error_detail = @error_detail,
            status = 'completed',
@@ -420,6 +480,15 @@ async function commitImport(preview: ImportPreview): Promise<CommitResult> {
     committed,
     errors: preview.errorRows + rowErrors.length,
     rowErrors,
+    summary: {
+      totalRows: preview.totalRows,
+      newRows: inserted,
+      updatedRows: updated,
+      unchangedRows: preview.unchangedRows,
+      conflictRows: preview.conflictRows,
+      skippedRows: skipped,
+      errorRows: preview.errorRows + rowErrors.length,
+    },
   };
 }
 

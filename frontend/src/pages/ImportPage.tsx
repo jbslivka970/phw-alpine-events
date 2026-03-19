@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { importApi } from '../api/imports'
-import type { ImportCommitResult, ImportPreviewResult } from '../api/imports'
+import type { ImportCommitResult, ImportPreviewResult, ImportPreviewRow } from '../api/imports'
 
 interface ImportLogEntry {
   import_id: string
@@ -15,6 +15,12 @@ interface ImportLogEntry {
 }
 
 type Phase = 'idle' | 'previewing' | 'preview' | 'committing' | 'done' | 'error'
+
+type ConflictResolution = 'create' | 'skip'
+
+function isConflictRow(row: ImportPreviewRow): row is ImportPreviewRow & { action: 'conflict' } {
+  return row.action === 'conflict'
+}
 
 function SummaryRow({ label, value, highlight }: { label: string; value: number; highlight?: boolean }) {
   return (
@@ -31,6 +37,7 @@ function ImportPage() {
   const [error, setError] = useState<string | null>(null)
   const [preview, setPreview] = useState<ImportPreviewResult | null>(null)
   const [result, setResult] = useState<ImportCommitResult | null>(null)
+  const [conflictResolutions, setConflictResolutions] = useState<Record<number, ConflictResolution>>({})
   const [logs, setLogs] = useState<ImportLogEntry[]>([])
   const [logsLoading, setLogsLoading] = useState(false)
 
@@ -54,6 +61,7 @@ function ImportPage() {
     setPhase('idle')
     setPreview(null)
     setResult(null)
+    setConflictResolutions({})
     setError(null)
     if (fileRef.current) fileRef.current.value = ''
   }
@@ -70,6 +78,13 @@ function ImportPage() {
     try {
       const data = await importApi.preview(file)
       setPreview(data)
+      const defaults: Record<number, ConflictResolution> = {}
+      for (const row of data.rows) {
+        if (isConflictRow(row)) {
+          defaults[row.rowNumber] = 'skip'
+        }
+      }
+      setConflictResolutions(defaults)
       setPhase('preview')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Preview failed.')
@@ -82,7 +97,11 @@ function ImportPage() {
     setPhase('committing')
     setError(null)
     try {
-      const data = await importApi.commit(preview.sessionId)
+      const data = await importApi.commit(preview.sessionId, {
+        conflictResolutions: Object.fromEntries(
+          Object.entries(conflictResolutions).map(([rowNumber, resolution]) => [rowNumber, resolution])
+        ),
+      })
       setResult(data)
       setPhase('done')
       void loadLogs()
@@ -91,6 +110,15 @@ function ImportPage() {
       setPhase('error')
     }
   }
+
+  function updateConflictResolution(rowNumber: number, resolution: ConflictResolution) {
+    setConflictResolutions((current) => ({
+      ...current,
+      [rowNumber]: resolution,
+    }))
+  }
+
+  const conflictRows = (preview?.rows ?? []).filter(isConflictRow)
 
   return (
     <div className="import-page">
@@ -135,9 +163,60 @@ function ImportPage() {
               <SummaryRow label="New members" value={preview.summary.newRows} highlight />
               <SummaryRow label="Updated members" value={preview.summary.updatedRows} highlight />
               <SummaryRow label="Unchanged" value={preview.summary.unchangedRows ?? 0} />
+              <SummaryRow label="Conflicts" value={preview.summary.conflictRows ?? 0} />
               <SummaryRow label="Skipped" value={preview.summary.skippedRows} />
               <SummaryRow label="Errors" value={preview.summary.errorRows} />
             </div>
+
+            {conflictRows.length > 0 && (
+              <div className="import-conflicts">
+                <h3 className="import-conflicts__title">Shared Email Conflicts</h3>
+                <p className="import-conflicts__hint">
+                  Choose how to handle each row where the email already exists for a different member name.
+                </p>
+                <div className="import-conflicts__table-wrapper">
+                  <table className="import-conflicts__table">
+                    <thead>
+                      <tr>
+                        <th>Row</th>
+                        <th>Incoming Member</th>
+                        <th>Email</th>
+                        <th>Existing Members</th>
+                        <th>Decision</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {conflictRows.map((row) => (
+                        <tr key={row.rowNumber}>
+                          <td>{row.rowNumber}</td>
+                          <td>{`${row.data.firstName} ${row.data.lastName}`.trim()}</td>
+                          <td>{row.data.email}</td>
+                          <td>
+                            {(row.conflictMembers ?? []).length === 0
+                              ? row.errorMessage ?? 'Conflict detected'
+                              : (row.conflictMembers ?? [])
+                                  .map((member) => `${member.firstName} ${member.lastName}`.trim())
+                                  .join(', ')}
+                          </td>
+                          <td>
+                            <select
+                              className="import-conflicts__select"
+                              value={conflictResolutions[row.rowNumber] ?? 'skip'}
+                              onChange={(event) =>
+                                updateConflictResolution(row.rowNumber, event.target.value as ConflictResolution)
+                              }
+                            >
+                              <option value="skip">Skip</option>
+                              <option value="create">Create New Member</option>
+                            </select>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
 
             <div className="import-preview__actions">
               <button
@@ -165,6 +244,7 @@ function ImportPage() {
             <div className="import-summary">
               <SummaryRow label="New members added" value={result.summary.newRows} highlight />
               <SummaryRow label="Members updated" value={result.summary.updatedRows} highlight />
+              <SummaryRow label="Conflicts reviewed" value={result.summary.conflictRows ?? 0} />
               <SummaryRow label="Skipped" value={result.summary.skippedRows} />
               <SummaryRow label="Errors" value={result.summary.errorRows} />
             </div>

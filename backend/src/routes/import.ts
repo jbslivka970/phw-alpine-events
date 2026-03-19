@@ -47,6 +47,7 @@ router.post('/preview', writeLimiter, authenticate, requireAdmin, upload.single(
         newRows: preview.newRows,
         updatedRows: preview.updatedRows,
         unchangedRows: preview.unchangedRows,
+        conflictRows: preview.conflictRows,
         skippedRows: preview.skippedRows,
         errorRows: preview.errorRows,
       },
@@ -65,7 +66,10 @@ router.post('/commit/:sessionId', writeLimiter, authenticate, requireAdmin, asyn
       return;
     }
 
-    const result = await commitImport(preview);
+    const result = await commitImport(preview, {
+      conflictResolutions: (req.body as { conflictResolutions?: Record<string, 'create' | 'skip'> } | undefined)
+        ?.conflictResolutions,
+    });
     deletePreviewSession(req.params.sessionId);
 
     res.status(200).json(result);

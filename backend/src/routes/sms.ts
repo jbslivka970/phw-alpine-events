@@ -151,7 +151,7 @@ async function processInboundMessage(from: string, rawMessage: string): Promise<
 
   const targetEvent = resolveTargetEvent(parsed.eventIndex, pendingEvents);
   if (!targetEvent) {
-    const reply = buildAmbiguityReply(pendingEvents);
+    const reply = buildAmbiguityReply(pendingEvents, parsed.eventIndex);
     await notificationService.sendSms({
       to: member.mobile_phone,
       message: reply,
@@ -251,11 +251,16 @@ function resolveTargetEvent(eventIndex: number | undefined, pendingEvents: Pendi
   return null;
 }
 
-function buildAmbiguityReply(pendingEvents: PendingEvent[]): string {
+function buildAmbiguityReply(pendingEvents: PendingEvent[], attemptedIndex?: number): string {
   const eventList = pendingEvents
     .slice(0, 3)
     .map((event, index) => `${index + 1}) ${event.title}`)
     .join(' ');
+
+  if (attemptedIndex !== undefined && (attemptedIndex < 1 || attemptedIndex > pendingEvents.length)) {
+    return `PHW Alpine: That event number is out of range. Reply like 'Y 1', 'N 1', 'M 1', or 'W 1'. ${eventList}`;
+  }
+
   return `PHW Alpine: You have multiple open invites. Reply like 'Y 1', 'N 1', 'M 1', or 'W 1'. ${eventList}`;
 }
 

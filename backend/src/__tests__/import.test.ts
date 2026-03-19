@@ -47,6 +47,39 @@ describe('import routes', () => {
     expect(res.status).toBe(404);
   });
 
+  it('POST /api/import/commit/:sessionId forwards conflict resolutions', async () => {
+    (csvImportService.getPreviewSession as jest.Mock).mockReturnValue({
+      sessionId: 'session-1',
+      fileName: 'members.csv',
+      rows: [],
+    });
+    (csvImportService.commitImport as jest.Mock).mockResolvedValue({
+      importId: 'import-1',
+      committed: 1,
+      errors: 0,
+      rowErrors: [],
+      summary: {
+        totalRows: 1,
+        newRows: 1,
+        updatedRows: 0,
+        unchangedRows: 0,
+        conflictRows: 1,
+        skippedRows: 0,
+        errorRows: 0,
+      },
+    });
+
+    const res = await request(app)
+      .post('/api/import/commit/session-1')
+      .send({ conflictResolutions: { '12': 'create' } });
+
+    expect(res.status).toBe(200);
+    expect(csvImportService.commitImport).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: 'session-1' }),
+      { conflictResolutions: { '12': 'create' } }
+    );
+  });
+
   it('GET /api/import/logs returns logs', async () => {
     (csvImportService.getImportLogs as jest.Mock).mockResolvedValue([
       { importId: 'import-1', status: 'completed' },
