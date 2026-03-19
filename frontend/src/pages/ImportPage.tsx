@@ -1,18 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { importApi } from '../api/imports'
-import type { ImportCommitResult, ImportPreviewResult, ImportPreviewRow } from '../api/imports'
-
-interface ImportLogEntry {
-  import_id: string
-  file_name: string
-  imported_at: string
-  total_rows: number
-  new_rows: number
-  updated_rows: number
-  skipped_rows: number
-  error_rows: number
-  imported_by: string | null
-}
+import type { ImportCommitResult, ImportLog, ImportPreviewResult, ImportPreviewRow } from '../api/imports'
 
 type Phase = 'idle' | 'previewing' | 'preview' | 'committing' | 'done' | 'error'
 
@@ -38,14 +26,23 @@ function ImportPage() {
   const [preview, setPreview] = useState<ImportPreviewResult | null>(null)
   const [result, setResult] = useState<ImportCommitResult | null>(null)
   const [conflictResolutions, setConflictResolutions] = useState<Record<number, ConflictResolution>>({})
-  const [logs, setLogs] = useState<ImportLogEntry[]>([])
+  const [logs, setLogs] = useState<ImportLog[]>([])
   const [logsLoading, setLogsLoading] = useState(false)
+  const [filters, setFilters] = useState({
+    startedFrom: '',
+    startedTo: '',
+    importedBy: '',
+  })
 
-  async function loadLogs() {
+  async function loadLogs(activeFilters = filters) {
     setLogsLoading(true)
     try {
-      const data = await importApi.logs()
-      setLogs((data.logs ?? []) as ImportLogEntry[])
+      const data = await importApi.logs({
+        startedFrom: activeFilters.startedFrom || undefined,
+        startedTo: activeFilters.startedTo || undefined,
+        importedBy: activeFilters.importedBy || undefined,
+      })
+      setLogs(data.logs ?? [])
     } catch {
       // non-fatal — just leave logs empty
     } finally {
@@ -55,6 +52,7 @@ function ImportPage() {
 
   useEffect(() => {
     void loadLogs()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   function resetToIdle() {
@@ -116,6 +114,24 @@ function ImportPage() {
       ...current,
       [rowNumber]: resolution,
     }))
+  }
+
+  async function handleDownloadReport(importId: string) {
+    try {
+      await importApi.downloadReport(importId)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to download import report.')
+    }
+  }
+
+  function handleApplyFilters() {
+    void loadLogs(filters)
+  }
+
+  function handleClearFilters() {
+    const empty = { startedFrom: '', startedTo: '', importedBy: '' }
+    setFilters(empty)
+    void loadLogs(empty)
   }
 
   const conflictRows = (preview?.rows ?? []).filter(isConflictRow)
@@ -259,9 +275,45 @@ function ImportPage() {
       <section className="import-card">
         <div className="import-logs__header">
           <h2 className="import-card__title">Import History</h2>
-          <button className="btn btn--outline btn--sm" onClick={loadLogs} disabled={logsLoading}>
+          <button className="btn btn--outline btn--sm" onClick={() => void loadLogs()} disabled={logsLoading}>
             {logsLoading ? 'Loading…' : 'Refresh'}
           </button>
+        </div>
+
+        <div className="import-logs__filters">
+          <label className="import-logs__filter">
+            <span>From</span>
+            <input
+              type="date"
+              value={filters.startedFrom}
+              onChange={(event) => setFilters((current) => ({ ...current, startedFrom: event.target.value }))}
+            />
+          </label>
+          <label className="import-logs__filter">
+            <span>To</span>
+            <input
+              type="date"
+              value={filters.startedTo}
+              onChange={(event) => setFilters((current) => ({ ...current, startedTo: event.target.value }))}
+            />
+          </label>
+          <label className="import-logs__filter import-logs__filter--wide">
+            <span>Operator</span>
+            <input
+              type="text"
+              placeholder="Email or user ID"
+              value={filters.importedBy}
+              onChange={(event) => setFilters((current) => ({ ...current, importedBy: event.target.value }))}
+            />
+          </label>
+          <div className="import-logs__filter-actions">
+            <button className="btn btn--outline btn--sm" onClick={handleApplyFilters} disabled={logsLoading}>
+              Apply
+            </button>
+            <button className="btn btn--outline btn--sm" onClick={handleClearFilters} disabled={logsLoading}>
+              Clear
+            </button>
+          </div>
         </div>
 
         {logsLoading && logs.length === 0 ? (
@@ -280,20 +332,29 @@ function ImportPage() {
                   <th>Updated</th>
                   <th>Errors</th>
                   <th>Imported By</th>
+                  <th>Report</th>
                 </tr>
               </thead>
               <tbody>
                 {logs.map((log) => (
-                  <tr key={log.import_id}>
-                    <td className="import-logs__file">{log.file_name}</td>
-                    <td>{new Date(log.imported_at).toLocaleString()}</td>
-                    <td>{log.total_rows}</td>
-                    <td>{log.new_rows}</td>
-                    <td>{log.updated_rows}</td>
-                    <td className={log.error_rows > 0 ? 'import-logs__errors--nonzero' : ''}>
-                      {log.error_rows}
+                  <tr key={log.importId}>
+                    <td className="import-logs__file">{log.fileName ?? '—'}</td>
+                    <td>{new Date(log.startedAt).toLocaleString()}</td>
+                    <td>{log.rowsProcessed}</td>
+                    <td>{log.rowsInserted}</td>
+                    <td>{log.rowsUpdated}</td>
+                    <td className={log.rowsErrored > 0 ? 'import-logs__errors--nonzero' : ''}>
+                      {log.rowsErrored}
                     </td>
-                    <td>{log.imported_by ?? '—'}</td>
+                    <td>{log.importedBy ?? '—'}</td>
+                    <td>
+                      <button
+                        className="btn btn--outline btn--sm"
+                        onClick={() => void handleDownloadReport(log.importId)}
+                      >
+                        CSV
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>

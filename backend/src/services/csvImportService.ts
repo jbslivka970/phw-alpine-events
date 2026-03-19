@@ -96,6 +96,18 @@ interface MatchOutcome {
 
 interface CommitOptions {
   conflictResolutions?: Record<string, ConflictResolution>;
+  importedByUserId?: string | null;
+}
+
+interface ImportLogFilters {
+  startedFrom?: Date;
+  startedTo?: Date;
+  importedBy?: string;
+}
+
+interface ImportLogReport {
+  fileName: string;
+  csv: string;
 }
 
 const sessions = new Map<string, { expiresAt: number; preview: ImportPreview }>();
@@ -341,11 +353,13 @@ async function commitImport(preview: ImportPreview, options?: CommitOptions): Pr
   let inserted = 0;
   let updated = 0;
   let skipped = 0;
+  const importedByUserId = toNullableUuid(options?.importedByUserId ?? null);
 
   await tx.begin();
   try {
     await new sql.Request(tx)
       .input('import_id', sql.UniqueIdentifier, importId)
+      .input('imported_by', sql.UniqueIdentifier, importedByUserId)
       .input('file_name', sql.NVarChar, preview.fileName)
       .input('rows_processed', sql.Int, preview.totalRows)
       .input('rows_inserted', sql.Int, 0)
@@ -354,9 +368,9 @@ async function commitImport(preview: ImportPreview, options?: CommitOptions): Pr
       .input('rows_errored', sql.Int, preview.errorRows)
       .query(
         `INSERT INTO import_log
-          (import_id, file_name, rows_processed, rows_inserted, rows_updated, rows_skipped, rows_errored, status, started_at)
+          (import_id, imported_by, file_name, rows_processed, rows_inserted, rows_updated, rows_skipped, rows_errored, status, started_at)
          VALUES
-          (@import_id, @file_name, @rows_processed, @rows_inserted, @rows_updated, @rows_skipped, @rows_errored, 'running', GETUTCDATE())`
+          (@import_id, @imported_by, @file_name, @rows_processed, @rows_inserted, @rows_updated, @rows_skipped, @rows_errored, 'running', GETUTCDATE())`
       );
 
     for (const row of preview.rows) {
@@ -492,29 +506,154 @@ async function commitImport(preview: ImportPreview, options?: CommitOptions): Pr
   };
 }
 
-async function getImportLogs(limit = 50): Promise<ImportLogEntry[]> {
+async function getImportLogs(limit = 50, filters?: ImportLogFilters): Promise<ImportLogEntry[]> {
+  const pool = await getPool();
+  const request = pool.request().input('limit', sql.Int, limit);
+
+  const whereClauses: string[] = [];
+  if (filters?.startedFrom) {
+    whereClauses.push('il.started_at >= @started_from');
+    request.input('started_from', sql.DateTime, filters.startedFrom);
+  }
+  if (filters?.startedTo) {
+    whereClauses.push('il.started_at < @started_to');
+    request.input('started_to', sql.DateTime, filters.startedTo);
+  }
+  if (filters?.importedBy) {
+    whereClauses.push('(u.email LIKE @imported_by OR il.imported_by = TRY_CONVERT(uniqueidentifier, @imported_by_exact))');
+    request.input('imported_by', sql.NVarChar, `%${filters.importedBy}%`);
+    request.input('imported_by_exact', sql.NVarChar, filters.importedBy);
+  }
+
+  const whereSql = whereClauses.length ? `WHERE ${whereClauses.join(' AND ')}` : '';
+
+  const result = await request.query<ImportLogEntry>(
+    `SELECT TOP (@limit)
+       il.import_id AS importId,
+       il.file_name AS fileName,
+       il.rows_processed AS rowsProcessed,
+       il.rows_inserted AS rowsInserted,
+       il.rows_updated AS rowsUpdated,
+       il.rows_skipped AS rowsSkipped,
+       il.rows_errored AS rowsErrored,
+       il.status,
+       il.error_detail AS errorDetail,
+       il.started_at AS startedAt,
+       il.completed_at AS completedAt,
+       COALESCE(u.email, CONVERT(nvarchar(36), il.imported_by)) AS importedBy
+     FROM import_log il
+     LEFT JOIN [user] u ON u.user_id = il.imported_by
+     ${whereSql}
+     ORDER BY il.started_at DESC`
+  );
+
+  return result.recordset;
+}
+
+async function getImportLogReport(importId: string): Promise<ImportLogReport | null> {
   const pool = await getPool();
   const result = await pool
     .request()
-    .input('limit', sql.Int, limit)
-    .query<ImportLogEntry>(
-      `SELECT TOP (@limit)
-         import_id AS importId,
-         file_name AS fileName,
-         rows_processed AS rowsProcessed,
-         rows_inserted AS rowsInserted,
-         rows_updated AS rowsUpdated,
-         rows_skipped AS rowsSkipped,
-         rows_errored AS rowsErrored,
-         status,
-         error_detail AS errorDetail,
-         started_at AS startedAt,
-         completed_at AS completedAt
-       FROM import_log
-       ORDER BY started_at DESC`
+    .input('import_id', sql.UniqueIdentifier, importId)
+    .query<{
+      importId: string;
+      fileName: string | null;
+      rowsProcessed: number;
+      rowsInserted: number;
+      rowsUpdated: number;
+      rowsSkipped: number;
+      rowsErrored: number;
+      status: string;
+      startedAt: Date;
+      completedAt: Date | null;
+      importedBy: string | null;
+      errorDetail: string | null;
+    }>(
+      `SELECT
+         il.import_id AS importId,
+         il.file_name AS fileName,
+         il.rows_processed AS rowsProcessed,
+         il.rows_inserted AS rowsInserted,
+         il.rows_updated AS rowsUpdated,
+         il.rows_skipped AS rowsSkipped,
+         il.rows_errored AS rowsErrored,
+         il.status,
+         il.started_at AS startedAt,
+         il.completed_at AS completedAt,
+         COALESCE(u.email, CONVERT(nvarchar(36), il.imported_by)) AS importedBy,
+         il.error_detail AS errorDetail
+       FROM import_log il
+       LEFT JOIN [user] u ON u.user_id = il.imported_by
+       WHERE il.import_id = @import_id`
     );
 
-  return result.recordset;
+  const row = result.recordset[0];
+  if (!row) {
+    return null;
+  }
+
+  const rowErrors = parseRowErrors(row.errorDetail);
+  const lines: string[] = [];
+  lines.push('section,key,value');
+  lines.push(`summary,import_id,${csvCell(row.importId)}`);
+  lines.push(`summary,file_name,${csvCell(row.fileName ?? '')}`);
+  lines.push(`summary,status,${csvCell(row.status)}`);
+  lines.push(`summary,started_at,${csvCell(new Date(row.startedAt).toISOString())}`);
+  lines.push(`summary,completed_at,${csvCell(row.completedAt ? new Date(row.completedAt).toISOString() : '')}`);
+  lines.push(`summary,imported_by,${csvCell(row.importedBy ?? '')}`);
+  lines.push(`summary,rows_processed,${row.rowsProcessed}`);
+  lines.push(`summary,rows_inserted,${row.rowsInserted}`);
+  lines.push(`summary,rows_updated,${row.rowsUpdated}`);
+  lines.push(`summary,rows_skipped,${row.rowsSkipped}`);
+  lines.push(`summary,rows_errored,${row.rowsErrored}`);
+  lines.push('');
+  lines.push('section,row_number,error_message');
+
+  for (const error of rowErrors) {
+    lines.push(`row_error,${error.rowNumber},${csvCell(error.errorMessage)}`);
+  }
+
+  if (rowErrors.length === 0) {
+    lines.push('row_error,,');
+  }
+
+  const reportName = (row.fileName ?? `import-${row.importId}`).replace(/\.csv$/i, '');
+  return {
+    fileName: `${reportName}-report.csv`,
+    csv: lines.join('\n'),
+  };
+}
+
+function parseRowErrors(payload: string | null): Array<{ rowNumber: number; errorMessage: string }> {
+  if (!payload) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(payload) as Array<{ rowNumber: number; errorMessage: string }>;
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+    return parsed.filter(
+      (entry) => typeof entry?.rowNumber === 'number' && typeof entry?.errorMessage === 'string'
+    );
+  } catch {
+    return [];
+  }
+}
+
+function csvCell(value: string): string {
+  const escaped = value.replace(/"/g, '""');
+  return `"${escaped}"`;
+}
+
+function toNullableUuid(value: string | null): string | null {
+  if (!value) {
+    return null;
+  }
+
+  const uuidV4Like = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  return uuidV4Like.test(value) ? value : null;
 }
 
 async function getImportLogRowErrors(importId: string): Promise<Array<{ rowNumber: number; errorMessage: string }>> {
@@ -543,7 +682,8 @@ export {
   generatePreview,
   getImportLogRowErrors,
   getImportLogs,
+  getImportLogReport,
   getPreviewSession,
   storePreviewSession,
 };
-export type { CommitResult, CsvRow, ImportLogEntry, ImportPreview, PreviewRow };
+export type { CommitResult, CsvRow, ImportLogEntry, ImportLogFilters, ImportPreview, PreviewRow };

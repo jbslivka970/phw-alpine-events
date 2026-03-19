@@ -10,6 +10,7 @@ import {
   generatePreview,
   getImportLogRowErrors,
   getImportLogs,
+  getImportLogReport,
   getPreviewSession,
   storePreviewSession,
 } from '../services/csvImportService';
@@ -69,6 +70,7 @@ router.post('/commit/:sessionId', writeLimiter, authenticate, requireAdmin, asyn
     const result = await commitImport(preview, {
       conflictResolutions: (req.body as { conflictResolutions?: Record<string, 'create' | 'skip'> } | undefined)
         ?.conflictResolutions,
+      importedByUserId: req.user?.sub ?? null,
     });
     deletePreviewSession(req.params.sessionId);
 
@@ -78,12 +80,48 @@ router.post('/commit/:sessionId', writeLimiter, authenticate, requireAdmin, asyn
   }
 });
 
-router.get('/logs', authenticate, requireAdmin, async (_req: Request, res: Response) => {
+router.get('/logs', authenticate, requireAdmin, async (req: Request, res: Response) => {
   try {
-    const logs = await getImportLogs();
+    const startedFromRaw = typeof req.query.started_from === 'string' ? req.query.started_from : undefined;
+    const startedToRaw = typeof req.query.started_to === 'string' ? req.query.started_to : undefined;
+    const importedBy = typeof req.query.imported_by === 'string' ? req.query.imported_by.trim() : undefined;
+
+    const startedFrom = startedFromRaw ? new Date(startedFromRaw) : undefined;
+    const startedTo = startedToRaw ? new Date(startedToRaw) : undefined;
+
+    if (startedFrom && Number.isNaN(startedFrom.getTime())) {
+      res.status(400).json({ error: 'started_from must be a valid date' });
+      return;
+    }
+    if (startedTo && Number.isNaN(startedTo.getTime())) {
+      res.status(400).json({ error: 'started_to must be a valid date' });
+      return;
+    }
+
+    const logs = await getImportLogs(100, {
+      startedFrom,
+      startedTo,
+      importedBy: importedBy || undefined,
+    });
     res.status(200).json({ logs });
   } catch (error: unknown) {
     res.status(500).json({ error: error instanceof Error ? error.message : 'Failed to fetch logs' });
+  }
+});
+
+router.get('/logs/:importId/report.csv', authenticate, requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const report = await getImportLogReport(req.params.importId);
+    if (!report) {
+      res.status(404).json({ error: 'Import log not found' });
+      return;
+    }
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${report.fileName}"`);
+    res.status(200).send(report.csv);
+  } catch (error: unknown) {
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Failed to generate report' });
   }
 });
 

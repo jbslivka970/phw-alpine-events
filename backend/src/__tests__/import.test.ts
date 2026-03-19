@@ -76,7 +76,10 @@ describe('import routes', () => {
     expect(res.status).toBe(200);
     expect(csvImportService.commitImport).toHaveBeenCalledWith(
       expect.objectContaining({ sessionId: 'session-1' }),
-      { conflictResolutions: { '12': 'create' } }
+      {
+        conflictResolutions: { '12': 'create' },
+        importedByUserId: '00000000-0000-0000-0000-000000000001',
+      }
     );
   });
 
@@ -89,5 +92,33 @@ describe('import routes', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.logs).toEqual([{ importId: 'import-1', status: 'completed' }]);
+  });
+
+  it('GET /api/import/logs forwards filters', async () => {
+    (csvImportService.getImportLogs as jest.Mock).mockResolvedValue([]);
+
+    const res = await request(app).get('/api/import/logs?started_from=2026-03-01&started_to=2026-03-31&imported_by=admin@example.com');
+
+    expect(res.status).toBe(200);
+    expect(csvImportService.getImportLogs).toHaveBeenCalledWith(
+      100,
+      expect.objectContaining({
+        importedBy: 'admin@example.com',
+      })
+    );
+  });
+
+  it('GET /api/import/logs/:importId/report.csv returns CSV attachment', async () => {
+    (csvImportService.getImportLogReport as jest.Mock).mockResolvedValue({
+      fileName: 'members-report.csv',
+      csv: 'section,key,value\nsummary,import_id,"import-1"',
+    });
+
+    const res = await request(app).get('/api/import/logs/import-1/report.csv');
+
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toContain('text/csv');
+    expect(res.headers['content-disposition']).toContain('members-report.csv');
+    expect(res.text).toContain('summary,import_id');
   });
 });
