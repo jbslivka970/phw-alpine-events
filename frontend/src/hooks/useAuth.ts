@@ -16,9 +16,13 @@ function useAuth() {
   const isAuthenticated = useIsAuthenticated()
   const account = accounts[0] ?? null
 
-  const rawRoles = Array.isArray(account?.idTokenClaims?.roles)
-    ? (account?.idTokenClaims?.roles as string[])
-    : []
+  const claims = account?.idTokenClaims as Record<string, unknown> | undefined
+
+  const rawRoleValues = extractRoleValues(claims)
+  const roles = rawRoleValues
+    .map(normalizeRole)
+    .filter((role): role is AppRole => Boolean(role))
+    .filter((role, index, all) => all.indexOf(role) === index)
 
   const subjectClaim = typeof account?.idTokenClaims?.sub === 'string'
     ? account.idTokenClaims.sub
@@ -29,7 +33,7 @@ function useAuth() {
         id: subjectClaim ?? account.localAccountId,
         name: account.name ?? account.username ?? 'User',
         email: account.username,
-        roles: rawRoles.filter((role): role is AppRole => Object.values(ROLES).includes(role as AppRole)),
+        roles,
       }
     : null
 
@@ -75,6 +79,53 @@ function useAuth() {
   }, [account, instance])
 
   return { hasRole, isAdmin, canCreateEvents, isAuthenticated, login, logout, user }
+}
+
+function extractRoleValues(claims: Record<string, unknown> | undefined): string[] {
+  if (!claims) {
+    return []
+  }
+
+  const keys = ['roles', 'role', 'extension_Roles', 'extension_roles', 'app_roles', 'appRoles']
+  const values: string[] = []
+
+  for (const key of keys) {
+    const value = claims[key]
+    if (typeof value === 'string') {
+      values.push(value)
+      continue
+    }
+    if (Array.isArray(value)) {
+      for (const role of value) {
+        if (typeof role === 'string') {
+          values.push(role)
+        }
+      }
+    }
+  }
+
+  return values
+}
+
+function normalizeRole(value: string): AppRole | null {
+  const normalized = value.trim().toUpperCase().replace(/[\s-]+/g, '_')
+  if (Object.values(ROLES).includes(normalized as AppRole)) {
+    return normalized as AppRole
+  }
+
+  if (['ADMINISTRATOR', 'CHAPTER_ADMIN', 'SUPERADMIN', 'SUPER_ADMIN'].includes(normalized)) {
+    return ROLES.ADMIN
+  }
+
+  if (['EVENTCREATOR', 'EVENT_MANAGER', 'EVENT_ADMIN'].includes(normalized)) {
+    return ROLES.EVENT_CREATOR
+  }
+
+  if (['MEMBER', 'PARTICIPANT', 'READER'].includes(normalized)) {
+    return ROLES.USER
+  }
+
+  return null
 }
 
 export { useAuth }
