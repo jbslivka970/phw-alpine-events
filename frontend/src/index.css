@@ -353,6 +353,11 @@ textarea {
   gap: 0.75rem;
 }
 
+.members-form .modal__footer {
+  padding: 0;
+  border-top: 0;
+}
+
 .members-checkbox {
   display: flex;
   gap: 0.5rem;
@@ -579,6 +584,12 @@ textarea {
   display: flex;
   align-items: center;
   justify-content: space-between;
+}
+
+.import-logs__hint {
+  margin: -0.35rem 0 0;
+  font-size: 0.85rem;
+  color: #6b7280;
 }
 
 .import-logs__filters {

@@ -159,65 +159,72 @@ function MembersPage() {
       </section>
 
       {selected && edit && (
-        <section className="card members-editor">
-          <h2>Edit member</h2>
-          <form className="members-form" onSubmit={handleSave}>
-            <input className="members-input" value={edit.first_name} onChange={(e) => setEdit({ ...edit, first_name: e.target.value })} placeholder="First name" required />
-            <input className="members-input" value={edit.last_name} onChange={(e) => setEdit({ ...edit, last_name: e.target.value })} placeholder="Last name" required />
-            <input className="members-input" value={edit.email} onChange={(e) => setEdit({ ...edit, email: e.target.value })} placeholder="Email" required />
-            <input className="members-input" value={edit.mobile_phone} onChange={(e) => setEdit({ ...edit, mobile_phone: e.target.value })} placeholder="Phone" />
-            <label className="members-checkbox">
-              <input
-                type="checkbox"
-                checked={edit.sms_opt_in}
-                onChange={(e) => {
-                  setEdit({ ...edit, sms_opt_in: e.target.checked })
-                  void handleSmsToggle(selected.member_id, e.target.checked)
-                }}
-              />
-              SMS opt-in
-            </label>
-            <p className="page__subtitle" style={{ margin: 0 }}>
-              SMS: {edit.sms_opt_in ? `Opted In${selected?.sms_opt_in_date ? ` (since ${new Date(selected.sms_opt_in_date).toLocaleDateString()})` : ''}` : 'Opted Out'}
-            </p>
-            <label className="members-checkbox"><input type="checkbox" checked={edit.email_opt_out} onChange={(e) => setEdit({ ...edit, email_opt_out: e.target.checked })} /> Email opt-out</label>
-            <label className="members-checkbox"><input type="checkbox" checked={edit.is_active} onChange={(e) => setEdit({ ...edit, is_active: e.target.checked })} /> Active</label>
-            <div className="members-actions">
-              <button className="btn btn--outline btn--sm" type="button" onClick={closeEditor}>Cancel</button>
-              <button className="btn btn--primary btn--sm" type="submit" disabled={isSaving}>{isSaving ? 'Saving…' : 'Save changes'}</button>
+        <div className="modal-overlay" role="presentation" onClick={closeEditor}>
+          <section className="modal" role="dialog" aria-modal="true" aria-label="Edit member" onClick={(e) => e.stopPropagation()}>
+            <div className="modal__header">
+              <h2 className="modal__title">Edit member</h2>
+              <button className="btn btn--outline btn--sm" type="button" onClick={closeEditor}>Close</button>
             </div>
-          </form>
+            <div className="modal__body">
+              <form className="members-form" onSubmit={handleSave}>
+                <input className="members-input" value={edit.first_name} onChange={(e) => setEdit({ ...edit, first_name: e.target.value })} placeholder="First name" required />
+                <input className="members-input" value={edit.last_name} onChange={(e) => setEdit({ ...edit, last_name: e.target.value })} placeholder="Last name" required />
+                <input className="members-input" value={edit.email} onChange={(e) => setEdit({ ...edit, email: e.target.value })} placeholder="Email" required />
+                <input className="members-input" value={edit.mobile_phone} onChange={(e) => setEdit({ ...edit, mobile_phone: e.target.value })} placeholder="Phone" />
+                <label className="members-checkbox">
+                  <input
+                    type="checkbox"
+                    checked={edit.sms_opt_in}
+                    onChange={(e) => {
+                      setEdit({ ...edit, sms_opt_in: e.target.checked })
+                      void handleSmsToggle(selected.member_id, e.target.checked)
+                    }}
+                  />
+                  SMS opt-in
+                </label>
+                <p className="page__subtitle" style={{ margin: 0 }}>
+                  SMS: {edit.sms_opt_in ? `Opted In${selected?.sms_opt_in_date ? ` (since ${new Date(selected.sms_opt_in_date).toLocaleDateString()})` : ''}` : 'Opted Out'}
+                </p>
+                <label className="members-checkbox"><input type="checkbox" checked={edit.email_opt_out} onChange={(e) => setEdit({ ...edit, email_opt_out: e.target.checked })} /> Email opt-out</label>
+                <label className="members-checkbox"><input type="checkbox" checked={edit.is_active} onChange={(e) => setEdit({ ...edit, is_active: e.target.checked })} /> Active</label>
+                <div className="modal__footer">
+                  <button className="btn btn--outline btn--sm" type="button" onClick={closeEditor}>Cancel</button>
+                  <button className="btn btn--primary btn--sm" type="submit" disabled={isSaving}>{isSaving ? 'Saving…' : 'Save changes'}</button>
+                </div>
+              </form>
 
-          {isAdmin() && (
-            <div style={{ marginTop: 16 }}>
-              <h3>SMS Consent Audit Log</h3>
-              <table className="members-table">
-                <thead>
-                  <tr>
-                    <th>Date</th>
-                    <th>Action</th>
-                    <th>Source</th>
-                    <th>Notes</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {consentLog.length === 0 ? (
-                    <tr>
-                      <td colSpan={4}>No consent log entries.</td>
-                    </tr>
-                  ) : consentLog.map((row) => (
-                    <tr key={row.consent_log_id}>
-                      <td>{new Date(row.recorded_at).toLocaleString()}</td>
-                      <td>{row.action === 'opt_in' ? 'Opt In' : 'Opt Out'}</td>
-                      <td>{row.source}</td>
-                      <td>{row.notes ?? '—'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              {isAdmin() && (
+                <div style={{ marginTop: 16 }}>
+                  <h3>SMS Consent Audit Log</h3>
+                  <table className="members-table">
+                    <thead>
+                      <tr>
+                        <th>Date</th>
+                        <th>Action</th>
+                        <th>Source</th>
+                        <th>Notes</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {consentLog.length === 0 ? (
+                        <tr>
+                          <td colSpan={4}>No consent log entries.</td>
+                        </tr>
+                      ) : consentLog.map((row) => (
+                        <tr key={row.consent_log_id}>
+                          <td>{new Date(row.recorded_at).toLocaleString()}</td>
+                          <td>{row.action === 'opt_in' ? 'Opt In' : 'Opt Out'}</td>
+                          <td>{row.source}</td>
+                          <td>{row.notes ?? '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
-          )}
-        </section>
+          </section>
+        </div>
       )}
     </div>
   )

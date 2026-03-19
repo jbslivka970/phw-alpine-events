@@ -279,6 +279,7 @@ function ImportPage() {
             {logsLoading ? 'Loading…' : 'Refresh'}
           </button>
         </div>
+        <p className="import-logs__hint">Use the Download button in the right-most column to export a CSV report for any import run.</p>
 
         <div className="import-logs__filters">
           <label className="import-logs__filter">
@@ -332,7 +333,7 @@ function ImportPage() {
                   <th>Updated</th>
                   <th>Errors</th>
                   <th>Imported By</th>
-                  <th>Report</th>
+                  <th>Download</th>
                 </tr>
               </thead>
               <tbody>
@@ -352,7 +353,7 @@ function ImportPage() {
                         className="btn btn--outline btn--sm"
                         onClick={() => void handleDownloadReport(log.importId)}
                       >
-                        CSV
+                        Download CSV
                       </button>
                     </td>
                   </tr>
