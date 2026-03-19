@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from 'react'
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { membersApi } from '../api/members'
 import type { MemberRecord } from '../api/members'
 import { useAuth } from '../hooks/useAuth'
@@ -27,6 +27,8 @@ function toEditState(m: MemberRecord): MemberEditState {
 
 function MembersPage() {
   const { isAdmin } = useAuth()
+  const modalRef = useRef<HTMLElement | null>(null)
+  const previouslyFocusedRef = useRef<HTMLElement | null>(null)
   const [search, setSearch] = useState('')
   const [members, setMembers] = useState<MemberRecord[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -46,6 +48,8 @@ function MembersPage() {
     () => `${members.length} member${members.length === 1 ? '' : 's'}`,
     [members.length],
   )
+
+  const isEditorOpen = Boolean(selected && edit)
 
   useEffect(() => {
     let active = true
@@ -71,11 +75,77 @@ function MembersPage() {
     }
   }
 
-  function closeEditor() {
+  const closeEditor = useCallback(() => {
     setSelected(null)
     setEdit(null)
     setError(null)
-  }
+  }, [])
+
+  useEffect(() => {
+    if (!isEditorOpen) return
+
+    const modalEl = modalRef.current
+    if (!modalEl) return
+
+    const focusableSelector = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+    const getFocusableElements = () =>
+      Array.from(modalEl.querySelectorAll<HTMLElement>(focusableSelector)).filter(
+        (element) => !element.hasAttribute('disabled') && element.getAttribute('aria-hidden') !== 'true'
+      )
+
+    previouslyFocusedRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    const originalBodyOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+
+    const focusableElements = getFocusableElements()
+    if (focusableElements.length > 0) {
+      focusableElements[0].focus()
+    } else {
+      modalEl.focus()
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        closeEditor()
+        return
+      }
+
+      if (event.key !== 'Tab') return
+
+      const nodes = getFocusableElements()
+      if (nodes.length === 0) {
+        event.preventDefault()
+        modalEl.focus()
+        return
+      }
+
+      const first = nodes[0]
+      const last = nodes[nodes.length - 1]
+      const activeElement = document.activeElement as HTMLElement | null
+
+      if (event.shiftKey) {
+        if (activeElement === first || !modalEl.contains(activeElement)) {
+          event.preventDefault()
+          last.focus()
+        }
+        return
+      }
+
+      if (activeElement === last || !modalEl.contains(activeElement)) {
+        event.preventDefault()
+        first.focus()
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown)
+      document.body.style.overflow = originalBodyOverflow
+      previouslyFocusedRef.current?.focus()
+    }
+  }, [closeEditor, isEditorOpen])
 
   async function handleSave(e: FormEvent) {
     e.preventDefault()
@@ -160,7 +230,15 @@ function MembersPage() {
 
       {selected && edit && (
         <div className="modal-overlay" role="presentation" onClick={closeEditor}>
-          <section className="modal" role="dialog" aria-modal="true" aria-label="Edit member" onClick={(e) => e.stopPropagation()}>
+          <section
+            ref={modalRef}
+            className="modal"
+            role="dialog"
+            tabIndex={-1}
+            aria-modal="true"
+            aria-label="Edit member"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="modal__header">
               <h2 className="modal__title">Edit member</h2>
               <button className="btn btn--outline btn--sm" type="button" onClick={closeEditor}>Close</button>
