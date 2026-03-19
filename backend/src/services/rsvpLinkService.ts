@@ -4,6 +4,7 @@ import { loadRsvpLinkConfig } from '../config';
 interface VerifiedRsvpToken {
   eventId: string;
   memberId: string;
+  groupContextId?: string;
   expiresAt?: string;
 }
 
@@ -16,7 +17,7 @@ interface MemberRsvpUrls {
   waitlistUrl: string;
 }
 
-function createRsvpToken(eventId: string, memberId: string): string {
+function createRsvpToken(eventId: string, memberId: string, groupContextId?: string): string {
   const config = loadRsvpLinkConfig();
   if (!config.isConfigured) {
     throw new Error('RSVP links are not configured.');
@@ -27,6 +28,7 @@ function createRsvpToken(eventId: string, memberId: string): string {
       type: 'event-rsvp',
       eventId,
       memberId,
+      ...(groupContextId ? { groupContextId } : {}),
     },
     config.tokenSecret,
     {
@@ -49,6 +51,7 @@ function verifyRsvpToken(token: string): VerifiedRsvpToken {
 
   const eventId = typeof payload['eventId'] === 'string' ? payload['eventId'] : '';
   const memberId = typeof payload['memberId'] === 'string' ? payload['memberId'] : '';
+  const groupContextId = typeof payload['groupContextId'] === 'string' ? payload['groupContextId'] : undefined;
   if (!eventId || !memberId) {
     throw new Error('Invalid RSVP token payload.');
   }
@@ -56,17 +59,18 @@ function verifyRsvpToken(token: string): VerifiedRsvpToken {
   return {
     eventId,
     memberId,
+    groupContextId,
     expiresAt: typeof payload['exp'] === 'number' ? new Date(payload['exp'] * 1000).toISOString() : undefined,
   };
 }
 
-function buildMemberRsvpUrls(eventId: string, memberId: string): MemberRsvpUrls {
+function buildMemberRsvpUrls(eventId: string, memberId: string, groupContextId?: string): MemberRsvpUrls {
   const config = loadRsvpLinkConfig();
   if (!config.isConfigured) {
     throw new Error('RSVP links are not configured.');
   }
 
-  const token = createRsvpToken(eventId, memberId);
+  const token = createRsvpToken(eventId, memberId, groupContextId);
   const path = `${config.frontendBaseUrl}/rsvp/${encodeURIComponent(token)}`;
 
   return {

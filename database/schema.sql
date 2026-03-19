@@ -116,17 +116,49 @@ CREATE TABLE dbo.event_response (
     response_id   UNIQUEIDENTIFIER NOT NULL DEFAULT NEWID(),
     event_id      UNIQUEIDENTIFIER NOT NULL,
     member_id     UNIQUEIDENTIFIER NOT NULL,
+    group_context_id UNIQUEIDENTIFIER NULL,
+    response_channel NVARCHAR(30) NULL,
     response      NVARCHAR(20)     NOT NULL
         CHECK (response IN ('yes', 'no', 'maybe', 'waitlist')),
     responded_at  DATETIME         NOT NULL DEFAULT GETUTCDATE(),
     notes         NVARCHAR(500)    NULL,
+    reminder_sent BIT              NOT NULL DEFAULT 0,
+    reminder_sent_at DATETIME      NULL,
     CONSTRAINT PK_event_response            PRIMARY KEY (response_id),
     CONSTRAINT UQ_event_response_pair       UNIQUE      (event_id, member_id),
     CONSTRAINT FK_event_response_event      FOREIGN KEY (event_id)
         REFERENCES dbo.event  (event_id) ON DELETE CASCADE,
     CONSTRAINT FK_event_response_member     FOREIGN KEY (member_id)
         REFERENCES dbo.member (member_id)
+        ON DELETE NO ACTION,
+    CONSTRAINT FK_event_response_group_context FOREIGN KEY (group_context_id)
+        REFERENCES dbo.[group] (group_id)
 );
+
+IF OBJECT_ID(N'dbo.event_response', N'U') IS NOT NULL
+BEGIN
+    IF COL_LENGTH('dbo.event_response', 'group_context_id') IS NULL
+        ALTER TABLE dbo.event_response ADD group_context_id UNIQUEIDENTIFIER NULL;
+
+    IF COL_LENGTH('dbo.event_response', 'response_channel') IS NULL
+        ALTER TABLE dbo.event_response ADD response_channel NVARCHAR(30) NULL;
+
+    IF COL_LENGTH('dbo.event_response', 'reminder_sent') IS NULL
+        ALTER TABLE dbo.event_response ADD reminder_sent BIT NOT NULL DEFAULT 0;
+
+    IF COL_LENGTH('dbo.event_response', 'reminder_sent_at') IS NULL
+        ALTER TABLE dbo.event_response ADD reminder_sent_at DATETIME NULL;
+
+    IF NOT EXISTS (
+      SELECT 1
+      FROM sys.foreign_keys
+      WHERE name = 'FK_event_response_group_context'
+        AND parent_object_id = OBJECT_ID('dbo.event_response')
+    )
+        ALTER TABLE dbo.event_response
+        ADD CONSTRAINT FK_event_response_group_context FOREIGN KEY (group_context_id)
+        REFERENCES dbo.[group] (group_id);
+END
 
 -- ---------------------------------------------------------------------------
 -- 7. EventAssignment  (staff / volunteer role assignments for an event)

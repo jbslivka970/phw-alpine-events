@@ -3,6 +3,7 @@ import request from 'supertest';
 import smsRouter from '../routes/sms';
 import { getPool } from '../db';
 import { notificationService } from '../services/notifications';
+import { createRsvpToken } from '../services/rsvpLinkService';
 
 jest.mock('../db', () => ({
   getPool: jest.fn(),
@@ -89,6 +90,60 @@ describe('sms routes', () => {
       event_id: 'event-1',
       response: 'yes',
     });
+    expect(mockRequest.input).toHaveBeenCalledWith('response_channel', 'NVarChar', 'sms');
+  });
+
+  it('POST /api/sms/inbound tokenized payload persists tokenized link metadata', async () => {
+    const token = createRsvpToken(
+      '00000000-0000-0000-0000-000000000101',
+      '00000000-0000-0000-0000-000000000202',
+      '00000000-0000-0000-0000-000000000303'
+    );
+    const queryResults: QueryResult[] = [
+      {
+        recordset: [
+          {
+            event_id: '00000000-0000-0000-0000-000000000101',
+            title: 'Climb Night',
+            status: 'published',
+            capacity: 10,
+            event_date: new Date('2025-01-01T18:00:00Z'),
+          },
+        ],
+      },
+      { recordset: [{ yes_count: 0 }] },
+      {
+        recordset: [
+          {
+            response_id: 'response-2',
+            event_id: '00000000-0000-0000-0000-000000000101',
+            member_id: '00000000-0000-0000-0000-000000000202',
+            response: 'yes',
+            responded_at: new Date('2025-01-01T12:00:00Z'),
+            notes: 'Recorded from tokenized RSVP link',
+          },
+        ],
+      },
+      { recordset: [{ first_name: 'Pat', email: 'pat@example.com', mobile_phone: '+13035551212', sms_opt_in: true }] },
+    ];
+    const mockRequest = {
+      input: jest.fn().mockReturnThis(),
+      query: jest.fn().mockImplementation(async () => queryResults.shift() ?? { recordset: [] }),
+    };
+    (getPool as jest.Mock).mockResolvedValue({ request: () => mockRequest });
+
+    const res = await request(app)
+      .post('/api/sms/inbound')
+      .send({ token, response: 'yes' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.response).toBe('yes');
+    expect(mockRequest.input).toHaveBeenCalledWith('response_channel', 'NVarChar', 'tokenized_link');
+    expect(mockRequest.input).toHaveBeenCalledWith(
+      'group_context_id',
+      'UniqueIdentifier',
+      '00000000-0000-0000-0000-000000000303'
+    );
   });
 
   it('POST /api/sms/inbound asks for disambiguation when multiple events are pending', async () => {

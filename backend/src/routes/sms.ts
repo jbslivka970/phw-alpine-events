@@ -44,6 +44,8 @@ router.post('/inbound', writeLimiter, async (req, res) => {
           memberId: token.memberId,
           response: response as RsvpResponse,
           notes: 'Recorded from tokenized RSVP link',
+          responseChannel: 'tokenized_link',
+          groupContextId: token.groupContextId ?? null,
         });
 
         res.json(record);
@@ -165,6 +167,7 @@ async function processInboundMessage(from: string, rawMessage: string): Promise<
       memberId: member.member_id,
       response: parsed.response,
       notes: `SMS reply received: ${message}`,
+      responseChannel: 'sms',
     });
 
     return {

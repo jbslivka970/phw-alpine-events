@@ -85,6 +85,8 @@ router.post('/', writeLimiter, async (req, res) => {
       memberId: token.memberId,
       response: response as RsvpResponse,
       notes: 'Recorded from tokenized RSVP link',
+      responseChannel: 'tokenized_link',
+      groupContextId: token.groupContextId ?? null,
     });
 
     res.json(record);

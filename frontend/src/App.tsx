@@ -1,12 +1,12 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import './App.css'
 import { ROLES } from './authConfig'
-import { AppShell } from './components/AppShell'
+import Layout from './components/Layout'
 import { ProtectedRoute } from './components/ProtectedRoute'
 import { AdminPage } from './pages/AdminPage'
 import { CalendarPage } from './pages/CalendarPage'
 import { GroupsPage } from './pages/GroupsPage'
-import { DashboardPage } from './pages/DashboardPage'
+import DashboardPage from './pages/DashboardPage'
 import { EventsPage } from './pages/EventsPage'
 import { EventAssignmentPage } from './pages/EventAssignmentPage'
 import { LoginPage } from './pages/LoginPage'
@@ -35,7 +35,7 @@ function App() {
         <Route
           element={
             <ProtectedRoute>
-              <AppShell />
+              <Layout />
             </ProtectedRoute>
           }
         >

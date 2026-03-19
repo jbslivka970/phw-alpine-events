@@ -15,9 +15,13 @@ interface RecordedRsvp {
   response_id: string;
   event_id: string;
   member_id: string;
+  group_context_id: string | null;
+  response_channel: string | null;
   response: RsvpResponse;
   responded_at: Date;
   notes: string | null;
+  reminder_sent: boolean;
+  reminder_sent_at: Date | null;
 }
 
 class RsvpError extends Error {
@@ -58,9 +62,13 @@ async function recordRsvpResponse(options: {
   memberId: string;
   response: RsvpResponse;
   notes?: string | null;
+  responseChannel?: string;
+  groupContextId?: string | null;
 }): Promise<RecordedRsvp> {
   const pool = await getPool();
   const notes = options.notes ?? null;
+  const responseChannel = options.responseChannel ?? 'web';
+  const groupContextId = options.groupContextId ?? null;
 
   const eventResult = await pool
     .request()
@@ -97,15 +105,44 @@ async function recordRsvpResponse(options: {
     .input('member_id', sql.UniqueIdentifier, options.memberId)
     .input('response', sql.NVarChar, options.response)
     .input('notes', sql.NVarChar, notes)
+    .input('response_channel', sql.NVarChar, responseChannel)
+    .input('group_context_id', sql.UniqueIdentifier, groupContextId)
     .query<RecordedRsvp>(
       `MERGE event_response AS target
        USING (SELECT @event_id AS event_id, @member_id AS member_id) AS source
        ON target.event_id = source.event_id AND target.member_id = source.member_id
        WHEN MATCHED THEN
-         UPDATE SET response = @response, notes = @notes, responded_at = GETUTCDATE()
+         UPDATE SET
+           response = @response,
+           notes = @notes,
+           responded_at = GETUTCDATE(),
+           response_channel = @response_channel,
+           group_context_id = COALESCE(@group_context_id, target.group_context_id)
        WHEN NOT MATCHED THEN
-         INSERT (response_id, event_id, member_id, response, responded_at, notes)
-         VALUES (NEWID(), @event_id, @member_id, @response, GETUTCDATE(), @notes)
+         INSERT (
+           response_id,
+           event_id,
+           member_id,
+           group_context_id,
+           response_channel,
+           response,
+           responded_at,
+           notes,
+           reminder_sent,
+           reminder_sent_at
+         )
+         VALUES (
+           NEWID(),
+           @event_id,
+           @member_id,
+           @group_context_id,
+           @response_channel,
+           @response,
+           GETUTCDATE(),
+           @notes,
+           0,
+           NULL
+         )
        OUTPUT INSERTED.*;`
     );
 

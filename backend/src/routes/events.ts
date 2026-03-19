@@ -107,6 +107,8 @@ async function submitPublicRsvp(tokenString: string, response: string): Promise<
     memberId: token.memberId,
     response: response as RsvpResponse,
     notes: 'Recorded from tokenized RSVP link',
+    responseChannel: 'tokenized_link',
+    groupContextId: token.groupContextId ?? null,
   });
 }
 

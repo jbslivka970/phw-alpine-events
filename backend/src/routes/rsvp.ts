@@ -53,7 +53,13 @@ router.post('/', writeLimiter, authenticate, requireAnyAuthenticatedRole, async 
       return;
     }
 
-    const upsert = await recordRsvpResponse({ eventId, memberId, response, notes });
+    const upsert = await recordRsvpResponse({
+      eventId,
+      memberId,
+      response,
+      notes,
+      responseChannel: 'web',
+    });
     res.status(200).json(upsert);
   } catch (error) {
     if (error instanceof RsvpError) {

@@ -361,14 +361,16 @@ async function sendEventPublishedNotification(payload: EventNotificationPayload)
     .input('event_id', sql.UniqueIdentifier, payload.event_id)
     .query<{
       member_id: string;
+      group_context_id: string | null;
       first_name: string | null;
       email: string;
       mobile_phone: string | null;
       sms_opt_in: boolean;
       email_opt_out: boolean;
     }>(
-      `SELECT DISTINCT
+      `SELECT
           m.member_id,
+          ent.group_id AS group_context_id,
           m.first_name,
           m.email,
           m.mobile_phone,
@@ -382,7 +384,7 @@ async function sendEventPublishedNotification(payload: EventNotificationPayload)
     );
 
   for (const recipient of recipientsResult.recordset) {
-    const variables = buildEventVariables(payload, recipient.member_id);
+    const variables = buildEventVariables(payload, recipient.member_id, recipient.group_context_id ?? undefined);
     if (!recipient.email_opt_out && recipient.email) {
       await notificationService.sendEmail({
         to: recipient.email,
@@ -504,7 +506,11 @@ function toNullableUuid(value: string | undefined): string | null {
   return uuidV4Like.test(value) ? value : null;
 }
 
-function buildEventVariables(payload: EventNotificationPayload, memberId?: string): Record<string, string> {
+function buildEventVariables(
+  payload: EventNotificationPayload,
+  memberId?: string,
+  groupContextId?: string
+): Record<string, string> {
   const eventDate = formatEventDate(payload.event_date);
   const defaultRsvpUrl = `/events/${payload.event_id}`;
   let rsvpUrl = defaultRsvpUrl;
@@ -515,7 +521,7 @@ function buildEventVariables(payload: EventNotificationPayload, memberId?: strin
 
   if (memberId) {
     try {
-      const personalizedUrls = buildMemberRsvpUrls(payload.event_id, memberId);
+      const personalizedUrls = buildMemberRsvpUrls(payload.event_id, memberId, groupContextId);
       rsvpUrl = personalizedUrls.landingUrl;
       yesUrl = personalizedUrls.yesUrl;
       noUrl = personalizedUrls.noUrl;

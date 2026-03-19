@@ -145,7 +145,11 @@ describe('events routes', () => {
   });
 
   it('POST /api/events/rsvp/:token records a public RSVP response', async () => {
-    const token = createRsvpToken('00000000-0000-0000-0000-000000000101', '00000000-0000-0000-0000-000000000202');
+    const token = createRsvpToken(
+      '00000000-0000-0000-0000-000000000101',
+      '00000000-0000-0000-0000-000000000202',
+      '00000000-0000-0000-0000-000000000303'
+    );
     const queue = [
       { recordset: [{ event_id: '00000000-0000-0000-0000-000000000101', title: 'Fly Tying 101', status: 'published', capacity: 12, event_date: new Date('2026-04-01T18:00:00.000Z') }] },
       { recordset: [{ yes_count: 0 }] },
@@ -164,5 +168,64 @@ describe('events routes', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.response).toBe('yes');
+    expect(mockRequest.input).toHaveBeenCalledWith('response_channel', 'NVarChar', 'tokenized_link');
+    expect(mockRequest.input).toHaveBeenCalledWith(
+      'group_context_id',
+      'UniqueIdentifier',
+      '00000000-0000-0000-0000-000000000303'
+    );
+  });
+
+  it('POST /api/events/:id/rsvp records a web RSVP response channel', async () => {
+    const queue = [
+      {
+        recordset: [
+          {
+            event_id: '00000000-0000-0000-0000-000000000101',
+            title: 'Fly Tying 101',
+            status: 'published',
+            capacity: 12,
+            event_date: new Date('2026-04-01T18:00:00.000Z'),
+          },
+        ],
+      },
+      { recordset: [{ yes_count: 0 }] },
+      {
+        recordset: [
+          {
+            response_id: 'response-2',
+            event_id: '00000000-0000-0000-0000-000000000101',
+            member_id: '00000000-0000-0000-0000-000000000202',
+            response: 'yes',
+            responded_at: new Date('2026-03-18T12:00:00.000Z'),
+            notes: 'Checked in from dashboard',
+          },
+        ],
+      },
+      {
+        recordset: [
+          {
+            first_name: 'Pat',
+            email: 'pat@example.com',
+            mobile_phone: '+13035551212',
+            sms_opt_in: true,
+          },
+        ],
+      },
+    ];
+
+    const mockRequest = {
+      input: jest.fn().mockReturnThis(),
+      query: jest.fn().mockImplementation(async () => queue.shift() ?? { recordset: [] }),
+    };
+    (getPool as jest.Mock).mockResolvedValue({ request: () => mockRequest });
+
+    const res = await request(app)
+      .post('/api/events/00000000-0000-0000-0000-000000000101/rsvp')
+      .send({ member_id: '00000000-0000-0000-0000-000000000202', response: 'yes' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.response).toBe('yes');
+    expect(mockRequest.input).toHaveBeenCalledWith('response_channel', 'NVarChar', 'web');
   });
 });

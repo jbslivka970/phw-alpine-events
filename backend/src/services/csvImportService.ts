@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { parse } from 'csv-parse/sync';
 import { getPool, sql } from '../db';
+import { toE164 } from '../utils/phone';
 
 interface CsvRow {
   rowNumber: number;
@@ -62,6 +63,14 @@ interface ImportLogEntry {
 interface ExistingMember {
   member_id: string;
   last_import_hash: string | null;
+  first_name: string;
+  last_name: string;
+  email: string;
+}
+
+interface MatchOutcome {
+  match: ExistingMember | null;
+  conflictReason?: string;
 }
 
 const sessions = new Map<string, { expiresAt: number; preview: ImportPreview }>();
@@ -163,7 +172,7 @@ function parseCsv(buffer: Buffer): CsvRow[] {
       firstName: (mapped['firstName'] ?? '').trim(),
       lastName: (mapped['lastName'] ?? '').trim(),
       email: (mapped['email'] ?? '').trim().toLowerCase(),
-      mobilePhone: (mapped['mobilePhone'] ?? '').replace(/\D/g, ''),
+      mobilePhone: toE164(mapped['mobilePhone'] ?? '') ?? '',
       salutation: (mapped['salutation'] ?? '').trim(),
       title: (mapped['title'] ?? '').trim(),
       accountName: (mapped['accountName'] ?? '').trim(),
@@ -173,22 +182,41 @@ function parseCsv(buffer: Buffer): CsvRow[] {
   });
 }
 
-async function findExistingMember(row: CsvRow): Promise<ExistingMember | null> {
+async function findExistingMember(row: CsvRow): Promise<MatchOutcome> {
   const pool = await getPool();
   const result = await pool
     .request()
     .input('email', sql.NVarChar, row.email)
-    .input('first_name', sql.NVarChar, row.firstName)
-    .input('last_name', sql.NVarChar, row.lastName)
     .query<ExistingMember>(
-      `SELECT member_id, last_import_hash
+      `SELECT member_id, last_import_hash, first_name, last_name, email
        FROM member
-       WHERE LOWER(email) = @email
-         AND first_name = @first_name
-         AND last_name = @last_name`
+       WHERE LOWER(email) = @email`
     );
 
-  return result.recordset[0] ?? null;
+  const byEmail = result.recordset;
+  const exactMatches = byEmail.filter(
+    (member) => member.first_name === row.firstName && member.last_name === row.lastName
+  );
+
+  if (exactMatches.length > 1) {
+    return {
+      match: null,
+      conflictReason: 'Multiple members with the same name/email combination exist. Resolve this household record manually before import.',
+    };
+  }
+
+  if (exactMatches.length === 1) {
+    return { match: exactMatches[0] };
+  }
+
+  if (byEmail.length > 0) {
+    return {
+      match: null,
+      conflictReason: `Email already exists for ${byEmail.length} different member record(s). Shared-email households must be mapped by exact first/last name.`,
+    };
+  }
+
+  return { match: null };
 }
 
 async function generatePreview(buffer: Buffer, fileName: string, sessionId: string): Promise<ImportPreview> {
@@ -212,7 +240,19 @@ async function generatePreview(buffer: Buffer, fileName: string, sessionId: stri
       continue;
     }
 
-    const existing = await findExistingMember(row);
+    const { match: existing, conflictReason } = await findExistingMember(row);
+
+    if (conflictReason) {
+      previewRows.push({
+        rowNumber: row.rowNumber,
+        action: 'error',
+        data: row,
+        errorMessage: conflictReason,
+      });
+      errorRows++;
+      continue;
+    }
+
     const hash = computeRowHash(row);
 
     if (!existing) {
