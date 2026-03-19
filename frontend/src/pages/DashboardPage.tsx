@@ -54,6 +54,7 @@ function HeroBanner({ userName }: { userName?: string }) {
 function DashboardPage() {
   const { user, isAdmin } = useAuth();
   const navigate = useNavigate();
+  const isAdminUser = isAdmin();
   const [loading, setLoading] = useState(true);
   const [upcoming, setUpcoming] = useState<EventRecord[]>([]);
   const [myRsvps, setMyRsvps] = useState<DashboardRsvp[]>([]);
@@ -66,6 +67,10 @@ function DashboardPage() {
   });
 
   const now = useMemo(() => new Date(), []);
+
+  function isUuid(value: string): boolean {
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+  }
 
   useEffect(() => {
     let active = true;
@@ -92,7 +97,7 @@ function DashboardPage() {
           upcomingEvents: next.length,
         }));
 
-        if (user?.id) {
+        if (user?.id && isUuid(user.id)) {
           try {
             const responses = await membersApi.rsvps(user.id);
             if (active) {
@@ -108,6 +113,8 @@ function DashboardPage() {
           } catch {
             if (active) setMyRsvps([]);
           }
+        } else if (active) {
+          setMyRsvps([]);
         }
 
         try {
@@ -117,7 +124,7 @@ function DashboardPage() {
           if (active) setOpenPostings([]);
         }
 
-        if (isAdmin()) {
+        if (isAdminUser) {
           try {
             const memberList = await membersApi.list({ page: 1, pageSize: 1, isActive: true });
             if (active) setStats((cur) => ({ ...cur, totalMembers: memberList.total }));
@@ -134,7 +141,7 @@ function DashboardPage() {
     return () => {
       active = false;
     };
-  }, [isAdmin, now, user?.id]);
+  }, [isAdminUser, now, user?.id]);
 
   const displayName = user?.name?.split(' ')[0] ?? undefined;
 
@@ -145,7 +152,7 @@ function DashboardPage() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0,1fr))', gap: 12, marginBottom: '1.5rem' }}>
         <div className="phw-card phw-stagger phw-stagger-2" style={{ padding: '1rem 1.125rem' }}>
           <p style={{ margin: '0 0 6px', fontSize: 11, color: colors.slate[500], textTransform: 'uppercase', letterSpacing: '.5px', fontWeight: 600 }}>Members</p>
-          <p style={{ margin: 0, fontSize: 24, fontWeight: 700 }}>{isAdmin() ? stats.totalMembers : '-'}</p>
+          <p style={{ margin: 0, fontSize: 24, fontWeight: 700 }}>{isAdminUser ? stats.totalMembers : '-'}</p>
         </div>
         <div className="phw-card phw-stagger phw-stagger-3" style={{ padding: '1rem 1.125rem' }}>
           <p style={{ margin: '0 0 6px', fontSize: 11, color: colors.slate[500], textTransform: 'uppercase', letterSpacing: '.5px', fontWeight: 600 }}>Events YTD</p>
@@ -175,8 +182,8 @@ function DashboardPage() {
               variant="river"
               title="No upcoming events yet"
               description="Your next adventure on the water starts here."
-              actionLabel={isAdmin() ? 'Create Event' : undefined}
-              onAction={isAdmin() ? () => navigate('/events') : undefined}
+              actionLabel={isAdminUser ? 'Create Event' : undefined}
+              onAction={isAdminUser ? () => navigate('/events') : undefined}
             />
           </div>
         ) : (
