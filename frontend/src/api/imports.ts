@@ -1,4 +1,4 @@
-import { BASE_URL, apiGet, apiGetBlob, apiPost } from './client';
+import { apiGet, apiGetBlob, apiPost, apiPostForm } from './client';
 
 interface ImportPreviewSummary {
   totalRows: number;
@@ -84,17 +84,12 @@ const importApi = {
     const formData = new FormData();
     formData.append('file', file);
 
-    const response = await fetch(`${BASE_URL}/import/preview`, {
-      method: 'POST',
-      body: formData,
-    });
-
-    if (!response.ok) {
-      const message = await response.text().catch(() => response.statusText);
-      throw new Error(`Import preview failed (${response.status}): ${message}`);
+    try {
+      return await apiPostForm<ImportPreviewResult>('/import/preview', formData);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      throw new Error(`Import preview failed: ${message}`);
     }
-
-    return (await response.json()) as ImportPreviewResult;
   },
   commit: (sessionId: string, body?: ImportCommitRequest) =>
     apiPost<ImportCommitResult>(`/import/commit/${sessionId}`, body),

@@ -54,6 +54,23 @@ async function apiPost<T>(path: string, body?: unknown): Promise<T> {
   return parseResponse<T>(response);
 }
 
+async function apiPostForm<T>(path: string, formData: FormData): Promise<T> {
+  const token = await getToken();
+  const headers: Record<string, string> = {};
+
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+
+  const response = await fetch(`${BASE_URL}${path}`, {
+    method: 'POST',
+    headers,
+    body: formData,
+  });
+
+  return parseResponse<T>(response);
+}
+
 async function apiPut<T>(path: string, body?: unknown): Promise<T> {
   const response = await fetch(`${BASE_URL}${path}`, {
     method: 'PUT',
@@ -94,4 +111,4 @@ async function apiGetBlob(path: string): Promise<{ blob: Blob; headers: Headers 
   return { blob: await response.blob(), headers: response.headers };
 }
 
-export { BASE_URL, setTokenGetter, apiDelete, apiGet, apiGetBlob, apiPatch, apiPost, apiPut };
+export { BASE_URL, setTokenGetter, apiDelete, apiGet, apiGetBlob, apiPatch, apiPost, apiPostForm, apiPut };
