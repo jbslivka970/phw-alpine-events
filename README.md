@@ -2,6 +2,11 @@
 
 Full-stack event management system for Project Healing Waters Colorado Alpine Chapter.
 
+## Current Release Docs
+
+- Wave 1 release lock and deploy record: `docs/wave-1-release-lock.md`
+- Next-wave planning list: `docs/next-wave-task-list.md`
+
 ## Overview
 
 This application supports member management, event publishing, RSVP collection, and chapter operations for the Colorado Alpine Chapter. The current repository baseline now includes:
