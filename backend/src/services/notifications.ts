@@ -7,6 +7,7 @@ import { eventCancellationTemplate } from '../templates/eventCancellation';
 import { eventInviteTemplate } from '../templates/eventInvite';
 import { eventUpdateTemplate } from '../templates/eventUpdate';
 import { rsvpConfirmationTemplate } from '../templates/rsvpConfirmation';
+import { waitlistPromotionTemplate } from '../templates/waitlistPromotion';
 import { buildMemberRsvpUrls } from './rsvpLinkService';
 
 interface RsvpNotificationPayload {
@@ -35,6 +36,21 @@ interface EventNotificationPayload {
 interface EventUpdateNotificationPayload extends EventNotificationPayload {
   changedFields: string[];
   updateReason?: string | null;
+}
+
+interface WaitlistPromotionNotificationPayload {
+  event_id: string;
+  title: string;
+  event_date: Date | string;
+  location: string | null;
+  description: string | null;
+  member_id: string;
+  preferredChannel?: string | null;
+  recipientEmail?: string | null;
+  recipientPhone?: string | null;
+  smsOptIn?: boolean;
+  emailOptOut?: boolean;
+  expires_at: Date | string;
 }
 
 interface SendEmailOptions {
@@ -630,6 +646,58 @@ function sendRsvpConfirmation(payload: RsvpNotificationPayload): void {
   }
 }
 
+async function sendWaitlistPromotionNotification(payload: WaitlistPromotionNotificationPayload): Promise<void> {
+  const expiresAt = formatEventDate(payload.expires_at);
+  const variables = {
+    ...buildEventVariables(payload, payload.member_id),
+    expiresAt,
+  };
+
+  const preferred = pickPreferredChannel(payload.preferredChannel);
+  const canEmail = Boolean(payload.recipientEmail && !payload.emailOptOut);
+  const canSms = Boolean(payload.recipientPhone && payload.smsOptIn);
+
+  if (preferred === 'sms' && canSms) {
+    await notificationService.sendSms({
+      to: payload.recipientPhone as string,
+      message: renderTemplate(waitlistPromotionTemplate.smsBodyTemplate ?? '', variables),
+      templateId: waitlistPromotionTemplate.templateId,
+      memberId: payload.member_id,
+      eventId: payload.event_id,
+      operationType: 'waitlist_promoted',
+      operationReason: `Offer expires at ${expiresAt}`,
+    });
+    return;
+  }
+
+  if (canEmail) {
+    await notificationService.sendEmail({
+      to: payload.recipientEmail as string,
+      subject: renderTemplate(waitlistPromotionTemplate.subjectTemplate ?? '', variables),
+      htmlBody: renderTemplate(waitlistPromotionTemplate.htmlBodyTemplate ?? '', variables),
+      textBody: renderTemplate(waitlistPromotionTemplate.textBodyTemplate ?? '', variables),
+      templateId: waitlistPromotionTemplate.templateId,
+      memberId: payload.member_id,
+      eventId: payload.event_id,
+      operationType: 'waitlist_promoted',
+      operationReason: `Offer expires at ${expiresAt}`,
+    });
+    return;
+  }
+
+  if (canSms) {
+    await notificationService.sendSms({
+      to: payload.recipientPhone as string,
+      message: renderTemplate(waitlistPromotionTemplate.smsBodyTemplate ?? '', variables),
+      templateId: waitlistPromotionTemplate.templateId,
+      memberId: payload.member_id,
+      eventId: payload.event_id,
+      operationType: 'waitlist_promoted',
+      operationReason: `Offer expires at ${expiresAt}`,
+    });
+  }
+}
+
 function toNullableUuid(value: string | undefined): string | null {
   if (!value) {
     return null;
@@ -897,6 +965,7 @@ export {
   sendEventPublishedNotification,
   sendEventUpdatedNotification,
   sendRsvpConfirmation,
+  sendWaitlistPromotionNotification,
   StubEmailService,
   StubSmsService,
   notificationService,
@@ -905,6 +974,7 @@ export type {
   EventNotificationPayload,
   EventUpdateNotificationPayload,
   RsvpNotificationPayload,
+  WaitlistPromotionNotificationPayload,
   SendEmailOptions,
   SendSmsOptions,
   IEmailService,

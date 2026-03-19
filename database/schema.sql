@@ -366,6 +366,26 @@ CREATE TABLE dbo.take_a_vet_posting (
         REFERENCES dbo.[user] (user_id)
 );
 
+-- ---------------------------------------------------------------------------
+-- 14. WaitlistPromotionOffer (tracks timed offers when waitlist slots open)
+-- ---------------------------------------------------------------------------
+IF OBJECT_ID(N'dbo.waitlist_promotion_offer', N'U') IS NULL
+CREATE TABLE dbo.waitlist_promotion_offer (
+    offer_id      UNIQUEIDENTIFIER NOT NULL DEFAULT NEWID(),
+    event_id      UNIQUEIDENTIFIER NOT NULL,
+    member_id     UNIQUEIDENTIFIER NOT NULL,
+    status        NVARCHAR(20)     NOT NULL
+        CHECK (status IN ('offered', 'accepted', 'expired', 'declined')),
+    offered_at    DATETIME         NOT NULL DEFAULT GETUTCDATE(),
+    expires_at    DATETIME         NOT NULL,
+    resolved_at   DATETIME         NULL,
+    CONSTRAINT PK_waitlist_promotion_offer PRIMARY KEY (offer_id),
+    CONSTRAINT FK_waitlist_offer_event FOREIGN KEY (event_id)
+        REFERENCES dbo.event (event_id) ON DELETE CASCADE,
+    CONSTRAINT FK_waitlist_offer_member FOREIGN KEY (member_id)
+        REFERENCES dbo.member (member_id) ON DELETE CASCADE
+);
+
 -- ===========================================================================
 -- Indexes
 -- ===========================================================================
@@ -396,6 +416,13 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_event_response_member
 
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_event_response_event_resp' AND object_id = OBJECT_ID('dbo.event_response'))
     CREATE INDEX idx_event_response_event_resp    ON dbo.event_response (event_id, response);
+
+-- waitlist_promotion_offer
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_waitlist_offer_event_status' AND object_id = OBJECT_ID('dbo.waitlist_promotion_offer'))
+    CREATE INDEX idx_waitlist_offer_event_status ON dbo.waitlist_promotion_offer (event_id, status, expires_at);
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_waitlist_offer_member_event' AND object_id = OBJECT_ID('dbo.waitlist_promotion_offer'))
+    CREATE INDEX idx_waitlist_offer_member_event ON dbo.waitlist_promotion_offer (member_id, event_id, offered_at DESC);
 
 -- notification_log
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_notification_log_event' AND object_id = OBJECT_ID('dbo.notification_log'))

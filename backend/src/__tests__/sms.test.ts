@@ -70,6 +70,7 @@ describe('sms routes', () => {
       { recordset: [{ event_id: 'event-1', title: 'Climb Night', event_date: new Date('2025-01-01T18:00:00Z'), location: 'Gym' }] },
       { recordset: [{ event_id: 'event-1', title: 'Climb Night', status: 'published', capacity: 10, event_date: new Date('2025-01-01T18:00:00Z') }] },
       { recordset: [{ yes_count: 0 }] },
+      { recordset: [{ reserved_count: 0, has_active_offer: 0 }] },
       { recordset: [{ response_id: 'response-1', event_id: 'event-1', member_id: 'member-1', response: 'yes', responded_at: new Date('2025-01-01T12:00:00Z'), notes: 'SMS reply received: Y' }] },
       { recordset: [{ first_name: 'Pat', email: 'pat@example.com', mobile_phone: '+13035551212', sms_opt_in: true }] },
     ];
@@ -112,6 +113,7 @@ describe('sms routes', () => {
         ],
       },
       { recordset: [{ yes_count: 0 }] },
+      { recordset: [{ reserved_count: 0, has_active_offer: 0 }] },
       {
         recordset: [
           {

@@ -3,7 +3,7 @@ import authenticate from '../middleware/auth';
 import { apiLimiter, writeLimiter } from '../middleware/rateLimiter';
 import { requireAnyAuthenticatedRole, requireEventCreatorOrAdmin } from '../middleware/rbac';
 import { getPool, sql } from '../db';
-import { recordRsvpResponse, VALID_RESPONSES, RsvpError, type RsvpResponse } from '../services/rsvpService';
+import { recordRsvpResponse, triggerWaitlistAutoPromotion, VALID_RESPONSES, RsvpError, type RsvpResponse } from '../services/rsvpService';
 
 const router = Router({ mergeParams: true });
 
@@ -87,6 +87,8 @@ router.delete('/:memberId', writeLimiter, authenticate, requireEventCreatorOrAdm
       res.status(404).json({ error: 'RSVP not found' });
       return;
     }
+
+    await triggerWaitlistAutoPromotion(eventId);
 
     res.status(204).send();
   } catch (error) {

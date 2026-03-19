@@ -1,5 +1,5 @@
 import { getPool, sql } from '../db';
-import { sendRsvpConfirmation } from './notifications';
+import { sendRsvpConfirmation, sendWaitlistPromotionNotification } from './notifications';
 
 const VALID_RESPONSES = ['yes', 'no', 'maybe', 'waitlist'] as const;
 type RsvpResponse = (typeof VALID_RESPONSES)[number];
@@ -29,6 +29,19 @@ class RsvpError extends Error {
     super(message);
     this.name = 'RsvpError';
   }
+}
+
+const WAITLIST_OFFER_WINDOW_HOURS = Number.parseInt(process.env.WAITLIST_OFFER_WINDOW_HOURS ?? '24', 10);
+
+interface PromotionCandidate {
+  member_id: string;
+  response_channel: string | null;
+  responded_at: Date;
+  first_name: string | null;
+  email: string | null;
+  mobile_phone: string | null;
+  sms_opt_in: boolean;
+  email_opt_out: boolean;
 }
 
 async function listPendingEventsForMember(memberId: string): Promise<PendingEvent[]> {
@@ -94,7 +107,22 @@ async function recordRsvpResponse(options: {
         "SELECT COUNT(*) AS yes_count FROM event_response WHERE event_id = @event_id AND response = 'yes'"
       );
     const yesCount = countResult.recordset[0]?.yes_count ?? 0;
-    if (yesCount >= event.capacity) {
+
+    const reservationResult = await pool
+      .request()
+      .input('event_id', sql.UniqueIdentifier, options.eventId)
+      .input('member_id', sql.UniqueIdentifier, options.memberId)
+      .query<{ reserved_count: number; has_active_offer: number }>(
+        `SELECT
+            SUM(CASE WHEN status = 'offered' AND expires_at > GETUTCDATE() AND member_id <> @member_id THEN 1 ELSE 0 END) AS reserved_count,
+            SUM(CASE WHEN status = 'offered' AND expires_at > GETUTCDATE() AND member_id = @member_id THEN 1 ELSE 0 END) AS has_active_offer
+         FROM waitlist_promotion_offer
+         WHERE event_id = @event_id`
+      );
+
+    const reservedCount = reservationResult.recordset[0]?.reserved_count ?? 0;
+    const hasActiveOffer = (reservationResult.recordset[0]?.has_active_offer ?? 0) > 0;
+    if (yesCount + reservedCount >= event.capacity && !hasActiveOffer) {
       throw new RsvpError('Event is full. Use waitlist response.', 409);
     }
   }
@@ -167,8 +195,153 @@ async function recordRsvpResponse(options: {
     });
   }
 
+  await reconcileWaitlistOfferForMember(options.eventId, options.memberId, options.response);
+  await triggerWaitlistAutoPromotion(options.eventId);
+
   return upsert.recordset[0];
 }
 
-export { VALID_RESPONSES, RsvpError, listPendingEventsForMember, recordRsvpResponse };
+async function reconcileWaitlistOfferForMember(
+  eventId: string,
+  memberId: string,
+  response: RsvpResponse
+): Promise<void> {
+  const pool = await getPool();
+  const nextStatus = response === 'yes' ? 'accepted' : response === 'waitlist' ? 'offered' : 'declined';
+
+  if (response === 'waitlist') {
+    return;
+  }
+
+  await pool
+    .request()
+    .input('event_id', sql.UniqueIdentifier, eventId)
+    .input('member_id', sql.UniqueIdentifier, memberId)
+    .input('status', sql.NVarChar, nextStatus)
+    .query(
+      `UPDATE waitlist_promotion_offer
+       SET status = @status, resolved_at = GETUTCDATE()
+       WHERE event_id = @event_id
+         AND member_id = @member_id
+         AND status = 'offered'
+         AND expires_at > GETUTCDATE()`
+    );
+}
+
+async function triggerWaitlistAutoPromotion(eventId: string): Promise<void> {
+  const pool = await getPool();
+
+  const eventResult = await pool
+    .request()
+    .input('event_id', sql.UniqueIdentifier, eventId)
+    .query<{ event_id: string; title: string; event_date: Date; location: string | null; description: string | null; status: string; capacity: number | null }>(
+      'SELECT event_id, title, event_date, location, description, status, capacity FROM event WHERE event_id = @event_id'
+    );
+
+  const event = eventResult.recordset[0];
+  if (!event || event.status !== 'published' || !event.capacity || event.capacity <= 0) {
+    return;
+  }
+
+  await pool
+    .request()
+    .input('event_id', sql.UniqueIdentifier, eventId)
+    .query(
+      `UPDATE waitlist_promotion_offer
+       SET status = 'expired', resolved_at = GETUTCDATE()
+       WHERE event_id = @event_id
+         AND status = 'offered'
+         AND expires_at <= GETUTCDATE()`
+    );
+
+  const countsResult = await pool
+    .request()
+    .input('event_id', sql.UniqueIdentifier, eventId)
+    .query<{ yes_count: number; active_offers: number }>(
+      `SELECT
+          (SELECT COUNT(*) FROM event_response WHERE event_id = @event_id AND response = 'yes') AS yes_count,
+          (SELECT COUNT(*) FROM waitlist_promotion_offer WHERE event_id = @event_id AND status = 'offered' AND expires_at > GETUTCDATE()) AS active_offers`
+    );
+
+  const yesCount = countsResult.recordset[0]?.yes_count ?? 0;
+  const activeOffers = countsResult.recordset[0]?.active_offers ?? 0;
+  let availableSlots = event.capacity - yesCount - activeOffers;
+
+  while (availableSlots > 0) {
+    const candidateResult = await pool
+      .request()
+      .input('event_id', sql.UniqueIdentifier, eventId)
+      .query<PromotionCandidate>(
+        `SELECT TOP 1
+            er.member_id,
+            er.response_channel,
+            er.responded_at,
+            m.first_name,
+            m.email,
+            m.mobile_phone,
+            m.sms_opt_in,
+            m.email_opt_out
+         FROM event_response er
+         INNER JOIN member m ON m.member_id = er.member_id
+         WHERE er.event_id = @event_id
+           AND er.response = 'waitlist'
+           AND NOT EXISTS (
+             SELECT 1
+             FROM waitlist_promotion_offer wpo
+             WHERE wpo.event_id = er.event_id
+               AND wpo.member_id = er.member_id
+               AND wpo.status = 'offered'
+               AND wpo.expires_at > GETUTCDATE()
+           )
+         ORDER BY er.responded_at ASC`
+      );
+
+    const candidate = candidateResult.recordset[0];
+    if (!candidate) {
+      break;
+    }
+
+    await pool
+      .request()
+      .input('event_id', sql.UniqueIdentifier, eventId)
+      .input('member_id', sql.UniqueIdentifier, candidate.member_id)
+      .input('offered_until_hours', sql.Int, Number.isFinite(WAITLIST_OFFER_WINDOW_HOURS) ? WAITLIST_OFFER_WINDOW_HOURS : 24)
+      .query(
+        `INSERT INTO waitlist_promotion_offer (offer_id, event_id, member_id, status, offered_at, expires_at, resolved_at)
+         VALUES (NEWID(), @event_id, @member_id, 'offered', GETUTCDATE(), DATEADD(hour, @offered_until_hours, GETUTCDATE()), NULL)`
+      );
+
+    const offerResult = await pool
+      .request()
+      .input('event_id', sql.UniqueIdentifier, eventId)
+      .input('member_id', sql.UniqueIdentifier, candidate.member_id)
+      .query<{ expires_at: Date }>(
+        `SELECT TOP 1 expires_at
+         FROM waitlist_promotion_offer
+         WHERE event_id = @event_id AND member_id = @member_id
+         ORDER BY offered_at DESC`
+      );
+
+    const expiresAt = offerResult.recordset[0]?.expires_at ?? new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+    await sendWaitlistPromotionNotification({
+      event_id: event.event_id,
+      title: event.title,
+      event_date: event.event_date,
+      location: event.location,
+      description: event.description,
+      member_id: candidate.member_id,
+      preferredChannel: candidate.response_channel,
+      recipientEmail: candidate.email,
+      recipientPhone: candidate.mobile_phone,
+      smsOptIn: candidate.sms_opt_in,
+      emailOptOut: candidate.email_opt_out,
+      expires_at: expiresAt,
+    });
+
+    availableSlots -= 1;
+  }
+}
+
+export { VALID_RESPONSES, RsvpError, listPendingEventsForMember, recordRsvpResponse, triggerWaitlistAutoPromotion };
 export type { PendingEvent, RecordedRsvp, RsvpResponse };
