@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useIsAuthenticated, useMsal } from '@azure/msal-react'
+import { InteractionStatus } from '@azure/msal-browser'
 import { loginRequest, ROLES } from '../authConfig'
 import type { AppRole } from '../authConfig'
 import { setTokenGetter } from '../api/client'
@@ -12,16 +13,26 @@ interface AuthUser {
 }
 
 function useAuth() {
-  const { accounts, instance } = useMsal()
+  const { accounts, instance, inProgress } = useMsal()
   const isAuthenticated = useIsAuthenticated()
   const account = accounts[0] ?? null
+  const loginRequestRef = useRef<Promise<void> | null>(null)
+  const interactiveTokenRequestRef = useRef<Promise<string | null> | null>(null)
 
   const accountClaims = account?.idTokenClaims as Record<string, unknown> | undefined
   const [resolvedRoles, setResolvedRoles] = useState<AppRole[]>(() => mapRoles(accountClaims))
+  const [isLoggingIn, setIsLoggingIn] = useState(false)
+  const [loginError, setLoginError] = useState<string | null>(null)
 
   useEffect(() => {
     setResolvedRoles(mapRoles(accountClaims))
   }, [accountClaims])
+
+  useEffect(() => {
+    if (account) {
+      instance.setActiveAccount(account)
+    }
+  }, [account, instance])
 
   useEffect(() => {
     let cancelled = false
@@ -81,14 +92,50 @@ function useAuth() {
   function canCreateEvents(): boolean {
     return hasRole(ROLES.ADMIN) || hasRole(ROLES.EVENT_CREATOR)
   }
+
+  const interactionBusy = inProgress !== InteractionStatus.None
+
   async function login() {
-    try {
-      await instance.loginPopup(loginRequest)
-    } catch (error: unknown) {
-      const code = (error as { errorCode?: string })?.errorCode
-      if (code !== 'user_cancelled') {
-        console.error('[MSAL] Login error:', error)
+    if (interactionBusy && !loginRequestRef.current) {
+      setLoginError('Authentication is still finalizing from a previous attempt. Please try again in a moment.')
+      return
+    }
+
+    if (loginRequestRef.current) {
+      return loginRequestRef.current
+    }
+
+    setLoginError(null)
+    setIsLoggingIn(true)
+
+    loginRequestRef.current = (async () => {
+      try {
+        const response = await instance.loginPopup(loginRequest)
+        if (response.account) {
+          instance.setActiveAccount(response.account)
+        }
+      } catch (error: unknown) {
+        const code = (error as { errorCode?: string })?.errorCode
+        if (code === 'user_cancelled') {
+          setLoginError('Sign-in was cancelled.')
+          return
+        }
+        if (code === 'interaction_in_progress') {
+          setLoginError('Another sign-in dialog is already in progress. Close it and try again.')
+          return
+        }
+        setLoginError('Sign-in failed. Please try again.')
+        if (code !== 'user_cancelled' && code !== 'interaction_in_progress') {
+          console.error('[MSAL] Login error:', error)
+        }
       }
+    })()
+
+    try {
+      await loginRequestRef.current
+    } finally {
+      loginRequestRef.current = null
+      setIsLoggingIn(false)
     }
   }
 
@@ -99,19 +146,63 @@ function useAuth() {
   useEffect(() => {
     setTokenGetter(async () => {
       if (!account) return null
+
       try {
         const tokenResponse = await instance.acquireTokenSilent({
           ...loginRequest,
           account,
         })
         return tokenResponse.accessToken
-      } catch {
-        return null
+      } catch (error: unknown) {
+        if (!isInteractionRequired(error)) {
+          const code = (error as { errorCode?: string } | null)?.errorCode
+          if (code !== 'interaction_in_progress') {
+            console.error('[MSAL] Silent token acquisition failed:', error)
+          }
+          return null
+        }
+
+        if (interactionBusy || loginRequestRef.current) {
+          return null
+        }
+
+        if (!interactiveTokenRequestRef.current) {
+          interactiveTokenRequestRef.current = instance.acquireTokenPopup({
+            ...loginRequest,
+            account,
+          })
+            .then((response) => {
+              if (response.account) {
+                instance.setActiveAccount(response.account)
+              }
+              return response.accessToken
+            })
+            .catch((popupError: unknown) => {
+              const code = (popupError as { errorCode?: string })?.errorCode
+              if (code !== 'user_cancelled' && code !== 'interaction_in_progress') {
+                console.error('[MSAL] Interactive token acquisition failed:', popupError)
+              }
+              return null
+            })
+            .finally(() => {
+              interactiveTokenRequestRef.current = null
+            })
+        }
+
+        return interactiveTokenRequestRef.current
       }
     })
-  }, [account, instance])
+  }, [account, instance, interactionBusy])
 
-  return { hasRole, isAdmin, canCreateEvents, isAuthenticated, login, logout, user }
+  return { hasRole, isAdmin, canCreateEvents, isAuthenticated, login, logout, user, interactionBusy, isLoggingIn, loginError }
+}
+
+function isInteractionRequired(error: unknown): boolean {
+  const code = (error as { errorCode?: string } | null)?.errorCode?.toLowerCase() ?? ''
+  return code.includes('interaction_required')
+    || code.includes('consent_required')
+    || code.includes('login_required')
+    || code.includes('no_tokens_found')
 }
 
 function extractRoleValues(claims: Record<string, unknown> | undefined): string[] {

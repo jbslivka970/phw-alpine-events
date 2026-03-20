@@ -52,8 +52,9 @@ function StatCard({ label, value }: { label: string; value: string | number }) {
 // ---------------------------------------------------------------------------
 
 function SummaryRow({ row }: { row: EventSummaryRow }) {
-  const startDate = new Date(row.event_date).toLocaleDateString(undefined, {
+  const startDate = new Date(row.event_date).toLocaleString('en-GB', {
     month: 'short', day: 'numeric', year: 'numeric',
+    hour: '2-digit', minute: '2-digit', hour12: false,
   });
   const rsvpCount = row.yes_count + row.no_count + row.maybe_count + row.waitlist_count;
   const fillRate =

@@ -11,12 +11,13 @@ const RESPONSE_OPTIONS: Array<{ value: RsvpRecord['response']; label: string; cl
 ]
 
 function formatDate(value: string) {
-  return new Date(value).toLocaleString('en-US', {
+  return new Date(value).toLocaleString('en-GB', {
     weekday: 'short',
     month: 'short',
     day: 'numeric',
-    hour: 'numeric',
+    hour: '2-digit',
     minute: '2-digit',
+    hour12: false,
   })
 }
 

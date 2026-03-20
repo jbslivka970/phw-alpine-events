@@ -271,9 +271,10 @@ router.post('/', writeLimiter, authenticate, requireEventCreatorOrAdmin, async (
     const endDate = (req.body?.end_date as string | undefined) ?? null;
     const capacity = typeof req.body?.capacity === 'number' ? req.body.capacity : null;
     const targets = Array.isArray(req.body?.notification_targets) ? req.body.notification_targets : [];
-    const createdBy = req.user?.sub ?? null;
+    const createdBy = null;
 
     const pool = await getPool();
+
     const created = await pool
       .request()
       .input('title', sql.NVarChar, title)
@@ -717,6 +718,16 @@ router.delete('/:id', writeLimiter, authenticate, requireEventCreatorOrAdmin, as
 
 function cryptoRandomUuid(): string {
   return crypto.randomUUID();
+}
+
+function asUuidOrNull(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  return uuidPattern.test(trimmed) ? trimmed : null;
 }
 
 export default router;

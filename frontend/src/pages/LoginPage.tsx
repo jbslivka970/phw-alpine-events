@@ -6,7 +6,7 @@ import { useAuth } from '../hooks/useAuth'
 function LoginPage() {
   const isAuthenticated = useIsAuthenticated()
   const navigate = useNavigate()
-  const { login } = useAuth()
+  const { login, isLoggingIn, loginError } = useAuth()
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -30,7 +30,10 @@ function LoginPage() {
         <p className="login-card__desc">
           Sign in with your configured chapter identity provider to access event management.
         </p>
-        <button className="btn btn--primary btn--lg" onClick={login}>Sign in</button>
+        <button className="btn btn--primary btn--lg" onClick={login} disabled={isLoggingIn}>
+          {isLoggingIn ? 'Signing in...' : 'Sign in'}
+        </button>
+        {loginError && <p className="events-error" role="alert">{loginError}</p>}
         <div className="login-card__links">
           <Link to="/privacy">Privacy Policy</Link>
           <Link to="/terms">Terms</Link>

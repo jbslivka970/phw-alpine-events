@@ -2,18 +2,17 @@ import type { Configuration, PopupRequest } from '@azure/msal-browser'
 
 const clientId = (import.meta.env.VITE_EXTERNAL_CLIENT_ID as string | undefined)
   ?? (import.meta.env.VITE_AZURE_CLIENT_ID as string | undefined)
-const tenantId = (import.meta.env.VITE_EXTERNAL_TENANT_ID as string | undefined)
-  ?? (import.meta.env.VITE_AZURE_TENANT_ID as string | undefined)
-const tenantName = (import.meta.env.VITE_EXTERNAL_TENANT_NAME as string | undefined)
-  ?? (import.meta.env.VITE_AZURE_AD_B2C_TENANT_NAME as string | undefined)
-const policyName = (import.meta.env.VITE_EXTERNAL_USER_FLOW as string | undefined)
-  ?? (import.meta.env.VITE_AZURE_AD_B2C_POLICY_NAME as string | undefined)
+const externalTenantId = import.meta.env.VITE_EXTERNAL_TENANT_ID as string | undefined
+const externalTenantName = import.meta.env.VITE_EXTERNAL_TENANT_NAME as string | undefined
+const b2cTenantName = import.meta.env.VITE_AZURE_AD_B2C_TENANT_NAME as string | undefined
+const b2cPolicyName = import.meta.env.VITE_AZURE_AD_B2C_POLICY_NAME as string | undefined
+const legacyTenantId = import.meta.env.VITE_AZURE_TENANT_ID as string | undefined
 const authorityOverride = import.meta.env.VITE_AZURE_AUTHORITY as string | undefined
 const knownAuthorityOverride = import.meta.env.VITE_AZURE_KNOWN_AUTHORITY as string | undefined
 const apiScope = import.meta.env.VITE_API_SCOPE as string | undefined
 
-const hasB2CConfig = Boolean(tenantName && policyName)
-const hasExternalIdConfig = Boolean(tenantName && tenantId)
+const hasExternalIdConfig = Boolean(externalTenantName && externalTenantId)
+const hasB2CConfig = Boolean(b2cTenantName && b2cPolicyName)
 
 if (import.meta.env.PROD && (!clientId || (!authorityOverride && !hasB2CConfig && !hasExternalIdConfig))) {
   throw new Error('Azure AD frontend configuration is incomplete (B2C/External ID).')
@@ -21,11 +20,13 @@ if (import.meta.env.PROD && (!clientId || (!authorityOverride && !hasB2CConfig &
 
 const fallbackAuthority = 'https://login.microsoftonline.com/common'
 const authority = authorityOverride
-  ?? (tenantName && policyName
-    ? `https://${tenantName}.b2clogin.com/${tenantName}.onmicrosoft.com/${policyName}`
-    : tenantName && tenantId
-      ? `https://${tenantName}.ciamlogin.com/${tenantId}`
-    : fallbackAuthority)
+  ?? (hasExternalIdConfig
+    ? `https://${externalTenantName}.ciamlogin.com/${externalTenantId}`
+    : hasB2CConfig
+      ? `https://${b2cTenantName}.b2clogin.com/${b2cTenantName}.onmicrosoft.com/${b2cPolicyName}`
+      : externalTenantName && legacyTenantId
+        ? `https://${externalTenantName}.ciamlogin.com/${legacyTenantId}`
+        : fallbackAuthority)
 
 const authorityHost = (() => {
   try {
@@ -55,7 +56,9 @@ const msalConfig: Configuration = {
 }
 
 const loginRequest: PopupRequest = {
-  scopes: apiScope ? [apiScope] : ['openid', 'profile', 'email'],
+  scopes: apiScope
+    ? ['openid', 'profile', 'email', apiScope]
+    : ['openid', 'profile', 'email'],
 }
 
 const ROLES = {

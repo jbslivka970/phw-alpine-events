@@ -71,6 +71,22 @@ function extractRoles(claims: JwtPayload): AppRole[] {
     );
   }
 
+  if (typeof claims['extension_Roles'] === 'string') {
+    rawRoles.push(
+      ...(claims['extension_Roles'] as string)
+        .split(',')
+        .map((role) => role.trim())
+    );
+  }
+
+  if (Array.isArray(claims['appRoles'])) {
+    rawRoles.push(...(claims['appRoles'] as string[]));
+  }
+
+  if (Array.isArray(claims['app_roles'])) {
+    rawRoles.push(...(claims['app_roles'] as string[]));
+  }
+
   if (Array.isArray(claims['groups'])) {
     rawRoles.push(...(claims['groups'] as string[]));
   }
@@ -112,7 +128,7 @@ function authenticate(req: Request, res: Response, next: NextFunction): void {
 
       const claims = decoded as JwtPayload;
       req.user = {
-        sub: String(claims['sub'] ?? ''),
+        sub: String(claims['oid'] ?? claims['sub'] ?? ''),
         email: typeof claims['email'] === 'string' ? claims['email'] : undefined,
         name: typeof claims['name'] === 'string' ? claims['name'] : undefined,
         roles: extractRoles(claims),

@@ -153,7 +153,7 @@ function ListItem({ event }: { event: CalendarEvent }) {
   const dateStr = start.toLocaleDateString(undefined, {
     weekday: 'short', month: 'short', day: 'numeric',
   });
-  const timeStr = start.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  const timeStr = start.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false });
 
   return (
     <div className={`list-item status-${event.status}`}>

@@ -27,8 +27,9 @@ const ALL_STATUSES: (EventRecord['status'] | 'all')[] = [
 ]
 
 function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString('en-US', {
+  return new Date(iso).toLocaleString('en-GB', {
     weekday: 'short', month: 'short', day: 'numeric', year: 'numeric',
+    hour: '2-digit', minute: '2-digit', hour12: false,
   })
 }
 
@@ -71,6 +72,26 @@ interface EventFormPayload {
 const EMPTY_FORM: EventFormPayload = {
   title: '', event_date: '', description: '', location: '',
   end_date: '', capacity: '', notification_targets: [],
+}
+
+function splitDateTime(value: string): { date: string; time: string } {
+  if (!value || !value.includes('T')) {
+    return { date: '', time: '' }
+  }
+
+  const [date, rawTime] = value.split('T')
+  return { date: date ?? '', time: (rawTime ?? '').slice(0, 5) }
+}
+
+function joinDateTime(date: string, time: string): string {
+  if (!date || !time) {
+    return ''
+  }
+  return `${date}T${time}`
+}
+
+function isValid24HourDateTime(value: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}T([01]\d|2[0-3]):[0-5]\d$/.test(value)
 }
 
 function payloadFromRecord(e: EventRecord): EventFormPayload {
@@ -162,6 +183,8 @@ interface EventFormModalProps {
 
 function EventFormModal({ initial, groups, onSave, onCancel, saving, error, isEdit }: EventFormModalProps) {
   const [form, setForm] = useState<EventFormPayload>(initial)
+  const eventDateParts = splitDateTime(form.event_date)
+  const endDateParts = splitDateTime(form.end_date)
 
   function set(field: keyof EventFormPayload, value: string) {
     setForm(f => ({ ...f, [field]: value }))
@@ -193,12 +216,50 @@ function EventFormModal({ initial, groups, onSave, onCancel, saving, error, isEd
 
             <div className="form-field">
               <label className="form-label">Event Date *</label>
-              <input className="form-input" type="datetime-local" value={form.event_date} onChange={e => set('event_date', e.target.value)} required />
+              <input
+                className="form-input"
+                type="date"
+                value={eventDateParts.date}
+                onChange={e => set('event_date', joinDateTime(e.target.value, eventDateParts.time || '00:00'))}
+                required
+              />
+            </div>
+
+            <div className="form-field">
+              <label className="form-label">Event Time (24-hour) *</label>
+              <input
+                className="form-input"
+                type="text"
+                inputMode="numeric"
+                placeholder="HH:mm"
+                pattern="([01][0-9]|2[0-3]):[0-5][0-9]"
+                value={eventDateParts.time}
+                onChange={e => set('event_date', joinDateTime(eventDateParts.date, e.target.value))}
+                required
+              />
             </div>
 
             <div className="form-field">
               <label className="form-label">End Date</label>
-              <input className="form-input" type="datetime-local" value={form.end_date} onChange={e => set('end_date', e.target.value)} />
+              <input
+                className="form-input"
+                type="date"
+                value={endDateParts.date}
+                onChange={e => set('end_date', joinDateTime(e.target.value, endDateParts.time || '00:00'))}
+              />
+            </div>
+
+            <div className="form-field">
+              <label className="form-label">End Time (24-hour)</label>
+              <input
+                className="form-input"
+                type="text"
+                inputMode="numeric"
+                placeholder="HH:mm"
+                pattern="([01][0-9]|2[0-3]):[0-5][0-9]"
+                value={endDateParts.time}
+                onChange={e => set('end_date', joinDateTime(endDateParts.date, e.target.value))}
+              />
             </div>
 
             <div className="form-field form-field--full">
@@ -306,6 +367,16 @@ function EventsPage() {
     setFormSaving(true)
     setFormError(null)
     try {
+      if (!isValid24HourDateTime(form.event_date)) {
+        setFormError('Event date/time must be in 24-hour format (HH:mm).')
+        return
+      }
+
+      if (form.end_date && !isValid24HourDateTime(form.end_date)) {
+        setFormError('End date/time must be in 24-hour format (HH:mm).')
+        return
+      }
+
       const payload = {
         title: form.title,
         event_date: form.event_date,
