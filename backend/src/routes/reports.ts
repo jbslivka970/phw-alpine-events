@@ -34,6 +34,20 @@ interface SummaryPayload {
   events: EventSummaryRow[];
 }
 
+interface DeliverySummaryRow {
+  channel: string;
+  status: string;
+  operation_type: string | null;
+  count: number;
+}
+
+interface DeliverySummaryPayload {
+  from: string;
+  to: string;
+  total_notifications: number;
+  rows: DeliverySummaryRow[];
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -252,6 +266,46 @@ router.get('/participation', apiLimiter, authenticate, requireAdmin, async (req:
     });
   } catch (error) {
     console.error('GET /reports/participation failed', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.get('/delivery', apiLimiter, authenticate, requireAdmin, async (req: Request, res: Response) => {
+  const now = new Date();
+  const defaultFrom = new Date(now.getFullYear(), now.getMonth(), 1);
+  const fromDate = parseDate(req.query.from, defaultFrom);
+  const toDate = parseDate(req.query.to, now);
+  toDate.setHours(23, 59, 59, 999);
+
+  try {
+    const pool = await getPool();
+    const result = await pool
+      .request()
+      .input('fromDate', sql.DateTime, fromDate)
+      .input('toDate', sql.DateTime, toDate)
+      .query<DeliverySummaryRow>(
+        `SELECT
+            channel,
+            status,
+            operation_type,
+            COUNT(*) AS count
+         FROM notification_log
+         WHERE sent_at >= @fromDate
+           AND sent_at <= @toDate
+         GROUP BY channel, status, operation_type
+         ORDER BY channel ASC, status ASC, operation_type ASC`
+      );
+
+    const payload: DeliverySummaryPayload = {
+      from: formatIsoDate(fromDate),
+      to: formatIsoDate(toDate),
+      total_notifications: result.recordset.reduce((sum, row) => sum + row.count, 0),
+      rows: result.recordset,
+    };
+
+    res.json(payload);
+  } catch (error) {
+    console.error('GET /reports/delivery failed', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

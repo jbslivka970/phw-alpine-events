@@ -31,7 +31,7 @@ class RsvpError extends Error {
   }
 }
 
-const WAITLIST_OFFER_WINDOW_HOURS = Number.parseInt(process.env.WAITLIST_OFFER_WINDOW_HOURS ?? '24', 10);
+const WAITLIST_OFFER_WINDOW_HOURS = Number.parseInt(process.env.WAITLIST_OFFER_WINDOW_HOURS ?? '48', 10);
 
 interface PromotionCandidate {
   member_id: string;
@@ -305,7 +305,7 @@ async function triggerWaitlistAutoPromotion(eventId: string): Promise<void> {
       .request()
       .input('event_id', sql.UniqueIdentifier, eventId)
       .input('member_id', sql.UniqueIdentifier, candidate.member_id)
-      .input('offered_until_hours', sql.Int, Number.isFinite(WAITLIST_OFFER_WINDOW_HOURS) ? WAITLIST_OFFER_WINDOW_HOURS : 24)
+      .input('offered_until_hours', sql.Int, Number.isFinite(WAITLIST_OFFER_WINDOW_HOURS) ? WAITLIST_OFFER_WINDOW_HOURS : 48)
       .query(
         `INSERT INTO waitlist_promotion_offer (offer_id, event_id, member_id, status, offered_at, expires_at, resolved_at)
          VALUES (NEWID(), @event_id, @member_id, 'offered', GETUTCDATE(), DATEADD(hour, @offered_until_hours, GETUTCDATE()), NULL)`
@@ -322,7 +322,7 @@ async function triggerWaitlistAutoPromotion(eventId: string): Promise<void> {
          ORDER BY offered_at DESC`
       );
 
-    const expiresAt = offerResult.recordset[0]?.expires_at ?? new Date(Date.now() + 24 * 60 * 60 * 1000);
+    const expiresAt = offerResult.recordset[0]?.expires_at ?? new Date(Date.now() + 48 * 60 * 60 * 1000);
 
     await sendWaitlistPromotionNotification({
       event_id: event.event_id,

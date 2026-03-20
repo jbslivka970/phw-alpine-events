@@ -1,5 +1,7 @@
 # PRD v1.1 Realignment Snapshot (2026-03-20)
 
+Superseded by the fuller gap analysis in `docs/prd-v1_1-full-compare-20260320.md`.
+
 Source baseline: PHW_Alpine_Events_PRD_1.md (v1.1)
 
 ## 1) Deployment and Build Status
@@ -60,7 +62,7 @@ Production verification sample:
 - Test updates for route mock compatibility:
   - [backend/src/__tests__/events.test.ts](backend/src/__tests__/events.test.ts)
 
-Note: These latest backend changes are deployed but currently local-only (not yet committed to git).
+Note: These latest backend changes were subsequently committed and pushed as commit `00c6976`.
 
 ## 3) PRD Feature Status (Top-Level)
 
@@ -162,11 +164,7 @@ Legend: Complete = implemented and validated. Partial = implemented but with not
   - Focus trap
   - Scroll lock while open
 
-## 7) Current Local Git Delta (not yet committed)
+## 7) Repository Alignment
 
-- [backend/src/services/notifications.ts](backend/src/services/notifications.ts)
-- [backend/src/routes/events.ts](backend/src/routes/events.ts)
-- [backend/src/routes/health.ts](backend/src/routes/health.ts)
-- [backend/src/__tests__/events.test.ts](backend/src/__tests__/events.test.ts)
-
-Recommended next action: commit these four backend files as a dedicated reliability PR so repository history matches deployed state.
+- Reliability hardening changes were committed and pushed as `00c6976`.
+- Use `docs/prd-v1_1-full-compare-20260320.md` as the active plan document for remaining PRD work.

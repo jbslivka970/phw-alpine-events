@@ -26,6 +26,15 @@ Thumbs.db
 # Logs
 logs/
 *.log
+*appservice-logs-*.zip
+
+# Local deployment artifacts
+backend-release-*.zip
+backend-rollback-*.zip
+backend-latest-*.zip
+frontend-release-*.zip
+frontend-flat-*.zip
+frontend-static-*.zip
 
 # Azure
 .azure/

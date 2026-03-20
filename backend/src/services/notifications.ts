@@ -948,11 +948,7 @@ function summarizeChangedFields(changedFields: string[]): string {
     .join(', ');
 }
 
-// ── TaVF notification stubs ────────────────────────────────────────────────────
-// These are currently no-ops. Wire up real email/SMS sends when TAVF
-// notification templates are created.
-
-async function notifyNewPosting(_email: string, postingId: string): Promise<void> {
+async function notifyNewPosting(postingId: string): Promise<void> {
   const pool = await getPool();
   const postingResult = await pool
     .request()
@@ -969,14 +965,14 @@ async function notifyNewPosting(_email: string, postingId: string): Promise<void
 
   const recipients = await pool
     .request()
-    .query<{ email: string; member_id: string }>(
-      `SELECT DISTINCT m.email, m.member_id
+    .query<{ email: string; member_id: string; mobile_phone: string | null; sms_opt_in: boolean; email_opt_out: boolean }>(
+      `SELECT DISTINCT m.email, m.member_id, m.mobile_phone, m.sms_opt_in, m.email_opt_out
        FROM member m
        INNER JOIN member_group mg ON mg.member_id = m.member_id
        INNER JOIN [group] g ON g.group_id = mg.group_id
        WHERE g.group_name = 'ALL'
          AND m.is_active = 1
-         AND (m.email_opt_out = 0 OR m.email_opt_out IS NULL)`
+         AND ((m.email_opt_out = 0 OR m.email_opt_out IS NULL) OR (m.sms_opt_in = 1 AND m.mobile_phone IS NOT NULL))`
     );
 
   const eventDate = posting.event_date.toLocaleDateString();
@@ -984,21 +980,81 @@ async function notifyNewPosting(_email: string, postingId: string): Promise<void
   const body = `New TAVF opportunity: ${posting.location} on ${eventDate}. View: /tavf/${posting.posting_id}`;
 
   for (const recipient of recipients.recordset) {
-    await notificationService.sendEmail({
-      to: recipient.email,
-      subject,
-      htmlBody: `<p>${body}</p>`,
-      textBody: body,
-      memberId: recipient.member_id,
+    if (recipient.email && !recipient.email_opt_out) {
+      await notificationService.sendEmail({
+        to: recipient.email,
+        subject,
+        htmlBody: `<p>${body}</p>`,
+        textBody: body,
+        memberId: recipient.member_id,
+      });
+    }
+
+    if (recipient.sms_opt_in && recipient.mobile_phone) {
+      await notificationService.sendSms({
+        to: recipient.mobile_phone,
+        message: `PHW Alpine TAVF: New opportunity at ${posting.location} on ${eventDate}. Open app for details. Reply STOP to opt out.`,
+        memberId: recipient.member_id,
+      });
+    }
+  }
+}
+
+async function notifyApplicationReceived(applicationId: string): Promise<void> {
+  const pool = await getPool();
+  const result = await pool
+    .request()
+    .input('application_id', sql.UniqueIdentifier, applicationId)
+    .query<{
+      location: string;
+      event_date: Date;
+      guide_email: string;
+      guide_member_id: string;
+      guide_mobile_phone: string | null;
+      guide_sms_opt_in: boolean;
+      vet_first_name: string | null;
+    }>(
+      `SELECT
+          p.location,
+          p.event_date,
+          guide.email AS guide_email,
+          guide.member_id AS guide_member_id,
+          guide.mobile_phone AS guide_mobile_phone,
+          guide.sms_opt_in AS guide_sms_opt_in,
+          vet.first_name AS vet_first_name
+       FROM tavf_application ta
+       INNER JOIN tavf_posting p ON p.posting_id = ta.posting_id
+       INNER JOIN member guide ON guide.member_id = p.guide_member_id
+       INNER JOIN member vet ON vet.member_id = ta.vet_member_id
+       WHERE ta.application_id = @application_id`
+    );
+  const row = result.recordset[0];
+  if (!row) {
+    return;
+  }
+
+  const dateLabel = row.event_date.toLocaleDateString();
+  const subject = `New TAVF Application - ${row.location} on ${dateLabel}`;
+  const body = `${row.vet_first_name ?? 'A member'} applied for your TAVF posting at ${row.location} on ${dateLabel}.`;
+
+  await notificationService.sendEmail({
+    to: row.guide_email,
+    subject,
+    htmlBody: `<p>${body}</p>`,
+    textBody: body,
+    memberId: row.guide_member_id,
+  });
+
+  if (row.guide_sms_opt_in && row.guide_mobile_phone) {
+    await notificationService.sendSms({
+      to: row.guide_mobile_phone,
+      message: `PHW Alpine TAVF: New application for your ${row.location} posting on ${dateLabel}. Open app to review. Reply STOP to opt out.`,
+      memberId: row.guide_member_id,
     });
   }
 }
 
-async function notifyApplicationReceived(_email: string, applicationId: string): Promise<void> {
-  console.log(`[notifications] notifyApplicationReceived called for applicationId=${applicationId}`);
-}
-
-async function notifyMatchConfirmed(_guideEmail: string, matchId: string, _vetEmail: string): Promise<void> {
+async function notifyMatchConfirmed(matchId: string): Promise<void> {
   const pool = await getPool();
   const result = await pool
     .request()
@@ -1009,8 +1065,12 @@ async function notifyMatchConfirmed(_guideEmail: string, matchId: string, _vetEm
       event_date: Date;
       guide_email: string;
       guide_member_id: string;
+      guide_mobile_phone: string | null;
+      guide_sms_opt_in: boolean;
       vet_email: string;
       vet_member_id: string;
+      vet_mobile_phone: string | null;
+      vet_sms_opt_in: boolean;
     }>(
       `SELECT
           p.posting_id,
@@ -1018,8 +1078,12 @@ async function notifyMatchConfirmed(_guideEmail: string, matchId: string, _vetEm
           p.event_date,
           guide.email AS guide_email,
           guide.member_id AS guide_member_id,
+          guide.mobile_phone AS guide_mobile_phone,
+          guide.sms_opt_in AS guide_sms_opt_in,
           vet.email AS vet_email,
-          vet.member_id AS vet_member_id
+          vet.member_id AS vet_member_id,
+          vet.mobile_phone AS vet_mobile_phone,
+          vet.sms_opt_in AS vet_sms_opt_in
        FROM tavf_match tm
        INNER JOIN tavf_posting p ON p.posting_id = tm.posting_id
        INNER JOIN tavf_application ta ON ta.application_id = tm.application_id
@@ -1050,9 +1114,25 @@ async function notifyMatchConfirmed(_guideEmail: string, matchId: string, _vetEm
     textBody: `Your TAVF match is confirmed for ${row.location} on ${dateLabel}.`,
     memberId: row.vet_member_id,
   });
+
+  if (row.guide_sms_opt_in && row.guide_mobile_phone) {
+    await notificationService.sendSms({
+      to: row.guide_mobile_phone,
+      message: `PHW Alpine TAVF: Match confirmed for ${row.location} on ${dateLabel}.`,
+      memberId: row.guide_member_id,
+    });
+  }
+
+  if (row.vet_sms_opt_in && row.vet_mobile_phone) {
+    await notificationService.sendSms({
+      to: row.vet_mobile_phone,
+      message: `PHW Alpine TAVF: Match confirmed for ${row.location} on ${dateLabel}.`,
+      memberId: row.vet_member_id,
+    });
+  }
 }
 
-async function notifyMatchCancelled(_guideEmail: string, matchId: string, _vetEmail: string): Promise<void> {
+async function notifyMatchCancelled(matchId: string): Promise<void> {
   const pool = await getPool();
   const result = await pool
     .request()
@@ -1062,16 +1142,24 @@ async function notifyMatchCancelled(_guideEmail: string, matchId: string, _vetEm
       event_date: Date;
       guide_email: string;
       guide_member_id: string;
+      guide_mobile_phone: string | null;
+      guide_sms_opt_in: boolean;
       vet_email: string;
       vet_member_id: string;
+      vet_mobile_phone: string | null;
+      vet_sms_opt_in: boolean;
     }>(
       `SELECT
           p.location,
           p.event_date,
           guide.email AS guide_email,
           guide.member_id AS guide_member_id,
+          guide.mobile_phone AS guide_mobile_phone,
+          guide.sms_opt_in AS guide_sms_opt_in,
           vet.email AS vet_email,
-          vet.member_id AS vet_member_id
+          vet.member_id AS vet_member_id,
+          vet.mobile_phone AS vet_mobile_phone,
+          vet.sms_opt_in AS vet_sms_opt_in
        FROM tavf_match tm
        INNER JOIN tavf_posting p ON p.posting_id = tm.posting_id
        INNER JOIN tavf_application ta ON ta.application_id = tm.application_id
@@ -1102,6 +1190,22 @@ async function notifyMatchCancelled(_guideEmail: string, matchId: string, _vetEm
     textBody: `Your TAVF match for ${row.location} on ${dateLabel} has been cancelled.`,
     memberId: row.vet_member_id,
   });
+
+  if (row.guide_sms_opt_in && row.guide_mobile_phone) {
+    await notificationService.sendSms({
+      to: row.guide_mobile_phone,
+      message: `PHW Alpine TAVF: Match cancelled for ${row.location} on ${dateLabel}.`,
+      memberId: row.guide_member_id,
+    });
+  }
+
+  if (row.vet_sms_opt_in && row.vet_mobile_phone) {
+    await notificationService.sendSms({
+      to: row.vet_mobile_phone,
+      message: `PHW Alpine TAVF: Match cancelled for ${row.location} on ${dateLabel}.`,
+      memberId: row.vet_member_id,
+    });
+  }
 }
 
 export {

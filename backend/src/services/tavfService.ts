@@ -121,11 +121,7 @@ export async function createPosting(input: CreatePostingInput): Promise<TavfPost
     `);
   const posting = result.recordset[0];
 
-  // Stubbed notification
-  await notifications.notifyNewPosting(
-    `guide-${input.guide_member_id}@stub.local`,
-    posting.posting_id
-  );
+  await notifications.notifyNewPosting(posting.posting_id);
 
   return posting;
 }
@@ -224,11 +220,7 @@ export async function createApplication(
     `);
   const application = result.recordset[0];
 
-  // Stubbed notification
-  await notifications.notifyApplicationReceived(
-    `vet-${input.vet_member_id}@stub.local`,
-    input.posting_id
-  );
+  await notifications.notifyApplicationReceived(application.application_id);
 
   return application;
 }
@@ -352,7 +344,7 @@ export async function createMatch(input: CreateMatchInput): Promise<TavfMatch> {
          (NEWID(), @title, @event_date, @location, @capacity, 'published', @created_by, GETUTCDATE(), GETUTCDATE())`
     );
 
-  await notifications.notifyMatchConfirmed('', match.match_id, '');
+  await notifications.notifyMatchConfirmed(match.match_id);
 
   return match;
 }
@@ -397,7 +389,7 @@ export async function cancelMatch(matchId: string): Promise<TavfMatch | null> {
       WHERE posting_id = @posting_id
     `);
 
-  await notifications.notifyMatchCancelled('', matchId, '');
+  await notifications.notifyMatchCancelled(matchId);
 
   return updated;
 }

@@ -37,11 +37,27 @@ interface ParticipationResponse {
   rows: ParticipationRow[];
 }
 
+interface DeliverySummaryRow {
+  channel: 'email' | 'sms';
+  status: 'queued' | 'sent' | 'delivered' | 'failed' | 'stubbed' | 'skipped';
+  operation_type: string | null;
+  count: number;
+}
+
+interface DeliverySummaryResponse {
+  from: string;
+  to: string;
+  total_notifications: number;
+  rows: DeliverySummaryRow[];
+}
+
 const reportsApi = {
   summary: (from: string, to: string) =>
     apiGet<ReportSummaryResponse>(`/reports/summary?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`),
   participation: (year?: number) =>
     apiGet<ParticipationResponse>(year ? `/reports/participation?year=${year}` : '/reports/participation'),
+  delivery: (from: string, to: string) =>
+    apiGet<DeliverySummaryResponse>(`/reports/delivery?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`),
   downloadExport: async (from: string, to: string): Promise<void> => {
     const response = await apiGetBlob(`/reports/export?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
     const disposition = response.headers.get('content-disposition') ?? '';
@@ -60,4 +76,11 @@ const reportsApi = {
 };
 
 export { reportsApi };
-export type { EventSummaryRow, ParticipationResponse, ParticipationRow, ReportSummaryResponse };
+export type {
+  EventSummaryRow,
+  ParticipationResponse,
+  ParticipationRow,
+  ReportSummaryResponse,
+  DeliverySummaryResponse,
+  DeliverySummaryRow,
+};

@@ -56,6 +56,7 @@ describe('rsvpService waitlist auto-promotion', () => {
     });
 
     expect(queryCalls.some((q) => q.includes('INSERT INTO waitlist_promotion_offer'))).toBe(true);
+    expect(mockRequest.input).toHaveBeenCalledWith('offered_until_hours', 'Int', 48);
     expect(sendWaitlistPromotionNotification).toHaveBeenCalledTimes(1);
     expect(sendRsvpConfirmation).toHaveBeenCalledTimes(1);
   });

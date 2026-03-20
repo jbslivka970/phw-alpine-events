@@ -27,6 +27,13 @@ export interface ReportSummary {
   events: EventSummaryRow[];
 }
 
+interface DeliverySummaryRow {
+  channel: 'email' | 'sms';
+  status: 'queued' | 'sent' | 'delivered' | 'failed' | 'stubbed' | 'skipped';
+  operation_type: string | null;
+  count: number;
+}
+
 // ---------------------------------------------------------------------------
 // Stat card
 // ---------------------------------------------------------------------------
@@ -133,6 +140,7 @@ function ReportsPage() {
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [deliveryRows, setDeliveryRows] = useState<DeliverySummaryRow[]>([]);
 
   useEffect(() => {
     let active = true;
@@ -163,6 +171,28 @@ function ReportsPage() {
           setLoading(false);
         }
       });
+    return () => {
+      active = false;
+    };
+  }, [fromDate, toDate]);
+
+  useEffect(() => {
+    let active = true;
+    reportsApi
+      .delivery(fromDate, toDate)
+      .then((data) => {
+        if (!active) {
+          return;
+        }
+        setDeliveryRows(data.rows as DeliverySummaryRow[]);
+      })
+      .catch(() => {
+        if (!active) {
+          return;
+        }
+        setDeliveryRows([]);
+      });
+
     return () => {
       active = false;
     };
@@ -238,6 +268,36 @@ function ReportsPage() {
               </tr>
             ) : (
               summary.events.map((row) => <SummaryRow key={row.event_id} row={row} />)
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="summary-table-wrapper">
+        <h2>Notification Delivery Breakdown</h2>
+        <table className="summary-table">
+          <thead>
+            <tr>
+              <th>Channel</th>
+              <th>Status</th>
+              <th>Operation</th>
+              <th>Count</th>
+            </tr>
+          </thead>
+          <tbody>
+            {deliveryRows.length === 0 ? (
+              <tr>
+                <td colSpan={4} className="empty-state">No notification activity in this range.</td>
+              </tr>
+            ) : (
+              deliveryRows.map((row, index) => (
+                <tr key={`${row.channel}-${row.status}-${row.operation_type ?? 'none'}-${index}`}>
+                  <td>{row.channel}</td>
+                  <td>{row.status}</td>
+                  <td>{row.operation_type ?? 'general'}</td>
+                  <td>{row.count}</td>
+                </tr>
+              ))
             )}
           </tbody>
         </table>
