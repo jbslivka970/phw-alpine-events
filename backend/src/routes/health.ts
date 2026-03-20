@@ -1,6 +1,7 @@
 import { Request, Response, Router } from 'express';
 import { getPool } from '../db';
 import { loadAcsConfig, loadAuthConfig } from '../config';
+import { getNotificationRuntimeStatus } from '../services/notifications';
 
 const router = Router();
 
@@ -61,12 +62,14 @@ router.get('/ready', async (_req: Request, res: Response): Promise<void> => {
 router.get('/startup', (_req: Request, res: Response) => {
   const authConfig = loadAuthConfig();
   const acsConfig = loadAcsConfig();
+  const notificationStatus = getNotificationRuntimeStatus();
   const dbMissing = missingEnvVars(REQUIRED_DB_ENV_VARS);
   const authMissing = missingAuthVars();
   const isProd = process.env['NODE_ENV'] === 'production';
+  const strictNotificationFailure = notificationStatus.strictModeEnabled && notificationStatus.mode !== 'real';
 
   const summary = {
-    status: dbMissing.length === 0 ? 'ok' : 'degraded',
+    status: dbMissing.length === 0 && !strictNotificationFailure ? 'ok' : 'degraded',
     timestamp: new Date().toISOString(),
     runtime: {
       nodeEnv: process.env['NODE_ENV'] ?? 'development',
@@ -77,6 +80,10 @@ router.get('/startup', (_req: Request, res: Response) => {
       dbEnvConfigured: dbMissing.length === 0,
       authConfigured: authConfig.isConfigured,
       notificationsConfigured: acsConfig.isConfigured,
+      notificationMode: notificationStatus.mode,
+      notificationStrictModeEnabled: notificationStatus.strictModeEnabled,
+      emailNotificationChannel: notificationStatus.emailServiceMode,
+      smsNotificationChannel: notificationStatus.smsServiceMode,
     },
     missing: {
       db: dbMissing,
@@ -85,10 +92,11 @@ router.get('/startup', (_req: Request, res: Response) => {
         ...(!process.env['ACS_CONNECTION_STRING'] ? ['ACS_CONNECTION_STRING'] : []),
         ...(process.env['ACS_CONNECTION_STRING'] && !process.env['ACS_EMAIL_FROM'] ? ['ACS_EMAIL_FROM'] : []),
       ],
+      notifications: notificationStatus.reasons,
     },
   };
 
-  if (isProd && dbMissing.length > 0) {
+  if (isProd && (dbMissing.length > 0 || strictNotificationFailure)) {
     res.status(503).json(summary);
     return;
   }

@@ -37,6 +37,9 @@ jest.mock('../middleware/rateLimiter', () => ({
 }));
 
 jest.mock('../services/notifications', () => ({
+  assertEventPublishedNotificationReady: jest.fn(),
+  assertEventCancelledNotificationReady: jest.fn(),
+  assertEventUpdatedNotificationReady: jest.fn(),
   sendEventPublishedNotification: jest.fn(),
   sendEventCancelledNotification: jest.fn(),
   sendEventUpdatedNotification: jest.fn(),

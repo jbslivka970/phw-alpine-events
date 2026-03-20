@@ -23,6 +23,22 @@ interface RsvpNotificationPayload {
 
 type NotificationChannel = 'email' | 'sms';
 type NotificationStatus = 'stubbed' | 'failed' | 'sent' | 'skipped';
+type NotificationMode = 'real' | 'partial' | 'stub';
+
+interface NotificationRuntimeStatus {
+  mode: NotificationMode;
+  strictModeEnabled: boolean;
+  emailServiceMode: 'real' | 'stub';
+  smsServiceMode: 'real' | 'stub';
+  reasons: string[];
+}
+
+class NotificationConfigurationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'NotificationConfigurationError';
+  }
+}
 
 interface EventNotificationPayload {
   event_id: string;
@@ -354,31 +370,39 @@ let emailService: IEmailService = new StubEmailService();
 let smsService: ISmsService = new StubSmsService();
 let isRealEmailService = false;
 let isRealSmsService = false;
+const notificationInitReasons: string[] = [];
 const hasValidAcsConnectionString = Boolean(
   acsConfig.connectionString &&
     /endpoint\s*=\s*https?:\/\//i.test(acsConfig.connectionString) &&
     /accesskey\s*=/i.test(acsConfig.connectionString)
 );
 
+const strictModeEnabled = /^(1|true|yes|on)$/i.test(process.env['NOTIFICATIONS_STRICT_MODE'] ?? '');
+
 if (!acsConfig.isConfigured) {
+  notificationInitReasons.push('ACS core configuration is incomplete (connection string or email sender missing).');
   console.warn('[NotificationService] ACS not configured. Email and SMS sends are running in stub mode.');
 } else if (!hasValidAcsConnectionString) {
+  notificationInitReasons.push('ACS connection string is invalid.');
   console.warn('[NotificationService] ACS connection string appears invalid. Email and SMS sends are running in stub mode.');
 } else {
   try {
     emailService = new AcsEmailService(acsConfig.connectionString ?? '', acsConfig.emailFrom ?? '');
     isRealEmailService = true;
   } catch (error) {
+    notificationInitReasons.push('Failed to initialize ACS email client.');
     console.warn('[NotificationService] Failed to initialize ACS email client, falling back to stub mode.', error);
   }
 
   if (!acsConfig.smsFrom) {
+    notificationInitReasons.push('ACS_SMS_FROM is missing; SMS service is unavailable.');
     console.warn('[NotificationService] ACS_SMS_FROM is not set. SMS sends are running in stub mode.');
   } else {
     try {
       smsService = new AcsSmsService(acsConfig.connectionString ?? '', acsConfig.smsFrom);
       isRealSmsService = true;
     } catch (error) {
+      notificationInitReasons.push('Failed to initialize ACS SMS client.');
       console.warn('[NotificationService] Failed to initialize ACS SMS client, falling back to stub mode.', error);
     }
   }
@@ -391,7 +415,130 @@ const notificationService = new NotificationService(
   isRealSmsService
 );
 
+function getNotificationRuntimeStatus(): NotificationRuntimeStatus {
+  const mode: NotificationMode = isRealEmailService && isRealSmsService
+    ? 'real'
+    : (isRealEmailService || isRealSmsService)
+      ? 'partial'
+      : 'stub';
+
+  const reasons = [...notificationInitReasons];
+  if (strictModeEnabled) {
+    reasons.push('NOTIFICATIONS_STRICT_MODE is enabled.');
+  }
+
+  return {
+    mode,
+    strictModeEnabled,
+    emailServiceMode: isRealEmailService ? 'real' : 'stub',
+    smsServiceMode: isRealSmsService ? 'real' : 'stub',
+    reasons,
+  };
+}
+
+function assertChannelsAvailable(channels: { emailNeeded: boolean; smsNeeded: boolean }, context: string): void {
+  if (!strictModeEnabled) {
+    return;
+  }
+
+  if (channels.emailNeeded && !isRealEmailService) {
+    throw new NotificationConfigurationError(
+      `Notification channel unavailable for ${context}: email delivery is required but ACS email is not configured.`
+    );
+  }
+
+  if (channels.smsNeeded && !isRealSmsService) {
+    throw new NotificationConfigurationError(
+      `Notification channel unavailable for ${context}: SMS delivery is required but ACS SMS is not configured.`
+    );
+  }
+}
+
+async function assertEventPublishedNotificationReady(eventId: string): Promise<void> {
+  const pool = await getPool();
+  const recipientsResult = await pool
+    .request()
+    .input('event_id', sql.UniqueIdentifier, eventId)
+    .query<{
+      email: string | null;
+      mobile_phone: string | null;
+      sms_opt_in: boolean;
+      email_opt_out: boolean;
+    }>(
+      `SELECT
+          m.email,
+          m.mobile_phone,
+          m.sms_opt_in,
+          m.email_opt_out
+       FROM event_notification_target ent
+       LEFT JOIN member_group mg ON mg.group_id = ent.group_id
+       LEFT JOIN member m ON m.member_id = COALESCE(ent.member_id, mg.member_id)
+       WHERE ent.event_id = @event_id
+         AND m.member_id IS NOT NULL`
+    );
+
+  const emailNeeded = recipientsResult.recordset.some((recipient) => Boolean(!recipient.email_opt_out && recipient.email));
+  const smsNeeded = recipientsResult.recordset.some((recipient) => Boolean(recipient.mobile_phone && recipient.sms_opt_in));
+  assertChannelsAvailable({ emailNeeded, smsNeeded }, 'event_published');
+}
+
+async function assertEventCancelledNotificationReady(eventId: string): Promise<void> {
+  const pool = await getPool();
+  const recipientsResult = await pool
+    .request()
+    .input('event_id', sql.UniqueIdentifier, eventId)
+    .query<{
+      email: string | null;
+      mobile_phone: string | null;
+      sms_opt_in: boolean;
+      email_opt_out: boolean;
+    }>(
+      `SELECT DISTINCT
+          m.email,
+          m.mobile_phone,
+          m.sms_opt_in,
+          m.email_opt_out
+       FROM event_response er
+       INNER JOIN member m ON m.member_id = er.member_id
+       WHERE er.event_id = @event_id
+         AND er.response IN ('yes', 'no', 'maybe', 'waitlist')`
+    );
+
+  const emailNeeded = recipientsResult.recordset.some((recipient) => Boolean(!recipient.email_opt_out && recipient.email));
+  const smsNeeded = recipientsResult.recordset.some((recipient) => Boolean(recipient.mobile_phone && recipient.sms_opt_in));
+  assertChannelsAvailable({ emailNeeded, smsNeeded }, 'event_cancelled');
+}
+
+async function assertEventUpdatedNotificationReady(eventId: string): Promise<void> {
+  const pool = await getPool();
+  const recipientsResult = await pool
+    .request()
+    .input('event_id', sql.UniqueIdentifier, eventId)
+    .query<{
+      email: string | null;
+      mobile_phone: string | null;
+      sms_opt_in: boolean;
+      email_opt_out: boolean;
+    }>(
+      `SELECT DISTINCT
+          m.email,
+          m.mobile_phone,
+          m.sms_opt_in,
+          m.email_opt_out
+       FROM event_response er
+       INNER JOIN member m ON m.member_id = er.member_id
+       WHERE er.event_id = @event_id
+         AND er.response IN ('yes', 'maybe', 'waitlist')`
+    );
+
+  const emailNeeded = recipientsResult.recordset.some((recipient) => Boolean(!recipient.email_opt_out && recipient.email));
+  const smsNeeded = recipientsResult.recordset.some((recipient) => Boolean(recipient.mobile_phone && recipient.sms_opt_in));
+  assertChannelsAvailable({ emailNeeded, smsNeeded }, 'event_updated');
+}
+
 async function sendEventPublishedNotification(payload: EventNotificationPayload): Promise<void> {
+  await assertEventPublishedNotificationReady(payload.event_id);
+
   const pool = await getPool();
   const recipientsResult = await pool
     .request()
@@ -449,6 +596,8 @@ async function sendEventPublishedNotification(payload: EventNotificationPayload)
 }
 
 async function sendEventCancelledNotification(payload: EventNotificationPayload): Promise<void> {
+  await assertEventCancelledNotificationReady(payload.event_id);
+
   const pool = await getPool();
   const recipientsResult = await pool
     .request()
@@ -529,6 +678,8 @@ async function sendEventUpdatedNotification(payload: EventUpdateNotificationPayl
   if (payload.changedFields.length === 0) {
     return;
   }
+
+  await assertEventUpdatedNotificationReady(payload.event_id);
 
   const pool = await getPool();
   const recipientsResult = await pool
@@ -955,6 +1106,11 @@ async function notifyMatchCancelled(_guideEmail: string, matchId: string, _vetEm
 
 export {
   NotificationService,
+  NotificationConfigurationError,
+  assertEventCancelledNotificationReady,
+  assertEventPublishedNotificationReady,
+  assertEventUpdatedNotificationReady,
+  getNotificationRuntimeStatus,
   notifyApplicationReceived,
   notifyMatchCancelled,
   notifyMatchConfirmed,

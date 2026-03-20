@@ -6,6 +6,9 @@ import { apiLimiter, writeLimiter } from '../middleware/rateLimiter';
 import { requireAnyAuthenticatedRole, requireEventCreatorOrAdmin } from '../middleware/rbac';
 import rsvpRouter from './rsvp';
 import {
+  assertEventCancelledNotificationReady,
+  assertEventPublishedNotificationReady,
+  assertEventUpdatedNotificationReady,
   sendEventCancelledNotification,
   sendEventPublishedNotification,
   sendEventUpdatedNotification,
@@ -21,6 +24,10 @@ const STATUS_TRANSITIONS: Record<string, string[]> = {
   completed: [],
   cancelled: [],
 };
+
+function isNotificationConfigurationError(error: unknown): error is Error {
+  return error instanceof Error && error.name === 'NotificationConfigurationError';
+}
 
 router.use('/:eventId/rsvp', rsvpRouter);
 
@@ -390,6 +397,10 @@ router.put('/:id', writeLimiter, authenticate, requireEventCreatorOrAdmin, async
       request.input('capacity', sql.Int, req.body.capacity);
     }
 
+    if (existing.status === 'published' && changedFields.length > 0) {
+      await assertEventUpdatedNotificationReady(req.params.id);
+    }
+
     const updated = await request.query(
       `UPDATE event SET ${updates.join(', ')}
        OUTPUT INSERTED.*
@@ -433,6 +444,11 @@ router.put('/:id', writeLimiter, authenticate, requireEventCreatorOrAdmin, async
 
     res.json(updated.recordset[0]);
   } catch (error) {
+    if (isNotificationConfigurationError(error)) {
+      res.status(503).json({ error: error.message });
+      return;
+    }
+
     console.error('PUT /events/:id failed', error);
     res.status(500).json({ error: 'Internal server error' });
   }
@@ -473,6 +489,13 @@ router.put('/:id/status', writeLimiter, authenticate, requireEventCreatorOrAdmin
       return;
     }
 
+    if (newStatus === 'published') {
+      await assertEventPublishedNotificationReady(req.params.id);
+    }
+    if (newStatus === 'cancelled') {
+      await assertEventCancelledNotificationReady(req.params.id);
+    }
+
     const updated = await pool
       .request()
       .input('event_id', sql.UniqueIdentifier, req.params.id)
@@ -506,6 +529,11 @@ router.put('/:id/status', writeLimiter, authenticate, requireEventCreatorOrAdmin
 
     res.json(updated.recordset[0]);
   } catch (error) {
+    if (isNotificationConfigurationError(error)) {
+      res.status(503).json({ error: error.message });
+      return;
+    }
+
     console.error('PUT /events/:id/status failed', error);
     res.status(500).json({ error: 'Internal server error' });
   }
