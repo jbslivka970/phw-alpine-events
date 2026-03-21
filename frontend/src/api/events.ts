@@ -7,6 +7,8 @@ interface EventRecord {
   location: string | null;
   event_date: string;
   end_date: string | null;
+  mentor_capacity: number | null;
+  participant_capacity: number | null;
   capacity: number | null;
   status: 'draft' | 'published' | 'completed' | 'cancelled';
   created_by: string | null;
@@ -24,6 +26,7 @@ interface RsvpRecord {
   response_id: string;
   event_id: string;
   member_id: string;
+  response_role?: 'MENTOR' | 'PARTICIPANT';
   response: 'yes' | 'no' | 'maybe' | 'waitlist';
   responded_at: string;
   notes: string | null;
@@ -40,6 +43,8 @@ interface PublicRsvpContext {
   location: string | null;
   event_date: string;
   end_date: string | null;
+  mentor_capacity: number | null;
+  participant_capacity: number | null;
   capacity: number | null;
   status: 'draft' | 'published' | 'completed' | 'cancelled';
   member_id: string;
@@ -68,6 +73,8 @@ const eventsApi = {
     description?: string | null;
     location?: string | null;
     end_date?: string | null;
+    mentor_capacity?: number | null;
+    participant_capacity?: number | null;
     capacity?: number | null;
     notification_targets?: EventTarget[];
   }) => apiPost<EventRecord>('/events', data),
@@ -81,7 +88,7 @@ const eventsApi = {
 const rsvpApi = {
   list: (eventId: string, response?: string) =>
     apiGet<RsvpRecord[]>(response ? `/events/${eventId}/rsvp?response=${encodeURIComponent(response)}` : `/events/${eventId}/rsvp`),
-  upsert: (eventId: string, payload: { member_id: string; response: RsvpRecord['response']; notes?: string | null }) =>
+  upsert: (eventId: string, payload: { member_id: string; response: RsvpRecord['response']; response_role?: 'MENTOR' | 'PARTICIPANT'; notes?: string | null }) =>
     apiPost<RsvpRecord>(`/events/${eventId}/rsvp`, payload),
   remove: (eventId: string, memberId: string) => apiDelete<void>(`/events/${eventId}/rsvp/${memberId}`),
 };

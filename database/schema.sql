@@ -76,6 +76,8 @@ CREATE TABLE dbo.event (
     location          NVARCHAR(300)    NULL,
     event_date        DATETIME         NOT NULL,
     end_date          DATETIME         NULL,
+    mentor_capacity   INT              NULL,
+    participant_capacity INT           NULL,
     capacity          INT              NULL,
     status            NVARCHAR(20)     NOT NULL DEFAULT 'draft'
         CHECK (status IN ('draft', 'published', 'cancelled', 'completed')),
@@ -84,6 +86,32 @@ CREATE TABLE dbo.event (
     updated_at        DATETIME         NOT NULL DEFAULT GETUTCDATE(),
     CONSTRAINT PK_event PRIMARY KEY (event_id)
 );
+
+IF OBJECT_ID(N'dbo.event', N'U') IS NOT NULL
+BEGIN
+    IF COL_LENGTH('dbo.event', 'mentor_capacity') IS NULL
+        ALTER TABLE dbo.event ADD mentor_capacity INT NULL;
+
+    IF COL_LENGTH('dbo.event', 'participant_capacity') IS NULL
+        ALTER TABLE dbo.event ADD participant_capacity INT NULL;
+
+        EXEC sp_executesql N'
+                UPDATE dbo.event
+                SET participant_capacity = capacity
+                WHERE participant_capacity IS NULL
+                    AND mentor_capacity IS NULL
+                    AND capacity IS NOT NULL;
+
+                UPDATE dbo.event
+                SET capacity = COALESCE(mentor_capacity, 0) + COALESCE(participant_capacity, 0)
+                WHERE mentor_capacity IS NOT NULL
+                     OR participant_capacity IS NOT NULL;
+
+                UPDATE dbo.event
+                SET capacity = NULL
+                WHERE COALESCE(mentor_capacity, 0) + COALESCE(participant_capacity, 0) = 0;
+        ';
+END
 
 -- ---------------------------------------------------------------------------
 -- 5. EventNotificationTarget  (which groups / members receive notifications)
@@ -120,6 +148,8 @@ CREATE TABLE dbo.event_response (
     response_channel NVARCHAR(30) NULL,
     response      NVARCHAR(20)     NOT NULL
         CHECK (response IN ('yes', 'no', 'maybe', 'waitlist')),
+    response_role NVARCHAR(20)     NOT NULL DEFAULT 'PARTICIPANT'
+        CHECK (response_role IN ('MENTOR', 'PARTICIPANT')),
     responded_at  DATETIME         NOT NULL DEFAULT GETUTCDATE(),
     notes         NVARCHAR(500)    NULL,
     reminder_sent BIT              NOT NULL DEFAULT 0,
@@ -143,6 +173,9 @@ BEGIN
     IF COL_LENGTH('dbo.event_response', 'response_channel') IS NULL
         ALTER TABLE dbo.event_response ADD response_channel NVARCHAR(30) NULL;
 
+    IF COL_LENGTH('dbo.event_response', 'response_role') IS NULL
+        ALTER TABLE dbo.event_response ADD response_role NVARCHAR(20) NOT NULL DEFAULT 'PARTICIPANT';
+
     IF COL_LENGTH('dbo.event_response', 'reminder_sent') IS NULL
         ALTER TABLE dbo.event_response ADD reminder_sent BIT NOT NULL DEFAULT 0;
 
@@ -158,6 +191,18 @@ BEGIN
         ALTER TABLE dbo.event_response
         ADD CONSTRAINT FK_event_response_group_context FOREIGN KEY (group_context_id)
         REFERENCES dbo.[group] (group_id);
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM sys.check_constraints
+        WHERE name = N'CK_event_response_response_role'
+          AND parent_object_id = OBJECT_ID(N'dbo.event_response')
+    )
+        EXEC sp_executesql N'
+            ALTER TABLE dbo.event_response
+            ADD CONSTRAINT CK_event_response_response_role
+                CHECK (response_role IN (''MENTOR'', ''PARTICIPANT''));
+        ';
 END
 
 -- ---------------------------------------------------------------------------
@@ -374,6 +419,8 @@ CREATE TABLE dbo.waitlist_promotion_offer (
     offer_id      UNIQUEIDENTIFIER NOT NULL DEFAULT NEWID(),
     event_id      UNIQUEIDENTIFIER NOT NULL,
     member_id     UNIQUEIDENTIFIER NOT NULL,
+    role          NVARCHAR(20)     NOT NULL DEFAULT 'PARTICIPANT'
+        CHECK (role IN ('MENTOR', 'PARTICIPANT')),
     status        NVARCHAR(20)     NOT NULL
         CHECK (status IN ('offered', 'accepted', 'expired', 'declined')),
     offered_at    DATETIME         NOT NULL DEFAULT GETUTCDATE(),
@@ -385,6 +432,24 @@ CREATE TABLE dbo.waitlist_promotion_offer (
     CONSTRAINT FK_waitlist_offer_member FOREIGN KEY (member_id)
         REFERENCES dbo.member (member_id) ON DELETE CASCADE
 );
+
+IF OBJECT_ID(N'dbo.waitlist_promotion_offer', N'U') IS NOT NULL
+BEGIN
+    IF COL_LENGTH('dbo.waitlist_promotion_offer', 'role') IS NULL
+        ALTER TABLE dbo.waitlist_promotion_offer ADD role NVARCHAR(20) NOT NULL DEFAULT 'PARTICIPANT';
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM sys.check_constraints
+        WHERE name = N'CK_waitlist_promotion_offer_role'
+          AND parent_object_id = OBJECT_ID(N'dbo.waitlist_promotion_offer')
+    )
+        EXEC sp_executesql N'
+            ALTER TABLE dbo.waitlist_promotion_offer
+            ADD CONSTRAINT CK_waitlist_promotion_offer_role
+                CHECK (role IN (''MENTOR'', ''PARTICIPANT''));
+        ';
+END
 
 -- ===========================================================================
 -- Indexes
@@ -420,6 +485,12 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_event_response_event_
 -- waitlist_promotion_offer
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_waitlist_offer_event_status' AND object_id = OBJECT_ID('dbo.waitlist_promotion_offer'))
     CREATE INDEX idx_waitlist_offer_event_status ON dbo.waitlist_promotion_offer (event_id, status, expires_at);
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_waitlist_offer_event_role_status' AND object_id = OBJECT_ID('dbo.waitlist_promotion_offer'))
+BEGIN
+    IF COL_LENGTH('dbo.waitlist_promotion_offer', 'role') IS NOT NULL
+        EXEC sp_executesql N'CREATE INDEX idx_waitlist_offer_event_role_status ON dbo.waitlist_promotion_offer (event_id, role, status, expires_at);';
+END
 
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_waitlist_offer_member_event' AND object_id = OBJECT_ID('dbo.waitlist_promotion_offer'))
     CREATE INDEX idx_waitlist_offer_member_event ON dbo.waitlist_promotion_offer (member_id, event_id, offered_at DESC);

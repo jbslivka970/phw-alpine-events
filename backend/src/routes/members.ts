@@ -145,10 +145,18 @@ router.get('/:id/participation', apiLimiter, authenticate, requireAnyAuthenticat
       .query<{
         events_attended: number;
         events_attended_prior_year: number;
+        mentor_attended: number;
+        mentor_attended_prior_year: number;
+        participant_attended: number;
+        participant_attended_prior_year: number;
       }>(
         `SELECT
             SUM(CASE WHEN YEAR(e.event_date) = @current_year AND ea.attended = 1 THEN 1 ELSE 0 END) AS events_attended,
-            SUM(CASE WHEN YEAR(e.event_date) = @prior_year AND ea.attended = 1 THEN 1 ELSE 0 END) AS events_attended_prior_year
+            SUM(CASE WHEN YEAR(e.event_date) = @prior_year AND ea.attended = 1 THEN 1 ELSE 0 END) AS events_attended_prior_year,
+            SUM(CASE WHEN YEAR(e.event_date) = @current_year AND ea.attended = 1 AND ea.role = 'MENTOR' THEN 1 ELSE 0 END) AS mentor_attended,
+            SUM(CASE WHEN YEAR(e.event_date) = @prior_year AND ea.attended = 1 AND ea.role = 'MENTOR' THEN 1 ELSE 0 END) AS mentor_attended_prior_year,
+            SUM(CASE WHEN YEAR(e.event_date) = @current_year AND ea.attended = 1 AND ea.role = 'PARTICIPANT' THEN 1 ELSE 0 END) AS participant_attended,
+            SUM(CASE WHEN YEAR(e.event_date) = @prior_year AND ea.attended = 1 AND ea.role = 'PARTICIPANT' THEN 1 ELSE 0 END) AS participant_attended_prior_year
          FROM event_assignment ea
          INNER JOIN event e ON e.event_id = ea.event_id
          WHERE ea.member_id = @member_id
@@ -160,6 +168,10 @@ router.get('/:id/participation', apiLimiter, authenticate, requireAnyAuthenticat
       year: currentYear,
       events_attended: result.recordset[0]?.events_attended ?? 0,
       events_attended_prior_year: result.recordset[0]?.events_attended_prior_year ?? 0,
+      mentor_attended: result.recordset[0]?.mentor_attended ?? 0,
+      mentor_attended_prior_year: result.recordset[0]?.mentor_attended_prior_year ?? 0,
+      participant_attended: result.recordset[0]?.participant_attended ?? 0,
+      participant_attended_prior_year: result.recordset[0]?.participant_attended_prior_year ?? 0,
     });
   } catch (error) {
     next(error);

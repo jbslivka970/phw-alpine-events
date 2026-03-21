@@ -15,7 +15,7 @@ router.get('/', apiLimiter, authenticate, requireAnyAuthenticatedRole, async (re
     const responseFilter = req.query.response as string | undefined;
     const request = pool.request().input('event_id', sql.UniqueIdentifier, eventId);
     let query = `
-      SELECT er.response_id, er.event_id, er.member_id, er.response, er.responded_at, er.notes,
+      SELECT er.response_id, er.event_id, er.member_id, er.response_role, er.response, er.responded_at, er.notes,
              m.first_name, m.last_name, m.email, m.mobile_phone
       FROM event_response er
       INNER JOIN member m ON m.member_id = er.member_id
@@ -41,6 +41,7 @@ router.post('/', writeLimiter, authenticate, requireAnyAuthenticatedRole, async 
     const eventId = req.params.eventId;
     const memberId = req.body?.member_id as string | undefined;
     const response = (req.body?.response as string | undefined)?.toLowerCase() as RsvpResponse | undefined;
+    const responseRole = (req.body?.response_role as string | undefined)?.toUpperCase();
     const notes = typeof req.body?.notes === 'string' ? req.body.notes : null;
 
     if (!memberId) {
@@ -53,12 +54,18 @@ router.post('/', writeLimiter, authenticate, requireAnyAuthenticatedRole, async 
       return;
     }
 
+    if (responseRole !== undefined && !['MENTOR', 'PARTICIPANT'].includes(responseRole)) {
+      res.status(400).json({ error: 'response_role must be MENTOR or PARTICIPANT when provided' });
+      return;
+    }
+
     const upsert = await recordRsvpResponse({
       eventId,
       memberId,
       response,
       notes,
       responseChannel: 'web',
+      responseRole: responseRole as 'MENTOR' | 'PARTICIPANT' | undefined,
     });
     res.status(200).json(upsert);
   } catch (error) {

@@ -45,7 +45,17 @@ function StatusBadge({ status }: { status: string }) {
 
 // ── Slot count display ────────────────────────────────────────────────────────
 
-function SlotCount({ yesCount, capacity }: { yesCount: number; capacity: number | null }) {
+function SlotCount({
+  yesCount,
+  capacity,
+  mentorCapacity,
+  participantCapacity,
+}: {
+  yesCount: number;
+  capacity: number | null;
+  mentorCapacity: number | null;
+  participantCapacity: number | null;
+}) {
   const cap = capacity ?? null
   const pct = cap ? Math.min(100, Math.round((yesCount / cap) * 100)) : null
   const full = cap !== null && yesCount >= cap
@@ -53,6 +63,9 @@ function SlotCount({ yesCount, capacity }: { yesCount: number; capacity: number 
     <span className={`slot-count${full ? ' slot-count--full' : ''}`}>
       {yesCount}/{cap ?? '∞'}
       {pct !== null && ` (${pct}%)`}
+      {(mentorCapacity !== null || participantCapacity !== null)
+        ? ` M:${mentorCapacity ?? '∞'} P:${participantCapacity ?? '∞'}`
+        : ''}
     </span>
   )
 }
@@ -268,8 +281,10 @@ function payloadFromRecord(e: EventRecord): EventFormPayload {
     description: e.description ?? '',
     location: e.location ?? '',
     end_date: e.end_date ? e.end_date.slice(0, 16) : '',
-    mentor_capacity: '',
-    participant_capacity: e.capacity != null ? String(e.capacity) : '',
+    mentor_capacity: e.mentor_capacity != null ? String(e.mentor_capacity) : '',
+    participant_capacity: e.participant_capacity != null
+      ? String(e.participant_capacity)
+      : (e.capacity != null ? String(e.capacity) : ''),
     notification_targets: [],   // populated separately
   }
 }
@@ -694,6 +709,8 @@ function EventsPage() {
         description: form.description || null,
         location: form.location || null,
         end_date: form.end_date || null,
+        mentor_capacity: mentorCapacity,
+        participant_capacity: participantCapacity,
         capacity: combinedCapacity > 0 ? combinedCapacity : null,
         notification_targets: form.notification_targets.map(id => ({ group_id: id })),
       }
@@ -789,7 +806,12 @@ function EventsPage() {
                   <span className="event-card__date">{formatDate(event.event_date)}</span>
                   {event.location && <span className="event-card__location">📍 {event.location}</span>}
                 </div>
-                <SlotCount yesCount={event.yes_count ?? 0} capacity={event.capacity} />
+                <SlotCount
+                  yesCount={event.yes_count ?? 0}
+                  capacity={event.capacity}
+                  mentorCapacity={event.mentor_capacity}
+                  participantCapacity={event.participant_capacity}
+                />
               </div>
 
               <h2 className="event-card__title">{event.title}</h2>

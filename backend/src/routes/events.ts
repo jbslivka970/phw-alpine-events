@@ -52,6 +52,8 @@ async function getPublicRsvpContext(tokenString: string): Promise<{
   location: string | null;
   event_date: string;
   end_date: string | null;
+  mentor_capacity: number | null;
+  participant_capacity: number | null;
   capacity: number | null;
   status: string;
   member_id: string;
@@ -72,6 +74,8 @@ async function getPublicRsvpContext(tokenString: string): Promise<{
       location: string | null;
       event_date: string;
       end_date: string | null;
+      mentor_capacity: number | null;
+      participant_capacity: number | null;
       capacity: number | null;
       status: string;
       member_id: string;
@@ -85,6 +89,8 @@ async function getPublicRsvpContext(tokenString: string): Promise<{
           e.location,
           e.event_date,
           e.end_date,
+          e.mentor_capacity,
+          e.participant_capacity,
           e.capacity,
           e.status,
           m.member_id,
@@ -269,7 +275,11 @@ router.post('/', writeLimiter, authenticate, requireEventCreatorOrAdmin, async (
     const description = (req.body?.description as string | undefined) ?? null;
     const location = (req.body?.location as string | undefined) ?? null;
     const endDate = (req.body?.end_date as string | undefined) ?? null;
-    const capacity = typeof req.body?.capacity === 'number' ? req.body.capacity : null;
+    const mentorCapacity = parseCapacity(req.body?.mentor_capacity);
+    const participantCapacity = parseCapacity(req.body?.participant_capacity);
+    const legacyCapacity = parseCapacity(req.body?.capacity);
+    const computedCapacity = (mentorCapacity ?? 0) + (participantCapacity ?? 0);
+    const capacity = computedCapacity > 0 ? computedCapacity : legacyCapacity;
     const rawTargets = Array.isArray(req.body?.notification_targets) ? req.body.notification_targets : [];
     const createdBy = null;
 
@@ -314,12 +324,14 @@ router.post('/', writeLimiter, authenticate, requireEventCreatorOrAdmin, async (
       .input('location', sql.NVarChar, location)
       .input('event_date', sql.DateTime, parsedEventDate)
       .input('end_date', sql.DateTime, parsedEndDate)
+      .input('mentor_capacity', sql.Int, mentorCapacity)
+      .input('participant_capacity', sql.Int, participantCapacity)
       .input('capacity', sql.Int, capacity)
       .input('created_by', sql.UniqueIdentifier, createdBy)
       .query(
-        `INSERT INTO event (event_id, title, description, location, event_date, end_date, capacity, status, created_by, created_at, updated_at)
+        `INSERT INTO event (event_id, title, description, location, event_date, end_date, mentor_capacity, participant_capacity, capacity, status, created_by, created_at, updated_at)
          OUTPUT INSERTED.*
-         VALUES (NEWID(), @title, @description, @location, @event_date, @end_date, @capacity, 'draft', @created_by, GETUTCDATE(), GETUTCDATE())`
+         VALUES (NEWID(), @title, @description, @location, @event_date, @end_date, @mentor_capacity, @participant_capacity, @capacity, 'draft', @created_by, GETUTCDATE(), GETUTCDATE())`
       );
 
     const event = created.recordset[0];
@@ -364,9 +376,11 @@ router.put('/:id', writeLimiter, authenticate, requireEventCreatorOrAdmin, async
         location: string | null;
         event_date: Date | string;
         end_date: Date | string | null;
+        mentor_capacity: number | null;
+        participant_capacity: number | null;
         capacity: number | null;
       }>(
-        'SELECT status, title, description, location, event_date, end_date, capacity FROM event WHERE event_id = @event_id'
+        'SELECT status, title, description, location, event_date, end_date, mentor_capacity, participant_capacity, capacity FROM event WHERE event_id = @event_id'
       );
 
     const existing = existingResult.recordset[0];
@@ -386,6 +400,8 @@ router.put('/:id', writeLimiter, authenticate, requireEventCreatorOrAdmin, async
     const proposedLocation = req.body?.location;
     const proposedEventDate = req.body?.event_date;
     const proposedEndDate = req.body?.end_date;
+    const proposedMentorCapacity = req.body?.mentor_capacity;
+    const proposedParticipantCapacity = req.body?.participant_capacity;
     const proposedCapacity = req.body?.capacity;
 
     if (proposedTitle !== undefined && normalizeString(proposedTitle) !== normalizeString(existing.title)) {
@@ -402,6 +418,12 @@ router.put('/:id', writeLimiter, authenticate, requireEventCreatorOrAdmin, async
     }
     if (proposedEndDate !== undefined && toUtcMillis(proposedEndDate) !== toUtcMillis(existing.end_date)) {
       changedFields.push('end_date');
+    }
+    if (proposedMentorCapacity !== undefined && normalizeNumber(proposedMentorCapacity) !== normalizeNumber(existing.mentor_capacity)) {
+      changedFields.push('mentor_capacity');
+    }
+    if (proposedParticipantCapacity !== undefined && normalizeNumber(proposedParticipantCapacity) !== normalizeNumber(existing.participant_capacity)) {
+      changedFields.push('participant_capacity');
     }
     if (proposedCapacity !== undefined && normalizeNumber(proposedCapacity) !== normalizeNumber(existing.capacity)) {
       changedFields.push('capacity');
@@ -430,9 +452,29 @@ router.put('/:id', writeLimiter, authenticate, requireEventCreatorOrAdmin, async
       updates.push('end_date = @end_date');
       request.input('end_date', sql.DateTime, req.body.end_date ? new Date(req.body.end_date) : null);
     }
+    if (req.body?.mentor_capacity !== undefined) {
+      updates.push('mentor_capacity = @mentor_capacity');
+      request.input('mentor_capacity', sql.Int, parseCapacity(req.body.mentor_capacity));
+    }
+    if (req.body?.participant_capacity !== undefined) {
+      updates.push('participant_capacity = @participant_capacity');
+      request.input('participant_capacity', sql.Int, parseCapacity(req.body.participant_capacity));
+    }
+
+    const hasRoleCapacityInput = req.body?.mentor_capacity !== undefined || req.body?.participant_capacity !== undefined;
     if (req.body?.capacity !== undefined) {
       updates.push('capacity = @capacity');
-      request.input('capacity', sql.Int, req.body.capacity);
+      request.input('capacity', sql.Int, parseCapacity(req.body.capacity));
+    } else if (hasRoleCapacityInput) {
+      const nextMentor = req.body?.mentor_capacity !== undefined
+        ? parseCapacity(req.body.mentor_capacity)
+        : normalizeNumber(existing.mentor_capacity);
+      const nextParticipant = req.body?.participant_capacity !== undefined
+        ? parseCapacity(req.body.participant_capacity)
+        : normalizeNumber(existing.participant_capacity);
+      const combined = (nextMentor ?? 0) + (nextParticipant ?? 0);
+      updates.push('capacity = @capacity');
+      request.input('capacity', sql.Int, combined > 0 ? combined : null);
     }
 
     if (existing.status === 'published' && changedFields.length > 0) {
@@ -593,6 +635,19 @@ function normalizeNumber(value: unknown): number | null {
 
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function parseCapacity(value: unknown): number | null {
+  const parsed = normalizeNumber(value);
+  if (parsed === null) {
+    return null;
+  }
+
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    return null;
+  }
+
+  return parsed;
 }
 
 function toUtcMillis(value: unknown): number | null {

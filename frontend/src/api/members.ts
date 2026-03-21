@@ -36,6 +36,10 @@ interface MemberParticipation {
   year: number;
   events_attended: number;
   events_attended_prior_year: number;
+  mentor_attended: number;
+  mentor_attended_prior_year: number;
+  participant_attended: number;
+  participant_attended_prior_year: number;
 }
 
 const membersApi = {
