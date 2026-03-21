@@ -68,7 +68,7 @@ describe('sms routes', () => {
     const queryResults: QueryResult[] = [
       { recordset: [{ member_id: 'member-1', mobile_phone: '+13035551212' }] },
       { recordset: [{ event_id: 'event-1', title: 'Climb Night', event_date: new Date('2025-01-01T18:00:00Z'), location: 'Gym' }] },
-      { recordset: [{ event_id: 'event-1', title: 'Climb Night', status: 'published', capacity: 10, event_date: new Date('2025-01-01T18:00:00Z') }] },
+      { recordset: [{ event_id: 'event-1', title: 'Climb Night', status: 'published', mentor_capacity: null, participant_capacity: 10, capacity: 10, event_date: new Date('2025-01-01T18:00:00Z') }] },
       { recordset: [{ yes_count: 0 }] },
       { recordset: [{ reserved_count: 0, has_active_offer: 0 }] },
       { recordset: [{ response_id: 'response-1', event_id: 'event-1', member_id: 'member-1', response: 'yes', responded_at: new Date('2025-01-01T12:00:00Z'), notes: 'SMS reply received: Y' }] },
@@ -107,6 +107,8 @@ describe('sms routes', () => {
             event_id: '00000000-0000-0000-0000-000000000101',
             title: 'Climb Night',
             status: 'published',
+            mentor_capacity: null,
+            participant_capacity: 10,
             capacity: 10,
             event_date: new Date('2025-01-01T18:00:00Z'),
           },

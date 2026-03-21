@@ -255,7 +255,7 @@ describe('events routes', () => {
       '00000000-0000-0000-0000-000000000303'
     );
     const queue = [
-      { recordset: [{ event_id: '00000000-0000-0000-0000-000000000101', title: 'Fly Tying 101', status: 'published', capacity: 12, event_date: new Date('2026-04-01T18:00:00.000Z') }] },
+      { recordset: [{ event_id: '00000000-0000-0000-0000-000000000101', title: 'Fly Tying 101', status: 'published', mentor_capacity: null, participant_capacity: 12, capacity: 12, event_date: new Date('2026-04-01T18:00:00.000Z') }] },
       { recordset: [{ yes_count: 0 }] },
       { recordset: [{ reserved_count: 0, has_active_offer: 0 }] },
       { recordset: [{ response_id: 'response-1', event_id: '00000000-0000-0000-0000-000000000101', member_id: '00000000-0000-0000-0000-000000000202', response: 'yes', responded_at: new Date('2026-03-18T12:00:00.000Z'), notes: 'Recorded from tokenized RSVP link' }] },
@@ -289,6 +289,8 @@ describe('events routes', () => {
             event_id: '00000000-0000-0000-0000-000000000101',
             title: 'Fly Tying 101',
             status: 'published',
+            mentor_capacity: null,
+            participant_capacity: 12,
             capacity: 12,
             event_date: new Date('2026-04-01T18:00:00.000Z'),
           },

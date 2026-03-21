@@ -25,11 +25,11 @@ describe('rsvpService waitlist auto-promotion', () => {
   it('creates a waitlist promotion offer when a yes response frees capacity', async () => {
     const queryCalls: string[] = [];
     const queue: Array<{ recordset?: unknown[]; rowsAffected?: number[] }> = [
-      { recordset: [{ event_id: 'event-1', title: 'River Day', status: 'published', capacity: 2, event_date: new Date('2026-06-01T18:00:00Z') }] },
+      { recordset: [{ event_id: 'event-1', title: 'River Day', status: 'published', mentor_capacity: null, participant_capacity: 2, capacity: 2, event_date: new Date('2026-06-01T18:00:00Z') }] },
       { recordset: [{ response_id: 'r1', event_id: 'event-1', member_id: 'member-yes', response: 'no', responded_at: new Date('2026-05-01T00:00:00Z'), notes: null }] },
       { recordset: [{ first_name: 'Pat', email: 'pat@example.com', mobile_phone: null, sms_opt_in: false }] },
       { rowsAffected: [0] },
-      { recordset: [{ event_id: 'event-1', title: 'River Day', event_date: new Date('2026-06-01T18:00:00Z'), location: 'Deck', description: 'Desc', status: 'published', capacity: 2 }] },
+      { recordset: [{ event_id: 'event-1', title: 'River Day', event_date: new Date('2026-06-01T18:00:00Z'), location: 'Deck', description: 'Desc', status: 'published', mentor_capacity: null, participant_capacity: 2, capacity: 2 }] },
       { rowsAffected: [1] },
       { recordset: [{ yes_count: 1, active_offers: 0 }] },
       { recordset: [{ member_id: 'member-wait', response_channel: 'sms', responded_at: new Date('2026-05-01T00:00:00Z'), first_name: 'Casey', email: 'casey@example.com', mobile_phone: '+13035550111', sms_opt_in: true, email_opt_out: false }] },
@@ -64,13 +64,13 @@ describe('rsvpService waitlist auto-promotion', () => {
   it('marks active offers accepted when offered member responds yes', async () => {
     const queryCalls: string[] = [];
     const queue: Array<{ recordset?: unknown[]; rowsAffected?: number[] }> = [
-      { recordset: [{ event_id: 'event-2', title: 'Casting Clinic', status: 'published', capacity: 3, event_date: new Date('2026-06-02T18:00:00Z') }] },
+      { recordset: [{ event_id: 'event-2', title: 'Casting Clinic', status: 'published', mentor_capacity: null, participant_capacity: 3, capacity: 3, event_date: new Date('2026-06-02T18:00:00Z') }] },
       { recordset: [{ yes_count: 2 }] },
       { recordset: [{ reserved_count: 0, has_active_offer: 1 }] },
       { recordset: [{ response_id: 'r2', event_id: 'event-2', member_id: 'member-offered', response: 'yes', responded_at: new Date('2026-05-01T00:00:00Z'), notes: null }] },
       { recordset: [{ first_name: 'Offered', email: 'offered@example.com', mobile_phone: null, sms_opt_in: false }] },
       { rowsAffected: [1] },
-      { recordset: [{ event_id: 'event-2', title: 'Casting Clinic', event_date: new Date('2026-06-02T18:00:00Z'), location: 'Lake', description: 'Desc', status: 'published', capacity: 3 }] },
+      { recordset: [{ event_id: 'event-2', title: 'Casting Clinic', event_date: new Date('2026-06-02T18:00:00Z'), location: 'Lake', description: 'Desc', status: 'published', mentor_capacity: null, participant_capacity: 3, capacity: 3 }] },
       { rowsAffected: [0] },
       { recordset: [{ yes_count: 3, active_offers: 0 }] },
     ];
