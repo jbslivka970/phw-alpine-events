@@ -270,8 +270,40 @@ router.post('/', writeLimiter, authenticate, requireEventCreatorOrAdmin, async (
     const location = (req.body?.location as string | undefined) ?? null;
     const endDate = (req.body?.end_date as string | undefined) ?? null;
     const capacity = typeof req.body?.capacity === 'number' ? req.body.capacity : null;
-    const targets = Array.isArray(req.body?.notification_targets) ? req.body.notification_targets : [];
+    const rawTargets = Array.isArray(req.body?.notification_targets) ? req.body.notification_targets : [];
     const createdBy = null;
+
+    const parsedEventDate = new Date(eventDate);
+    if (Number.isNaN(parsedEventDate.getTime())) {
+      res.status(400).json({ error: 'event_date must be a valid ISO datetime string' });
+      return;
+    }
+
+    const parsedEndDate = endDate ? new Date(endDate) : null;
+    if (parsedEndDate && Number.isNaN(parsedEndDate.getTime())) {
+      res.status(400).json({ error: 'end_date must be a valid ISO datetime string when provided' });
+      return;
+    }
+
+    if (parsedEndDate && parsedEndDate.getTime() < parsedEventDate.getTime()) {
+      res.status(400).json({ error: 'end_date cannot be before event_date' });
+      return;
+    }
+
+    const targetGroupIds: string[] = [];
+    for (const target of rawTargets) {
+      if (!target || typeof target !== 'object') {
+        continue;
+      }
+
+      const parsedGroupId = asUuidOrNull((target as { group_id?: unknown }).group_id);
+      if (!parsedGroupId) {
+        res.status(400).json({ error: 'notification_targets must contain valid group_id UUIDs' });
+        return;
+      }
+
+      targetGroupIds.push(parsedGroupId);
+    }
 
     const pool = await getPool();
 
@@ -280,8 +312,8 @@ router.post('/', writeLimiter, authenticate, requireEventCreatorOrAdmin, async (
       .input('title', sql.NVarChar, title)
       .input('description', sql.NVarChar(sql.MAX), description)
       .input('location', sql.NVarChar, location)
-      .input('event_date', sql.DateTime, new Date(eventDate))
-      .input('end_date', sql.DateTime, endDate ? new Date(endDate) : null)
+      .input('event_date', sql.DateTime, parsedEventDate)
+      .input('end_date', sql.DateTime, parsedEndDate)
       .input('capacity', sql.Int, capacity)
       .input('created_by', sql.UniqueIdentifier, createdBy)
       .query(
@@ -292,19 +324,24 @@ router.post('/', writeLimiter, authenticate, requireEventCreatorOrAdmin, async (
 
     const event = created.recordset[0];
 
-    for (const target of targets) {
-      if (!target || !target.group_id) {
-        continue;
+    for (const groupId of targetGroupIds) {
+      try {
+        await pool
+          .request()
+          .input('target_id', sql.UniqueIdentifier, cryptoRandomUuid())
+          .input('event_id', sql.UniqueIdentifier, event.event_id)
+          .input('group_id', sql.UniqueIdentifier, groupId)
+          .query(
+            `INSERT INTO event_notification_target (target_id, event_id, group_id, member_id)
+             VALUES (@target_id, @event_id, @group_id, NULL)`
+          );
+      } catch (targetInsertError) {
+        if (typeof targetInsertError === 'object' && targetInsertError && 'number' in targetInsertError && (targetInsertError as { number?: number }).number === 547) {
+          res.status(400).json({ error: `Unknown target group_id: ${groupId}` });
+          return;
+        }
+        throw targetInsertError;
       }
-      await pool
-        .request()
-        .input('target_id', sql.UniqueIdentifier, cryptoRandomUuid())
-        .input('event_id', sql.UniqueIdentifier, event.event_id)
-        .input('group_id', sql.UniqueIdentifier, target.group_id)
-        .query(
-          `INSERT INTO event_notification_target (target_id, event_id, group_id, member_id)
-           VALUES (@target_id, @event_id, @group_id, NULL)`
-        );
     }
 
     res.status(201).json(event);
