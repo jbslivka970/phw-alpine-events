@@ -113,6 +113,86 @@ function normalizeTimeInput(raw: string): string {
   return `${digits.slice(0, 2)}:${digits.slice(2)}`
 }
 
+function isValidCalendarDate(year: number, month: number, day: number): boolean {
+  if (year < 1900 || year > 2100) {
+    return false
+  }
+  if (month < 1 || month > 12) {
+    return false
+  }
+  if (day < 1 || day > 31) {
+    return false
+  }
+
+  const candidate = new Date(Date.UTC(year, month - 1, day))
+  return candidate.getUTCFullYear() === year
+    && candidate.getUTCMonth() === month - 1
+    && candidate.getUTCDate() === day
+}
+
+function normalizeDateInput(raw: string): string {
+  const trimmed = raw.trim()
+  if (!trimmed) {
+    return ''
+  }
+
+  if (trimmed.includes('-') || trimmed.includes('/')) {
+    return trimmed.replace(/\//g, '-')
+  }
+
+  const digits = trimmed.replace(/\D/g, '').slice(0, 8)
+  if (digits.length <= 2) {
+    return digits
+  }
+  if (digits.length <= 4) {
+    return `${digits.slice(0, 2)}-${digits.slice(2)}`
+  }
+  return `${digits.slice(0, 2)}-${digits.slice(2, 4)}-${digits.slice(4)}`
+}
+
+function toCanonicalDate(raw: string): string | null {
+  const trimmed = raw.trim()
+  if (!trimmed) {
+    return null
+  }
+
+  const isoMatch = trimmed.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/)
+  if (isoMatch) {
+    const year = Number(isoMatch[1])
+    const month = Number(isoMatch[2])
+    const day = Number(isoMatch[3])
+    if (!isValidCalendarDate(year, month, day)) {
+      return null
+    }
+    return `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+  }
+
+  const usMatch = trimmed.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/)
+  if (usMatch) {
+    const month = Number(usMatch[1])
+    const day = Number(usMatch[2])
+    const year = Number(usMatch[3])
+    if (!isValidCalendarDate(year, month, day)) {
+      return null
+    }
+    return `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+  }
+
+  const digits = trimmed.replace(/\D/g, '')
+  if (digits.length === 8) {
+    const startsWithYear = digits.startsWith('19') || digits.startsWith('20')
+    const year = startsWithYear ? Number(digits.slice(0, 4)) : Number(digits.slice(4))
+    const month = startsWithYear ? Number(digits.slice(4, 6)) : Number(digits.slice(0, 2))
+    const day = startsWithYear ? Number(digits.slice(6, 8)) : Number(digits.slice(2, 4))
+    if (!isValidCalendarDate(year, month, day)) {
+      return null
+    }
+    return `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+  }
+
+  return null
+}
+
 function toCanonicalTime(raw: string): string | null {
   const normalized = normalizeTimeInput(raw)
   if (!normalized) {
@@ -153,12 +233,17 @@ function normalizeDateTimeValue(value: string): string {
     return value
   }
 
+  const canonicalDate = toCanonicalDate(parts.date)
+  if (!canonicalDate) {
+    return value
+  }
+
   const canonicalTime = toCanonicalTime(parts.time)
   if (!canonicalTime) {
     return value
   }
 
-  return joinDateTime(parts.date, canonicalTime)
+  return joinDateTime(canonicalDate, canonicalTime)
 }
 
 function isValid24HourDateTime(value: string): boolean {
@@ -275,6 +360,19 @@ function EventFormModal({ initial, groups, onSave, onCancel, saving, error, isEd
     set(field, joinDateTime(date, typedTime))
   }
 
+  function handleDateInput(field: 'event_date' | 'end_date', rawDate: string, time: string) {
+    const typedDate = normalizeDateInput(rawDate)
+    set(field, joinDateTime(typedDate, time || '00:00'))
+  }
+
+  function handleDateBlur(field: 'event_date' | 'end_date', rawDate: string, time: string) {
+    const canonicalDate = toCanonicalDate(rawDate)
+    if (!canonicalDate) {
+      return
+    }
+    set(field, joinDateTime(canonicalDate, time || '00:00'))
+  }
+
   function handleTimeBlur(field: 'event_date' | 'end_date', date: string, rawTime: string) {
     const canonical = toCanonicalTime(rawTime)
     if (!canonical) {
@@ -302,9 +400,12 @@ function EventFormModal({ initial, groups, onSave, onCancel, saving, error, isEd
               <label className="form-label">Event Date *</label>
               <input
                 className="form-input"
-                type="date"
+                type="text"
+                inputMode="numeric"
+                placeholder="YYYY-MM-DD or MMDDYYYY"
                 value={eventDateParts.date}
-                onChange={e => set('event_date', joinDateTime(e.target.value, eventDateParts.time || '00:00'))}
+                onChange={e => handleDateInput('event_date', e.target.value, eventDateParts.time)}
+                onBlur={e => handleDateBlur('event_date', e.target.value, eventDateParts.time)}
                 required
               />
             </div>
@@ -327,9 +428,12 @@ function EventFormModal({ initial, groups, onSave, onCancel, saving, error, isEd
               <label className="form-label">End Date</label>
               <input
                 className="form-input"
-                type="date"
+                type="text"
+                inputMode="numeric"
+                placeholder="YYYY-MM-DD or MMDDYYYY"
                 value={endDateParts.date}
-                onChange={e => set('end_date', joinDateTime(e.target.value, endDateParts.time || '00:00'))}
+                onChange={e => handleDateInput('end_date', e.target.value, endDateParts.time)}
+                onBlur={e => handleDateBlur('end_date', e.target.value, endDateParts.time)}
               />
             </div>
 
@@ -451,17 +555,33 @@ function EventsPage() {
     setFormSaving(true)
     setFormError(null)
     try {
-      const normalizedEventDate = normalizeDateTimeValue(form.event_date)
-      const normalizedEndDate = form.end_date ? normalizeDateTimeValue(form.end_date) : ''
-
-      if (!isValid24HourDateTime(normalizedEventDate)) {
+      const eventParts = splitDateTime(form.event_date)
+      const eventDate = toCanonicalDate(eventParts.date)
+      const eventTime = toCanonicalTime(eventParts.time)
+      if (!eventDate) {
+        setFormError('Event date must be valid. Examples: 2026-03-20 or 03202026.')
+        return
+      }
+      if (!eventTime) {
         setFormError('Event time must be valid 24-hour time. Examples: 2041, 941, or 20:41.')
         return
       }
+      const normalizedEventDate = joinDateTime(eventDate, eventTime)
 
-      if (form.end_date && !isValid24HourDateTime(normalizedEndDate)) {
-        setFormError('End time must be valid 24-hour time. Examples: 2041, 941, or 20:41.')
-        return
+      let normalizedEndDate = ''
+      if (form.end_date) {
+        const endParts = splitDateTime(form.end_date)
+        const endDate = toCanonicalDate(endParts.date)
+        const endTime = toCanonicalTime(endParts.time)
+        if (!endDate) {
+          setFormError('End date must be valid. Examples: 2026-03-20 or 03202026.')
+          return
+        }
+        if (!endTime) {
+          setFormError('End time must be valid 24-hour time. Examples: 2041, 941, or 20:41.')
+          return
+        }
+        normalizedEndDate = joinDateTime(endDate, endTime)
       }
 
       const payload = {
