@@ -54,10 +54,10 @@ function mapGroupNameToRole(groupName: string | null | undefined): EventRole | u
   }
 
   const normalized = groupName.trim().toUpperCase();
-  if (normalized === 'MENTORS') {
+  if (normalized.includes('MENTOR') || normalized.includes('VOLUNTEER')) {
     return 'MENTOR';
   }
-  if (normalized === 'PARTICIPANTS') {
+  if (normalized.includes('PARTICIPANT') || normalized.includes('VETERAN') || normalized.includes('VET')) {
     return 'PARTICIPANT';
   }
 
@@ -71,21 +71,18 @@ async function inferResponseRoleForMember(options: {
   const pool = await getPool();
 
   if (options.groupContextId) {
-    const parsedGroupId = Number.parseInt(options.groupContextId, 10);
-    if (Number.isFinite(parsedGroupId)) {
     const groupResult = await pool
       .request()
-      .input('group_id', sql.Int, parsedGroupId)
+      .input('group_id', sql.NVarChar, String(options.groupContextId))
       .query<{ group_name: string | null }>(
         `SELECT TOP 1 group_name
          FROM [group]
-         WHERE group_id = @group_id`
+         WHERE CAST(group_id AS NVARCHAR(128)) = @group_id`
       );
 
     const contextualRole = mapGroupNameToRole(groupResult.recordset[0]?.group_name);
     if (contextualRole) {
       return contextualRole;
-    }
     }
   }
 
@@ -96,8 +93,7 @@ async function inferResponseRoleForMember(options: {
       `SELECT DISTINCT g.group_name
        FROM member_group mg
        INNER JOIN [group] g ON g.group_id = mg.group_id
-       WHERE mg.member_id = @member_id
-         AND UPPER(g.group_name) IN ('MENTORS', 'PARTICIPANTS')`
+       WHERE mg.member_id = @member_id`
     );
 
   const roles = new Set<EventRole>();
