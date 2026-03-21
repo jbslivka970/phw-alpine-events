@@ -3,6 +3,8 @@ import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { emailRsvpApi } from '../api/events'
 import type { PublicRsvpContext, RsvpRecord } from '../api/events'
 
+type ResponseRole = 'MENTOR' | 'PARTICIPANT'
+
 const RESPONSE_OPTIONS: Array<{ value: RsvpRecord['response']; label: string; className: string }> = [
   { value: 'yes', label: 'Yes', className: 'public-rsvp__option--yes' },
   { value: 'no', label: 'No', className: 'public-rsvp__option--no' },
@@ -25,12 +27,19 @@ function PublicRsvpPage() {
   const { token = '' } = useParams()
   const [searchParams] = useSearchParams()
   const preset = searchParams.get('response') as RsvpRecord['response'] | null
+  const presetRoleParam = searchParams.get('role')
+  const presetRole = (presetRoleParam && (presetRoleParam.toUpperCase() === 'MENTOR' || presetRoleParam.toUpperCase() === 'PARTICIPANT'))
+    ? (presetRoleParam.toUpperCase() as ResponseRole)
+    : null
   const [context, setContext] = useState<PublicRsvpContext | null>(null)
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  const [selectedRole, setSelectedRole] = useState<ResponseRole | ''>('')
   const autoSubmitted = useRef(false)
+
+  const roleRequiredResponses: Array<RsvpRecord['response']> = ['yes', 'maybe', 'waitlist']
 
   useEffect(() => {
     let cancelled = false
@@ -52,17 +61,29 @@ function PublicRsvpPage() {
         }
 
         setContext(data)
-        setNotice(data.current_response ? `Current RSVP: ${data.current_response}` : null)
+        if (data.current_response_role === 'MENTOR' || data.current_response_role === 'PARTICIPANT') {
+          setSelectedRole(data.current_response_role)
+        } else if (data.inferred_response_role === 'MENTOR' || data.inferred_response_role === 'PARTICIPANT') {
+          setSelectedRole(data.inferred_response_role)
+        } else if (presetRole) {
+          setSelectedRole(presetRole)
+        }
+        setNotice(data.current_response ? `Current RSVP: ${data.current_response}${data.current_response_role ? ` (${data.current_response_role})` : ''}` : null)
 
         if (preset && RESPONSE_OPTIONS.some((option) => option.value === preset) && !autoSubmitted.current && data.status === 'published') {
-          autoSubmitted.current = true
-
-          if (data.current_response === preset) {
-            setNotice(`Your RSVP is already recorded as ${preset}.`)
+          const needsRole = roleRequiredResponses.includes(preset)
+          if (needsRole && !presetRole) {
             return
           }
 
-          await submitResponse(token, preset, setContext, setNotice, setError, setSubmitting)
+          autoSubmitted.current = true
+
+          if (data.current_response === preset && (!needsRole || data.current_response_role === presetRole)) {
+            setNotice(`Your RSVP is already recorded as ${preset}${presetRole ? ` (${presetRole})` : ''}.`)
+            return
+          }
+
+          await submitResponse(token, preset, needsRole ? presetRole : selectedRole || undefined, setContext, setNotice, setError, setSubmitting)
         }
       } catch (requestError) {
         if (!cancelled) {
@@ -79,14 +100,20 @@ function PublicRsvpPage() {
     return () => {
       cancelled = true
     }
-  }, [preset, token])
+  }, [preset, presetRole, token])
 
   async function handleSubmit(response: RsvpRecord['response']) {
     if (!token) {
       return
     }
 
-    await submitResponse(token, response, setContext, setNotice, setError, setSubmitting)
+    const requiresRole = roleRequiredResponses.includes(response)
+    if (requiresRole && !selectedRole) {
+      setError('Select Mentor or Participant before saving this RSVP response.')
+      return
+    }
+
+    await submitResponse(token, response, selectedRole || undefined, setContext, setNotice, setError, setSubmitting)
   }
 
   return (
@@ -106,6 +133,32 @@ function PublicRsvpPage() {
             {context.description && <p className="login-card__desc">{context.description}</p>}
             <p className="public-rsvp__status">Event status: <strong>{context.status}</strong></p>
             {context.token_expires_at && <p className="public-rsvp__expires">Link expires {formatDate(context.token_expires_at)}</p>}
+
+            <fieldset className="public-rsvp__role-picker">
+              <legend>Select RSVP role</legend>
+              <label>
+                <input
+                  type="radio"
+                  name="response-role"
+                  value="MENTOR"
+                  checked={selectedRole === 'MENTOR'}
+                  onChange={() => setSelectedRole('MENTOR')}
+                  disabled={submitting || context.status !== 'published'}
+                />
+                Mentor
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  name="response-role"
+                  value="PARTICIPANT"
+                  checked={selectedRole === 'PARTICIPANT'}
+                  onChange={() => setSelectedRole('PARTICIPANT')}
+                  disabled={submitting || context.status !== 'published'}
+                />
+                Participant
+              </label>
+            </fieldset>
 
             {notice && <p className="public-rsvp__notice">{notice}</p>}
 
@@ -141,6 +194,7 @@ function PublicRsvpPage() {
 async function submitResponse(
   token: string,
   response: RsvpRecord['response'],
+  responseRole: ResponseRole | undefined,
   setContext: Dispatch<SetStateAction<PublicRsvpContext | null>>,
   setNotice: Dispatch<SetStateAction<string | null>>,
   setError: Dispatch<SetStateAction<string | null>>,
@@ -150,9 +204,9 @@ async function submitResponse(
   setError(null)
 
   try {
-    const record = await emailRsvpApi.submit(token, { response })
-    setContext((current) => current ? { ...current, current_response: record.response } : current)
-    setNotice(`RSVP recorded as ${record.response}.`)
+    const record = await emailRsvpApi.submit(token, { response, response_role: responseRole })
+    setContext((current) => current ? { ...current, current_response: record.response, current_response_role: record.response_role ?? current.current_response_role } : current)
+    setNotice(`RSVP recorded as ${record.response}${record.response_role ? ` (${record.response_role})` : ''}.`)
   } catch (requestError) {
     setError(requestError instanceof Error ? requestError.message : 'Unable to record RSVP.')
   } finally {

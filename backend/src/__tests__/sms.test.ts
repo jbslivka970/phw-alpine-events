@@ -64,7 +64,7 @@ describe('sms routes', () => {
     );
   });
 
-  it('POST /api/sms/inbound records a single-event RSVP reply', async () => {
+  it('POST /api/sms/inbound records a single-event RSVP reply with explicit role', async () => {
     const queryResults: QueryResult[] = [
       { recordset: [{ member_id: 'member-1', mobile_phone: '+13035551212' }] },
       { recordset: [{ event_id: 'event-1', title: 'Climb Night', event_date: new Date('2025-01-01T18:00:00Z'), location: 'Gym' }] },
@@ -82,7 +82,7 @@ describe('sms routes', () => {
 
     const res = await request(app)
       .post('/api/sms/inbound')
-      .send({ from: '+13035551212', message: 'Y' });
+      .send({ from: '+13035551212', message: 'Y P' });
 
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({
@@ -92,6 +92,7 @@ describe('sms routes', () => {
       response: 'yes',
     });
     expect(mockRequest.input).toHaveBeenCalledWith('response_channel', 'NVarChar', 'sms');
+    expect(mockRequest.input).toHaveBeenCalledWith('response_role', 'NVarChar', 'PARTICIPANT');
   });
 
   it('POST /api/sms/inbound tokenized payload persists tokenized link metadata', async () => {
@@ -138,16 +139,31 @@ describe('sms routes', () => {
 
     const res = await request(app)
       .post('/api/sms/inbound')
-      .send({ token, response: 'yes' });
+      .send({ token, response: 'yes', response_role: 'PARTICIPANT' });
 
     expect(res.status).toBe(200);
     expect(res.body.response).toBe('yes');
     expect(mockRequest.input).toHaveBeenCalledWith('response_channel', 'NVarChar', 'tokenized_link');
+    expect(mockRequest.input).toHaveBeenCalledWith('response_role', 'NVarChar', 'PARTICIPANT');
     expect(mockRequest.input).toHaveBeenCalledWith(
       'group_context_id',
       'UniqueIdentifier',
       '00000000-0000-0000-0000-000000000303'
     );
+  });
+
+  it('POST /api/sms/inbound tokenized payload requires role for yes/maybe/waitlist', async () => {
+    const token = createRsvpToken(
+      '00000000-0000-0000-0000-000000000101',
+      '00000000-0000-0000-0000-000000000202'
+    );
+
+    const res = await request(app)
+      .post('/api/sms/inbound')
+      .send({ token, response: 'yes' });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain('response_role is required');
   });
 
   it('POST /api/sms/inbound asks for disambiguation when multiple events are pending', async () => {

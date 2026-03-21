@@ -50,6 +50,8 @@ interface PublicRsvpContext {
   member_id: string;
   first_name: string | null;
   current_response: RsvpRecord['response'] | null;
+  current_response_role?: 'MENTOR' | 'PARTICIPANT' | null;
+  inferred_response_role?: 'MENTOR' | 'PARTICIPANT' | null;
   token_expires_at: string | null;
 }
 
@@ -95,7 +97,7 @@ const rsvpApi = {
 
 const emailRsvpApi = {
   get: (token: string) => apiPost<PublicRsvpContext>('/sms/inbound', { token }),
-  submit: (token: string, payload: { response: RsvpRecord['response'] }) =>
+  submit: (token: string, payload: { response: RsvpRecord['response']; response_role?: 'MENTOR' | 'PARTICIPANT' }) =>
     apiPost<RsvpRecord>('/sms/inbound', { token, ...payload }),
 };
 

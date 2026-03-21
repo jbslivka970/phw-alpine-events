@@ -269,11 +269,12 @@ describe('events routes', () => {
 
     const res = await request(app)
       .post(`/api/events/rsvp/${token}`)
-      .send({ response: 'yes' });
+      .send({ response: 'yes', response_role: 'PARTICIPANT' });
 
     expect(res.status).toBe(200);
     expect(res.body.response).toBe('yes');
     expect(mockRequest.input).toHaveBeenCalledWith('response_channel', 'NVarChar', 'tokenized_link');
+    expect(mockRequest.input).toHaveBeenCalledWith('response_role', 'NVarChar', 'PARTICIPANT');
     expect(mockRequest.input).toHaveBeenCalledWith(
       'group_context_id',
       'UniqueIdentifier',
@@ -330,7 +331,7 @@ describe('events routes', () => {
 
     const res = await request(app)
       .post('/api/events/00000000-0000-0000-0000-000000000101/rsvp')
-      .send({ member_id: '00000000-0000-0000-0000-000000000202', response: 'yes' });
+      .send({ member_id: '00000000-0000-0000-0000-000000000202', response: 'yes', response_role: 'PARTICIPANT' });
 
     expect(res.status).toBe(200);
     expect(res.body.response).toBe('yes');

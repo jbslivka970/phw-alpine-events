@@ -48,6 +48,73 @@ interface PromotionCandidate {
 
 type EventRole = 'MENTOR' | 'PARTICIPANT';
 
+function mapGroupNameToRole(groupName: string | null | undefined): EventRole | undefined {
+  if (!groupName) {
+    return undefined;
+  }
+
+  const normalized = groupName.trim().toUpperCase();
+  if (normalized === 'MENTORS') {
+    return 'MENTOR';
+  }
+  if (normalized === 'PARTICIPANTS') {
+    return 'PARTICIPANT';
+  }
+
+  return undefined;
+}
+
+async function inferResponseRoleForMember(options: {
+  memberId: string;
+  groupContextId?: string | null;
+}): Promise<EventRole | undefined> {
+  const pool = await getPool();
+
+  if (options.groupContextId) {
+    const parsedGroupId = Number.parseInt(options.groupContextId, 10);
+    if (Number.isFinite(parsedGroupId)) {
+    const groupResult = await pool
+      .request()
+      .input('group_id', sql.Int, parsedGroupId)
+      .query<{ group_name: string | null }>(
+        `SELECT TOP 1 group_name
+         FROM [group]
+         WHERE group_id = @group_id`
+      );
+
+    const contextualRole = mapGroupNameToRole(groupResult.recordset[0]?.group_name);
+    if (contextualRole) {
+      return contextualRole;
+    }
+    }
+  }
+
+  const memberGroupResult = await pool
+    .request()
+    .input('member_id', sql.UniqueIdentifier, options.memberId)
+    .query<{ group_name: string | null }>(
+      `SELECT DISTINCT g.group_name
+       FROM member_group mg
+       INNER JOIN [group] g ON g.group_id = mg.group_id
+       WHERE mg.member_id = @member_id
+         AND UPPER(g.group_name) IN ('MENTORS', 'PARTICIPANTS')`
+    );
+
+  const roles = new Set<EventRole>();
+  for (const row of memberGroupResult.recordset) {
+    const role = mapGroupNameToRole(row.group_name);
+    if (role) {
+      roles.add(role);
+    }
+  }
+
+  if (roles.size === 1) {
+    return Array.from(roles)[0];
+  }
+
+  return undefined;
+}
+
 function normalizeResponseRole(value: unknown): EventRole {
   if (typeof value !== 'string') {
     return 'PARTICIPANT';
@@ -389,5 +456,5 @@ async function triggerWaitlistAutoPromotion(eventId: string): Promise<void> {
   }
 }
 
-export { VALID_RESPONSES, RsvpError, listPendingEventsForMember, recordRsvpResponse, triggerWaitlistAutoPromotion };
-export type { PendingEvent, RecordedRsvp, RsvpResponse };
+export { VALID_RESPONSES, RsvpError, inferResponseRoleForMember, listPendingEventsForMember, recordRsvpResponse, triggerWaitlistAutoPromotion };
+export type { EventRole, PendingEvent, RecordedRsvp, RsvpResponse };

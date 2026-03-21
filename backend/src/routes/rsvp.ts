@@ -3,9 +3,13 @@ import authenticate from '../middleware/auth';
 import { apiLimiter, writeLimiter } from '../middleware/rateLimiter';
 import { requireAnyAuthenticatedRole, requireEventCreatorOrAdmin } from '../middleware/rbac';
 import { getPool, sql } from '../db';
-import { recordRsvpResponse, triggerWaitlistAutoPromotion, VALID_RESPONSES, RsvpError, type RsvpResponse } from '../services/rsvpService';
+import { inferResponseRoleForMember, recordRsvpResponse, triggerWaitlistAutoPromotion, VALID_RESPONSES, RsvpError, type RsvpResponse } from '../services/rsvpService';
 
 const router = Router({ mergeParams: true });
+
+function requiresExplicitRole(response: RsvpResponse): boolean {
+  return response === 'yes' || response === 'maybe' || response === 'waitlist';
+}
 
 router.get('/', apiLimiter, authenticate, requireAnyAuthenticatedRole, async (req, res) => {
   try {
@@ -41,7 +45,7 @@ router.post('/', writeLimiter, authenticate, requireAnyAuthenticatedRole, async 
     const eventId = req.params.eventId;
     const memberId = req.body?.member_id as string | undefined;
     const response = (req.body?.response as string | undefined)?.toLowerCase() as RsvpResponse | undefined;
-    const responseRole = (req.body?.response_role as string | undefined)?.toUpperCase();
+    const parsedResponseRole = (req.body?.response_role as string | undefined)?.toUpperCase();
     const notes = typeof req.body?.notes === 'string' ? req.body.notes : null;
 
     if (!memberId) {
@@ -54,8 +58,18 @@ router.post('/', writeLimiter, authenticate, requireAnyAuthenticatedRole, async 
       return;
     }
 
-    if (responseRole !== undefined && !['MENTOR', 'PARTICIPANT'].includes(responseRole)) {
+    if (parsedResponseRole !== undefined && !['MENTOR', 'PARTICIPANT'].includes(parsedResponseRole)) {
       res.status(400).json({ error: 'response_role must be MENTOR or PARTICIPANT when provided' });
+      return;
+    }
+
+    const inferredResponseRole = parsedResponseRole
+      ? undefined
+      : await inferResponseRoleForMember({ memberId });
+    const responseRole = (parsedResponseRole ?? inferredResponseRole) as 'MENTOR' | 'PARTICIPANT' | undefined;
+
+    if (requiresExplicitRole(response) && !responseRole) {
+      res.status(400).json({ error: 'response_role is required for yes, maybe, and waitlist responses when member role is ambiguous' });
       return;
     }
 
@@ -65,7 +79,7 @@ router.post('/', writeLimiter, authenticate, requireAnyAuthenticatedRole, async 
       response,
       notes,
       responseChannel: 'web',
-      responseRole: responseRole as 'MENTOR' | 'PARTICIPANT' | undefined,
+      responseRole,
     });
     res.status(200).json(upsert);
   } catch (error) {

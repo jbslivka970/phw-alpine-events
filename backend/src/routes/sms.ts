@@ -3,6 +3,7 @@ import { getPool, sql } from '../db';
 import { writeLimiter } from '../middleware/rateLimiter';
 import { notificationService } from '../services/notifications';
 import {
+  inferResponseRoleForMember,
   VALID_RESPONSES,
   listPendingEventsForMember,
   recordRsvpResponse,
@@ -29,13 +30,31 @@ const RESPONSE_MAP: Record<string, RsvpResponse> = {
 router.post('/inbound', writeLimiter, async (req, res) => {
   try {
     if (isTokenizedRsvpPayload(req.body)) {
-      const tokenPayload = req.body as { token: string; response?: string };
+      const tokenPayload = req.body as { token: string; response?: string; response_role?: string };
       const token = verifyRsvpToken(tokenPayload.token);
 
       if (typeof tokenPayload.response === 'string' && tokenPayload.response.trim().length > 0) {
         const response = tokenPayload.response.toLowerCase();
+        const parsedResponseRole = parseResponseRole(tokenPayload.response_role);
+        const inferredResponseRole = parsedResponseRole
+          ? undefined
+          : await inferResponseRoleForMember({
+            memberId: token.memberId,
+            groupContextId: token.groupContextId ?? null,
+          });
+        const responseRole = parsedResponseRole ?? inferredResponseRole;
         if (!VALID_RESPONSES.includes(response as RsvpResponse)) {
           res.status(400).json({ error: `response must be one of: ${VALID_RESPONSES.join(', ')}` });
+          return;
+        }
+
+        if (tokenPayload.response_role !== undefined && !parsedResponseRole) {
+          res.status(400).json({ error: 'response_role must be MENTOR or PARTICIPANT when provided' });
+          return;
+        }
+
+        if (requiresExplicitRole(response as RsvpResponse) && !responseRole) {
+          res.status(400).json({ error: 'response_role is required for yes, maybe, and waitlist responses' });
           return;
         }
 
@@ -46,13 +65,14 @@ router.post('/inbound', writeLimiter, async (req, res) => {
           notes: 'Recorded from tokenized RSVP link',
           responseChannel: 'tokenized_link',
           groupContextId: token.groupContextId ?? null,
+          responseRole,
         });
 
         res.json(record);
         return;
       }
 
-      const context = await getTokenizedRsvpContext(token.eventId, token.memberId);
+      const context = await getTokenizedRsvpContext(token.eventId, token.memberId, token.groupContextId);
       if (!context) {
         res.status(404).json({ error: 'Event invite not found' });
         return;
@@ -162,12 +182,26 @@ async function processInboundMessage(from: string, rawMessage: string): Promise<
   }
 
   try {
+    const inferredResponseRole = parsed.responseRole ?? (await inferResponseRoleForMember({ memberId: member.member_id }));
+
+    if (requiresExplicitRole(parsed.response) && !inferredResponseRole) {
+      const reply = "PHW Alpine: Please include role. Reply like 'Y M', 'MAYBE PARTICIPANT', or 'W M 1'. (M=mentor, P=participant)";
+      await notificationService.sendSms({
+        to: member.mobile_phone,
+        message: reply,
+        memberId: member.member_id,
+        bypassOptInCheck: true,
+      });
+      return { status: 'role_required', member_id: member.member_id, reply };
+    }
+
     const record = await recordRsvpResponse({
       eventId: targetEvent.event_id,
       memberId: member.member_id,
       response: parsed.response,
       notes: `SMS reply received: ${message}`,
       responseChannel: 'sms',
+      responseRole: inferredResponseRole,
     });
 
     return {
@@ -228,15 +262,40 @@ async function optOutMember(memberId: string): Promise<void> {
   await notificationService.writeSmsConsentLog(memberId, 'opt_out', 'reply', 'Inbound STOP message');
 }
 
-function parseRsvpKeyword(message: string): { response: RsvpResponse; eventIndex?: number } | null {
-  const match = /^(y|yes|n|no|m|maybe|w|waitlist)(?:\s+(\d+))?$/.exec(message);
+function parseRsvpKeyword(message: string): { response: RsvpResponse; responseRole?: 'MENTOR' | 'PARTICIPANT'; eventIndex?: number } | null {
+  const match = /^(y|yes|n|no|m|maybe|w|waitlist)(?:\s+(mentor|participant|m|p))?(?:\s+(\d+))?$/.exec(message);
   if (!match) {
     return null;
   }
 
   const response = RESPONSE_MAP[match[1]];
-  const eventIndex = match[2] ? parseInt(match[2], 10) : undefined;
-  return { response, eventIndex: eventIndex && !Number.isNaN(eventIndex) ? eventIndex : undefined };
+  const responseRole = parseResponseRole(match[2]);
+  const eventIndex = match[3] ? parseInt(match[3], 10) : undefined;
+  return {
+    response,
+    responseRole,
+    eventIndex: eventIndex && !Number.isNaN(eventIndex) ? eventIndex : undefined,
+  };
+}
+
+function parseResponseRole(value: unknown): 'MENTOR' | 'PARTICIPANT' | undefined {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+
+  const normalized = value.trim().toUpperCase();
+  if (normalized === 'MENTOR' || normalized === 'M') {
+    return 'MENTOR';
+  }
+  if (normalized === 'PARTICIPANT' || normalized === 'P') {
+    return 'PARTICIPANT';
+  }
+
+  return undefined;
+}
+
+function requiresExplicitRole(response: RsvpResponse): boolean {
+  return response === 'yes' || response === 'maybe' || response === 'waitlist';
 }
 
 function resolveTargetEvent(eventIndex: number | undefined, pendingEvents: PendingEvent[]): PendingEvent | null {
@@ -273,7 +332,7 @@ function isTokenizedRsvpPayload(body: unknown): boolean {
   return typeof token === 'string' && token.length > 0;
 }
 
-async function getTokenizedRsvpContext(eventId: string, memberId: string): Promise<{
+async function getTokenizedRsvpContext(eventId: string, memberId: string, groupContextId?: string): Promise<{
   event_id: string;
   title: string;
   description: string | null;
@@ -285,6 +344,8 @@ async function getTokenizedRsvpContext(eventId: string, memberId: string): Promi
   member_id: string;
   first_name: string | null;
   current_response: string | null;
+  current_response_role: 'MENTOR' | 'PARTICIPANT' | null;
+  inferred_response_role: 'MENTOR' | 'PARTICIPANT' | null;
 } | null> {
   const pool = await getPool();
   const result = await pool
@@ -303,6 +364,7 @@ async function getTokenizedRsvpContext(eventId: string, memberId: string): Promi
       member_id: string;
       first_name: string | null;
       current_response: string | null;
+      current_response_role: 'MENTOR' | 'PARTICIPANT' | null;
     }>(
       `SELECT
           e.event_id,
@@ -315,14 +377,23 @@ async function getTokenizedRsvpContext(eventId: string, memberId: string): Promi
           e.status,
           m.member_id,
           m.first_name,
-          er.response AS current_response
+           er.response AS current_response,
+           er.response_role AS current_response_role
        FROM event e
        INNER JOIN member m ON m.member_id = @member_id
        LEFT JOIN event_response er ON er.event_id = e.event_id AND er.member_id = m.member_id
        WHERE e.event_id = @event_id`
     );
 
-  return result.recordset[0] ?? null;
+  const context = result.recordset[0] ?? null;
+  if (!context) {
+    return null;
+  }
+
+  return {
+    ...context,
+    inferred_response_role: (await inferResponseRoleForMember({ memberId, groupContextId: groupContextId ?? null })) ?? null,
+  };
 }
 
 function getToken(query: Record<string, unknown>): string {
