@@ -90,6 +90,77 @@ function joinDateTime(date: string, time: string): string {
   return `${date}T${time}`
 }
 
+function normalizeTimeInput(raw: string): string {
+  const trimmed = raw.trim()
+  if (!trimmed) {
+    return ''
+  }
+
+  if (trimmed.includes(':')) {
+    const [h = '', m = ''] = trimmed.split(':')
+    const hours = h.replace(/\D/g, '').slice(0, 2)
+    const minutes = m.replace(/\D/g, '').slice(0, 2)
+    return minutes ? `${hours}:${minutes}` : `${hours}`
+  }
+
+  const digits = trimmed.replace(/\D/g, '').slice(0, 4)
+  if (digits.length <= 2) {
+    return digits
+  }
+  if (digits.length === 3) {
+    return `${digits.slice(0, 1)}:${digits.slice(1)}`
+  }
+  return `${digits.slice(0, 2)}:${digits.slice(2)}`
+}
+
+function toCanonicalTime(raw: string): string | null {
+  const normalized = normalizeTimeInput(raw)
+  if (!normalized) {
+    return null
+  }
+
+  const noColon = normalized.replace(':', '')
+  if (!normalized.includes(':')) {
+    if (noColon.length === 1 || noColon.length === 2) {
+      const hourOnly = Number(noColon)
+      if (!Number.isNaN(hourOnly) && hourOnly >= 0 && hourOnly <= 23) {
+        return `${String(hourOnly).padStart(2, '0')}:00`
+      }
+    }
+    return null
+  }
+
+  const [h, m] = normalized.split(':')
+  if (!h || !m) {
+    return null
+  }
+
+  const hour = Number(h)
+  const minute = Number(m)
+  if (Number.isNaN(hour) || Number.isNaN(minute)) {
+    return null
+  }
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+    return null
+  }
+
+  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
+}
+
+function normalizeDateTimeValue(value: string): string {
+  const parts = splitDateTime(value)
+  if (!parts.date || !parts.time) {
+    return value
+  }
+
+  const canonicalTime = toCanonicalTime(parts.time)
+  if (!canonicalTime) {
+    return value
+  }
+
+  return joinDateTime(parts.date, canonicalTime)
+}
+
 function isValid24HourDateTime(value: string): boolean {
   return /^\d{4}-\d{2}-\d{2}T([01]\d|2[0-3]):[0-5]\d$/.test(value)
 }
@@ -199,6 +270,19 @@ function EventFormModal({ initial, groups, onSave, onCancel, saving, error, isEd
     }))
   }
 
+  function handleTimeInput(field: 'event_date' | 'end_date', date: string, rawTime: string) {
+    const typedTime = normalizeTimeInput(rawTime)
+    set(field, joinDateTime(date, typedTime))
+  }
+
+  function handleTimeBlur(field: 'event_date' | 'end_date', date: string, rawTime: string) {
+    const canonical = toCanonicalTime(rawTime)
+    if (!canonical) {
+      return
+    }
+    set(field, joinDateTime(date, canonical))
+  }
+
   return (
     <div className="modal-overlay" role="dialog" aria-modal="true">
       <div className="modal">
@@ -232,9 +316,9 @@ function EventFormModal({ initial, groups, onSave, onCancel, saving, error, isEd
                 type="text"
                 inputMode="numeric"
                 placeholder="HH:mm"
-                pattern="([01][0-9]|2[0-3]):[0-5][0-9]"
                 value={eventDateParts.time}
-                onChange={e => set('event_date', joinDateTime(eventDateParts.date, e.target.value))}
+                onChange={e => handleTimeInput('event_date', eventDateParts.date, e.target.value)}
+                onBlur={e => handleTimeBlur('event_date', eventDateParts.date, e.target.value)}
                 required
               />
             </div>
@@ -256,9 +340,9 @@ function EventFormModal({ initial, groups, onSave, onCancel, saving, error, isEd
                 type="text"
                 inputMode="numeric"
                 placeholder="HH:mm"
-                pattern="([01][0-9]|2[0-3]):[0-5][0-9]"
                 value={endDateParts.time}
-                onChange={e => set('end_date', joinDateTime(endDateParts.date, e.target.value))}
+                onChange={e => handleTimeInput('end_date', endDateParts.date, e.target.value)}
+                onBlur={e => handleTimeBlur('end_date', endDateParts.date, e.target.value)}
               />
             </div>
 
@@ -367,22 +451,25 @@ function EventsPage() {
     setFormSaving(true)
     setFormError(null)
     try {
-      if (!isValid24HourDateTime(form.event_date)) {
-        setFormError('Event date/time must be in 24-hour format (HH:mm).')
+      const normalizedEventDate = normalizeDateTimeValue(form.event_date)
+      const normalizedEndDate = form.end_date ? normalizeDateTimeValue(form.end_date) : ''
+
+      if (!isValid24HourDateTime(normalizedEventDate)) {
+        setFormError('Event time must be valid 24-hour time. Examples: 2041, 941, or 20:41.')
         return
       }
 
-      if (form.end_date && !isValid24HourDateTime(form.end_date)) {
-        setFormError('End date/time must be in 24-hour format (HH:mm).')
+      if (form.end_date && !isValid24HourDateTime(normalizedEndDate)) {
+        setFormError('End time must be valid 24-hour time. Examples: 2041, 941, or 20:41.')
         return
       }
 
       const payload = {
         title: form.title,
-        event_date: form.event_date,
+        event_date: normalizedEventDate,
         description: form.description || null,
         location: form.location || null,
-        end_date: form.end_date || null,
+        end_date: normalizedEndDate || null,
         capacity: form.capacity ? Number(form.capacity) : null,
         notification_targets: form.notification_targets.map(id => ({ group_id: id })),
       }
