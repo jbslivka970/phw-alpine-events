@@ -325,6 +325,18 @@
 
 .form-label { font-size: 0.82rem; font-weight: 600; color: var(--text); }
 
+.form-field-hint {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.form-field-error {
+  margin: 0;
+  font-size: 0.78rem;
+  color: #c0392b;
+}
+
 .form-input,
 .form-textarea {
   padding: 0.55rem 0.75rem;

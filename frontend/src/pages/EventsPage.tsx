@@ -65,13 +65,14 @@ interface EventFormPayload {
   description: string
   location: string
   end_date: string
-  capacity: string
+  mentor_capacity: string
+  participant_capacity: string
   notification_targets: string[]
 }
 
 const EMPTY_FORM: EventFormPayload = {
   title: '', event_date: '', description: '', location: '',
-  end_date: '', capacity: '', notification_targets: [],
+  end_date: '', mentor_capacity: '', participant_capacity: '', notification_targets: [],
 }
 
 function splitDateTime(value: string): { date: string; time: string } {
@@ -84,13 +85,15 @@ function splitDateTime(value: string): { date: string; time: string } {
 }
 
 function joinDateTime(date: string, time: string): string {
-  if (!date || !time) {
+  const cleanDate = date.trim()
+  const cleanTime = time.trim()
+  if (!cleanDate && !cleanTime) {
     return ''
   }
-  return `${date}T${time}`
+  return `${cleanDate}T${cleanTime}`
 }
 
-function normalizeTimeInput(raw: string): string {
+function sanitizeTimeInput(raw: string): string {
   const trimmed = raw.trim()
   if (!trimmed) {
     return ''
@@ -100,17 +103,13 @@ function normalizeTimeInput(raw: string): string {
     const [h = '', m = ''] = trimmed.split(':')
     const hours = h.replace(/\D/g, '').slice(0, 2)
     const minutes = m.replace(/\D/g, '').slice(0, 2)
-    return minutes ? `${hours}:${minutes}` : `${hours}`
+    if (!hours && !minutes) {
+      return ''
+    }
+    return `${hours}:${minutes}`
   }
 
-  const digits = trimmed.replace(/\D/g, '').slice(0, 4)
-  if (digits.length <= 2) {
-    return digits
-  }
-  if (digits.length === 3) {
-    return `${digits.slice(0, 1)}:${digits.slice(1)}`
-  }
-  return `${digits.slice(0, 2)}:${digits.slice(2)}`
+  return trimmed.replace(/\D/g, '').slice(0, 4)
 }
 
 function isValidCalendarDate(year: number, month: number, day: number): boolean {
@@ -140,14 +139,7 @@ function normalizeDateInput(raw: string): string {
     return trimmed.replace(/\//g, '-')
   }
 
-  const digits = trimmed.replace(/\D/g, '').slice(0, 8)
-  if (digits.length <= 2) {
-    return digits
-  }
-  if (digits.length <= 4) {
-    return `${digits.slice(0, 2)}-${digits.slice(2)}`
-  }
-  return `${digits.slice(0, 2)}-${digits.slice(2, 4)}-${digits.slice(4)}`
+  return trimmed.replace(/[^\d-]/g, '').slice(0, 10)
 }
 
 function toCanonicalDate(raw: string): string | null {
@@ -194,19 +186,38 @@ function toCanonicalDate(raw: string): string | null {
 }
 
 function toCanonicalTime(raw: string): string | null {
-  const normalized = normalizeTimeInput(raw)
-  if (!normalized) {
+  const normalized = sanitizeTimeInput(raw)
+  if (!normalized || normalized === ':') {
     return null
   }
 
-  const noColon = normalized.replace(':', '')
   if (!normalized.includes(':')) {
-    if (noColon.length === 1 || noColon.length === 2) {
-      const hourOnly = Number(noColon)
+    if (normalized.length === 1 || normalized.length === 2) {
+      const hourOnly = Number(normalized)
       if (!Number.isNaN(hourOnly) && hourOnly >= 0 && hourOnly <= 23) {
         return `${String(hourOnly).padStart(2, '0')}:00`
       }
+      return null
     }
+
+    if (normalized.length === 3) {
+      const hour = Number(normalized.slice(0, 1))
+      const minute = Number(normalized.slice(1))
+      if (!Number.isNaN(hour) && !Number.isNaN(minute) && hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59) {
+        return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
+      }
+      return null
+    }
+
+    if (normalized.length === 4) {
+      const hour = Number(normalized.slice(0, 2))
+      const minute = Number(normalized.slice(2))
+      if (!Number.isNaN(hour) && !Number.isNaN(minute) && hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59) {
+        return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
+      }
+      return null
+    }
+
     return null
   }
 
@@ -257,9 +268,25 @@ function payloadFromRecord(e: EventRecord): EventFormPayload {
     description: e.description ?? '',
     location: e.location ?? '',
     end_date: e.end_date ? e.end_date.slice(0, 16) : '',
-    capacity: e.capacity != null ? String(e.capacity) : '',
+    mentor_capacity: '',
+    participant_capacity: e.capacity != null ? String(e.capacity) : '',
     notification_targets: [],   // populated separately
   }
+}
+
+function parseCapacityValue(raw: string): number | null {
+  const trimmed = raw.trim()
+  if (!trimmed) {
+    return null
+  }
+  if (!/^\d+$/.test(trimmed)) {
+    return null
+  }
+  const numeric = Number(trimmed)
+  if (!Number.isInteger(numeric) || numeric < 1) {
+    return null
+  }
+  return numeric
 }
 
 // ── RSVP summary panel ────────────────────────────────────────────────────────
@@ -337,13 +364,25 @@ interface EventFormModalProps {
   isEdit: boolean
 }
 
+interface FormFieldErrors {
+  title?: string
+  event_date?: string
+  event_time?: string
+  end_date?: string
+  end_time?: string
+  mentor_capacity?: string
+  participant_capacity?: string
+}
+
 function EventFormModal({ initial, groups, onSave, onCancel, saving, error, isEdit }: EventFormModalProps) {
   const [form, setForm] = useState<EventFormPayload>(initial)
+  const [fieldErrors, setFieldErrors] = useState<FormFieldErrors>({})
   const eventDateParts = splitDateTime(form.event_date)
   const endDateParts = splitDateTime(form.end_date)
 
   function set(field: keyof EventFormPayload, value: string) {
     setForm(f => ({ ...f, [field]: value }))
+    setFieldErrors(prev => ({ ...prev, [field]: undefined }))
   }
 
   function toggleGroup(id: string) {
@@ -356,13 +395,13 @@ function EventFormModal({ initial, groups, onSave, onCancel, saving, error, isEd
   }
 
   function handleTimeInput(field: 'event_date' | 'end_date', date: string, rawTime: string) {
-    const typedTime = normalizeTimeInput(rawTime)
+    const typedTime = sanitizeTimeInput(rawTime)
     set(field, joinDateTime(date, typedTime))
   }
 
   function handleDateInput(field: 'event_date' | 'end_date', rawDate: string, time: string) {
     const typedDate = normalizeDateInput(rawDate)
-    set(field, joinDateTime(typedDate, time || '00:00'))
+    set(field, joinDateTime(typedDate, time))
   }
 
   function handleDateBlur(field: 'event_date' | 'end_date', rawDate: string, time: string) {
@@ -370,7 +409,7 @@ function EventFormModal({ initial, groups, onSave, onCancel, saving, error, isEd
     if (!canonicalDate) {
       return
     }
-    set(field, joinDateTime(canonicalDate, time || '00:00'))
+    set(field, joinDateTime(canonicalDate, time))
   }
 
   function handleTimeBlur(field: 'event_date' | 'end_date', date: string, rawTime: string) {
@@ -379,6 +418,68 @@ function EventFormModal({ initial, groups, onSave, onCancel, saving, error, isEd
       return
     }
     set(field, joinDateTime(date, canonical))
+  }
+
+  async function handleSubmit() {
+    const nextErrors: FormFieldErrors = {}
+
+    if (!form.title.trim()) {
+      nextErrors.title = 'Title is required.'
+    }
+
+    const eventDate = toCanonicalDate(eventDateParts.date)
+    const eventTime = toCanonicalTime(eventDateParts.time)
+    if (!eventDate) {
+      nextErrors.event_date = 'Use YYYY-MM-DD or MMDDYYYY.'
+    }
+    if (!eventTime) {
+      nextErrors.event_time = 'Use 24-hour time like 1923, 941, or 20:41.'
+    }
+
+    let canonicalEndDate: string | null = null
+    let canonicalEndTime: string | null = null
+    const endHasInput = Boolean(endDateParts.date.trim() || endDateParts.time.trim())
+    if (endHasInput) {
+      canonicalEndDate = toCanonicalDate(endDateParts.date)
+      canonicalEndTime = toCanonicalTime(endDateParts.time)
+      if (!canonicalEndDate) {
+        nextErrors.end_date = 'End date is invalid.'
+      }
+      if (!canonicalEndTime) {
+        nextErrors.end_time = 'End time is invalid.'
+      }
+    }
+
+    const mentorCapacity = parseCapacityValue(form.mentor_capacity)
+    const participantCapacity = parseCapacityValue(form.participant_capacity)
+    if (form.mentor_capacity.trim() && mentorCapacity === null) {
+      nextErrors.mentor_capacity = 'Use a whole number >= 1 or leave blank.'
+    }
+    if (form.participant_capacity.trim() && participantCapacity === null) {
+      nextErrors.participant_capacity = 'Use a whole number >= 1 or leave blank.'
+    }
+
+    if (eventDate && eventTime && canonicalEndDate && canonicalEndTime) {
+      const eventValue = joinDateTime(eventDate, eventTime)
+      const endValue = joinDateTime(canonicalEndDate, canonicalEndTime)
+      if (new Date(endValue).getTime() < new Date(eventValue).getTime()) {
+        nextErrors.end_time = 'End must be at or after start.'
+      }
+    }
+
+    setFieldErrors(nextErrors)
+    if (Object.keys(nextErrors).length > 0) {
+      return
+    }
+
+    await onSave({
+      ...form,
+      title: form.title.trim(),
+      event_date: joinDateTime(eventDate!, eventTime!),
+      end_date: endHasInput ? joinDateTime(canonicalEndDate!, canonicalEndTime!) : '',
+      mentor_capacity: mentorCapacity == null ? '' : String(mentorCapacity),
+      participant_capacity: participantCapacity == null ? '' : String(participantCapacity),
+    })
   }
 
   return (
@@ -394,6 +495,7 @@ function EventFormModal({ initial, groups, onSave, onCancel, saving, error, isEd
             <div className="form-field form-field--full">
               <label className="form-label">Title *</label>
               <input className="form-input" value={form.title} onChange={e => set('title', e.target.value)} required />
+              {fieldErrors.title && <p className="form-field-error">{fieldErrors.title}</p>}
             </div>
 
             <div className="form-field">
@@ -408,6 +510,7 @@ function EventFormModal({ initial, groups, onSave, onCancel, saving, error, isEd
                 onBlur={e => handleDateBlur('event_date', e.target.value, eventDateParts.time)}
                 required
               />
+              {fieldErrors.event_date && <p className="form-field-error">{fieldErrors.event_date}</p>}
             </div>
 
             <div className="form-field">
@@ -422,6 +525,8 @@ function EventFormModal({ initial, groups, onSave, onCancel, saving, error, isEd
                 onBlur={e => handleTimeBlur('event_date', eventDateParts.date, e.target.value)}
                 required
               />
+              <p className="form-field-hint">Examples: 1923, 941, 20:41</p>
+              {fieldErrors.event_time && <p className="form-field-error">{fieldErrors.event_time}</p>}
             </div>
 
             <div className="form-field">
@@ -435,6 +540,7 @@ function EventFormModal({ initial, groups, onSave, onCancel, saving, error, isEd
                 onChange={e => handleDateInput('end_date', e.target.value, endDateParts.time)}
                 onBlur={e => handleDateBlur('end_date', e.target.value, endDateParts.time)}
               />
+              {fieldErrors.end_date && <p className="form-field-error">{fieldErrors.end_date}</p>}
             </div>
 
             <div className="form-field">
@@ -448,6 +554,7 @@ function EventFormModal({ initial, groups, onSave, onCancel, saving, error, isEd
                 onChange={e => handleTimeInput('end_date', endDateParts.date, e.target.value)}
                 onBlur={e => handleTimeBlur('end_date', endDateParts.date, e.target.value)}
               />
+              {fieldErrors.end_time && <p className="form-field-error">{fieldErrors.end_time}</p>}
             </div>
 
             <div className="form-field form-field--full">
@@ -456,8 +563,30 @@ function EventFormModal({ initial, groups, onSave, onCancel, saving, error, isEd
             </div>
 
             <div className="form-field">
-              <label className="form-label">Capacity (blank = unlimited)</label>
-              <input className="form-input" type="number" min="1" value={form.capacity} onChange={e => set('capacity', e.target.value)} />
+              <label className="form-label">Mentor Capacity</label>
+              <input
+                className="form-input"
+                type="number"
+                min="1"
+                step="1"
+                value={form.mentor_capacity}
+                onChange={e => set('mentor_capacity', e.target.value)}
+              />
+              {fieldErrors.mentor_capacity && <p className="form-field-error">{fieldErrors.mentor_capacity}</p>}
+            </div>
+
+            <div className="form-field">
+              <label className="form-label">Participant Capacity</label>
+              <input
+                className="form-input"
+                type="number"
+                min="1"
+                step="1"
+                value={form.participant_capacity}
+                onChange={e => set('participant_capacity', e.target.value)}
+              />
+              <p className="form-field-hint">Leave both capacity fields blank for unlimited / kickoff-style events.</p>
+              {fieldErrors.participant_capacity && <p className="form-field-error">{fieldErrors.participant_capacity}</p>}
             </div>
 
             <div className="form-field form-field--full">
@@ -491,8 +620,8 @@ function EventFormModal({ initial, groups, onSave, onCancel, saving, error, isEd
           <button className="btn btn--outline" onClick={onCancel} disabled={saving}>Cancel</button>
           <button
             className="btn btn--primary"
-            onClick={() => onSave(form)}
-            disabled={saving || !form.title || !form.event_date}
+            onClick={() => void handleSubmit()}
+            disabled={saving}
           >
             {saving ? 'Saving…' : isEdit ? 'Save Changes' : 'Create Event'}
           </button>
@@ -555,42 +684,17 @@ function EventsPage() {
     setFormSaving(true)
     setFormError(null)
     try {
-      const eventParts = splitDateTime(form.event_date)
-      const eventDate = toCanonicalDate(eventParts.date)
-      const eventTime = toCanonicalTime(eventParts.time)
-      if (!eventDate) {
-        setFormError('Event date must be valid. Examples: 2026-03-20 or 03202026.')
-        return
-      }
-      if (!eventTime) {
-        setFormError('Event time must be valid 24-hour time. Examples: 2041, 941, or 20:41.')
-        return
-      }
-      const normalizedEventDate = joinDateTime(eventDate, eventTime)
-
-      let normalizedEndDate = ''
-      if (form.end_date) {
-        const endParts = splitDateTime(form.end_date)
-        const endDate = toCanonicalDate(endParts.date)
-        const endTime = toCanonicalTime(endParts.time)
-        if (!endDate) {
-          setFormError('End date must be valid. Examples: 2026-03-20 or 03202026.')
-          return
-        }
-        if (!endTime) {
-          setFormError('End time must be valid 24-hour time. Examples: 2041, 941, or 20:41.')
-          return
-        }
-        normalizedEndDate = joinDateTime(endDate, endTime)
-      }
+      const mentorCapacity = parseCapacityValue(form.mentor_capacity)
+      const participantCapacity = parseCapacityValue(form.participant_capacity)
+      const combinedCapacity = (mentorCapacity ?? 0) + (participantCapacity ?? 0)
 
       const payload = {
         title: form.title,
-        event_date: normalizedEventDate,
+        event_date: form.event_date,
         description: form.description || null,
         location: form.location || null,
-        end_date: normalizedEndDate || null,
-        capacity: form.capacity ? Number(form.capacity) : null,
+        end_date: form.end_date || null,
+        capacity: combinedCapacity > 0 ? combinedCapacity : null,
         notification_targets: form.notification_targets.map(id => ({ group_id: id })),
       }
 
