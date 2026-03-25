@@ -185,6 +185,21 @@ router.patch('/applications/:id/status', async (req: Request, res: Response): Pr
 // ---------------------------------------------------------------------------
 
 /**
+ * GET /api/tavf/matches
+ * Returns all matches (admin/event creator use).
+ */
+router.get('/matches', apiLimiter, requireEventCreatorOrAdmin, async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const postings = await tavf.listPostings();
+    const allMatches = await Promise.all(postings.map((posting) => tavf.listMatchesForPosting(posting.posting_id)));
+    res.json(allMatches.flat());
+  } catch (err) {
+    console.error('[tavf] listAllMatches error', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
  * GET /api/tavf/postings/:id/matches
  */
 router.get('/postings/:id/matches', async (req: Request, res: Response): Promise<void> => {

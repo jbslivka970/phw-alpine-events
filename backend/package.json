@@ -1,6 +1,6 @@
 {
   "name": "phw-alpine-events-backend",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Backend API for PHW Alpine Events",
   "main": "server.js",
   "engines": {
@@ -11,7 +11,8 @@
     "start": "node server.js",
     "dev": "ts-node src/index.ts",
     "deploy-schema": "ts-node src/deploy-schema.ts",
-    "test": "jest"
+    "test": "jest",
+    "smoke:sms": "node ../scripts/sms-compliance-smoke.js"
   },
   "jest": {
     "preset": "ts-jest",

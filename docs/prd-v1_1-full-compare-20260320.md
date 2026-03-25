@@ -51,7 +51,6 @@ Implemented evidence:
 - Notification runtime mode/strict readiness checks now exist in startup diagnostics and preflight guards.
 
 Gaps vs PRD:
-- **Waitlist offer window** PRD requires 48h; code default is 24h (`WAITLIST_OFFER_WINDOW_HOURS ?? '24'`).
 - **Template management CRUD (admin)** required by PRD task list is not exposed as a dedicated route/page.
 - **AI invite generation** is not implemented.
 - **AI equity recommendations** for assignment are not implemented.
@@ -59,14 +58,14 @@ Gaps vs PRD:
 
 ### 2.4 Take a Vet Fishing (Section 6.4, US-TV)
 
-Status: **Mostly Complete**
+Status: **Complete (with operational verification follow-up)**
 
 Implemented evidence:
 - Posting creation/list/detail/application/match flows are present.
 - Expiry job exists (`tavfExpiryJob`).
 
 Gap:
-- Notification behaviors around TAVF are still partly stubbed in service comments/implementation path and should be hardened end-to-end for production confidence.
+- Notification functions for posting/application/match/cancel are implemented in the notification service and invoked from TAVF service flows; remaining work is production smoke coverage and service-level notification test depth.
 
 ### 2.5 Calendar + Reporting (Section 6.5/6.6, US-CR)
 
@@ -78,7 +77,7 @@ Implemented evidence:
 
 Gaps:
 - **ICS download** for individual events not found.
-- **Notification delivery report by channel** not found as a dedicated admin report endpoint/page.
+- Notification delivery report endpoint and UI table exist; add export/chart polish only if needed.
 
 ### 2.6 Compliance / Legal / UX (Sections 4.3, 4.4, 10.x)
 
@@ -97,17 +96,17 @@ Gaps:
 
 ## P0 - Must close for PRD alignment
 
-1. **Align waitlist window to PRD 48h**  
-   PRD refs: Section 6.7, US-EM-18, T-EVT-18  
-   Implementation: change default waitlist offer window to 48h and add tests for expiry/offer rollover.
+1. **End-to-end inbound SMS compliance path (Event Grid integration + proof in prod)**  
+   PRD refs: Section 4.3, US-MM-08, US-EM-05  
+   Implementation: verify/deploy inbound ACS -> Event Grid -> handler for STOP/HELP/Y/N/M/W, plus recurring smoke checks.
 
-2. **Add notification delivery report (email/sms sent/delivered/failed)**  
-   PRD refs: Section 6.6, US-CR-06, T-CAL-07  
-   Implementation: add reports API + admin UI table/charts sourced from `notification_log`.
+2. **Automated reminders (default 3-day behavior, configurable timing)**  
+   PRD refs: Section 6.3.4, US-EM-06/07  
+   Implementation: scheduled dispatch with idempotent send markers and operational observability.
 
-3. **Harden TAVF notification path from stubbed behavior to production-complete**  
-   PRD refs: Section 6.4, US-TV-02/03/04, T-TAV-03  
-   Implementation: replace placeholder/stub notification flows with strict runtime-checked dispatch and tests.
+3. **Email unsubscribe handling (functional, auditable)**  
+   PRD refs: Section 4.4  
+   Implementation: signed unsubscribe link + persistence + enforcement.
 
 ## P1 - Should Have
 
@@ -137,22 +136,23 @@ Gaps:
 
 ## 4) Suggested Execution Order (Smallest Risk First)
 
-1. Waitlist 48h correction + tests
-2. Notification delivery report (API then UI)
-3. ICS endpoint + UI action
-4. Template CRUD
-5. Channel preference model extension
-6. TAVF notification hardening
+1. Inbound SMS compliance path + production smoke
+2. Reminder scheduling + idempotency tests
+3. Email unsubscribe flow
+4. ICS endpoint + UI action
+5. Template CRUD
+6. Channel preference model extension
 7. AI features
 
 ## 5) Acceptance Checks For Next Wave
 
-- Waitlist promotion test proves 48h offer expiry behavior.
-- Reports page includes delivery-status channel report and export.
+- Inbound SMS STOP/HELP/RSVP works through deployed Event Grid path in production.
+- Reminder dispatch runs on schedule and avoids duplicate sends.
+- Unsubscribe link disables future email dispatch for opted-out member.
 - Event detail/calendar exposes working `.ics` download.
 - Template CRUD can safely create, validate, and set default templates.
 - Notification preferences enforce channel mode in all dispatch paths.
-- TAVF creation/match/cancel trigger real notifications with logs.
+- TAVF creation/match/cancel trigger notifications and notification log entries under real channel mode.
 
 ## 6) Evidence Pointers (Key Files)
 

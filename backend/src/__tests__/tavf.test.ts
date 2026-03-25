@@ -199,6 +199,25 @@ describe('TaVF Application routes', () => {
 describe('TaVF Match routes', () => {
   beforeEach(() => jest.clearAllMocks());
 
+  it('GET /api/tavf/matches returns flattened matches across postings', async () => {
+    (tavfService.listPostings as jest.Mock).mockResolvedValue([
+      { ...POSTING, posting_id: 'p-1111' },
+      { ...POSTING, posting_id: 'p-2222' },
+    ]);
+    (tavfService.listMatchesForPosting as jest.Mock)
+      .mockResolvedValueOnce([MATCH])
+      .mockResolvedValueOnce([{ ...MATCH, match_id: 'm-9999', posting_id: 'p-2222' }]);
+
+    const res = await request(app).get('/api/tavf/matches');
+
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveLength(2);
+    expect(tavfService.listPostings).toHaveBeenCalledWith();
+    expect(tavfService.listMatchesForPosting).toHaveBeenCalledTimes(2);
+    expect(tavfService.listMatchesForPosting).toHaveBeenNthCalledWith(1, 'p-1111');
+    expect(tavfService.listMatchesForPosting).toHaveBeenNthCalledWith(2, 'p-2222');
+  });
+
   it('GET /api/tavf/postings/:id/matches returns matches', async () => {
     (tavfService.listMatchesForPosting as jest.Mock).mockResolvedValue([MATCH]);
     const res = await request(app).get('/api/tavf/postings/p-1111/matches');
