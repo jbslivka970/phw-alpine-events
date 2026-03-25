@@ -144,3 +144,7 @@ Before full launch sign-off, collect and attach:
 - Updated reminder job to isolate per-channel failures (email/sms) and continue processing subsequent rows.
 - Added completion metrics log event (`reminder_job_completed`) with attempted/delivered/failed counters.
 - Added tests covering email-failure SMS fallback and row-level continuation behavior.
+- Commit: `f53dcc9` pushed to `main` for LR-03 reliability slice.
+- CI/CD run `23562201012` completed with `success`.
+- Post-deploy checks: backend root/health/ready all `200`; frontend root `200`.
+- Post-deploy SMS contract smoke: `result=PASS`.
