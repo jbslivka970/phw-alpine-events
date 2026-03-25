@@ -33,6 +33,7 @@ Optional:
 - `SMS_TEST_ENABLE_LIVE` set `1` to run live checks
 - `SMS_TEST_PHONE` required when live checks enabled
 - `SMS_TEST_ENABLE_STOP` set `1` to run STOP check (destructive)
+- `SMS_ADMIN_BEARER_TOKEN` optional admin JWT to verify `GET /api/v1/sms/inbound/logs`
 
 ## Safe Contract-Only Run
 
@@ -46,6 +47,9 @@ Expected output includes:
 - `eventgrid_validation_status=200`
 - `eventgrid_batch_status=200`
 - `help_unknown_status=200`
+
+If `SMS_ADMIN_BEARER_TOKEN` is set, also expect:
+- `admin_logs_status=200`
 
 ## Live Non-Destructive Run
 

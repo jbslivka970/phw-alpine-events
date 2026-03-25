@@ -14,6 +14,7 @@
  * - SMS_TEST_PHONE: real test member phone (E.164) for live checks
  * - SMS_TEST_ENABLE_LIVE: set to 1 to run live checks against SMS_TEST_PHONE
  * - SMS_TEST_ENABLE_STOP: set to 1 to include STOP test (destructive)
+ * - SMS_ADMIN_BEARER_TOKEN: optional admin JWT to validate /api/v1/sms/inbound/logs
  */
 
 const backendBaseUrl = (process.env.BACKEND_BASE_URL || 'http://localhost:3001').replace(/\/$/, '');
@@ -21,6 +22,7 @@ const nonMemberPhone = process.env.SMS_NON_MEMBER_PHONE || '+15555550199';
 const testPhone = process.env.SMS_TEST_PHONE || '';
 const liveMode = process.env.SMS_TEST_ENABLE_LIVE === '1';
 const stopMode = process.env.SMS_TEST_ENABLE_STOP === '1';
+const adminBearerToken = process.env.SMS_ADMIN_BEARER_TOKEN || '';
 
 function url(path) {
   return `${backendBaseUrl}${path}`;
@@ -31,6 +33,22 @@ async function postJson(path, payload) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
+  });
+
+  let body;
+  try {
+    body = await response.json();
+  } catch {
+    body = { raw: await response.text() };
+  }
+
+  return { status: response.status, body };
+}
+
+async function getJson(path, headers = {}) {
+  const response = await fetch(url(path), {
+    method: 'GET',
+    headers,
   });
 
   let body;
@@ -90,6 +108,16 @@ async function runContractChecks() {
   checks.push(['unknown_command_body', JSON.stringify(unknownCommand.body)]);
   assert(unknownCommand.status === 200, 'Unknown command should return 200.');
   assert(unknownCommand.body.status === 'ignored', 'Unknown command for non-member should be ignored.');
+
+  if (adminBearerToken) {
+    const logs = await getJson('/api/v1/sms/inbound/logs?limit=5', {
+      Authorization: `Bearer ${adminBearerToken}`,
+    });
+    checks.push(['admin_logs_status', logs.status]);
+    checks.push(['admin_logs_body', JSON.stringify(logs.body)]);
+    assert(logs.status === 200, 'Admin inbound logs endpoint should return 200.');
+    assert(Array.isArray(logs.body.rows), 'Admin inbound logs response should include rows[].');
+  }
 
   return checks;
 }

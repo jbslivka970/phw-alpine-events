@@ -29,7 +29,7 @@ const RESPONSE_MAP: Record<string, RsvpResponse> = {
   waitlist: 'waitlist',
 };
 
-type InboundSource = 'direct' | 'event_grid';
+type InboundSource = 'direct' | 'event_grid' | 'tokenized';
 
 router.get('/inbound/logs', apiLimiter, authenticate, requireAdmin, async (req, res) => {
   try {
@@ -94,6 +94,10 @@ router.post('/inbound', writeLimiter, async (req, res) => {
     if (isTokenizedRsvpPayload(req.body)) {
       const tokenPayload = req.body as { token: string; response?: string; response_role?: string };
       const token = verifyRsvpToken(tokenPayload.token);
+      const tokenMessage = JSON.stringify({
+        response: tokenPayload.response ?? null,
+        response_role: tokenPayload.response_role ?? null,
+      });
 
       if (typeof tokenPayload.response === 'string' && tokenPayload.response.trim().length > 0) {
         const response = tokenPayload.response.toLowerCase();
@@ -106,16 +110,46 @@ router.post('/inbound', writeLimiter, async (req, res) => {
           });
         const responseRole = parsedResponseRole ?? inferredResponseRole;
         if (!VALID_RESPONSES.includes(response as RsvpResponse)) {
+          const errorMessage = `response must be one of: ${VALID_RESPONSES.join(', ')}`;
+          await writeInboundSmsLog({
+            source: 'tokenized',
+            fromPhone: 'tokenized',
+            memberId: token.memberId,
+            eventId: token.eventId,
+            inboundMessage: tokenMessage,
+            processingStatus: 'invalid_response',
+            responseMessage: errorMessage,
+          });
           res.status(400).json({ error: `response must be one of: ${VALID_RESPONSES.join(', ')}` });
           return;
         }
 
         if (tokenPayload.response_role !== undefined && !parsedResponseRole) {
+          const errorMessage = 'response_role must be MENTOR or PARTICIPANT when provided';
+          await writeInboundSmsLog({
+            source: 'tokenized',
+            fromPhone: 'tokenized',
+            memberId: token.memberId,
+            eventId: token.eventId,
+            inboundMessage: tokenMessage,
+            processingStatus: 'invalid_role',
+            responseMessage: errorMessage,
+          });
           res.status(400).json({ error: 'response_role must be MENTOR or PARTICIPANT when provided' });
           return;
         }
 
         if (requiresExplicitRole(response as RsvpResponse) && !responseRole) {
+          const errorMessage = 'response_role is required for yes, maybe, and waitlist responses';
+          await writeInboundSmsLog({
+            source: 'tokenized',
+            fromPhone: 'tokenized',
+            memberId: token.memberId,
+            eventId: token.eventId,
+            inboundMessage: tokenMessage,
+            processingStatus: 'role_required',
+            responseMessage: errorMessage,
+          });
           res.status(400).json({ error: 'response_role is required for yes, maybe, and waitlist responses' });
           return;
         }
@@ -128,6 +162,16 @@ router.post('/inbound', writeLimiter, async (req, res) => {
           responseChannel: 'tokenized_link',
           groupContextId: token.groupContextId ?? null,
           responseRole,
+        });
+
+        await writeInboundSmsLog({
+          source: 'tokenized',
+          fromPhone: 'tokenized',
+          memberId: token.memberId,
+          eventId: token.eventId,
+          inboundMessage: tokenMessage,
+          parsedResponse: record.response,
+          processingStatus: 'recorded',
         });
 
         res.json(record);
@@ -143,6 +187,15 @@ router.post('/inbound', writeLimiter, async (req, res) => {
       res.json({
         ...context,
         token_expires_at: token.expiresAt ?? null,
+      });
+
+      await writeInboundSmsLog({
+        source: 'tokenized',
+        fromPhone: 'tokenized',
+        memberId: token.memberId,
+        eventId: token.eventId,
+        inboundMessage: tokenMessage,
+        processingStatus: 'context_served',
       });
       return;
     }

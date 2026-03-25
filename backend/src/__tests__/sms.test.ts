@@ -26,6 +26,15 @@ jest.mock('../middleware/rateLimiter', () => ({
   writeLimiter: (_req: express.Request, _res: express.Response, next: express.NextFunction) => next(),
 }));
 
+jest.mock('../middleware/auth', () => ({
+  __esModule: true,
+  default: (_req: express.Request, _res: express.Response, next: express.NextFunction) => next(),
+}));
+
+jest.mock('../middleware/rbac', () => ({
+  requireAdmin: (_req: express.Request, _res: express.Response, next: express.NextFunction) => next(),
+}));
+
 type QueryResult = { recordset?: unknown[]; rowsAffected?: number[] };
 
 describe('sms routes', () => {
@@ -230,5 +239,34 @@ describe('sms routes', () => {
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ validationResponse: 'abc123' });
+  });
+
+  it('GET /api/sms/inbound/logs returns inbound audit records', async () => {
+    const queryResults: QueryResult[] = [
+      {
+        recordset: [
+          {
+            inbound_log_id: 'log-1',
+            source: 'event_grid',
+            from_phone: '+13035551212',
+            processing_status: 'ignored',
+            received_at: new Date('2026-03-25T00:00:00Z'),
+          },
+        ],
+      },
+    ];
+    const mockRequest = {
+      input: jest.fn().mockReturnThis(),
+      query: jest.fn().mockImplementation(async () => queryResults.shift() ?? { recordset: [] }),
+    };
+    (getPool as jest.Mock).mockResolvedValue({ request: () => mockRequest });
+
+    const res = await request(app)
+      .get('/api/sms/inbound/logs')
+      .query({ limit: 50, source: 'event_grid' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.count).toBe(1);
+    expect(res.body.rows[0].inbound_log_id).toBe('log-1');
   });
 });
