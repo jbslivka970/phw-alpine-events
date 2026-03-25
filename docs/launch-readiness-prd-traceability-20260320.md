@@ -138,3 +138,5 @@ Before full launch sign-off, collect and attach:
 - Added runbook: `docs/sms-compliance-smoke-runbook.md`.
 - Added command: `npm --prefix backend run smoke:sms`.
 - Contract mode validated against deployed backend endpoint with PASS result.
+- Added LR-01 hardening step: inbound SMS audit persistence in `inbound_sms_log` from `POST /api/v1/sms/inbound` processing paths.
+- Added admin retrieval endpoint: `GET /api/v1/sms/inbound/logs` (admin-only) for operational verification.

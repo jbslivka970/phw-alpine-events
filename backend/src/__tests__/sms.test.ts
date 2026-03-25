@@ -22,6 +22,7 @@ jest.mock('../services/notifications', () => ({
 }));
 
 jest.mock('../middleware/rateLimiter', () => ({
+  apiLimiter: (_req: express.Request, _res: express.Response, next: express.NextFunction) => next(),
   writeLimiter: (_req: express.Request, _res: express.Response, next: express.NextFunction) => next(),
 }));
 

@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { getPool, sql } from '../db';
-import { writeLimiter } from '../middleware/rateLimiter';
+import authenticate from '../middleware/auth';
+import { apiLimiter, writeLimiter } from '../middleware/rateLimiter';
+import { requireAdmin } from '../middleware/rbac';
 import { notificationService } from '../services/notifications';
 import {
   inferResponseRoleForMember,
@@ -28,6 +30,64 @@ const RESPONSE_MAP: Record<string, RsvpResponse> = {
 };
 
 type InboundSource = 'direct' | 'event_grid';
+
+router.get('/inbound/logs', apiLimiter, authenticate, requireAdmin, async (req, res) => {
+  try {
+    const limitRaw = typeof req.query.limit === 'string' ? parseInt(req.query.limit, 10) : 100;
+    const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 500) : 100;
+
+    const status = typeof req.query.status === 'string' ? req.query.status : undefined;
+    const source = typeof req.query.source === 'string' ? req.query.source : undefined;
+
+    const pool = await getPool();
+    const queryRequest = pool
+      .request()
+      .input('limit', sql.Int, limit)
+      .input('status', sql.NVarChar, status ?? null)
+      .input('source', sql.NVarChar, source ?? null);
+
+    const result = await queryRequest.query<{
+      inbound_log_id: string;
+      source: string;
+      from_phone: string;
+      normalized_phone: string | null;
+      member_id: string | null;
+      event_id: string | null;
+      inbound_message: string;
+      parsed_response: string | null;
+      processing_status: string;
+      response_message: string | null;
+      error_detail: string | null;
+      received_at: Date;
+    }>(
+      `SELECT TOP (@limit)
+          inbound_log_id,
+          source,
+          from_phone,
+          normalized_phone,
+          member_id,
+          event_id,
+          inbound_message,
+          parsed_response,
+          processing_status,
+          response_message,
+          error_detail,
+          received_at
+       FROM dbo.inbound_sms_log
+       WHERE (@status IS NULL OR processing_status = @status)
+         AND (@source IS NULL OR source = @source)
+       ORDER BY received_at DESC`
+    );
+
+    res.json({
+      count: result.recordset.length,
+      rows: result.recordset,
+    });
+  } catch (error) {
+    console.error('GET /sms/inbound/logs failed', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
 
 router.post('/inbound', writeLimiter, async (req, res) => {
   try {
