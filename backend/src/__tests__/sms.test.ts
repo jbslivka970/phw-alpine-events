@@ -62,6 +62,7 @@ describe('sms routes', () => {
     expect(notificationService.sendSms).toHaveBeenCalledWith(
       expect.objectContaining({ bypassOptInCheck: true, memberId: 'member-1' })
     );
+    expect(mockRequest.query).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO dbo.inbound_sms_log'));
   });
 
   it('POST /api/sms/inbound records a single-event RSVP reply with explicit role', async () => {

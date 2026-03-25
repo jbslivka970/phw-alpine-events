@@ -27,6 +27,8 @@ const RESPONSE_MAP: Record<string, RsvpResponse> = {
   waitlist: 'waitlist',
 };
 
+type InboundSource = 'direct' | 'event_grid';
+
 router.post('/inbound', writeLimiter, async (req, res) => {
   try {
     if (isTokenizedRsvpPayload(req.body)) {
@@ -95,13 +97,13 @@ router.post('/inbound', writeLimiter, async (req, res) => {
     if (payload.kind === 'batch') {
       const processed = [];
       for (const message of payload.messages) {
-        processed.push(await processInboundMessage(message.from, message.message));
+        processed.push(await processInboundMessage(message.from, message.message, 'event_grid'));
       }
       res.json({ processed });
       return;
     }
 
-    const result = await processInboundMessage(payload.from, payload.message);
+    const result = await processInboundMessage(payload.from, payload.message, 'direct');
     res.json(result);
   } catch (error) {
     console.error('POST /sms/inbound failed', error);
@@ -109,14 +111,40 @@ router.post('/inbound', writeLimiter, async (req, res) => {
   }
 });
 
-async function processInboundMessage(from: string, rawMessage: string): Promise<Record<string, unknown>> {
+async function processInboundMessage(from: string, rawMessage: string, source: InboundSource): Promise<Record<string, unknown>> {
+  const normalizedFrom = toE164(from) ?? from;
+
+  const logAndReturn = async (
+    result: Record<string, unknown>,
+    options: {
+      memberId?: string;
+      eventId?: string;
+      parsedResponse?: string;
+      errorDetail?: string;
+    } = {}
+  ): Promise<Record<string, unknown>> => {
+    await writeInboundSmsLog({
+      source,
+      fromPhone: from,
+      normalizedPhone: normalizedFrom,
+      memberId: options.memberId,
+      eventId: options.eventId,
+      inboundMessage: rawMessage,
+      parsedResponse: options.parsedResponse,
+      processingStatus: String(result['status'] ?? 'unknown'),
+      responseMessage: typeof result['reply'] === 'string' ? result['reply'] : undefined,
+      errorDetail: options.errorDetail,
+    });
+    return result;
+  };
+
   const member = await findMemberByPhone(from);
   if (!member) {
-    return {
+    return logAndReturn({
       status: 'ignored',
       from,
       reply: 'PHW Alpine: We could not match this phone number to a member profile. Contact chapter leadership for assistance.',
-    };
+    });
   }
 
   const message = rawMessage.trim();
@@ -131,7 +159,10 @@ async function processInboundMessage(from: string, rawMessage: string): Promise<
       memberId: member.member_id,
       bypassOptInCheck: true,
     });
-    return { status: 'opted_out', member_id: member.member_id, reply };
+    return logAndReturn(
+      { status: 'opted_out', member_id: member.member_id, reply },
+      { memberId: member.member_id }
+    );
   }
 
   if (normalized === 'help') {
@@ -142,7 +173,10 @@ async function processInboundMessage(from: string, rawMessage: string): Promise<
       memberId: member.member_id,
       bypassOptInCheck: true,
     });
-    return { status: 'help_sent', member_id: member.member_id, reply };
+    return logAndReturn(
+      { status: 'help_sent', member_id: member.member_id, reply },
+      { memberId: member.member_id }
+    );
   }
 
   const parsed = parseRsvpKeyword(normalized);
@@ -154,7 +188,10 @@ async function processInboundMessage(from: string, rawMessage: string): Promise<
       memberId: member.member_id,
       bypassOptInCheck: true,
     });
-    return { status: 'unrecognized', member_id: member.member_id, reply };
+    return logAndReturn(
+      { status: 'unrecognized', member_id: member.member_id, reply },
+      { memberId: member.member_id }
+    );
   }
 
   const pendingEvents = await listPendingEventsForMember(member.member_id);
@@ -166,7 +203,10 @@ async function processInboundMessage(from: string, rawMessage: string): Promise<
       memberId: member.member_id,
       bypassOptInCheck: true,
     });
-    return { status: 'no_pending_events', member_id: member.member_id, reply };
+    return logAndReturn(
+      { status: 'no_pending_events', member_id: member.member_id, reply },
+      { memberId: member.member_id }
+    );
   }
 
   const targetEvent = resolveTargetEvent(parsed.eventIndex, pendingEvents);
@@ -178,7 +218,10 @@ async function processInboundMessage(from: string, rawMessage: string): Promise<
       memberId: member.member_id,
       bypassOptInCheck: true,
     });
-    return { status: 'multiple_pending_events', member_id: member.member_id, reply };
+    return logAndReturn(
+      { status: 'multiple_pending_events', member_id: member.member_id, reply },
+      { memberId: member.member_id }
+    );
   }
 
   try {
@@ -192,7 +235,10 @@ async function processInboundMessage(from: string, rawMessage: string): Promise<
         memberId: member.member_id,
         bypassOptInCheck: true,
       });
-      return { status: 'role_required', member_id: member.member_id, reply };
+      return logAndReturn(
+        { status: 'role_required', member_id: member.member_id, reply },
+        { memberId: member.member_id }
+      );
     }
 
     const record = await recordRsvpResponse({
@@ -204,12 +250,19 @@ async function processInboundMessage(from: string, rawMessage: string): Promise<
       responseRole: inferredResponseRole,
     });
 
-    return {
-      status: 'recorded',
-      member_id: member.member_id,
-      event_id: targetEvent.event_id,
-      response: record.response,
-    };
+    return logAndReturn(
+      {
+        status: 'recorded',
+        member_id: member.member_id,
+        event_id: targetEvent.event_id,
+        response: record.response,
+      },
+      {
+        memberId: member.member_id,
+        eventId: targetEvent.event_id,
+        parsedResponse: record.response,
+      }
+    );
   } catch (error) {
     if (error instanceof RsvpError) {
       const reply = `PHW Alpine: ${error.message}`;
@@ -219,10 +272,51 @@ async function processInboundMessage(from: string, rawMessage: string): Promise<
         memberId: member.member_id,
         bypassOptInCheck: true,
       });
-      return { status: 'error', member_id: member.member_id, reply };
+      return logAndReturn(
+        { status: 'error', member_id: member.member_id, reply },
+        { memberId: member.member_id, errorDetail: error.message }
+      );
     }
 
     throw error;
+  }
+}
+
+async function writeInboundSmsLog(entry: {
+  source: InboundSource;
+  fromPhone: string;
+  normalizedPhone?: string;
+  memberId?: string;
+  eventId?: string;
+  inboundMessage: string;
+  parsedResponse?: string;
+  processingStatus: string;
+  responseMessage?: string;
+  errorDetail?: string;
+}): Promise<void> {
+  try {
+    const pool = await getPool();
+    await pool
+      .request()
+      .input('source', sql.NVarChar, entry.source)
+      .input('from_phone', sql.NVarChar, entry.fromPhone)
+      .input('normalized_phone', sql.NVarChar, entry.normalizedPhone ?? null)
+      .input('member_id', sql.UniqueIdentifier, entry.memberId ?? null)
+      .input('event_id', sql.UniqueIdentifier, entry.eventId ?? null)
+      .input('inbound_message', sql.NVarChar, entry.inboundMessage)
+      .input('parsed_response', sql.NVarChar, entry.parsedResponse ?? null)
+      .input('processing_status', sql.NVarChar, entry.processingStatus)
+      .input('response_message', sql.NVarChar, entry.responseMessage ?? null)
+      .input('error_detail', sql.NVarChar, entry.errorDetail ?? null)
+      .query(
+        `INSERT INTO dbo.inbound_sms_log
+          (inbound_log_id, source, from_phone, normalized_phone, member_id, event_id, inbound_message, parsed_response, processing_status, response_message, error_detail, received_at)
+         VALUES
+          (NEWID(), @source, @from_phone, @normalized_phone, @member_id, @event_id, @inbound_message, @parsed_response, @processing_status, @response_message, @error_detail, GETUTCDATE())`
+      );
+  } catch (error) {
+    // Non-blocking: inbound processing should continue even if audit logging fails.
+    console.warn('[sms] failed to write inbound_sms_log', error);
   }
 }
 

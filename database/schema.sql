@@ -332,6 +332,41 @@ CREATE TABLE dbo.sms_consent_log (
 -- ---------------------------------------------------------------------------
 -- 11. ImportLog  (tracks each CSV import run)
 -- ---------------------------------------------------------------------------
+IF OBJECT_ID(N'dbo.inbound_sms_log', N'U') IS NULL
+CREATE TABLE dbo.inbound_sms_log (
+    inbound_log_id     UNIQUEIDENTIFIER NOT NULL DEFAULT NEWID(),
+    source             NVARCHAR(20)     NOT NULL CHECK (source IN ('direct', 'event_grid', 'tokenized')),
+    from_phone         NVARCHAR(30)     NOT NULL,
+    normalized_phone   NVARCHAR(30)     NULL,
+    member_id          UNIQUEIDENTIFIER NULL,
+    event_id           UNIQUEIDENTIFIER NULL,
+    inbound_message    NVARCHAR(500)    NOT NULL,
+    parsed_response    NVARCHAR(20)     NULL,
+    processing_status  NVARCHAR(50)     NOT NULL,
+    response_message   NVARCHAR(500)    NULL,
+    error_detail       NVARCHAR(1000)   NULL,
+    received_at        DATETIME         NOT NULL DEFAULT GETUTCDATE(),
+    CONSTRAINT PK_inbound_sms_log PRIMARY KEY (inbound_log_id),
+    CONSTRAINT FK_inbound_sms_log_member FOREIGN KEY (member_id)
+        REFERENCES dbo.member (member_id),
+    CONSTRAINT FK_inbound_sms_log_event FOREIGN KEY (event_id)
+        REFERENCES dbo.event (event_id)
+);
+
+IF OBJECT_ID(N'dbo.inbound_sms_log', N'U') IS NOT NULL
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM sys.indexes
+        WHERE object_id = OBJECT_ID(N'dbo.inbound_sms_log')
+          AND name = N'IX_inbound_sms_log_received_at'
+    )
+        CREATE INDEX IX_inbound_sms_log_received_at ON dbo.inbound_sms_log (received_at DESC);
+END
+
+-- ---------------------------------------------------------------------------
+-- 12. ImportLog  (tracks each CSV import run)
+-- ---------------------------------------------------------------------------
 IF OBJECT_ID(N'dbo.import_log', N'U') IS NULL
 CREATE TABLE dbo.import_log (
     import_id        UNIQUEIDENTIFIER NOT NULL DEFAULT NEWID(),
@@ -351,7 +386,7 @@ CREATE TABLE dbo.import_log (
 );
 
 -- ---------------------------------------------------------------------------
--- 12. [user]  (application admin / staff accounts; distinct from member)
+-- 13. [user]  (application admin / staff accounts; distinct from member)
 -- ---------------------------------------------------------------------------
 IF OBJECT_ID(N'dbo.[user]', N'U') IS NULL
 CREATE TABLE dbo.[user] (
@@ -386,7 +421,7 @@ ALTER TABLE dbo.import_log
         FOREIGN KEY (imported_by) REFERENCES dbo.[user] (user_id);
 
 -- ---------------------------------------------------------------------------
--- 13. TakeAVetPosting  (Take-A-Vet program listings)
+-- 14. TakeAVetPosting  (Take-A-Vet program listings)
 -- ---------------------------------------------------------------------------
 IF OBJECT_ID(N'dbo.take_a_vet_posting', N'U') IS NULL
 CREATE TABLE dbo.take_a_vet_posting (
