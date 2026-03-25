@@ -45,7 +45,12 @@ async function runReminderJob(lookAheadHours = 48): Promise<void> {
        )`
   );
 
+  let attempted = 0;
+  let deliveredCount = 0;
+  let failedCount = 0;
+
   for (const row of result.recordset) {
+    attempted += 1;
     const variables = {
       firstName: row.first_name,
       eventName: row.title,
@@ -55,42 +60,83 @@ async function runReminderJob(lookAheadHours = 48): Promise<void> {
 
     let delivered = false;
 
-    if (!row.email_opt_out && row.email) {
-      await notificationService.sendEmail({
-        to: row.email,
-        subject: renderTemplate(eventReminderTemplate.subjectTemplate ?? '', variables),
-        htmlBody: renderTemplate(eventReminderTemplate.htmlBodyTemplate ?? '', variables),
-        textBody: renderTemplate(eventReminderTemplate.textBodyTemplate ?? '', variables),
-        templateId: eventReminderTemplate.templateId,
+    try {
+      if (!row.email_opt_out && row.email) {
+        try {
+          await notificationService.sendEmail({
+            to: row.email,
+            subject: renderTemplate(eventReminderTemplate.subjectTemplate ?? '', variables),
+            htmlBody: renderTemplate(eventReminderTemplate.htmlBodyTemplate ?? '', variables),
+            textBody: renderTemplate(eventReminderTemplate.textBodyTemplate ?? '', variables),
+            templateId: eventReminderTemplate.templateId,
+            memberId: row.member_id,
+            eventId: row.event_id,
+          });
+          delivered = true;
+        } catch (error) {
+          console.error('[reminderJob] email send failed', {
+            memberId: row.member_id,
+            eventId: row.event_id,
+            responseId: row.response_id,
+            error,
+          });
+        }
+      }
+
+      if (row.sms_opt_in && row.mobile_phone) {
+        try {
+          await notificationService.sendSms({
+            to: row.mobile_phone,
+            message: renderTemplate(eventReminderTemplate.smsBodyTemplate ?? '', variables),
+            templateId: eventReminderTemplate.templateId,
+            memberId: row.member_id,
+            eventId: row.event_id,
+          });
+          delivered = true;
+        } catch (error) {
+          console.error('[reminderJob] sms send failed', {
+            memberId: row.member_id,
+            eventId: row.event_id,
+            responseId: row.response_id,
+            error,
+          });
+        }
+      }
+
+      if (delivered) {
+        await pool
+          .request()
+          .input('response_id', row.response_id)
+          .query(
+            `UPDATE event_response
+             SET reminder_sent = 1,
+                 reminder_sent_at = GETUTCDATE()
+             WHERE response_id = @response_id`
+          );
+        deliveredCount += 1;
+      } else {
+        failedCount += 1;
+      }
+    } catch (error) {
+      failedCount += 1;
+      console.error('[reminderJob] row processing failed', {
         memberId: row.member_id,
         eventId: row.event_id,
+        responseId: row.response_id,
+        error,
       });
-      delivered = true;
-    }
-
-    if (row.sms_opt_in && row.mobile_phone) {
-      await notificationService.sendSms({
-        to: row.mobile_phone,
-        message: renderTemplate(eventReminderTemplate.smsBodyTemplate ?? '', variables),
-        templateId: eventReminderTemplate.templateId,
-        memberId: row.member_id,
-        eventId: row.event_id,
-      });
-      delivered = true;
-    }
-
-    if (delivered) {
-      await pool
-        .request()
-        .input('response_id', row.response_id)
-        .query(
-          `UPDATE event_response
-           SET reminder_sent = 1,
-               reminder_sent_at = GETUTCDATE()
-           WHERE response_id = @response_id`
-        );
     }
   }
+
+  console.log(JSON.stringify({
+    level: 'info',
+    event: 'reminder_job_completed',
+    lookAheadHours,
+    attempted,
+    delivered: deliveredCount,
+    failed: failedCount,
+    timestamp: new Date().toISOString(),
+  }));
 }
 
 if (require.main === module) {

@@ -47,7 +47,7 @@ Legend:
 |---|---|---|---|---|---|---|
 | LR-01 | P0 | Inbound SMS path: STOP/HELP/RSVP through ACS Event Grid into app | Build | In Progress | 4.3, 6.3.3, US-MM-08, US-EM-05, T-IF-05, T-MEM-10, T-EVT-07 | PR-33 |
 | LR-02 | P0 | Production SMS compliance smoke suite and alerts | Validate | In Progress | 4.3, 11.x | PR-33a |
-| LR-03 | P0 | Automated reminders with idempotent send markers | Build | Not Started | 6.3.4, US-EM-06, US-EM-07, T-EVT-09 | PR-34 |
+| LR-03 | P0 | Automated reminders with idempotent send markers | Build | In Progress | 6.3.4, US-EM-06, US-EM-07, T-EVT-09 | PR-34 |
 | LR-04 | P0 | Tokenized one-click RSVP from email (no login required) | Build | Not Started | 6.3.3, US-EM-04, T-EVT-08 | PR-35 |
 | LR-05 | P0 | Email unsubscribe link and enforcement workflow | Build | Not Started | 4.4 | PR-36 |
 | LR-06 | P1 | Event update notifications with changed-field summary | Build | Not Started | 6.3.7, US-EM-16, T-EVT-14 | PR-37 |
@@ -140,3 +140,7 @@ Before full launch sign-off, collect and attach:
 - Contract mode validated against deployed backend endpoint with PASS result.
 - Added LR-01 hardening step: inbound SMS audit persistence in `inbound_sms_log` from `POST /api/v1/sms/inbound` processing paths.
 - Added admin retrieval endpoint: `GET /api/v1/sms/inbound/logs` (admin-only) for operational verification.
+- Started LR-03 reminder reliability hardening.
+- Updated reminder job to isolate per-channel failures (email/sms) and continue processing subsequent rows.
+- Added completion metrics log event (`reminder_job_completed`) with attempted/delivered/failed counters.
+- Added tests covering email-failure SMS fallback and row-level continuation behavior.
