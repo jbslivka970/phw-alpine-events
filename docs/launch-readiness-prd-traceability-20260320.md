@@ -151,3 +151,7 @@ Before full launch sign-off, collect and attach:
 - Started LR-04 by fixing frontend tokenized RSVP API wiring.
 - Updated `emailRsvpApi` to call `/api/v1/events/rsvp/:token` (GET and POST) instead of `/api/v1/sms/inbound`.
 - Frontend production build completed successfully after the routing fix.
+- Commit: `d921990` pushed to `main` for LR-04 endpoint wiring fix.
+- CI/CD run `23562680904` completed with `success`.
+- Post-deploy checks: backend root/health/ready all `200`; frontend root `200`.
+- Post-deploy SMS contract smoke: `result=PASS`.
