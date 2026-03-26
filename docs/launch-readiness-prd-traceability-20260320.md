@@ -158,6 +158,11 @@ Before full launch sign-off, collect and attach:
 - Added automatic unsubscribe footer injection for outbound emails with member context.
 - Added schema migration for `email_preference_log` audit table and indexes.
 - Added route tests in `backend/src/__tests__/preferences.test.ts` and validated full backend test suite + build.
+- Commit: `7bce3d2` pushed to `main` for LR-05 signed unsubscribe workflow.
+- CI/CD run `23607402104` completed with `success`.
+- Post-deploy checks: backend root/health/ready all `200`; frontend root `200`.
+- Post-deploy SMS contract smoke: `result=PASS`.
+- Production sanity check: `GET /api/v1/preferences/email/unsubscribe/not-a-real-token` returned `400` with expected invalid-token HTML response.
 - Commit: `d921990` pushed to `main` for LR-04 endpoint wiring fix.
 - CI/CD run `23562680904` completed with `success`.
 - Post-deploy checks: backend root/health/ready all `200`; frontend root `200`.
