@@ -147,6 +147,29 @@ async function runLiveChecks() {
     assert(stop.body.status === 'opted_out', 'Live STOP should return opted_out status.');
   }
 
+  if (adminBearerToken) {
+    const logs = await getJson('/api/v1/sms/inbound/logs?limit=50', {
+      Authorization: `Bearer ${adminBearerToken}`,
+    });
+    checks.push(['live_admin_logs_status', logs.status]);
+    checks.push(['live_admin_logs_body', JSON.stringify(logs.body)]);
+    assert(logs.status === 200, 'Live admin inbound logs endpoint should return 200.');
+    assert(Array.isArray(logs.body.rows), 'Live admin inbound logs should include rows[].');
+
+    const rows = logs.body.rows;
+    const phoneRowExists = rows.some((row) => row && typeof row.from_phone === 'string' && row.from_phone === testPhone);
+    checks.push(['live_admin_logs_phone_match', phoneRowExists ? 'yes' : 'no']);
+    assert(phoneRowExists, 'Expected inbound log row for the live test phone.');
+
+    if (stopMode) {
+      const stopLogExists = rows.some(
+        (row) => row && row.from_phone === testPhone && row.processing_status === 'opted_out'
+      );
+      checks.push(['live_admin_logs_stop_match', stopLogExists ? 'yes' : 'no']);
+      assert(stopLogExists, 'Expected opted_out inbound log row for live STOP test.');
+    }
+  }
+
   return checks;
 }
 

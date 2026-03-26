@@ -18,6 +18,10 @@ const backendBaseUrl = (process.env.BACKEND_BASE_URL || 'http://localhost:3001')
 const liveMode = process.env.EMAIL_TEST_ENABLE_LIVE === '1';
 const unsubscribeToken = process.env.EMAIL_UNSUBSCRIBE_TOKEN || '';
 const adminBearerToken = process.env.EMAIL_ADMIN_BEARER_TOKEN || '';
+const expectedOutcomes = (process.env.EMAIL_EXPECTED_LOG_OUTCOMES || 'invalid_token,unsubscribed,already_unsubscribed')
+  .split(',')
+  .map((item) => item.trim())
+  .filter(Boolean);
 
 function url(path) {
   return `${backendBaseUrl}${path}`;
@@ -76,6 +80,12 @@ async function runContractChecks() {
 
     assert(logs.status === 200, 'Admin email preference logs endpoint should return 200.');
     assert(Array.isArray(logs.body.rows), 'Admin email preference logs response should include rows[].');
+
+    const hasExpected = logs.body.rows.some(
+      (row) => row && typeof row.outcome === 'string' && expectedOutcomes.includes(row.outcome)
+    );
+    checks.push(['admin_email_logs_expected_outcome', hasExpected ? 'yes' : 'no']);
+    assert(hasExpected, `Expected at least one email log outcome in [${expectedOutcomes.join(', ')}].`);
   }
 
   return checks;
@@ -99,6 +109,22 @@ async function runLiveChecks() {
     live.body.toLowerCase().includes('unsubscribed') || live.body.toLowerCase().includes('already unsubscribed'),
     'Live unsubscribe response should confirm unsubscribed status.'
   );
+
+  if (adminBearerToken) {
+    const logs = await getJson('/api/v1/preferences/email/logs?limit=25', {
+      Authorization: `Bearer ${adminBearerToken}`,
+    });
+    checks.push(['live_admin_email_logs_status', logs.status]);
+    checks.push(['live_admin_email_logs_body', JSON.stringify(logs.body)]);
+    assert(logs.status === 200, 'Live admin email preference logs endpoint should return 200.');
+    assert(Array.isArray(logs.body.rows), 'Live admin email logs should include rows[].');
+
+    const liveOutcomeExists = logs.body.rows.some(
+      (row) => row && (row.outcome === 'unsubscribed' || row.outcome === 'already_unsubscribed')
+    );
+    checks.push(['live_admin_email_logs_outcome_match', liveOutcomeExists ? 'yes' : 'no']);
+    assert(liveOutcomeExists, 'Expected live unsubscribe outcome in email preference logs.');
+  }
 
   return checks;
 }

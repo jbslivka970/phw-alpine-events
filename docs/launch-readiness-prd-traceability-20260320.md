@@ -183,6 +183,11 @@ Before full launch sign-off, collect and attach:
 - CI/CD run `23609617815` completed with `success`.
 - Post-deploy checks: backend root/health/ready all `200`; frontend root `200`.
 - Post-deploy smoke checks: `smoke:all` PASS and `smoke:reminders` PASS (report skipped without admin token).
+- Enhanced live-proof smoke scripts to verify persisted outcomes when admin tokens are provided:
+  - SMS live mode verifies inbound log rows and STOP `opted_out` status
+  - Email live mode verifies unsubscribe outcomes in `email_preference_log`
+  - Tokenized RSVP live mode verifies persisted `current_response` with follow-up GET
+- Updated corresponding runbooks with live proof expectations.
 - Commit: `87110db` pushed to `main` for LR-05 email smoke harness.
 - CI/CD run `23608085443` completed with `success`.
 - Post-deploy checks: backend root/health/ready all `200`; frontend root `200`.

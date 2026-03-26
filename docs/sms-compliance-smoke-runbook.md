@@ -35,6 +35,10 @@ Optional:
 - `SMS_TEST_ENABLE_STOP` set `1` to run STOP check (destructive)
 - `SMS_ADMIN_BEARER_TOKEN` optional admin JWT to verify `GET /api/v1/sms/inbound/logs`
 
+When `SMS_ADMIN_BEARER_TOKEN` is supplied in live mode, the script now also verifies:
+- A log row exists for `SMS_TEST_PHONE`
+- In STOP mode, an `opted_out` processing status row exists
+
 ## Safe Contract-Only Run
 
 ```bash

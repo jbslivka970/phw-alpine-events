@@ -59,6 +59,8 @@ npm --prefix backend run smoke:rsvp
 Expected output includes:
 - `rsvp_live_get_status=200`
 - `rsvp_live_post_status=200`
+- `rsvp_live_verify_get_status=200`
+- `rsvp_live_verify_current_response=<submitted response>`
 - `result=PASS`
 
 ## CI/CD Integration Recommendation

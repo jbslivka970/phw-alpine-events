@@ -104,6 +104,12 @@ async function runLiveChecks() {
   assert(livePost.status === 200, 'Live RSVP token POST should return 200.');
   assert(livePost.body?.response === liveResponse, 'Live RSVP POST response should match submitted response.');
 
+  const verifyGet = await getJson(`/api/v1/events/rsvp/${encodeURIComponent(rsvpToken)}`);
+  checks.push(['rsvp_live_verify_get_status', verifyGet.status]);
+  checks.push(['rsvp_live_verify_current_response', verifyGet.body?.current_response ?? null]);
+  assert(verifyGet.status === 200, 'Live RSVP verification GET should return 200.');
+  assert(verifyGet.body?.current_response === liveResponse, 'Live RSVP verification should reflect submitted response.');
+
   return checks;
 }
 

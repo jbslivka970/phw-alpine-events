@@ -30,6 +30,7 @@ Optional:
 - `EMAIL_TEST_ENABLE_LIVE` set `1` to run live unsubscribe flow
 - `EMAIL_UNSUBSCRIBE_TOKEN` signed token required when live mode enabled
 - `EMAIL_ADMIN_BEARER_TOKEN` optional admin JWT to verify `GET /api/v1/preferences/email/logs`
+- `EMAIL_EXPECTED_LOG_OUTCOMES` comma-separated outcomes expected in admin log check (default: `invalid_token,unsubscribed,already_unsubscribed`)
 
 ## Safe Contract-Only Run
 
@@ -45,6 +46,7 @@ Expected output includes:
 
 If `EMAIL_ADMIN_BEARER_TOKEN` is set, also expect:
 - `admin_email_logs_status=200`
+- `admin_email_logs_expected_outcome=yes`
 
 ## Live Run (Destructive)
 
@@ -60,6 +62,7 @@ npm --prefix backend run smoke:email
 Expected output includes:
 - `live_unsubscribe_status=200`
 - `live_unsubscribe_contains=yes`
+- `live_admin_email_logs_outcome_match=yes` (when `EMAIL_ADMIN_BEARER_TOKEN` is set)
 - `result=PASS`
 
 Post-step:
