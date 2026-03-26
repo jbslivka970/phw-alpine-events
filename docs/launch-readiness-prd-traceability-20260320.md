@@ -176,6 +176,13 @@ Before full launch sign-off, collect and attach:
 - Added LR-03 evidence assets: `GET /api/v1/reports/reminders`, `scripts/reminder-duplication-smoke.js`, and `docs/reminder-duplication-smoke-runbook.md`.
 - Added reminder operation tagging (`operation_type=event_reminder`) for reportability.
 - Added command: `npm --prefix backend run smoke:reminders` (admin-token optional/required for report access).
+- Added CI deploy gate support: `.github/workflows/ci-cd.yml` now executes `smoke:all` after backend deployment on `main`.
+- Commit: `2f85f0b` pushed to `main` for deploy-time smoke gate enforcement.
+- CI/CD run `23609279497` completed with `success`.
+- Commit: `3659227` pushed to `main` for reminder duplicate evidence/reporting.
+- CI/CD run `23609617815` completed with `success`.
+- Post-deploy checks: backend root/health/ready all `200`; frontend root `200`.
+- Post-deploy smoke checks: `smoke:all` PASS and `smoke:reminders` PASS (report skipped without admin token).
 - Commit: `87110db` pushed to `main` for LR-05 email smoke harness.
 - CI/CD run `23608085443` completed with `success`.
 - Post-deploy checks: backend root/health/ready all `200`; frontend root `200`.
