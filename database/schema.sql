@@ -364,6 +364,41 @@ BEGIN
         CREATE INDEX IX_inbound_sms_log_received_at ON dbo.inbound_sms_log (received_at DESC);
 END
 
+IF OBJECT_ID(N'dbo.email_preference_log', N'U') IS NULL
+CREATE TABLE dbo.email_preference_log (
+    email_preference_log_id UNIQUEIDENTIFIER NOT NULL DEFAULT NEWID(),
+    member_id               UNIQUEIDENTIFIER NULL,
+    recipient_email         NVARCHAR(255)    NULL,
+    action                  NVARCHAR(20)     NOT NULL CHECK (action IN ('opt_in', 'opt_out')),
+    source                  NVARCHAR(20)     NOT NULL CHECK (source IN ('link', 'manual', 'api', 'system')),
+    outcome                 NVARCHAR(30)     NOT NULL CHECK (outcome IN ('unsubscribed', 'already_unsubscribed', 'member_not_found', 'invalid_token')),
+    token_expires_at        DATETIME         NULL,
+    notes                   NVARCHAR(500)    NULL,
+    recorded_at             DATETIME         NOT NULL DEFAULT GETUTCDATE(),
+    CONSTRAINT PK_email_preference_log PRIMARY KEY (email_preference_log_id),
+    CONSTRAINT FK_email_preference_log_member FOREIGN KEY (member_id)
+        REFERENCES dbo.member (member_id)
+);
+
+IF OBJECT_ID(N'dbo.email_preference_log', N'U') IS NOT NULL
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM sys.indexes
+        WHERE object_id = OBJECT_ID(N'dbo.email_preference_log')
+          AND name = N'IX_email_preference_log_recorded_at'
+    )
+        CREATE INDEX IX_email_preference_log_recorded_at ON dbo.email_preference_log (recorded_at DESC);
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM sys.indexes
+        WHERE object_id = OBJECT_ID(N'dbo.email_preference_log')
+          AND name = N'IX_email_preference_log_member_recorded_at'
+    )
+        CREATE INDEX IX_email_preference_log_member_recorded_at ON dbo.email_preference_log (member_id, recorded_at DESC);
+END
+
 -- ---------------------------------------------------------------------------
 -- 12. ImportLog  (tracks each CSV import run)
 -- ---------------------------------------------------------------------------

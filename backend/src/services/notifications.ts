@@ -8,6 +8,7 @@ import { eventInviteTemplate } from '../templates/eventInvite';
 import { eventUpdateTemplate } from '../templates/eventUpdate';
 import { rsvpConfirmationTemplate } from '../templates/rsvpConfirmation';
 import { waitlistPromotionTemplate } from '../templates/waitlistPromotion';
+import { buildMemberEmailUnsubscribeUrl } from './emailPreferenceLinkService';
 import { buildMemberRsvpUrls } from './rsvpLinkService';
 
 interface RsvpNotificationPayload {
@@ -24,6 +25,9 @@ interface RsvpNotificationPayload {
 type NotificationChannel = 'email' | 'sms';
 type NotificationStatus = 'stubbed' | 'failed' | 'sent' | 'skipped';
 type NotificationMode = 'real' | 'partial' | 'stub';
+type EmailPreferenceAction = 'opt_in' | 'opt_out';
+type EmailPreferenceSource = 'link' | 'manual' | 'api' | 'system';
+type EmailPreferenceOutcome = 'unsubscribed' | 'already_unsubscribed' | 'member_not_found' | 'invalid_token';
 
 interface NotificationRuntimeStatus {
   mode: NotificationMode;
@@ -214,9 +218,10 @@ class NotificationService {
     let status: NotificationStatus = this.isRealEmailService ? 'sent' : 'stubbed';
     let errorMessage: string | undefined;
     let providerId: string | undefined;
+    const preparedOptions = this.appendEmailPreferenceFooter(options);
 
     try {
-      providerId = await this.emailService.sendEmail(options);
+      providerId = await this.emailService.sendEmail(preparedOptions);
     } catch (error) {
       status = 'failed';
       errorMessage = error instanceof Error ? error.message : String(error);
@@ -234,6 +239,29 @@ class NotificationService {
       errorDetail: errorMessage,
       providerId,
     });
+  }
+
+  private appendEmailPreferenceFooter(options: SendEmailOptions): SendEmailOptions {
+    if (!options.memberId) {
+      return options;
+    }
+
+    let unsubscribeUrl: string;
+    try {
+      unsubscribeUrl = buildMemberEmailUnsubscribeUrl(options.memberId, options.to);
+    } catch (error) {
+      console.warn('[NotificationService] Failed to build unsubscribe URL; sending email without preference footer.', error);
+      return options;
+    }
+
+    const htmlFooter = `<hr style="border:none;border-top:1px solid #e5e7eb;margin-top:20px;margin-bottom:12px;" /><p style="font-size:12px;color:#6b7280;">To unsubscribe from PHW Alpine emails, <a href="${unsubscribeUrl}">click here</a>.</p>`;
+    const textFooter = `\n\nTo unsubscribe from PHW Alpine emails: ${unsubscribeUrl}`;
+
+    return {
+      ...options,
+      htmlBody: `${options.htmlBody}${htmlFooter}`,
+      textBody: `${options.textBody ?? ''}${textFooter}`.trim(),
+    };
   }
 
   async sendSms(options: SendSmsOptions): Promise<void> {
@@ -324,6 +352,56 @@ class NotificationService {
         );
     } catch (error) {
       console.error('[NotificationService] Failed to write sms_consent_log', error);
+    }
+  }
+
+  async writeEmailPreferenceLog(entry: {
+    memberId?: string;
+    recipientEmail?: string;
+    action: EmailPreferenceAction;
+    source: EmailPreferenceSource;
+    outcome: EmailPreferenceOutcome;
+    tokenExpiresAt?: string;
+    notes?: string;
+  }): Promise<void> {
+    try {
+      const pool = await getPool();
+      const tokenExpiresAt = entry.tokenExpiresAt ? new Date(entry.tokenExpiresAt) : null;
+      await pool
+        .request()
+        .input('member_id', sql.UniqueIdentifier, toNullableUuid(entry.memberId))
+        .input('recipient_email', sql.NVarChar(255), entry.recipientEmail ?? null)
+        .input('action', sql.NVarChar(20), entry.action)
+        .input('source', sql.NVarChar(20), entry.source)
+        .input('outcome', sql.NVarChar(30), entry.outcome)
+        .input('token_expires_at', sql.DateTime, tokenExpiresAt)
+        .input('notes', sql.NVarChar(500), entry.notes ?? null)
+        .query(
+          `INSERT INTO email_preference_log (
+              email_preference_log_id,
+              member_id,
+              recipient_email,
+              action,
+              source,
+              outcome,
+              token_expires_at,
+              notes,
+              recorded_at
+           )
+           VALUES (
+              NEWID(),
+              @member_id,
+              @recipient_email,
+              @action,
+              @source,
+              @outcome,
+              @token_expires_at,
+              @notes,
+              GETUTCDATE()
+           )`
+        );
+    } catch (error) {
+      console.error('[NotificationService] Failed to write email_preference_log', error);
     }
   }
 

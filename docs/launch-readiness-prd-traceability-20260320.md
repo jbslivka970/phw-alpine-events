@@ -49,7 +49,7 @@ Legend:
 | LR-02 | P0 | Production SMS compliance smoke suite and alerts | Validate | In Progress | 4.3, 11.x | PR-33a |
 | LR-03 | P0 | Automated reminders with idempotent send markers | Build | In Progress | 6.3.4, US-EM-06, US-EM-07, T-EVT-09 | PR-34 |
 | LR-04 | P0 | Tokenized one-click RSVP from email (no login required) | Build | In Progress | 6.3.3, US-EM-04, T-EVT-08 | PR-35 |
-| LR-05 | P0 | Email unsubscribe link and enforcement workflow | Build | Not Started | 4.4 | PR-36 |
+| LR-05 | P0 | Email unsubscribe link and enforcement workflow | Build | In Progress | 4.4 | PR-36 |
 | LR-06 | P1 | Event update notifications with changed-field summary | Build | Not Started | 6.3.7, US-EM-16, T-EVT-14 | PR-37 |
 | LR-07 | P1 | Waitlist auto-promotion lifecycle and expiry handling | Build | Not Started | 6.7, US-EM-18, T-EVT-18 | PR-38 |
 | LR-08 | P1 | Notification template admin CRUD UI | Build | Not Started | 6.3.6, US-EM-13, T-EVT-16 | PR-41 |
@@ -151,6 +151,13 @@ Before full launch sign-off, collect and attach:
 - Started LR-04 by fixing frontend tokenized RSVP API wiring.
 - Updated `emailRsvpApi` to call `/api/v1/events/rsvp/:token` (GET and POST) instead of `/api/v1/sms/inbound`.
 - Frontend production build completed successfully after the routing fix.
+- Started LR-05 email unsubscribe implementation with signed-link flow.
+- Added public unsubscribe endpoints: `GET/POST /api/v1/preferences/email/unsubscribe/:token`.
+- Added auditable log retrieval endpoint: `GET /api/v1/preferences/email/logs` (admin-only).
+- Added signed token + link builder service for email unsubscribe links.
+- Added automatic unsubscribe footer injection for outbound emails with member context.
+- Added schema migration for `email_preference_log` audit table and indexes.
+- Added route tests in `backend/src/__tests__/preferences.test.ts` and validated full backend test suite + build.
 - Commit: `d921990` pushed to `main` for LR-04 endpoint wiring fix.
 - CI/CD run `23562680904` completed with `success`.
 - Post-deploy checks: backend root/health/ready all `200`; frontend root `200`.

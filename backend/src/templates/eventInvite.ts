@@ -24,7 +24,7 @@ const eventInviteTemplate: NotificationTemplate = {
       </p>
       <p><a href="{{rsvpUrl}}">Open RSVP Page</a></p>
       <p style="margin-top:20px;">Project Healing Waters Fly Fishing — Colorado Alpine Chapter</p>
-      <p style="font-size:12px;color:#6b7280;">You are receiving this email because you are part of PHW Alpine communications. To unsubscribe, update your email preferences in your member profile.</p>
+      <p style="font-size:12px;color:#6b7280;">You are receiving this email because you are part of PHW Alpine communications.</p>
     </div>
   `,
   textBodyTemplate:
