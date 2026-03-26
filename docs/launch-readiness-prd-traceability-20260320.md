@@ -173,6 +173,9 @@ Before full launch sign-off, collect and attach:
 - Post-deploy smoke checks: `smoke:sms` PASS, `smoke:email` PASS, and `smoke:rsvp` PASS.
 - Added deployment gate command: `npm --prefix backend run smoke:all` (sms + email + rsvp contract checks).
 - Updated CI/CD workflow to run post-deploy compliance smokes on every `main` deployment.
+- Added LR-03 evidence assets: `GET /api/v1/reports/reminders`, `scripts/reminder-duplication-smoke.js`, and `docs/reminder-duplication-smoke-runbook.md`.
+- Added reminder operation tagging (`operation_type=event_reminder`) for reportability.
+- Added command: `npm --prefix backend run smoke:reminders` (admin-token optional/required for report access).
 - Commit: `87110db` pushed to `main` for LR-05 email smoke harness.
 - CI/CD run `23608085443` completed with `success`.
 - Post-deploy checks: backend root/health/ready all `200`; frontend root `200`.

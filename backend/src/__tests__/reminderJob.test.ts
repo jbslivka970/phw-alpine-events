@@ -64,6 +64,10 @@ describe('runReminderJob', () => {
 
     expect(notificationService.sendEmail).toHaveBeenCalledTimes(1);
     expect(notificationService.sendSms).not.toHaveBeenCalled();
+    expect(notificationService.sendEmail).toHaveBeenCalledWith(expect.objectContaining({
+      operationType: 'event_reminder',
+      operationReason: 'lookahead_24h',
+    }));
 
     const selectCall = requestCalls.find((call) => call.query.includes('SELECT e.event_id'));
     expect(selectCall?.params['lookAheadHours']).toBe(24);
@@ -171,6 +175,10 @@ describe('runReminderJob', () => {
 
     expect(notificationService.sendEmail).toHaveBeenCalledTimes(1);
     expect(notificationService.sendSms).toHaveBeenCalledTimes(1);
+    expect(notificationService.sendSms).toHaveBeenCalledWith(expect.objectContaining({
+      operationType: 'event_reminder',
+      operationReason: 'lookahead_24h',
+    }));
 
     const updateCall = requestCalls.find((call) => call.query.includes('UPDATE event_response'));
     expect(updateCall).toBeDefined();

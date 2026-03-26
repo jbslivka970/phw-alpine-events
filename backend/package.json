@@ -15,6 +15,7 @@
     "smoke:sms": "node ../scripts/sms-compliance-smoke.js",
     "smoke:email": "node ../scripts/email-unsubscribe-smoke.js",
     "smoke:rsvp": "node ../scripts/tokenized-rsvp-smoke.js",
+    "smoke:reminders": "node ../scripts/reminder-duplication-smoke.js",
     "smoke:all": "npm run smoke:sms && npm run smoke:email && npm run smoke:rsvp"
   },
   "jest": {

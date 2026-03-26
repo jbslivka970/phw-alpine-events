@@ -48,6 +48,15 @@ interface DeliverySummaryPayload {
   rows: DeliverySummaryRow[];
 }
 
+interface ReminderDuplicateRow {
+  event_id: string;
+  member_id: string;
+  channel: string;
+  send_count: number;
+  first_sent_at: string;
+  last_sent_at: string;
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -306,6 +315,82 @@ router.get('/delivery', apiLimiter, authenticate, requireAdmin, async (req: Requ
     res.json(payload);
   } catch (error) {
     console.error('GET /reports/delivery failed', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.get('/reminders', apiLimiter, authenticate, requireAdmin, async (req: Request, res: Response) => {
+  const now = new Date();
+  const defaultFrom = new Date(now);
+  defaultFrom.setDate(now.getDate() - 30);
+
+  const fromDate = parseDate(req.query.from, defaultFrom);
+  const toDate = parseDate(req.query.to, now);
+  toDate.setHours(23, 59, 59, 999);
+
+  try {
+    const pool = await getPool();
+    const duplicates = await pool
+      .request()
+      .input('fromDate', sql.DateTime, fromDate)
+      .input('toDate', sql.DateTime, toDate)
+      .query<{
+        event_id: string;
+        member_id: string;
+        channel: string;
+        send_count: number;
+        first_sent_at: Date;
+        last_sent_at: Date;
+      }>(
+        `SELECT
+            event_id,
+            member_id,
+            channel,
+            COUNT(*) AS send_count,
+            MIN(sent_at) AS first_sent_at,
+            MAX(sent_at) AS last_sent_at
+         FROM notification_log
+         WHERE operation_type = 'event_reminder'
+           AND event_id IS NOT NULL
+           AND member_id IS NOT NULL
+           AND sent_at >= @fromDate
+           AND sent_at <= @toDate
+           AND status IN ('sent', 'delivered', 'stubbed')
+         GROUP BY event_id, member_id, channel
+         HAVING COUNT(*) > 1
+         ORDER BY send_count DESC, last_sent_at DESC`
+      );
+
+    const reminderTotals = await pool
+      .request()
+      .input('fromDate', sql.DateTime, fromDate)
+      .input('toDate', sql.DateTime, toDate)
+      .query<{ total_reminder_notifications: number }>(
+        `SELECT COUNT(*) AS total_reminder_notifications
+         FROM notification_log
+         WHERE operation_type = 'event_reminder'
+           AND sent_at >= @fromDate
+           AND sent_at <= @toDate`
+      );
+
+    const rows: ReminderDuplicateRow[] = duplicates.recordset.map((row) => ({
+      event_id: row.event_id,
+      member_id: row.member_id,
+      channel: row.channel,
+      send_count: row.send_count,
+      first_sent_at: row.first_sent_at.toISOString(),
+      last_sent_at: row.last_sent_at.toISOString(),
+    }));
+
+    res.json({
+      from: formatIsoDate(fromDate),
+      to: formatIsoDate(toDate),
+      total_reminder_notifications: reminderTotals.recordset[0]?.total_reminder_notifications ?? 0,
+      duplicate_count: rows.length,
+      rows,
+    });
+  } catch (error) {
+    console.error('GET /reports/reminders failed', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

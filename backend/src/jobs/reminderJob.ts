@@ -71,6 +71,8 @@ async function runReminderJob(lookAheadHours = 48): Promise<void> {
             templateId: eventReminderTemplate.templateId,
             memberId: row.member_id,
             eventId: row.event_id,
+            operationType: 'event_reminder',
+            operationReason: `lookahead_${lookAheadHours}h`,
           });
           delivered = true;
         } catch (error) {
@@ -91,6 +93,8 @@ async function runReminderJob(lookAheadHours = 48): Promise<void> {
             templateId: eventReminderTemplate.templateId,
             memberId: row.member_id,
             eventId: row.event_id,
+            operationType: 'event_reminder',
+            operationReason: `lookahead_${lookAheadHours}h`,
           });
           delivered = true;
         } catch (error) {
