@@ -79,3 +79,13 @@ jobs:
         slot-name: 'production'
         publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE }}
         package: release.zip
+
+    - name: Run post-deploy compliance smokes
+      run: |
+        BACKEND_BASE_URL="${{ vars.BACKEND_BASE_URL }}"
+        if [ -z "$BACKEND_BASE_URL" ]; then
+          BACKEND_BASE_URL="https://${{ vars.AZURE_WEBAPP_NAME }}.azurewebsites.net"
+        fi
+        echo "Running compliance smokes against $BACKEND_BASE_URL"
+        export BACKEND_BASE_URL
+        npm --prefix backend run smoke:all

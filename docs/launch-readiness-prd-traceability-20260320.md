@@ -171,6 +171,8 @@ Before full launch sign-off, collect and attach:
 - CI/CD run `23608650646` completed with `success`.
 - Post-deploy checks: backend root/health/ready all `200`; frontend root `200`.
 - Post-deploy smoke checks: `smoke:sms` PASS, `smoke:email` PASS, and `smoke:rsvp` PASS.
+- Added deployment gate command: `npm --prefix backend run smoke:all` (sms + email + rsvp contract checks).
+- Updated CI/CD workflow to run post-deploy compliance smokes on every `main` deployment.
 - Commit: `87110db` pushed to `main` for LR-05 email smoke harness.
 - CI/CD run `23608085443` completed with `success`.
 - Post-deploy checks: backend root/health/ready all `200`; frontend root `200`.
