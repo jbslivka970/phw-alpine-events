@@ -1,4 +1,4 @@
-import { apiGet } from './client';
+import { apiGet, apiGetBlob } from './client';
 
 interface CalendarEvent {
   event_id: string;
@@ -22,6 +22,7 @@ interface CalendarMonthResponse {
 
 const calendarApi = {
   getMonth: (month: string) => apiGet<CalendarMonthResponse>(`/calendar?month=${encodeURIComponent(month)}`),
+  downloadIcs: (eventId: string) => apiGetBlob(`/events/${eventId}/ics`),
 };
 
 export { calendarApi };

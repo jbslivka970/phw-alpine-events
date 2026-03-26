@@ -685,6 +685,75 @@ router.put('/:id/status', writeLimiter, authenticate, requireEventCreatorOrAdmin
   }
 });
 
+router.get('/:id/ics', apiLimiter, authenticate, requireAnyAuthenticatedRole, async (req, res) => {
+  try {
+    const pool = await getPool();
+    const eventResult = await pool
+      .request()
+      .input('event_id', sql.UniqueIdentifier, req.params.id)
+      .query<{
+        event_id: string;
+        title: string;
+        description: string | null;
+        location: string | null;
+        event_date: Date;
+        end_date: Date | null;
+        status: string;
+      }>(
+        `SELECT event_id, title, description, location, event_date, end_date, status
+         FROM event
+         WHERE event_id = @event_id`
+      );
+
+    const event = eventResult.recordset[0];
+    if (!event) {
+      res.status(404).json({ error: 'Event not found' });
+      return;
+    }
+
+    const startDate = new Date(event.event_date);
+    if (Number.isNaN(startDate.getTime())) {
+      res.status(422).json({ error: 'Event date is invalid for ICS export' });
+      return;
+    }
+
+    const endDate = event.end_date ? new Date(event.end_date) : new Date(startDate.getTime() + 2 * 60 * 60 * 1000);
+    const nowStamp = formatIcsUtc(new Date());
+    const uid = `${event.event_id}@phw-alpine-events`;
+    const status = event.status === 'cancelled' ? 'CANCELLED' : 'CONFIRMED';
+
+    const lines = [
+      'BEGIN:VCALENDAR',
+      'VERSION:2.0',
+      'PRODID:-//PHW Alpine Events//EN',
+      'CALSCALE:GREGORIAN',
+      'METHOD:PUBLISH',
+      'BEGIN:VEVENT',
+      `UID:${escapeIcsText(uid)}`,
+      `DTSTAMP:${nowStamp}`,
+      `DTSTART:${formatIcsUtc(startDate)}`,
+      `DTEND:${formatIcsUtc(endDate)}`,
+      `SUMMARY:${escapeIcsText(event.title)}`,
+      `DESCRIPTION:${escapeIcsText(event.description ?? '')}`,
+      `LOCATION:${escapeIcsText(event.location ?? '')}`,
+      `STATUS:${status}`,
+      'END:VEVENT',
+      'END:VCALENDAR',
+      '',
+    ];
+
+    const icsContent = lines.join('\r\n');
+    const fileName = `phw-event-${event.event_id}.ics`;
+
+    res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+    res.send(icsContent);
+  } catch (error) {
+    console.error('GET /events/:id/ics failed', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 function normalizeString(value: unknown): string | null {
   if (value === undefined || value === null) {
     return null;
@@ -724,6 +793,20 @@ function toUtcMillis(value: unknown): number | null {
   const date = value instanceof Date ? value : new Date(String(value));
   const millis = date.getTime();
   return Number.isNaN(millis) ? null : millis;
+}
+
+function formatIcsUtc(date: Date): string {
+  const iso = date.toISOString();
+  return iso.replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
+}
+
+function escapeIcsText(value: string): string {
+  return value
+    .replace(/\\/g, '\\\\')
+    .replace(/\r\n/g, '\\n')
+    .replace(/\n/g, '\\n')
+    .replace(/,/g, '\\,')
+    .replace(/;/g, '\\;');
 }
 
 router.get('/:id/assignments', apiLimiter, authenticate, requireAnyAuthenticatedRole, async (req, res) => {

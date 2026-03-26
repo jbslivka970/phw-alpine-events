@@ -33,6 +33,25 @@ function formatDate(iso: string) {
   })
 }
 
+function suggestedIcsFilename(event: EventRecord): string {
+  const safeTitle = event.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+  return `${safeTitle || 'event'}-${event.event_id}.ics`
+}
+
+function parseDispositionFilename(headerValue: string | null): string | null {
+  if (!headerValue) {
+    return null
+  }
+
+  const utf8Match = /filename\*=UTF-8''([^;]+)/i.exec(headerValue)
+  if (utf8Match?.[1]) {
+    return decodeURIComponent(utf8Match[1])
+  }
+
+  const plainMatch = /filename="?([^";]+)"?/i.exec(headerValue)
+  return plainMatch?.[1] ?? null
+}
+
 // ── Status badge ──────────────────────────────────────────────────────────────
 
 function StatusBadge({ status }: { status: string }) {
@@ -761,6 +780,23 @@ function EventsPage() {
     setFormError(null)
   }
 
+  async function downloadIcs(event: EventRecord) {
+    try {
+      const { blob, headers } = await eventsApi.downloadIcs(event.event_id)
+      const objectUrl = URL.createObjectURL(blob)
+      const anchor = document.createElement('a')
+      const fromHeader = parseDispositionFilename(headers.get('content-disposition'))
+      anchor.href = objectUrl
+      anchor.download = fromHeader ?? suggestedIcsFilename(event)
+      document.body.appendChild(anchor)
+      anchor.click()
+      anchor.remove()
+      URL.revokeObjectURL(objectUrl)
+    } catch (error) {
+      setErr(error instanceof Error ? error.message : 'Failed to download ICS file.')
+    }
+  }
+
   return (
     <div className="events-page">
       <div className="events-page__header">
@@ -826,6 +862,10 @@ function EventsPage() {
                     onClick={() => setRsvpEventId(rsvpEventId === event.event_id ? null : event.event_id)}
                   >
                     RSVP List ({event.yes_count ?? 0})
+                  </button>
+
+                  <button className="btn btn--outline btn--sm" onClick={() => void downloadIcs(event)}>
+                    ICS
                   </button>
 
                   {canEdit && (

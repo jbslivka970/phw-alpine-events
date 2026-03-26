@@ -1,4 +1,4 @@
-import { apiDelete, apiGet, apiPatch, apiPost, apiPut } from './client';
+import { apiDelete, apiGet, apiGetBlob, apiPatch, apiPost, apiPut } from './client';
 
 interface EventRecord {
   event_id: string;
@@ -84,6 +84,7 @@ const eventsApi = {
     apiPut<EventRecord>(`/events/${id}`, data),
   updateStatus: (id: string, status: EventRecord['status']) =>
     apiPut<EventRecord>(`/events/${id}/status`, { status }),
+  downloadIcs: (id: string) => apiGetBlob(`/events/${id}/ics`),
   remove: (id: string) => apiDelete<void>(`/events/${id}`),
 };
 

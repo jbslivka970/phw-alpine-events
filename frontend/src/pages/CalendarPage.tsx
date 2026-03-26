@@ -65,6 +65,38 @@ function totalRsvpCount(event: CalendarEvent): number {
   return event.yes_count + event.maybe_count + event.waitlist_count;
 }
 
+function suggestedIcsFilename(event: CalendarEvent): string {
+  const safeTitle = event.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  return `${safeTitle || 'event'}-${event.event_id}.ics`;
+}
+
+function parseDispositionFilename(headerValue: string | null): string | null {
+  if (!headerValue) {
+    return null;
+  }
+
+  const utf8Match = /filename\*=UTF-8''([^;]+)/i.exec(headerValue);
+  if (utf8Match?.[1]) {
+    return decodeURIComponent(utf8Match[1]);
+  }
+
+  const plainMatch = /filename="?([^";]+)"?/i.exec(headerValue);
+  return plainMatch?.[1] ?? null;
+}
+
+async function downloadEventIcs(event: CalendarEvent): Promise<void> {
+  const { blob, headers } = await calendarApi.downloadIcs(event.event_id);
+  const objectUrl = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  const fromHeader = parseDispositionFilename(headers.get('content-disposition'));
+  anchor.href = objectUrl;
+  anchor.download = fromHeader ?? suggestedIcsFilename(event);
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(objectUrl);
+}
+
 // ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
@@ -171,6 +203,9 @@ function ListItem({ event }: { event: CalendarEvent }) {
       <div className="list-item-meta">
         <CapacityBadge event={event} />
         <span className={`status-pill status-pill--${event.status}`}>{event.status}</span>
+        <button className="btn btn--outline btn--sm" onClick={() => void downloadEventIcs(event)}>
+          ICS
+        </button>
       </div>
     </div>
   );

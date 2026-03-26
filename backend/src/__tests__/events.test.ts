@@ -337,4 +337,28 @@ describe('events routes', () => {
     expect(res.body.response).toBe('yes');
     expect(mockRequest.input).toHaveBeenCalledWith('response_channel', 'NVarChar', 'web');
   });
+
+  it('GET /api/events/:id/ics downloads a calendar file', async () => {
+    const mockRequest = createRequest(async () => ({
+      recordset: [
+        {
+          event_id: '00000000-0000-0000-0000-000000000101',
+          title: 'Fly Tying 101',
+          description: 'Intro event',
+          location: 'Denver',
+          event_date: new Date('2026-04-01T18:00:00.000Z'),
+          end_date: null,
+          status: 'published',
+        },
+      ],
+    }));
+    (getPool as jest.Mock).mockResolvedValue({ request: () => mockRequest });
+
+    const res = await request(app).get('/api/events/00000000-0000-0000-0000-000000000101/ics');
+
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toContain('text/calendar');
+    expect(res.text).toContain('BEGIN:VCALENDAR');
+    expect(res.text).toContain('SUMMARY:Fly Tying 101');
+  });
 });
