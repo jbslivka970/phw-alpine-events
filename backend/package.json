@@ -13,7 +13,8 @@
     "deploy-schema": "ts-node src/deploy-schema.ts",
     "test": "jest",
     "smoke:sms": "node ../scripts/sms-compliance-smoke.js",
-    "smoke:email": "node ../scripts/email-unsubscribe-smoke.js"
+    "smoke:email": "node ../scripts/email-unsubscribe-smoke.js",
+    "smoke:rsvp": "node ../scripts/tokenized-rsvp-smoke.js"
   },
   "jest": {
     "preset": "ts-jest",

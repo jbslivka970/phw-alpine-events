@@ -165,6 +165,8 @@ Before full launch sign-off, collect and attach:
 - Production sanity check: `GET /api/v1/preferences/email/unsubscribe/not-a-real-token` returned `400` with expected invalid-token HTML response.
 - Added LR-05 validation assets: `scripts/email-unsubscribe-smoke.js` and `docs/email-unsubscribe-smoke-runbook.md`.
 - Added command: `npm --prefix backend run smoke:email`.
+- Added LR-04 validation assets: `scripts/tokenized-rsvp-smoke.js` and `docs/tokenized-rsvp-smoke-runbook.md`.
+- Added command: `npm --prefix backend run smoke:rsvp`.
 - Commit: `87110db` pushed to `main` for LR-05 email smoke harness.
 - CI/CD run `23608085443` completed with `success`.
 - Post-deploy checks: backend root/health/ready all `200`; frontend root `200`.
