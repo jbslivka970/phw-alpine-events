@@ -167,6 +167,10 @@ Before full launch sign-off, collect and attach:
 - Added command: `npm --prefix backend run smoke:email`.
 - Added LR-04 validation assets: `scripts/tokenized-rsvp-smoke.js` and `docs/tokenized-rsvp-smoke-runbook.md`.
 - Added command: `npm --prefix backend run smoke:rsvp`.
+- Commit: `3d2d0a4` pushed to `main` for LR-04 RSVP smoke harness.
+- CI/CD run `23608650646` completed with `success`.
+- Post-deploy checks: backend root/health/ready all `200`; frontend root `200`.
+- Post-deploy smoke checks: `smoke:sms` PASS, `smoke:email` PASS, and `smoke:rsvp` PASS.
 - Commit: `87110db` pushed to `main` for LR-05 email smoke harness.
 - CI/CD run `23608085443` completed with `success`.
 - Post-deploy checks: backend root/health/ready all `200`; frontend root `200`.
