@@ -8,17 +8,40 @@ interface MemberEditState {
   last_name: string
   email: string
   mobile_phone: string
+  channel_preference: 'email_only' | 'sms_only' | 'both'
   sms_opt_in: boolean
   email_opt_out: boolean
   is_active: boolean
 }
 
+function deriveChannelPreference(smsOptIn: boolean, emailOptOut: boolean): 'email_only' | 'sms_only' | 'both' {
+  if (smsOptIn && !emailOptOut) {
+    return 'both'
+  }
+  if (smsOptIn && emailOptOut) {
+    return 'sms_only'
+  }
+  return 'email_only'
+}
+
+function applyChannelPreference(preference: 'email_only' | 'sms_only' | 'both'): { sms_opt_in: boolean; email_opt_out: boolean } {
+  if (preference === 'both') {
+    return { sms_opt_in: true, email_opt_out: false }
+  }
+  if (preference === 'sms_only') {
+    return { sms_opt_in: true, email_opt_out: true }
+  }
+  return { sms_opt_in: false, email_opt_out: false }
+}
+
 function toEditState(m: MemberRecord): MemberEditState {
+  const channelPreference = deriveChannelPreference(m.sms_opt_in, m.email_opt_out)
   return {
     first_name: m.first_name,
     last_name: m.last_name,
     email: m.email,
     mobile_phone: m.mobile_phone ?? '',
+    channel_preference: channelPreference,
     sms_opt_in: m.sms_opt_in,
     email_opt_out: m.email_opt_out,
     is_active: m.is_active,
@@ -155,6 +178,7 @@ function MembersPage() {
     try {
       const updated = await membersApi.update(selected.member_id, {
         ...edit,
+        ...applyChannelPreference(edit.channel_preference),
         mobile_phone: edit.mobile_phone || null,
       })
       setMembers((cur) => cur.map((m) => (m.member_id === updated.member_id ? updated : m)))
@@ -209,7 +233,7 @@ function MembersPage() {
           <table className="members-table">
             <thead>
               <tr>
-                <th>Name</th><th>Email</th><th>Phone</th><th>SMS</th><th>Status</th><th>Actions</th>
+                <th>Name</th><th>Email</th><th>Phone</th><th>Channels</th><th>Status</th><th>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -218,7 +242,7 @@ function MembersPage() {
                   <td>{m.first_name} {m.last_name}</td>
                   <td>{m.email}</td>
                   <td>{m.mobile_phone ?? '-'}</td>
-                  <td>{m.sms_opt_in ? 'Opted in' : 'Opted out'}</td>
+                  <td>{deriveChannelPreference(m.sms_opt_in, m.email_opt_out).replace('_', ' ')}</td>
                   <td>{m.is_active ? 'Active' : 'Inactive'}</td>
                   <td><button className="btn btn--primary btn--sm" onClick={() => startEdit(m)}>Edit</button></td>
                 </tr>
@@ -249,21 +273,35 @@ function MembersPage() {
                 <input className="members-input" value={edit.last_name} onChange={(e) => setEdit({ ...edit, last_name: e.target.value })} placeholder="Last name" required />
                 <input className="members-input" value={edit.email} onChange={(e) => setEdit({ ...edit, email: e.target.value })} placeholder="Email" required />
                 <input className="members-input" value={edit.mobile_phone} onChange={(e) => setEdit({ ...edit, mobile_phone: e.target.value })} placeholder="Phone" />
-                <label className="members-checkbox">
-                  <input
-                    type="checkbox"
-                    checked={edit.sms_opt_in}
-                    onChange={(e) => {
-                      setEdit({ ...edit, sms_opt_in: e.target.checked })
-                      void handleSmsToggle(selected.member_id, e.target.checked)
-                    }}
-                  />
-                  SMS opt-in
-                </label>
+                <label className="members-search-label" htmlFor="member-channel-preference">Notification channels</label>
+                <select
+                  id="member-channel-preference"
+                  className="members-input"
+                  value={edit.channel_preference}
+                  onChange={(e) => {
+                    const nextPreference = e.target.value as 'email_only' | 'sms_only' | 'both'
+                    const nextFlags = applyChannelPreference(nextPreference)
+                    const didSmsChange = nextFlags.sms_opt_in !== edit.sms_opt_in
+
+                    setEdit({
+                      ...edit,
+                      channel_preference: nextPreference,
+                      sms_opt_in: nextFlags.sms_opt_in,
+                      email_opt_out: nextFlags.email_opt_out,
+                    })
+
+                    if (didSmsChange) {
+                      void handleSmsToggle(selected.member_id, nextFlags.sms_opt_in)
+                    }
+                  }}
+                >
+                  <option value="email_only">Email only</option>
+                  <option value="sms_only">SMS only</option>
+                  <option value="both">Both email and SMS</option>
+                </select>
                 <p className="page__subtitle" style={{ margin: 0 }}>
                   SMS: {edit.sms_opt_in ? `Opted In${selected?.sms_opt_in_date ? ` (since ${new Date(selected.sms_opt_in_date).toLocaleDateString()})` : ''}` : 'Opted Out'}
                 </p>
-                <label className="members-checkbox"><input type="checkbox" checked={edit.email_opt_out} onChange={(e) => setEdit({ ...edit, email_opt_out: e.target.checked })} /> Email opt-out</label>
                 <label className="members-checkbox"><input type="checkbox" checked={edit.is_active} onChange={(e) => setEdit({ ...edit, is_active: e.target.checked })} /> Active</label>
                 <div className="modal__footer">
                   <button className="btn btn--outline btn--sm" type="button" onClick={closeEditor}>Cancel</button>

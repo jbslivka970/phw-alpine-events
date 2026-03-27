@@ -54,7 +54,7 @@ Legend:
 | LR-07 | P1 | Waitlist auto-promotion lifecycle and expiry handling | Build | Not Started | 6.7, US-EM-18, T-EVT-18 | PR-38 |
 | LR-08 | P1 | Notification template admin CRUD UI | Build | Not Started | 6.3.6, US-EM-13, T-EVT-16 | PR-41 |
 | LR-09 | P1 | Regional admin To-line configuration for email dispatch | Build | In Progress | 6.3.2, 13 decision item | PR-43 |
-| LR-10 | P1 | Channel preferences model: email_only, sms_only, both | Build | Not Started | 10.4, GAP-14 | PR-44 |
+| LR-10 | P1 | Channel preferences model: email_only, sms_only, both | Build | In Progress | 10.4, GAP-14 | PR-44 |
 | LR-11 | P1 | Complete notification service unit tests (email/sms/truncation) | Validate | In Progress | 14.1 PR31 follow-up, GAP-13 | PR-32 |
 | LR-12 | P1 | Application Insights wiring and alert baselines | Operate | Not Started | 4.1, 11.x, Open Question 17 | PR-45 |
 | LR-13 | P1 | Key Vault migration plan for sensitive app settings | Operate | Not Started | 4.1, GAP-19 | PR-46 |
@@ -165,6 +165,9 @@ Before full launch sign-off, collect and attach:
 - Started LR-09 regional admin To-line configuration for email dispatch.
 - Added optional `ACS_EMAIL_TO` backend setting (comma-separated addresses) with fallback to `ACS_EMAIL_FROM`.
 - Updated ACS email send behavior to target configured To-line recipients while preserving member recipient BCC delivery.
+- Started LR-10 channel preference model implementation in members UX.
+- Added explicit member preference modes (`email_only`, `sms_only`, `both`) with mapped persistence to `sms_opt_in` + `email_opt_out`.
+- Updated members table and editor to display/edit the normalized channel preference model.
 - Started LR-04 by fixing frontend tokenized RSVP API wiring.
 - Updated `emailRsvpApi` to call `/api/v1/events/rsvp/:token` (GET and POST) instead of `/api/v1/sms/inbound`.
 - Frontend production build completed successfully after the routing fix.
