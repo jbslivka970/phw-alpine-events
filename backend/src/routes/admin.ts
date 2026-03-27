@@ -3,6 +3,7 @@ import { getPool, sql } from '../db';
 import authenticate from '../middleware/auth';
 import { apiLimiter, writeLimiter } from '../middleware/rateLimiter';
 import { requireAdmin } from '../middleware/rbac';
+import { generateInviteDraft } from '../services/aiInviteService';
 
 const router = Router();
 
@@ -222,6 +223,64 @@ router.post('/import', writeLimiter, async (req, res) => {
     res.status(200).json(snapshot);
   } catch (error) {
     console.error('POST /admin/import failed', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.post('/ai/invite-draft', writeLimiter, async (req, res) => {
+  try {
+    const eventId = (req.body?.event_id as string | undefined)?.trim();
+    const toneRaw = (req.body?.tone as string | undefined)?.toLowerCase();
+    const tone = toneRaw === 'professional' ? 'professional' : 'friendly';
+
+    let title = (req.body?.title as string | undefined)?.trim();
+    let eventDate = (req.body?.event_date as string | undefined)?.trim();
+    let location = (req.body?.location as string | undefined)?.trim() ?? null;
+    let description = (req.body?.description as string | undefined)?.trim() ?? null;
+
+    if (eventId) {
+      const pool = await getPool();
+      const eventResult = await pool
+        .request()
+        .input('event_id', sql.UniqueIdentifier, eventId)
+        .query<{ title: string; event_date: Date | string; location: string | null; description: string | null }>(
+          `SELECT title, event_date, location, description
+           FROM event
+           WHERE event_id = @event_id`
+        );
+
+      const event = eventResult.recordset[0];
+      if (!event) {
+        res.status(404).json({ error: 'Event not found.' });
+        return;
+      }
+
+      title = event.title;
+      eventDate = new Date(event.event_date).toISOString();
+      location = event.location;
+      description = event.description;
+    }
+
+    if (!title || !eventDate) {
+      res.status(400).json({ error: 'title and event_date are required (or provide event_id).' });
+      return;
+    }
+
+    const draft = await generateInviteDraft({
+      eventTitle: title,
+      eventDate,
+      location,
+      description,
+      tone,
+    });
+
+    res.json({
+      ...draft,
+      source: eventId ? 'event' : 'ad_hoc',
+      tone,
+    });
+  } catch (error) {
+    console.error('POST /admin/ai/invite-draft failed', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

@@ -2,6 +2,7 @@ import express from 'express';
 import request from 'supertest';
 import adminRouter from '../routes/admin';
 import { getPool } from '../db';
+import { generateInviteDraft } from '../services/aiInviteService';
 
 jest.mock('../db', () => ({
   getPool: jest.fn(),
@@ -30,6 +31,10 @@ jest.mock('../middleware/auth', () => ({
 jest.mock('../middleware/rateLimiter', () => ({
   apiLimiter: (_req: express.Request, _res: express.Response, next: express.NextFunction) => next(),
   writeLimiter: (_req: express.Request, _res: express.Response, next: express.NextFunction) => next(),
+}));
+
+jest.mock('../services/aiInviteService', () => ({
+  generateInviteDraft: jest.fn(),
 }));
 
 interface MockRequest {
@@ -89,5 +94,28 @@ describe('admin routes', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.import_id).toBe('import-1');
+  });
+
+  it('POST /api/admin/ai/invite-draft returns generated draft', async () => {
+    (generateInviteDraft as jest.Mock).mockResolvedValue({
+      subject: 'You are invited',
+      emailBody: 'Email draft',
+      smsBody: 'SMS draft',
+      provider: 'fallback',
+    });
+
+    const res = await request(app)
+      .post('/api/admin/ai/invite-draft')
+      .send({
+        title: 'Casting Clinic',
+        event_date: '2026-06-01T18:00:00.000Z',
+        location: 'Boulder Creek',
+        description: 'Bring waders',
+        tone: 'friendly',
+      });
+
+    expect(res.status).toBe(200);
+    expect(generateInviteDraft).toHaveBeenCalledTimes(1);
+    expect(res.body.subject).toBe('You are invited');
   });
 });

@@ -159,6 +159,8 @@ Optional backend settings:
 - `ACS_SMS_FROM`
 - `WAITLIST_JOB_INTERVAL_MS`
 - `APPINSIGHTS_INSTRUMENTATIONKEY` or `APPLICATIONINSIGHTS_CONNECTION_STRING`
+- `OPENAI_API_KEY` (for AI invite generation)
+- `OPENAI_MODEL` (optional override; default `gpt-4.1-mini`)
 
 ## Smoke Test Sequence
 

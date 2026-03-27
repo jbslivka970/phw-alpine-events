@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { adminApi } from '../api/admin'
 import { eventsApi } from '../api/events'
 import { groupsApi } from '../api/groups'
 import { membersApi } from '../api/members'
+import type { EventRecord } from '../api/events'
 
 type HealthState = 'loading' | 'ok' | 'error' | 'unconfigured'
 
@@ -40,6 +42,12 @@ function AdminPage() {
   })
   const [stats, setStats] = useState({ members: 0, groups: 0, eventsThisYear: 0 })
   const [statsLoading, setStatsLoading] = useState(true)
+  const [events, setEvents] = useState<EventRecord[]>([])
+  const [selectedEventId, setSelectedEventId] = useState<string>('')
+  const [inviteTone, setInviteTone] = useState<'friendly' | 'professional'>('friendly')
+  const [isGeneratingInvite, setIsGeneratingInvite] = useState(false)
+  const [inviteDraft, setInviteDraft] = useState<{ subject: string; emailBody: string; smsBody: string; provider: string } | null>(null)
+  const [inviteError, setInviteError] = useState<string | null>(null)
 
   useEffect(() => {
     const rawBase = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? '/api/v1'
@@ -80,12 +88,37 @@ function AdminPage() {
         const eventsThisYear = events.filter(
           (e) => new Date(e.event_date).getFullYear() === thisYear,
         ).length
+        setEvents(events)
+        if (events.length > 0) {
+          setSelectedEventId((current) => current || events[0].event_id)
+        }
         setStats({ members: memRes.total, groups: grps.length, eventsThisYear })
       })
       .catch(() => {})
       .finally(() => { if (active) setStatsLoading(false) })
     return () => { active = false }
   }, [])
+
+  async function handleGenerateInviteDraft() {
+    if (!selectedEventId) {
+      setInviteError('Select an event first.')
+      return
+    }
+
+    setIsGeneratingInvite(true)
+    setInviteError(null)
+    try {
+      const draft = await adminApi.generateInviteDraft({
+        event_id: selectedEventId,
+        tone: inviteTone,
+      })
+      setInviteDraft(draft)
+    } catch (error) {
+      setInviteError(error instanceof Error ? error.message : 'Failed to generate invite draft.')
+    } finally {
+      setIsGeneratingInvite(false)
+    }
+  }
 
   const healthRows: Array<{ label: string; status: HealthState; value: string }> = [
     {
@@ -216,6 +249,55 @@ function AdminPage() {
               </Link>
             ))}
           </div>
+        </section>
+
+        <section className="card admin-tools-card">
+          <h2 className="admin-section-title">AI Invite Draft</h2>
+          <p className="page-subtitle" style={{ marginBottom: '0.9rem' }}>
+            Generate an invite draft from an event record. Uses AI when configured and falls back to deterministic copy.
+          </p>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 10, marginBottom: 10 }}>
+            <select
+              className="members-input"
+              value={selectedEventId}
+              onChange={(e) => setSelectedEventId(e.target.value)}
+            >
+              {events.length === 0 ? (
+                <option value="">No events available</option>
+              ) : events.map((event) => (
+                <option key={event.event_id} value={event.event_id}>{event.title}</option>
+              ))}
+            </select>
+            <select
+              className="members-input"
+              value={inviteTone}
+              onChange={(e) => setInviteTone(e.target.value as 'friendly' | 'professional')}
+            >
+              <option value="friendly">Friendly</option>
+              <option value="professional">Professional</option>
+            </select>
+          </div>
+          <button className="btn btn--primary btn--sm" disabled={isGeneratingInvite} onClick={() => void handleGenerateInviteDraft()}>
+            {isGeneratingInvite ? 'Generating…' : 'Generate Invite Draft'}
+          </button>
+          {inviteError && <p className="members-error" style={{ marginTop: 10 }}>{inviteError}</p>}
+          {inviteDraft && (
+            <div style={{ marginTop: 12, display: 'grid', gap: 10 }}>
+              <div>
+                <strong>Subject</strong>
+                <div className="members-input" style={{ whiteSpace: 'pre-wrap' }}>{inviteDraft.subject}</div>
+              </div>
+              <div>
+                <strong>Email Body</strong>
+                <textarea className="members-input" rows={7} readOnly value={inviteDraft.emailBody} />
+              </div>
+              <div>
+                <strong>SMS Body</strong>
+                <textarea className="members-input" rows={3} readOnly value={inviteDraft.smsBody} />
+              </div>
+              <small style={{ color: 'var(--muted)' }}>Provider: {inviteDraft.provider}</small>
+            </div>
+          )}
         </section>
 
       </div>
