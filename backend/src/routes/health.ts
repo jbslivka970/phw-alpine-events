@@ -63,6 +63,9 @@ router.get('/startup', (_req: Request, res: Response) => {
   const authConfig = loadAuthConfig();
   const acsConfig = loadAcsConfig();
   const notificationStatus = getNotificationRuntimeStatus();
+  const telemetryConfigured = Boolean(
+    process.env['APPINSIGHTS_INSTRUMENTATIONKEY'] || process.env['APPLICATIONINSIGHTS_CONNECTION_STRING']
+  );
   const dbMissing = missingEnvVars(REQUIRED_DB_ENV_VARS);
   const authMissing = missingAuthVars();
   const isProd = process.env['NODE_ENV'] === 'production';
@@ -84,6 +87,7 @@ router.get('/startup', (_req: Request, res: Response) => {
       notificationStrictModeEnabled: notificationStatus.strictModeEnabled,
       emailNotificationChannel: notificationStatus.emailServiceMode,
       smsNotificationChannel: notificationStatus.smsServiceMode,
+      telemetryConfigured,
     },
     missing: {
       db: dbMissing,
@@ -91,6 +95,7 @@ router.get('/startup', (_req: Request, res: Response) => {
       optional: [
         ...(!process.env['ACS_CONNECTION_STRING'] ? ['ACS_CONNECTION_STRING'] : []),
         ...(process.env['ACS_CONNECTION_STRING'] && !process.env['ACS_EMAIL_FROM'] ? ['ACS_EMAIL_FROM'] : []),
+        ...(!telemetryConfigured ? ['APPINSIGHTS_INSTRUMENTATIONKEY_OR_APPLICATIONINSIGHTS_CONNECTION_STRING'] : []),
       ],
       notifications: notificationStatus.reasons,
     },

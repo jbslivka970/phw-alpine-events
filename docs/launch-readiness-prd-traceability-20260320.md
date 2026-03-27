@@ -56,7 +56,7 @@ Legend:
 | LR-09 | P1 | Regional admin To-line configuration for email dispatch | Build | In Progress | 6.3.2, 13 decision item | PR-43 |
 | LR-10 | P1 | Channel preferences model: email_only, sms_only, both | Build | In Progress | 10.4, GAP-14 | PR-44 |
 | LR-11 | P1 | Complete notification service unit tests (email/sms/truncation) | Validate | In Progress | 14.1 PR31 follow-up, GAP-13 | PR-32 |
-| LR-12 | P1 | Application Insights wiring and alert baselines | Operate | Not Started | 4.1, 11.x, Open Question 17 | PR-45 |
+| LR-12 | P1 | Application Insights wiring and alert baselines | Operate | In Progress | 4.1, 11.x, Open Question 17 | PR-45 |
 | LR-13 | P1 | Key Vault migration plan for sensitive app settings | Operate | In Progress | 4.1, GAP-19 | PR-46 |
 | LR-14 | P2 | ICS download from event detail and calendar context | Build | In Progress | 6.5, US-CR-07, T-CAL-08 | PR-42 |
 | LR-15 | P2 | Delivery report UX polish (filters/export/trends) | Build | In Progress | 6.6, US-CR-06, T-CAL-07 | PR-42b |
@@ -179,6 +179,9 @@ Before full launch sign-off, collect and attach:
 - Wired waitlist lifecycle job into backend scheduler with configurable `WAITLIST_JOB_INTERVAL_MS`.
 - Started LR-13 secrets hardening plan execution.
 - Added operations artifact: `docs/key-vault-migration-plan.md` with phased cutover, validation, rollback, and evidence checklist.
+- Started LR-12 observability baseline work.
+- Added App Insights alert baseline runbook: `docs/app-insights-alert-baseline.md` with thresholds, KQL, and verification checklist.
+- Added startup diagnostics telemetry signal (`checks.telemetryConfigured`) in `GET /api/v1/health/startup`.
 - Started LR-04 by fixing frontend tokenized RSVP API wiring.
 - Updated `emailRsvpApi` to call `/api/v1/events/rsvp/:token` (GET and POST) instead of `/api/v1/sms/inbound`.
 - Frontend production build completed successfully after the routing fix.
