@@ -162,6 +162,10 @@ Optional backend settings:
 - `OPENAI_API_KEY` (for AI invite generation)
 - `OPENAI_MODEL` (optional override; default `gpt-4.1-mini`)
 
+Optional CI/CD secret:
+
+- `COMPLIANCE_ALERT_WEBHOOK_URL` webhook endpoint (Teams/Slack/custom) notified when post-deploy compliance smokes fail on `main`
+
 ## Smoke Test Sequence
 
 1. Verify app process and API root:

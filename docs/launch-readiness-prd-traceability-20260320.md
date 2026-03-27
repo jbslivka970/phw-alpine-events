@@ -159,6 +159,11 @@ Before full launch sign-off, collect and attach:
 - Added support for `aeg-event-type=Notification` object payloads and additional ACS data field variants (`messageBody`, nested `from.phoneNumber.value`).
 - Added SMS route tests for header-based validation handshake and notification object processing path.
 - Local validation: targeted `sms` route tests PASS (`10/10`), full backend suite PASS (`83/83`), backend build PASS, frontend build PASS.
+- Completed LR-02 alerting path for compliance smokes in deployment workflow.
+- Added CI step `Alert on compliance smoke failure` in `.github/workflows/ci-cd.yml` to post failure notifications to `COMPLIANCE_ALERT_WEBHOOK_URL`.
+- Alert payload now includes repository workflow run URL and commit SHA for rapid triage.
+- Updated ops documentation in `README.md` and `docs/sms-compliance-smoke-runbook.md` for webhook setup and alert expectations.
+- Local validation after workflow/docs updates: full backend suite PASS (`83/83`) and frontend build PASS.
 - Started LR-14 ICS export implementation and completed event-detail + calendar-context authenticated downloads.
 - Added backend route: `GET /api/v1/events/:id/ics` with ICS payload formatting and attachment headers.
 - Added backend route test coverage for ICS download in `backend/src/__tests__/events.test.ts`.

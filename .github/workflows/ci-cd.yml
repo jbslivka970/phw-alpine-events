@@ -92,3 +92,25 @@ jobs:
         echo "Running compliance smokes against $BACKEND_BASE_URL"
         export BACKEND_BASE_URL
         npm --prefix backend run smoke:all
+
+    - name: Alert on compliance smoke failure
+      if: ${{ failure() }}
+      run: |
+        WEBHOOK_URL="${{ secrets.COMPLIANCE_ALERT_WEBHOOK_URL }}"
+        if [ -z "$WEBHOOK_URL" ]; then
+          echo "COMPLIANCE_ALERT_WEBHOOK_URL is not configured; skipping webhook alert."
+          exit 0
+        fi
+
+        RUN_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+        ALERT_PAYLOAD=$(cat <<EOF
+        {
+          "text": "[phw-alpine-events] Post-deploy compliance smoke failure on main. Run: ${RUN_URL} | SHA: ${{ github.sha }}"
+        }
+        EOF
+        )
+
+        curl -fsS -X POST \
+          -H "Content-Type: application/json" \
+          -d "$ALERT_PAYLOAD" \
+          "$WEBHOOK_URL"

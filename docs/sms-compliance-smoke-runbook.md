@@ -95,7 +95,13 @@ Run contract-only mode in deployment pipeline after backend deploy:
 1. Set `BACKEND_BASE_URL` for environment
 2. Execute smoke script
 3. Fail pipeline if script exits non-zero
-4. Store output as build artifact for audit trail
+4. Trigger webhook alert when smoke step fails (configure `COMPLIANCE_ALERT_WEBHOOK_URL` secret)
+5. Store output as build artifact for audit trail
+
+Alert payload includes:
+- Repository and workflow run URL
+- Commit SHA
+- Failure classification (`post-deploy compliance smoke failure`)
 
 ## Troubleshooting
 
