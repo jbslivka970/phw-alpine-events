@@ -11,6 +11,7 @@ import publicRsvpRouter from './publicRsvp';
 import reportsRouter from './reports';
 import smsRouter from './sms';
 import tavfRouter from './tavf';
+import templatesRouter from './templates';
 
 const router = Router();
 
@@ -26,5 +27,6 @@ router.use('/groups', groupsRouter);
 router.use('/import', importRouter);
 router.use('/reports', reportsRouter);
 router.use('/tavf', tavfRouter);
+router.use('/templates', templatesRouter);
 
 export default router;

@@ -21,6 +21,7 @@ import { TavfListPage } from './pages/TavfListPage'
 import { TavfNewPage } from './pages/TavfNewPage'
 import { TavfDetailPage } from './pages/TavfDetailPage'
 import { TermsPage } from './pages/TermsPage'
+import { TemplatesPage } from './pages/TemplatesPage'
 
 function App() {
   return (
@@ -91,6 +92,14 @@ function App() {
             element={
               <ProtectedRoute requiredRole={ROLES.ADMIN}>
                 <ReportsPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/templates"
+            element={
+              <ProtectedRoute requiredRole={ROLES.ADMIN}>
+                <TemplatesPage />
               </ProtectedRoute>
             }
           />

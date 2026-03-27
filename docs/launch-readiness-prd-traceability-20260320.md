@@ -52,7 +52,7 @@ Legend:
 | LR-05 | P0 | Email unsubscribe link and enforcement workflow | Build | In Progress | 4.4 | PR-36 |
 | LR-06 | P1 | Event update notifications with changed-field summary | Build | Not Started | 6.3.7, US-EM-16, T-EVT-14 | PR-37 |
 | LR-07 | P1 | Waitlist auto-promotion lifecycle and expiry handling | Build | Not Started | 6.7, US-EM-18, T-EVT-18 | PR-38 |
-| LR-08 | P1 | Notification template admin CRUD UI | Build | Not Started | 6.3.6, US-EM-13, T-EVT-16 | PR-41 |
+| LR-08 | P1 | Notification template admin CRUD UI | Build | In Progress | 6.3.6, US-EM-13, T-EVT-16 | PR-41 |
 | LR-09 | P1 | Regional admin To-line configuration for email dispatch | Build | In Progress | 6.3.2, 13 decision item | PR-43 |
 | LR-10 | P1 | Channel preferences model: email_only, sms_only, both | Build | In Progress | 10.4, GAP-14 | PR-44 |
 | LR-11 | P1 | Complete notification service unit tests (email/sms/truncation) | Validate | In Progress | 14.1 PR31 follow-up, GAP-13 | PR-32 |
@@ -168,6 +168,9 @@ Before full launch sign-off, collect and attach:
 - Started LR-10 channel preference model implementation in members UX.
 - Added explicit member preference modes (`email_only`, `sms_only`, `both`) with mapped persistence to `sms_opt_in` + `email_opt_out`.
 - Updated members table and editor to display/edit the normalized channel preference model.
+- Started LR-08 notification template admin CRUD implementation.
+- Added backend admin route set at `GET/POST/PATCH/DELETE /api/v1/templates` with channel-aware validation and soft deactivate support.
+- Added frontend templates management page (`/templates`) and admin navigation wiring.
 - Started LR-04 by fixing frontend tokenized RSVP API wiring.
 - Updated `emailRsvpApi` to call `/api/v1/events/rsvp/:token` (GET and POST) instead of `/api/v1/sms/inbound`.
 - Frontend production build completed successfully after the routing fix.

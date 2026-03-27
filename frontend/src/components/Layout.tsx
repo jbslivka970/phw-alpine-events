@@ -18,6 +18,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Groups', to: '/groups', role: ROLES.ADMIN },
   { label: 'Import', to: '/import', role: ROLES.ADMIN },
   { label: 'Reports', to: '/reports', role: ROLES.ADMIN },
+  { label: 'Templates', to: '/templates', role: ROLES.ADMIN },
   { label: 'Admin', to: '/admin', role: ROLES.ADMIN },
 ];
 
