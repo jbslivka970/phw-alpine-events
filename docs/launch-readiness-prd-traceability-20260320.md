@@ -138,6 +138,8 @@ Before full launch sign-off, collect and attach:
 - Expanded changed-field label coverage in notification summarization for role capacities (`mentor_capacity`, `participant_capacity`).
 - Added route test assertion to verify detailed change summary content is passed into update notifications.
 - Local validation: targeted events route tests PASS (`10/10`), full backend suite PASS (`85/85`), backend build PASS, frontend build PASS.
+- Commit: `2555bd7` pushed to `main` for LR-06 detailed changed-field summary enhancement.
+- CI/CD run `23653599567` completed with `success` (build + deploy + post-deploy compliance smokes).
 
 2026-03-25
 - Started LR-02 with a new inbound SMS compliance smoke harness.
