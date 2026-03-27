@@ -22,6 +22,18 @@ interface EventTarget {
   group_id?: string;
 }
 
+interface UpdateEventPayload {
+  title?: string;
+  description?: string | null;
+  location?: string | null;
+  event_date?: string;
+  end_date?: string | null;
+  mentor_capacity?: number | null;
+  participant_capacity?: number | null;
+  capacity?: number | null;
+  update_reason?: string | null;
+}
+
 interface RsvpRecord {
   response_id: string;
   event_id: string;
@@ -80,7 +92,7 @@ const eventsApi = {
     capacity?: number | null;
     notification_targets?: EventTarget[];
   }) => apiPost<EventRecord>('/events', data),
-  update: (id: string, data: Partial<Omit<EventRecord, 'event_id' | 'created_at' | 'updated_at'>>) =>
+  update: (id: string, data: UpdateEventPayload) =>
     apiPut<EventRecord>(`/events/${id}`, data),
   updateStatus: (id: string, status: EventRecord['status']) =>
     apiPut<EventRecord>(`/events/${id}/status`, { status }),
@@ -113,4 +125,4 @@ const assignmentsApi = {
 };
 
 export { assignmentsApi, emailRsvpApi, eventsApi, rsvpApi };
-export type { EventRecord, RsvpRecord, EventAssignmentRecord, PublicRsvpContext };
+export type { EventRecord, RsvpRecord, EventAssignmentRecord, PublicRsvpContext, UpdateEventPayload };

@@ -50,7 +50,7 @@ Legend:
 | LR-03 | P0 | Automated reminders with idempotent send markers | Build | In Progress | 6.3.4, US-EM-06, US-EM-07, T-EVT-09 | PR-34 |
 | LR-04 | P0 | Tokenized one-click RSVP from email (no login required) | Build | In Progress | 6.3.3, US-EM-04, T-EVT-08 | PR-35 |
 | LR-05 | P0 | Email unsubscribe link and enforcement workflow | Build | In Progress | 4.4 | PR-36 |
-| LR-06 | P1 | Event update notifications with changed-field summary | Build | Not Started | 6.3.7, US-EM-16, T-EVT-14 | PR-37 |
+| LR-06 | P1 | Event update notifications with changed-field summary | Build | In Progress | 6.3.7, US-EM-16, T-EVT-14 | PR-37 |
 | LR-07 | P1 | Waitlist auto-promotion lifecycle and expiry handling | Build | Not Started | 6.7, US-EM-18, T-EVT-18 | PR-38 |
 | LR-08 | P1 | Notification template admin CRUD UI | Build | In Progress | 6.3.6, US-EM-13, T-EVT-16 | PR-41 |
 | LR-09 | P1 | Regional admin To-line configuration for email dispatch | Build | In Progress | 6.3.2, 13 decision item | PR-43 |
@@ -171,6 +171,8 @@ Before full launch sign-off, collect and attach:
 - Started LR-08 notification template admin CRUD implementation.
 - Added backend admin route set at `GET/POST/PATCH/DELETE /api/v1/templates` with channel-aware validation and soft deactivate support.
 - Added frontend templates management page (`/templates`) and admin navigation wiring.
+- Started LR-06 event update-notification UX completion.
+- Added event-edit update reason input and backend payload pass-through (`update_reason`) to support changed-field summary notifications.
 - Started LR-04 by fixing frontend tokenized RSVP API wiring.
 - Updated `emailRsvpApi` to call `/api/v1/events/rsvp/:token` (GET and POST) instead of `/api/v1/sms/inbound`.
 - Frontend production build completed successfully after the routing fix.

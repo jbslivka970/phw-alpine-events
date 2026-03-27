@@ -100,11 +100,12 @@ interface EventFormPayload {
   mentor_capacity: string
   participant_capacity: string
   notification_targets: string[]
+  update_reason: string
 }
 
 const EMPTY_FORM: EventFormPayload = {
   title: '', event_date: '', description: '', location: '',
-  end_date: '', mentor_capacity: '', participant_capacity: '', notification_targets: [],
+  end_date: '', mentor_capacity: '', participant_capacity: '', notification_targets: [], update_reason: '',
 }
 
 function splitDateTime(value: string): { date: string; time: string } {
@@ -305,6 +306,7 @@ function payloadFromRecord(e: EventRecord): EventFormPayload {
       ? String(e.participant_capacity)
       : (e.capacity != null ? String(e.capacity) : ''),
     notification_targets: [],   // populated separately
+    update_reason: '',
   }
 }
 
@@ -628,6 +630,19 @@ function EventFormModal({ initial, groups, onSave, onCancel, saving, error, isEd
               <textarea className="form-textarea" rows={3} value={form.description} onChange={e => set('description', e.target.value)} />
             </div>
 
+            {isEdit && (
+              <div className="form-field form-field--full">
+                <label className="form-label">Update Reason</label>
+                <textarea
+                  className="form-textarea"
+                  rows={2}
+                  value={form.update_reason}
+                  onChange={e => set('update_reason', e.target.value)}
+                  placeholder="Explain what changed (sent to RSVP'd members)"
+                />
+              </div>
+            )}
+
             {groups.length > 0 && (
               <div className="form-field form-field--full">
                 <label className="form-label">Target Groups</label>
@@ -735,7 +750,10 @@ function EventsPage() {
       }
 
       if (editTarget) {
-        await eventsApi.update(editTarget.event_id, payload)
+        await eventsApi.update(editTarget.event_id, {
+          ...payload,
+          update_reason: form.update_reason.trim() || null,
+        })
       } else {
         await eventsApi.create(payload)
       }
