@@ -182,6 +182,7 @@ Before full launch sign-off, collect and attach:
 - Started LR-12 observability baseline work.
 - Added App Insights alert baseline runbook: `docs/app-insights-alert-baseline.md` with thresholds, KQL, and verification checklist.
 - Added startup diagnostics telemetry signal (`checks.telemetryConfigured`) in `GET /api/v1/health/startup`.
+- Hardened CI deployment behavior by adding deploy job concurrency controls in `.github/workflows/ci-cd.yml` to avoid overlapping production deploy races.
 - Started LR-04 by fixing frontend tokenized RSVP API wiring.
 - Updated `emailRsvpApi` to call `/api/v1/events/rsvp/:token` (GET and POST) instead of `/api/v1/sms/inbound`.
 - Frontend production build completed successfully after the routing fix.

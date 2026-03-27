@@ -41,6 +41,9 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.AZURE_WEBAPP_NAME != ''
+    concurrency:
+      group: azure-prod-deploy-${{ github.ref_name }}
+      cancel-in-progress: true
 
     steps:
     - uses: actions/checkout@v4
