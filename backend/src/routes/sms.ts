@@ -200,7 +200,7 @@ router.post('/inbound', writeLimiter, async (req, res) => {
       return;
     }
 
-    const payload = extractInboundPayload(req.body);
+    const payload = extractInboundPayload(req.body, req.headers as Record<string, unknown>);
 
     if (payload.kind === 'validation') {
       res.json({ validationResponse: payload.validationCode });
@@ -612,10 +612,21 @@ function getToken(query: Record<string, unknown>): string {
   throw new Error('token is required');
 }
 
-function extractInboundPayload(body: unknown):
+function extractInboundPayload(body: unknown, headers: Record<string, unknown> = {}):
   | { kind: 'single'; from: string; message: string }
   | { kind: 'batch'; messages: Array<{ from: string; message: string }> }
   | { kind: 'validation'; validationCode: string } {
+  const eventTypeHeader = getHeaderValue(headers, 'aeg-event-type');
+
+  if (eventTypeHeader === 'SubscriptionValidation') {
+    const record = body as Record<string, unknown> | null;
+    const validationCode = readString(record?.['data'], 'validationCode');
+    if (!validationCode) {
+      throw new Error('Missing validation code.');
+    }
+    return { kind: 'validation', validationCode };
+  }
+
   if (Array.isArray(body)) {
     const first = body[0] as Record<string, unknown> | undefined;
     if (first?.eventType === 'Microsoft.EventGrid.SubscriptionValidationEvent') {
@@ -627,14 +638,7 @@ function extractInboundPayload(body: unknown):
     }
 
     const messages = body
-      .map((entry) => {
-        const record = entry as Record<string, unknown>;
-        const data = (record.data ?? {}) as Record<string, unknown>;
-        return {
-          from: String(data.from ?? ''),
-          message: String(data.message ?? data.messageBody ?? ''),
-        };
-      })
+      .map((entry) => extractEventGridMessage((entry as Record<string, unknown>)?.data))
       .filter((entry) => entry.from && entry.message);
 
     if (messages.length === 0) {
@@ -649,6 +653,14 @@ function extractInboundPayload(body: unknown):
     throw new Error('Request body is required.');
   }
 
+  if (eventTypeHeader === 'Notification' && (record['eventType'] || record['data'])) {
+    const eventGridMessage = extractEventGridMessage(record['data']);
+    if (!eventGridMessage.from || !eventGridMessage.message) {
+      throw new Error('No SMS messages found in batch payload.');
+    }
+    return { kind: 'batch', messages: [eventGridMessage] };
+  }
+
   const from = String(record.from ?? '');
   const message = String(record.message ?? record.messageBody ?? '');
   if (!from || !message) {
@@ -656,6 +668,55 @@ function extractInboundPayload(body: unknown):
   }
 
   return { kind: 'single', from, message };
+}
+
+function extractEventGridMessage(data: unknown): { from: string; message: string } {
+  const from = readString(data, 'from')
+    ?? readString(data, 'fromPhoneNumber')
+    ?? readNestedString(data, ['from', 'phoneNumber', 'value'])
+    ?? '';
+
+  const message = readString(data, 'message')
+    ?? readString(data, 'messageBody')
+    ?? readString(data, 'text')
+    ?? readString(data, 'body')
+    ?? '';
+
+  return {
+    from: from.trim(),
+    message: message.trim(),
+  };
+}
+
+function readString(input: unknown, key: string): string | undefined {
+  if (!input || typeof input !== 'object') {
+    return undefined;
+  }
+
+  const value = (input as Record<string, unknown>)[key];
+  return typeof value === 'string' ? value : undefined;
+}
+
+function readNestedString(input: unknown, path: string[]): string | undefined {
+  let current: unknown = input;
+  for (const segment of path) {
+    if (!current || typeof current !== 'object') {
+      return undefined;
+    }
+    current = (current as Record<string, unknown>)[segment];
+  }
+  return typeof current === 'string' ? current : undefined;
+}
+
+function getHeaderValue(headers: Record<string, unknown>, key: string): string | undefined {
+  const candidate = headers[key] ?? headers[key.toLowerCase()] ?? headers[key.toUpperCase()];
+  if (typeof candidate === 'string') {
+    return candidate;
+  }
+  if (Array.isArray(candidate) && typeof candidate[0] === 'string') {
+    return candidate[0];
+  }
+  return undefined;
 }
 
 export default router;

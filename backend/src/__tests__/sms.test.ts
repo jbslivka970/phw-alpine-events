@@ -241,6 +241,46 @@ describe('sms routes', () => {
     expect(res.body).toEqual({ validationResponse: 'abc123' });
   });
 
+  it('POST /api/sms/inbound responds to header-based Event Grid validation requests', async () => {
+    const res = await request(app)
+      .post('/api/sms/inbound')
+      .set('aeg-event-type', 'SubscriptionValidation')
+      .send({
+        topic: '/subscriptions/test/resourceGroups/rg/providers/Microsoft.EventGrid/topics/topic',
+        data: { validationCode: 'header-code-1' },
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ validationResponse: 'header-code-1' });
+  });
+
+  it('POST /api/sms/inbound processes Event Grid notification object payloads', async () => {
+    const queryResults: QueryResult[] = [
+      { recordset: [{ member_id: 'member-1', mobile_phone: '+13035551212' }] },
+      { rowsAffected: [1] },
+    ];
+    const mockRequest = {
+      input: jest.fn().mockReturnThis(),
+      query: jest.fn().mockImplementation(async () => queryResults.shift() ?? { recordset: [] }),
+    };
+    (getPool as jest.Mock).mockResolvedValue({ request: () => mockRequest });
+
+    const res = await request(app)
+      .post('/api/sms/inbound')
+      .set('aeg-event-type', 'Notification')
+      .send({
+        eventType: 'Microsoft.Communication.SMSReceived',
+        data: {
+          from: '+13035551212',
+          messageBody: 'STOP',
+        },
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.processed).toHaveLength(1);
+    expect(res.body.processed[0]).toMatchObject({ status: 'opted_out', member_id: 'member-1' });
+  });
+
   it('GET /api/sms/inbound/logs returns inbound audit records', async () => {
     const queryResults: QueryResult[] = [
       {

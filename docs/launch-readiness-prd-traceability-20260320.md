@@ -154,6 +154,11 @@ Before full launch sign-off, collect and attach:
 - Added schema migration updates for reminder claim columns and claim lookup index in `database/schema.sql`.
 - Updated reminder unit tests to validate claim, mark-sent, and release-claim branches.
 - Local validation: targeted `reminderJob` tests PASS, full backend suite PASS (`81/81`), backend build PASS, frontend build PASS.
+- Started LR-01 Event Grid ingestion hardening for inbound SMS handler.
+- Updated `POST /api/v1/sms/inbound` payload parsing to support `aeg-event-type=SubscriptionValidation` with object payloads.
+- Added support for `aeg-event-type=Notification` object payloads and additional ACS data field variants (`messageBody`, nested `from.phoneNumber.value`).
+- Added SMS route tests for header-based validation handshake and notification object processing path.
+- Local validation: targeted `sms` route tests PASS (`10/10`), full backend suite PASS (`83/83`), backend build PASS, frontend build PASS.
 - Started LR-14 ICS export implementation and completed event-detail + calendar-context authenticated downloads.
 - Added backend route: `GET /api/v1/events/:id/ics` with ICS payload formatting and attachment headers.
 - Added backend route test coverage for ICS download in `backend/src/__tests__/events.test.ts`.
