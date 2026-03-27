@@ -164,6 +164,11 @@ Before full launch sign-off, collect and attach:
 - Alert payload now includes repository workflow run URL and commit SHA for rapid triage.
 - Updated ops documentation in `README.md` and `docs/sms-compliance-smoke-runbook.md` for webhook setup and alert expectations.
 - Local validation after workflow/docs updates: full backend suite PASS (`83/83`) and frontend build PASS.
+- Extended LR-04 one-click RSVP behavior with role-aware preset links for published event notifications.
+- Updated RSVP URL builder to include `role` query parameter when recipient role context is known (`MENTOR`/`PARTICIPANT`).
+- Wired event-published notification targeting to derive role hints from group context and generate role-aware `yes/no/maybe/waitlist` links.
+- Added backend unit coverage in `backend/src/__tests__/rsvpLinkService.test.ts` for role-aware and role-agnostic URL generation.
+- Local validation after RSVP link updates: targeted RSVP/SMS tests PASS (`12/12`), full backend suite PASS (`85/85`), backend build PASS, frontend build PASS.
 - Started LR-14 ICS export implementation and completed event-detail + calendar-context authenticated downloads.
 - Added backend route: `GET /api/v1/events/:id/ics` with ICS payload formatting and attachment headers.
 - Added backend route test coverage for ICS download in `backend/src/__tests__/events.test.ts`.

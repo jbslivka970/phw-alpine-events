@@ -17,6 +17,8 @@ interface MemberRsvpUrls {
   waitlistUrl: string;
 }
 
+type ResponseRole = 'MENTOR' | 'PARTICIPANT';
+
 function createRsvpToken(eventId: string, memberId: string, groupContextId?: string): string {
   const config = loadRsvpLinkConfig();
   if (!config.isConfigured) {
@@ -64,7 +66,12 @@ function verifyRsvpToken(token: string): VerifiedRsvpToken {
   };
 }
 
-function buildMemberRsvpUrls(eventId: string, memberId: string, groupContextId?: string): MemberRsvpUrls {
+function buildMemberRsvpUrls(
+  eventId: string,
+  memberId: string,
+  groupContextId?: string,
+  preferredRole?: ResponseRole
+): MemberRsvpUrls {
   const config = loadRsvpLinkConfig();
   if (!config.isConfigured) {
     throw new Error('RSVP links are not configured.');
@@ -73,15 +80,23 @@ function buildMemberRsvpUrls(eventId: string, memberId: string, groupContextId?:
   const token = createRsvpToken(eventId, memberId, groupContextId);
   const path = `${config.frontendBaseUrl}/rsvp/${encodeURIComponent(token)}`;
 
+  const createPresetUrl = (response: 'yes' | 'no' | 'maybe' | 'waitlist'): string => {
+    const params = new URLSearchParams({ response });
+    if (preferredRole) {
+      params.set('role', preferredRole);
+    }
+    return `${path}?${params.toString()}`;
+  };
+
   return {
     token,
     landingUrl: path,
-    yesUrl: `${path}?response=yes`,
-    noUrl: `${path}?response=no`,
-    maybeUrl: `${path}?response=maybe`,
-    waitlistUrl: `${path}?response=waitlist`,
+    yesUrl: createPresetUrl('yes'),
+    noUrl: createPresetUrl('no'),
+    maybeUrl: createPresetUrl('maybe'),
+    waitlistUrl: createPresetUrl('waitlist'),
   };
 }
 
 export { buildMemberRsvpUrls, createRsvpToken, verifyRsvpToken };
-export type { MemberRsvpUrls, VerifiedRsvpToken };
+export type { MemberRsvpUrls, VerifiedRsvpToken, ResponseRole };

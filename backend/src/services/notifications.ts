@@ -9,7 +9,7 @@ import { eventUpdateTemplate } from '../templates/eventUpdate';
 import { rsvpConfirmationTemplate } from '../templates/rsvpConfirmation';
 import { waitlistPromotionTemplate } from '../templates/waitlistPromotion';
 import { buildMemberEmailUnsubscribeUrl } from './emailPreferenceLinkService';
-import { buildMemberRsvpUrls } from './rsvpLinkService';
+import { buildMemberRsvpUrls, type ResponseRole } from './rsvpLinkService';
 
 interface RsvpNotificationPayload {
   eventId: string;
@@ -639,6 +639,7 @@ async function sendEventPublishedNotification(payload: EventNotificationPayload)
     .query<{
       member_id: string;
       group_context_id: string | null;
+      group_name: string | null;
       first_name: string | null;
       email: string;
       mobile_phone: string | null;
@@ -648,6 +649,7 @@ async function sendEventPublishedNotification(payload: EventNotificationPayload)
       `SELECT
           m.member_id,
           ent.group_id AS group_context_id,
+          g.group_name,
           m.first_name,
           m.email,
           m.mobile_phone,
@@ -655,13 +657,19 @@ async function sendEventPublishedNotification(payload: EventNotificationPayload)
           m.email_opt_out
        FROM event_notification_target ent
        LEFT JOIN member_group mg ON mg.group_id = ent.group_id
+       LEFT JOIN [group] g ON g.group_id = ent.group_id
        LEFT JOIN member m ON m.member_id = COALESCE(ent.member_id, mg.member_id)
        WHERE ent.event_id = @event_id
          AND m.member_id IS NOT NULL`
     );
 
   for (const recipient of recipientsResult.recordset) {
-    const variables = buildEventVariables(payload, recipient.member_id, recipient.group_context_id ?? undefined);
+    const variables = buildEventVariables(
+      payload,
+      recipient.member_id,
+      recipient.group_context_id ?? undefined,
+      inferRoleFromGroupName(recipient.group_name)
+    );
     if (!recipient.email_opt_out && recipient.email) {
       await notificationService.sendEmail({
         to: recipient.email,
@@ -954,7 +962,8 @@ function toNullableUuid(value: string | undefined): string | null {
 function buildEventVariables(
   payload: EventNotificationPayload,
   memberId?: string,
-  groupContextId?: string
+  groupContextId?: string,
+  preferredRole?: ResponseRole
 ): Record<string, string> {
   const eventDate = formatEventDate(payload.event_date);
   const defaultRsvpUrl = `/events/${payload.event_id}`;
@@ -966,7 +975,7 @@ function buildEventVariables(
 
   if (memberId) {
     try {
-      const personalizedUrls = buildMemberRsvpUrls(payload.event_id, memberId, groupContextId);
+      const personalizedUrls = buildMemberRsvpUrls(payload.event_id, memberId, groupContextId, preferredRole);
       rsvpUrl = personalizedUrls.landingUrl;
       yesUrl = personalizedUrls.yesUrl;
       noUrl = personalizedUrls.noUrl;
@@ -988,6 +997,22 @@ function buildEventVariables(
     maybeUrl,
     waitlistUrl,
   };
+}
+
+function inferRoleFromGroupName(groupName: string | null): ResponseRole | undefined {
+  if (!groupName) {
+    return undefined;
+  }
+
+  const normalized = groupName.toUpperCase();
+  if (normalized.includes('MENTOR') || normalized.includes('VOLUNTEER')) {
+    return 'MENTOR';
+  }
+  if (normalized.includes('PARTICIPANT') || normalized.includes('VETERAN') || normalized.includes('VET')) {
+    return 'PARTICIPANT';
+  }
+
+  return undefined;
 }
 
 function formatEventDate(value: Date | string): string {
