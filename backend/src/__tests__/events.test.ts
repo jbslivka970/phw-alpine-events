@@ -86,6 +86,33 @@ describe('events routes', () => {
     expect(mockRequest.input).toHaveBeenCalledWith('status', 'NVarChar', 'draft');
   });
 
+  it('GET /api/events/:id/assignment-recommendations returns ranked equity rows', async () => {
+    const mockRequest = createRequest(async () => ({
+      recordset: [
+        {
+          member_id: 'member-1',
+          first_name: 'Alex',
+          last_name: 'River',
+          response: 'yes',
+          role_attended_year: 0,
+          role_attended_prior_year: 1,
+          total_attended_year: 2,
+          total_attended_prior_year: 2,
+        },
+      ],
+    }));
+    (getPool as jest.Mock).mockResolvedValue({ request: () => mockRequest });
+
+    const res = await request(app)
+      .get('/api/events/event-1/assignment-recommendations?role=MENTOR&limit=5');
+
+    expect(res.status).toBe(200);
+    expect(res.body.role).toBe('MENTOR');
+    expect(res.body.rows).toHaveLength(1);
+    expect(res.body.rows[0].rank).toBe(1);
+    expect(mockRequest.input).toHaveBeenCalledWith('role', 'NVarChar', 'MENTOR');
+  });
+
   it('PUT /api/events/:id/status rejects invalid transition', async () => {
     const selectRequest = createRequest(async () => ({
       recordset: [

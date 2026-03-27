@@ -61,7 +61,7 @@ Legend:
 | LR-14 | P2 | ICS download from event detail and calendar context | Build | In Progress | 6.5, US-CR-07, T-CAL-08 | PR-42 |
 | LR-15 | P2 | Delivery report UX polish (filters/export/trends) | Build | In Progress | 6.6, US-CR-06, T-CAL-07 | PR-42b |
 | LR-16 | P2 | AI invite generation | Build | In Progress | 6.3.6, US-EM-12, T-EVT-15 | PR-39 |
-| LR-17 | P2 | AI equity recommendations for assignment | Build | Not Started | 6.3.5, US-EM-09, T-EVT-11 | PR-40 |
+| LR-17 | P2 | AI equity recommendations for assignment | Build | In Progress | 6.3.5, US-EM-09, T-EVT-11 | PR-40 |
 
 ## 5) Recommended Delivery Order
 
@@ -186,6 +186,9 @@ Before full launch sign-off, collect and attach:
 - Started LR-16 AI invite generation.
 - Added backend AI draft service with OpenAI integration and deterministic fallback (`backend/src/services/aiInviteService.ts`).
 - Added admin endpoint `POST /api/v1/admin/ai/invite-draft` and Admin UI panel to generate/copy invite drafts from selected events.
+- Started LR-17 equity recommendation implementation for event assignments.
+- Added backend endpoint `GET /api/v1/events/:id/assignment-recommendations` with weighted fairness ranking and reason metadata.
+- Wired assignment page to consume recommendation ranks and expose equity scores in RSVP prioritization table.
 - Started LR-04 by fixing frontend tokenized RSVP API wiring.
 - Updated `emailRsvpApi` to call `/api/v1/events/rsvp/:token` (GET and POST) instead of `/api/v1/sms/inbound`.
 - Frontend production build completed successfully after the routing fix.

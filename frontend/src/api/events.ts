@@ -78,6 +78,27 @@ interface EventAssignmentRecord {
   attendance_notes?: string | null;
 }
 
+interface AssignmentRecommendationRow {
+  rank: number;
+  member_id: string;
+  first_name: string;
+  last_name: string;
+  response: 'yes' | 'no' | 'maybe' | 'waitlist';
+  suggested_role: 'MENTOR' | 'PARTICIPANT';
+  equity_score: number;
+  role_attended_year: number;
+  role_attended_prior_year: number;
+  total_attended_year: number;
+  total_attended_prior_year: number;
+  reason: string;
+}
+
+interface AssignmentRecommendationResponse {
+  event_id: string;
+  role: 'MENTOR' | 'PARTICIPANT';
+  rows: AssignmentRecommendationRow[];
+}
+
 const eventsApi = {
   list: (status?: string) => apiGet<EventRecord[]>(status ? `/events?status=${encodeURIComponent(status)}` : '/events'),
   get: (id: string) => apiGet<EventRecord & { notification_targets: unknown[] }>(`/events/${id}`),
@@ -122,7 +143,17 @@ const assignmentsApi = {
     apiDelete<void>(`/events/${eventId}/assignments/${assignmentId}`),
   setAttendance: (eventId: string, assignmentId: string, payload: { attended: boolean; attendance_notes?: string | null }) =>
     apiPatch<EventAssignmentRecord>(`/events/${eventId}/assignments/${assignmentId}/attendance`, payload),
+  recommendations: (eventId: string, role: 'MENTOR' | 'PARTICIPANT', limit = 20) =>
+    apiGet<AssignmentRecommendationResponse>(`/events/${eventId}/assignment-recommendations?role=${role}&limit=${limit}`),
 };
 
 export { assignmentsApi, emailRsvpApi, eventsApi, rsvpApi };
-export type { EventRecord, RsvpRecord, EventAssignmentRecord, PublicRsvpContext, UpdateEventPayload };
+export type {
+  EventRecord,
+  RsvpRecord,
+  EventAssignmentRecord,
+  AssignmentRecommendationResponse,
+  AssignmentRecommendationRow,
+  PublicRsvpContext,
+  UpdateEventPayload,
+};

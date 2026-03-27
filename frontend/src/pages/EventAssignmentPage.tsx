@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { assignmentsApi, rsvpApi } from '../api/events'
 import { membersApi } from '../api/members'
+import type { AssignmentRecommendationRow } from '../api/events'
 
 type Assignment = {
   assignment_id: string
@@ -29,6 +30,8 @@ function EventAssignmentPage() {
     participant_attended_prior_year: number
   }>>({})
   const [priorityRole, setPriorityRole] = useState<'MENTOR' | 'PARTICIPANT'>('PARTICIPANT')
+  const [recommendations, setRecommendations] = useState<AssignmentRecommendationRow[]>([])
+  const [recommendationsLoading, setRecommendationsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const assignedMemberIds = useMemo(() => new Set(assignments.map((a) => a.member_id)), [assignments])
@@ -90,6 +93,36 @@ function EventAssignmentPage() {
     }
   }, [eventId])
 
+  useEffect(() => {
+    if (!eventId) {
+      return
+    }
+    let active = true
+    setRecommendationsLoading(true)
+    assignmentsApi.recommendations(eventId, priorityRole)
+      .then((result) => {
+        if (!active) {
+          return
+        }
+        setRecommendations(result.rows)
+      })
+      .catch(() => {
+        if (!active) {
+          return
+        }
+        setRecommendations([])
+      })
+      .finally(() => {
+        if (active) {
+          setRecommendationsLoading(false)
+        }
+      })
+
+    return () => {
+      active = false
+    }
+  }, [eventId, priorityRole])
+
   async function assignMember(memberId: string, role: 'MENTOR' | 'PARTICIPANT') {
     if (!eventId) {
       return
@@ -118,7 +151,14 @@ function EventAssignmentPage() {
 
   const rankedRsvps = useMemo(() => {
     const rows = [...rsvps]
+    const recommendationRank = new Map(recommendations.map((row) => [row.member_id, row.rank]))
     rows.sort((a, b) => {
+      const aRank = recommendationRank.get(a.member_id)
+      const bRank = recommendationRank.get(b.member_id)
+      if (aRank !== undefined && bRank !== undefined && aRank !== bRank) {
+        return aRank - bRank
+      }
+
       const aPart = participation[a.member_id] ?? {
         events_attended: 0,
         events_attended_prior_year: 0,
@@ -154,7 +194,12 @@ function EventAssignmentPage() {
     })
 
     return rows
-  }, [rsvps, participation, priorityRole])
+  }, [rsvps, participation, priorityRole, recommendations])
+
+  const recommendationByMember = useMemo(
+    () => new Map(recommendations.map((row) => [row.member_id, row])),
+    [recommendations]
+  )
 
   return (
     <div className="page">
@@ -176,13 +221,14 @@ function EventAssignmentPage() {
             Prioritize Mentor Role
           </button>
         </div>
+        {recommendationsLoading && <p className="members-loading">Refreshing equity recommendations…</p>}
         <table className="members-table">
           <thead>
-            <tr><th>Name</th><th>Response</th><th>Mentor Y/PY</th><th>Participant Y/PY</th><th>Assign</th></tr>
+            <tr><th>Name</th><th>Response</th><th>Mentor Y/PY</th><th>Participant Y/PY</th><th>Equity</th><th>Assign</th></tr>
           </thead>
           <tbody>
             {rankedRsvps.length === 0 ? (
-              <tr><td colSpan={5}>No RSVP rows to assign.</td></tr>
+              <tr><td colSpan={6}>No RSVP rows to assign.</td></tr>
             ) : rankedRsvps.map((row) => {
               const name = `${row.first_name ?? ''} ${row.last_name ?? ''}`.trim()
               const alreadyAssigned = assignedMemberIds.has(row.member_id)
@@ -194,12 +240,18 @@ function EventAssignmentPage() {
                 participant_attended: 0,
                 participant_attended_prior_year: 0,
               }
+              const recommendation = recommendationByMember.get(row.member_id)
               return (
                 <tr key={`${row.member_id}-${row.response}`}>
                   <td>{name || row.member_id}</td>
                   <td>{row.response}</td>
                   <td>{p.mentor_attended} / {p.mentor_attended_prior_year}</td>
                   <td>{p.participant_attended} / {p.participant_attended_prior_year}</td>
+                  <td>
+                    {recommendation
+                      ? `#${recommendation.rank} (${recommendation.equity_score})`
+                      : '—'}
+                  </td>
                   <td>
                     {alreadyAssigned ? 'Assigned' : (
                       <>

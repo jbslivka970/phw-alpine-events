@@ -809,6 +809,21 @@ function escapeIcsText(value: string): string {
     .replace(/;/g, '\\;');
 }
 
+function parseEventRole(value: unknown): 'MENTOR' | 'PARTICIPANT' {
+  const normalized = typeof value === 'string' ? value.trim().toUpperCase() : '';
+  return normalized === 'MENTOR' ? 'MENTOR' : 'PARTICIPANT';
+}
+
+function responseBias(response: string): number {
+  if (response === 'yes') {
+    return -0.2;
+  }
+  if (response === 'maybe') {
+    return 0;
+  }
+  return 0.2;
+}
+
 router.get('/:id/assignments', apiLimiter, authenticate, requireAnyAuthenticatedRole, async (req, res) => {
   try {
     const pool = await getPool();
@@ -922,6 +937,84 @@ router.patch('/:id/assignments/:assignmentId/attendance', writeLimiter, authenti
     res.json(updated);
   } catch (error) {
     console.error('PATCH /events/:id/assignments/:assignmentId/attendance failed', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.get('/:id/assignment-recommendations', apiLimiter, authenticate, requireEventCreatorOrAdmin, async (req, res) => {
+  try {
+    const role = parseEventRole(req.query.role);
+    const rawLimit = Number.parseInt(String(req.query.limit ?? '20'), 10);
+    const limit = Number.isFinite(rawLimit) ? Math.max(1, Math.min(rawLimit, 100)) : 20;
+
+    const pool = await getPool();
+    const result = await pool
+      .request()
+      .input('event_id', sql.UniqueIdentifier, req.params.id)
+      .input('role', sql.NVarChar, role)
+      .input('current_year', sql.Int, new Date().getFullYear())
+      .input('prior_year', sql.Int, new Date().getFullYear() - 1)
+      .input('limit', sql.Int, limit)
+      .query<{
+        member_id: string;
+        first_name: string;
+        last_name: string;
+        response: string;
+        role_attended_year: number;
+        role_attended_prior_year: number;
+        total_attended_year: number;
+        total_attended_prior_year: number;
+      }>(
+        `SELECT TOP (@limit)
+            er.member_id,
+            m.first_name,
+            m.last_name,
+            er.response,
+            SUM(CASE WHEN YEAR(e_hist.event_date) = @current_year AND ea.role = @role AND ea.attended = 1 THEN 1 ELSE 0 END) AS role_attended_year,
+            SUM(CASE WHEN YEAR(e_hist.event_date) = @prior_year AND ea.role = @role AND ea.attended = 1 THEN 1 ELSE 0 END) AS role_attended_prior_year,
+            SUM(CASE WHEN YEAR(e_hist.event_date) = @current_year AND ea.attended = 1 THEN 1 ELSE 0 END) AS total_attended_year,
+            SUM(CASE WHEN YEAR(e_hist.event_date) = @prior_year AND ea.attended = 1 THEN 1 ELSE 0 END) AS total_attended_prior_year
+         FROM event_response er
+         INNER JOIN member m ON m.member_id = er.member_id
+         LEFT JOIN event_assignment ea ON ea.member_id = er.member_id
+         LEFT JOIN event e_hist ON e_hist.event_id = ea.event_id AND e_hist.status = 'completed'
+         WHERE er.event_id = @event_id
+           AND er.response IN ('yes', 'maybe', 'waitlist')
+         GROUP BY er.member_id, m.first_name, m.last_name, er.response
+         ORDER BY role_attended_year ASC, role_attended_prior_year ASC, total_attended_year ASC, total_attended_prior_year ASC, er.response ASC, m.last_name ASC, m.first_name ASC`
+      );
+
+    const rows = result.recordset
+      .map((row) => {
+        const roleYear = row.role_attended_year ?? 0;
+        const rolePrior = row.role_attended_prior_year ?? 0;
+        const totalYear = row.total_attended_year ?? 0;
+        const totalPrior = row.total_attended_prior_year ?? 0;
+        const equityScore = Number((roleYear + rolePrior * 0.6 + totalYear * 0.25 + totalPrior * 0.1 + responseBias(row.response)).toFixed(2));
+
+        return {
+          member_id: row.member_id,
+          first_name: row.first_name,
+          last_name: row.last_name,
+          response: row.response,
+          suggested_role: role,
+          equity_score: equityScore,
+          role_attended_year: roleYear,
+          role_attended_prior_year: rolePrior,
+          total_attended_year: totalYear,
+          total_attended_prior_year: totalPrior,
+          reason: `${roleYear} ${role.toLowerCase()} shifts this year, ${rolePrior} last year`,
+        };
+      })
+      .sort((a, b) => a.equity_score - b.equity_score);
+
+    res.json({
+      event_id: req.params.id,
+      role,
+      rows: rows.map((row, index) => ({ ...row, rank: index + 1 })),
+    });
+  } catch (error) {
+    console.error('GET /events/:id/assignment-recommendations failed', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
