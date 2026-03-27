@@ -55,7 +55,7 @@ Legend:
 | LR-08 | P1 | Notification template admin CRUD UI | Build | Not Started | 6.3.6, US-EM-13, T-EVT-16 | PR-41 |
 | LR-09 | P1 | Regional admin To-line configuration for email dispatch | Build | Not Started | 6.3.2, 13 decision item | PR-43 |
 | LR-10 | P1 | Channel preferences model: email_only, sms_only, both | Build | Not Started | 10.4, GAP-14 | PR-44 |
-| LR-11 | P1 | Complete notification service unit tests (email/sms/truncation) | Validate | Not Started | 14.1 PR31 follow-up, GAP-13 | PR-32 |
+| LR-11 | P1 | Complete notification service unit tests (email/sms/truncation) | Validate | In Progress | 14.1 PR31 follow-up, GAP-13 | PR-32 |
 | LR-12 | P1 | Application Insights wiring and alert baselines | Operate | Not Started | 4.1, 11.x, Open Question 17 | PR-45 |
 | LR-13 | P1 | Key Vault migration plan for sensitive app settings | Operate | Not Started | 4.1, GAP-19 | PR-46 |
 | LR-14 | P2 | ICS download from event detail and calendar context | Build | In Progress | 6.5, US-CR-07, T-CAL-08 | PR-42 |
@@ -159,6 +159,9 @@ Before full launch sign-off, collect and attach:
 - Added backend trends endpoint: `GET /api/v1/reports/delivery/trends` with daily totals/failures by range.
 - Updated reports UI with channel/status/operation filters and daily delivery trend chart + KPI tiles.
 - Verified backend and frontend production builds pass after LR-15 changes.
+- Expanded notification service unit coverage (LR-11) in `backend/src/__tests__/notifications.test.ts`.
+- Added tests for SMS truncation behavior, SMS opt-in skip logging, and email provider failure logging.
+- Verified notifications test suite and backend build pass locally after LR-11 updates.
 - Started LR-04 by fixing frontend tokenized RSVP API wiring.
 - Updated `emailRsvpApi` to call `/api/v1/events/rsvp/:token` (GET and POST) instead of `/api/v1/sms/inbound`.
 - Frontend production build completed successfully after the routing fix.
