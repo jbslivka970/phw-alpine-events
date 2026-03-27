@@ -48,6 +48,21 @@ interface DeliverySummaryPayload {
   rows: DeliverySummaryRow[];
 }
 
+interface DeliveryTrendRow {
+  day: string;
+  total_count: number;
+  failed_count: number;
+  successful_count: number;
+  email_count: number;
+  sms_count: number;
+}
+
+interface DeliveryTrendPayload {
+  from: string;
+  to: string;
+  rows: DeliveryTrendRow[];
+}
+
 interface ReminderDuplicateRow {
   event_id: string;
   member_id: string;
@@ -71,6 +86,14 @@ function parseDate(value: unknown, fallback: Date): Date {
 
 function formatIsoDate(value: Date): string {
   return value.toISOString().slice(0, 10);
+}
+
+function optionalQueryValue(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
 }
 
 async function queryEventSummary(fromDate: Date, toDate: Date): Promise<EventSummaryRow[]> {
@@ -284,6 +307,9 @@ router.get('/delivery', apiLimiter, authenticate, requireAdmin, async (req: Requ
   const defaultFrom = new Date(now.getFullYear(), now.getMonth(), 1);
   const fromDate = parseDate(req.query.from, defaultFrom);
   const toDate = parseDate(req.query.to, now);
+  const channel = optionalQueryValue(req.query.channel);
+  const status = optionalQueryValue(req.query.status);
+  const operationType = optionalQueryValue(req.query.operation_type);
   toDate.setHours(23, 59, 59, 999);
 
   try {
@@ -292,6 +318,9 @@ router.get('/delivery', apiLimiter, authenticate, requireAdmin, async (req: Requ
       .request()
       .input('fromDate', sql.DateTime, fromDate)
       .input('toDate', sql.DateTime, toDate)
+      .input('channel', sql.NVarChar(16), channel)
+      .input('status', sql.NVarChar(32), status)
+      .input('operationType', sql.NVarChar(64), operationType)
       .query<DeliverySummaryRow>(
         `SELECT
             channel,
@@ -301,6 +330,9 @@ router.get('/delivery', apiLimiter, authenticate, requireAdmin, async (req: Requ
          FROM notification_log
          WHERE sent_at >= @fromDate
            AND sent_at <= @toDate
+           AND (@channel IS NULL OR channel = @channel)
+           AND (@status IS NULL OR status = @status)
+           AND (@operationType IS NULL OR operation_type = @operationType)
          GROUP BY channel, status, operation_type
          ORDER BY channel ASC, status ASC, operation_type ASC`
       );
@@ -315,6 +347,70 @@ router.get('/delivery', apiLimiter, authenticate, requireAdmin, async (req: Requ
     res.json(payload);
   } catch (error) {
     console.error('GET /reports/delivery failed', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.get('/delivery/trends', apiLimiter, authenticate, requireAdmin, async (req: Request, res: Response) => {
+  const now = new Date();
+  const defaultFrom = new Date(now.getFullYear(), now.getMonth(), 1);
+  const fromDate = parseDate(req.query.from, defaultFrom);
+  const toDate = parseDate(req.query.to, now);
+  const channel = optionalQueryValue(req.query.channel);
+  const status = optionalQueryValue(req.query.status);
+  const operationType = optionalQueryValue(req.query.operation_type);
+  toDate.setHours(23, 59, 59, 999);
+
+  try {
+    const pool = await getPool();
+    const result = await pool
+      .request()
+      .input('fromDate', sql.DateTime, fromDate)
+      .input('toDate', sql.DateTime, toDate)
+      .input('channel', sql.NVarChar(16), channel)
+      .input('status', sql.NVarChar(32), status)
+      .input('operationType', sql.NVarChar(64), operationType)
+      .query<{
+        day: Date;
+        total_count: number;
+        failed_count: number;
+        successful_count: number;
+        email_count: number;
+        sms_count: number;
+      }>(
+        `SELECT
+            CAST(sent_at AS date) AS day,
+            COUNT(*) AS total_count,
+            SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed_count,
+            SUM(CASE WHEN status IN ('sent', 'delivered', 'stubbed') THEN 1 ELSE 0 END) AS successful_count,
+            SUM(CASE WHEN channel = 'email' THEN 1 ELSE 0 END) AS email_count,
+            SUM(CASE WHEN channel = 'sms' THEN 1 ELSE 0 END) AS sms_count
+         FROM notification_log
+         WHERE sent_at >= @fromDate
+           AND sent_at <= @toDate
+           AND (@channel IS NULL OR channel = @channel)
+           AND (@status IS NULL OR status = @status)
+           AND (@operationType IS NULL OR operation_type = @operationType)
+         GROUP BY CAST(sent_at AS date)
+         ORDER BY day ASC`
+      );
+
+    const payload: DeliveryTrendPayload = {
+      from: formatIsoDate(fromDate),
+      to: formatIsoDate(toDate),
+      rows: result.recordset.map((row) => ({
+        day: row.day.toISOString().slice(0, 10),
+        total_count: row.total_count,
+        failed_count: row.failed_count,
+        successful_count: row.successful_count,
+        email_count: row.email_count,
+        sms_count: row.sms_count,
+      })),
+    };
+
+    res.json(payload);
+  } catch (error) {
+    console.error('GET /reports/delivery/trends failed', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

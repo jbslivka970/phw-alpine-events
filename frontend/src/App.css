@@ -677,6 +677,16 @@
   font-size: 0.88rem;
 }
 
+.report-filters input[type="text"],
+.report-filters select {
+  padding: 0.35rem 0.6rem;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 0.88rem;
+  background: #fff;
+  min-width: 130px;
+}
+
 /* ------------------------------------------------------------------ */
 /* Stat grid                                                           */
 /* ------------------------------------------------------------------ */
@@ -734,6 +744,87 @@
 
 .summary-table tr:nth-child(even) td { background: #f6f9fc; }
 .summary-table tr:nth-child(even) td { background: #f2f5ec; }
+
+.delivery-trend-kpis {
+  display: flex;
+  gap: 0.75rem;
+  margin-bottom: 0.9rem;
+  flex-wrap: wrap;
+}
+
+.delivery-trend-kpi {
+  background: #f4f7f1;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.55rem 0.75rem;
+  min-width: 140px;
+  display: flex;
+  flex-direction: column;
+}
+
+.delivery-trend-kpi__value {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--primary-strong);
+}
+
+.delivery-trend-kpi__label {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.trend-chart {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(58px, 1fr));
+  gap: 0.5rem;
+  align-items: end;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.75rem;
+  background: #fbfcfa;
+}
+
+.trend-chart__col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+}
+
+.trend-chart__bar-wrap {
+  height: 110px;
+  width: 100%;
+  display: flex;
+  align-items: flex-end;
+}
+
+.trend-chart__bar {
+  width: 100%;
+  background: linear-gradient(180deg, #8cae73, #4a6d38);
+  border-radius: 4px 4px 2px 2px;
+  min-height: 6px;
+}
+
+.trend-chart__count {
+  font-size: 0.75rem;
+  color: var(--primary-strong);
+  font-weight: 600;
+}
+
+.trend-chart__label {
+  font-size: 0.72rem;
+  color: var(--muted);
+  text-align: center;
+}
+
+.trend-chart__fail {
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+
+.trend-chart__fail--bad {
+  color: #b03a2e;
+}
 
 /* ------------------------------------------------------------------ */
 /* Export section                                                      */

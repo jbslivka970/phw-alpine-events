@@ -58,8 +58,8 @@ Legend:
 | LR-11 | P1 | Complete notification service unit tests (email/sms/truncation) | Validate | Not Started | 14.1 PR31 follow-up, GAP-13 | PR-32 |
 | LR-12 | P1 | Application Insights wiring and alert baselines | Operate | Not Started | 4.1, 11.x, Open Question 17 | PR-45 |
 | LR-13 | P1 | Key Vault migration plan for sensitive app settings | Operate | Not Started | 4.1, GAP-19 | PR-46 |
-| LR-14 | P2 | ICS download from event detail and calendar context | Build | Not Started | 6.5, US-CR-07, T-CAL-08 | PR-42 |
-| LR-15 | P2 | Delivery report UX polish (filters/export/trends) | Build | Not Started | 6.6, US-CR-06, T-CAL-07 | PR-42b |
+| LR-14 | P2 | ICS download from event detail and calendar context | Build | In Progress | 6.5, US-CR-07, T-CAL-08 | PR-42 |
+| LR-15 | P2 | Delivery report UX polish (filters/export/trends) | Build | In Progress | 6.6, US-CR-06, T-CAL-07 | PR-42b |
 | LR-16 | P2 | AI invite generation | Build | Not Started | 6.3.6, US-EM-12, T-EVT-15 | PR-39 |
 | LR-17 | P2 | AI equity recommendations for assignment | Build | Not Started | 6.3.5, US-EM-09, T-EVT-11 | PR-40 |
 
@@ -148,6 +148,17 @@ Before full launch sign-off, collect and attach:
 - CI/CD run `23562201012` completed with `success`.
 - Post-deploy checks: backend root/health/ready all `200`; frontend root `200`.
 - Post-deploy SMS contract smoke: `result=PASS`.
+- Started LR-14 ICS export implementation and completed event-detail + calendar-context authenticated downloads.
+- Added backend route: `GET /api/v1/events/:id/ics` with ICS payload formatting and attachment headers.
+- Added backend route test coverage for ICS download in `backend/src/__tests__/events.test.ts`.
+- Added frontend ICS blob download helpers and wired UI actions in calendar list and events cards.
+- Commit: `e89d9ea` pushed to `main` for LR-14 ICS download slice.
+- CI/CD run `23611246513` completed with `success`.
+- Started LR-15 delivery report UX polish with filterable delivery analytics.
+- Added delivery report backend filters (`channel`, `status`, `operation_type`) to `GET /api/v1/reports/delivery`.
+- Added backend trends endpoint: `GET /api/v1/reports/delivery/trends` with daily totals/failures by range.
+- Updated reports UI with channel/status/operation filters and daily delivery trend chart + KPI tiles.
+- Verified backend and frontend production builds pass after LR-15 changes.
 - Started LR-04 by fixing frontend tokenized RSVP API wiring.
 - Updated `emailRsvpApi` to call `/api/v1/events/rsvp/:token` (GET and POST) instead of `/api/v1/sms/inbound`.
 - Frontend production build completed successfully after the routing fix.

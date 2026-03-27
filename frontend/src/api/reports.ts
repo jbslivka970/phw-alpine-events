@@ -51,13 +51,50 @@ interface DeliverySummaryResponse {
   rows: DeliverySummaryRow[];
 }
 
+interface DeliveryTrendRow {
+  day: string;
+  total_count: number;
+  failed_count: number;
+  successful_count: number;
+  email_count: number;
+  sms_count: number;
+}
+
+interface DeliveryTrendResponse {
+  from: string;
+  to: string;
+  rows: DeliveryTrendRow[];
+}
+
+interface DeliveryFilters {
+  channel?: 'email' | 'sms';
+  status?: 'queued' | 'sent' | 'delivered' | 'failed' | 'stubbed' | 'skipped';
+  operation_type?: string;
+}
+
+function buildDeliveryQuery(from: string, to: string, filters?: DeliveryFilters): string {
+  const params = new URLSearchParams({ from, to });
+  if (filters?.channel) {
+    params.set('channel', filters.channel);
+  }
+  if (filters?.status) {
+    params.set('status', filters.status);
+  }
+  if (filters?.operation_type) {
+    params.set('operation_type', filters.operation_type);
+  }
+  return params.toString();
+}
+
 const reportsApi = {
   summary: (from: string, to: string) =>
     apiGet<ReportSummaryResponse>(`/reports/summary?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`),
   participation: (year?: number) =>
     apiGet<ParticipationResponse>(year ? `/reports/participation?year=${year}` : '/reports/participation'),
-  delivery: (from: string, to: string) =>
-    apiGet<DeliverySummaryResponse>(`/reports/delivery?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`),
+  delivery: (from: string, to: string, filters?: DeliveryFilters) =>
+    apiGet<DeliverySummaryResponse>(`/reports/delivery?${buildDeliveryQuery(from, to, filters)}`),
+  deliveryTrends: (from: string, to: string, filters?: DeliveryFilters) =>
+    apiGet<DeliveryTrendResponse>(`/reports/delivery/trends?${buildDeliveryQuery(from, to, filters)}`),
   downloadExport: async (from: string, to: string): Promise<void> => {
     const response = await apiGetBlob(`/reports/export?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
     const disposition = response.headers.get('content-disposition') ?? '';
@@ -83,4 +120,7 @@ export type {
   ReportSummaryResponse,
   DeliverySummaryResponse,
   DeliverySummaryRow,
+  DeliveryTrendResponse,
+  DeliveryTrendRow,
+  DeliveryFilters,
 };

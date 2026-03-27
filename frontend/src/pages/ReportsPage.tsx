@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { reportsApi } from '../api/reports';
+import type { DeliveryFilters, DeliveryTrendRow } from '../api/reports';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -32,6 +33,37 @@ interface DeliverySummaryRow {
   status: 'queued' | 'sent' | 'delivered' | 'failed' | 'stubbed' | 'skipped';
   operation_type: string | null;
   count: number;
+}
+
+function formatShortDay(isoDate: string): string {
+  return new Date(`${isoDate}T00:00:00`).toLocaleDateString('en-GB', { month: 'short', day: 'numeric' });
+}
+
+function DeliveryTrendChart({ rows }: { rows: DeliveryTrendRow[] }) {
+  if (rows.length === 0) {
+    return <p className="members-loading">No delivery trend data in this range.</p>;
+  }
+
+  const maxCount = Math.max(...rows.map((row) => row.total_count), 1);
+
+  return (
+    <div className="trend-chart">
+      {rows.map((row) => {
+        const heightPct = Math.max(8, Math.round((row.total_count / maxCount) * 100));
+        const failPct = row.total_count > 0 ? Math.round((row.failed_count / row.total_count) * 100) : 0;
+        return (
+          <div key={row.day} className="trend-chart__col" title={`${row.day}: ${row.total_count} total, ${row.failed_count} failed`}>
+            <div className="trend-chart__bar-wrap">
+              <div className="trend-chart__bar" style={{ height: `${heightPct}%` }} />
+            </div>
+            <span className="trend-chart__count">{row.total_count}</span>
+            <span className="trend-chart__label">{formatShortDay(row.day)}</span>
+            <span className={`trend-chart__fail${failPct > 0 ? ' trend-chart__fail--bad' : ''}`}>{failPct}% fail</span>
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -142,6 +174,10 @@ function ReportsPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deliveryRows, setDeliveryRows] = useState<DeliverySummaryRow[]>([]);
+  const [deliveryTrends, setDeliveryTrends] = useState<DeliveryTrendRow[]>([]);
+  const [deliveryChannel, setDeliveryChannel] = useState<'all' | 'email' | 'sms'>('all');
+  const [deliveryStatus, setDeliveryStatus] = useState<'all' | 'queued' | 'sent' | 'delivered' | 'failed' | 'stubbed' | 'skipped'>('all');
+  const [deliveryOperation, setDeliveryOperation] = useState('');
 
   useEffect(() => {
     let active = true;
@@ -179,8 +215,14 @@ function ReportsPage() {
 
   useEffect(() => {
     let active = true;
+    const filters: DeliveryFilters = {
+      channel: deliveryChannel === 'all' ? undefined : deliveryChannel,
+      status: deliveryStatus === 'all' ? undefined : deliveryStatus,
+      operation_type: deliveryOperation.trim() || undefined,
+    };
+
     reportsApi
-      .delivery(fromDate, toDate)
+      .delivery(fromDate, toDate, filters)
       .then((data) => {
         if (!active) {
           return;
@@ -194,10 +236,37 @@ function ReportsPage() {
         setDeliveryRows([]);
       });
 
+    reportsApi
+      .deliveryTrends(fromDate, toDate, filters)
+      .then((data) => {
+        if (!active) {
+          return;
+        }
+        setDeliveryTrends(data.rows as DeliveryTrendRow[]);
+      })
+      .catch(() => {
+        if (!active) {
+          return;
+        }
+        setDeliveryTrends([]);
+      });
+
     return () => {
       active = false;
     };
-  }, [fromDate, toDate]);
+  }, [fromDate, toDate, deliveryChannel, deliveryStatus, deliveryOperation]);
+
+  const trendTotals = deliveryTrends.reduce(
+    (acc, row) => {
+      acc.total += row.total_count;
+      acc.failed += row.failed_count;
+      return acc;
+    },
+    { total: 0, failed: 0 }
+  );
+  const trendFailureRate = trendTotals.total > 0
+    ? `${Math.round((trendTotals.failed / trendTotals.total) * 100)}%`
+    : '0%';
 
   const fillRatePct = `${Math.round(summary.avg_fill_rate * 100)}%`;
   const attendRate =
@@ -227,6 +296,38 @@ function ReportsPage() {
             type="date"
             value={toDate}
             onChange={(e) => setToDate(e.target.value)}
+          />
+        </label>
+        <label>
+          Channel
+          <select value={deliveryChannel} onChange={(e) => setDeliveryChannel(e.target.value as 'all' | 'email' | 'sms')}>
+            <option value="all">All</option>
+            <option value="email">Email</option>
+            <option value="sms">SMS</option>
+          </select>
+        </label>
+        <label>
+          Status
+          <select
+            value={deliveryStatus}
+            onChange={(e) => setDeliveryStatus(e.target.value as 'all' | 'queued' | 'sent' | 'delivered' | 'failed' | 'stubbed' | 'skipped')}
+          >
+            <option value="all">All</option>
+            <option value="queued">Queued</option>
+            <option value="sent">Sent</option>
+            <option value="delivered">Delivered</option>
+            <option value="failed">Failed</option>
+            <option value="stubbed">Stubbed</option>
+            <option value="skipped">Skipped</option>
+          </select>
+        </label>
+        <label>
+          Operation
+          <input
+            type="text"
+            value={deliveryOperation}
+            placeholder="event_invite"
+            onChange={(e) => setDeliveryOperation(e.target.value)}
           />
         </label>
       </div>
@@ -272,6 +373,21 @@ function ReportsPage() {
             )}
           </tbody>
         </table>
+      </div>
+
+      <div className="summary-table-wrapper">
+        <h2>Delivery Trends</h2>
+        <div className="delivery-trend-kpis">
+          <div className="delivery-trend-kpi">
+            <span className="delivery-trend-kpi__value">{trendTotals.total}</span>
+            <span className="delivery-trend-kpi__label">Total Notifications</span>
+          </div>
+          <div className="delivery-trend-kpi">
+            <span className="delivery-trend-kpi__value">{trendFailureRate}</span>
+            <span className="delivery-trend-kpi__label">Failure Rate</span>
+          </div>
+        </div>
+        <DeliveryTrendChart rows={deliveryTrends} />
       </div>
 
       <div className="summary-table-wrapper">
