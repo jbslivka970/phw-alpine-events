@@ -171,6 +171,7 @@ Before full launch sign-off, collect and attach:
 - Started LR-08 notification template admin CRUD implementation.
 - Added backend admin route set at `GET/POST/PATCH/DELETE /api/v1/templates` with channel-aware validation and soft deactivate support.
 - Added frontend templates management page (`/templates`) and admin navigation wiring.
+- Added backend route tests for templates CRUD in `backend/src/__tests__/templates.test.ts` (list/create/patch-missing/delete + validation path).
 - Started LR-06 event update-notification UX completion.
 - Added event-edit update reason input and backend payload pass-through (`update_reason`) to support changed-field summary notifications.
 - Started LR-07 waitlist lifecycle scheduling hardening.
