@@ -132,7 +132,8 @@ class AcsEmailService implements IEmailService {
 
   constructor(
     private readonly connectionString: string,
-    private readonly senderAddress: string
+    private readonly senderAddress: string,
+    private readonly toLineAddresses: string[]
   ) {
     this.client = new EmailClient(this.connectionString);
   }
@@ -146,7 +147,7 @@ class AcsEmailService implements IEmailService {
         html: options.htmlBody,
       },
       recipients: {
-        to: [{ address: this.senderAddress }],
+        to: this.toLineAddresses.map((address) => ({ address })),
         bcc: [{ address: options.to }],
       },
     });
@@ -170,6 +171,19 @@ class AcsEmailService implements IEmailService {
 
     return result.id ?? result.messageId;
   }
+}
+
+function parseToLineAddresses(raw: string | undefined, fallback: string): string[] {
+  if (!raw) {
+    return [fallback];
+  }
+
+  const entries = raw
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
+
+  return entries.length > 0 ? entries : [fallback];
 }
 
 class AcsSmsService implements ISmsService {
@@ -465,7 +479,8 @@ if (!acsConfig.isConfigured) {
   console.warn('[NotificationService] ACS connection string appears invalid. Email and SMS sends are running in stub mode.');
 } else {
   try {
-    emailService = new AcsEmailService(acsConfig.connectionString ?? '', acsConfig.emailFrom ?? '');
+    const toLineAddresses = parseToLineAddresses(acsConfig.emailTo, acsConfig.emailFrom ?? '');
+    emailService = new AcsEmailService(acsConfig.connectionString ?? '', acsConfig.emailFrom ?? '', toLineAddresses);
     isRealEmailService = true;
   } catch (error) {
     notificationInitReasons.push('Failed to initialize ACS email client.');

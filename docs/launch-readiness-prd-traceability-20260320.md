@@ -53,7 +53,7 @@ Legend:
 | LR-06 | P1 | Event update notifications with changed-field summary | Build | Not Started | 6.3.7, US-EM-16, T-EVT-14 | PR-37 |
 | LR-07 | P1 | Waitlist auto-promotion lifecycle and expiry handling | Build | Not Started | 6.7, US-EM-18, T-EVT-18 | PR-38 |
 | LR-08 | P1 | Notification template admin CRUD UI | Build | Not Started | 6.3.6, US-EM-13, T-EVT-16 | PR-41 |
-| LR-09 | P1 | Regional admin To-line configuration for email dispatch | Build | Not Started | 6.3.2, 13 decision item | PR-43 |
+| LR-09 | P1 | Regional admin To-line configuration for email dispatch | Build | In Progress | 6.3.2, 13 decision item | PR-43 |
 | LR-10 | P1 | Channel preferences model: email_only, sms_only, both | Build | Not Started | 10.4, GAP-14 | PR-44 |
 | LR-11 | P1 | Complete notification service unit tests (email/sms/truncation) | Validate | In Progress | 14.1 PR31 follow-up, GAP-13 | PR-32 |
 | LR-12 | P1 | Application Insights wiring and alert baselines | Operate | Not Started | 4.1, 11.x, Open Question 17 | PR-45 |
@@ -162,6 +162,9 @@ Before full launch sign-off, collect and attach:
 - Expanded notification service unit coverage (LR-11) in `backend/src/__tests__/notifications.test.ts`.
 - Added tests for SMS truncation behavior, SMS opt-in skip logging, and email provider failure logging.
 - Verified notifications test suite and backend build pass locally after LR-11 updates.
+- Started LR-09 regional admin To-line configuration for email dispatch.
+- Added optional `ACS_EMAIL_TO` backend setting (comma-separated addresses) with fallback to `ACS_EMAIL_FROM`.
+- Updated ACS email send behavior to target configured To-line recipients while preserving member recipient BCC delivery.
 - Started LR-04 by fixing frontend tokenized RSVP API wiring.
 - Updated `emailRsvpApi` to call `/api/v1/events/rsvp/:token` (GET and POST) instead of `/api/v1/sms/inbound`.
 - Frontend production build completed successfully after the routing fix.

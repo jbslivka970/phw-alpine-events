@@ -30,6 +30,7 @@ interface AcsConfig {
   isConfigured: boolean;
   connectionString?: string;
   emailFrom?: string;
+  emailTo?: string;
   smsFrom?: string;
 }
 
@@ -118,12 +119,14 @@ function loadAuthConfig(): AuthConfig {
 function loadAcsConfig(): AcsConfig {
   const connectionString = optionalEnv('ACS_CONNECTION_STRING');
   const emailFrom = optionalEnv('ACS_EMAIL_FROM');
+  const emailTo = optionalEnv('ACS_EMAIL_TO');
   const smsFrom = optionalEnv('ACS_SMS_FROM');
 
   if (!connectionString) {
     return {
       isConfigured: false,
       smsFrom,
+      emailTo,
     };
   }
 
@@ -132,6 +135,7 @@ function loadAcsConfig(): AcsConfig {
       isConfigured: false,
       connectionString,
       smsFrom,
+      emailTo,
     };
   }
 
@@ -139,6 +143,7 @@ function loadAcsConfig(): AcsConfig {
     isConfigured: true,
     connectionString,
     emailFrom,
+    emailTo,
     smsFrom,
   };
 }

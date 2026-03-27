@@ -98,6 +98,7 @@ Key backend variables:
 - `DB_PASSWORD`
 - `ACS_CONNECTION_STRING`
 - `ACS_EMAIL_FROM`
+- `ACS_EMAIL_TO` (optional comma-separated To-line addresses for regional admin dispatch)
 - `ACS_SMS_FROM`
 - `AZURE_AD_B2C_TENANT_NAME`
 - `AZURE_TENANT_ID`
@@ -154,6 +155,7 @@ Optional backend settings:
 
 - `ACS_CONNECTION_STRING`
 - `ACS_EMAIL_FROM`
+- `ACS_EMAIL_TO`
 - `ACS_SMS_FROM`
 
 ## Smoke Test Sequence
