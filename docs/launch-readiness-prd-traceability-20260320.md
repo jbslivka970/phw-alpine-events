@@ -148,6 +148,12 @@ Before full launch sign-off, collect and attach:
 - CI/CD run `23562201012` completed with `success`.
 - Post-deploy checks: backend root/health/ready all `200`; frontend root `200`.
 - Post-deploy SMS contract smoke: `result=PASS`.
+- Started LR-03 idempotency hardening for reminder processing across concurrent worker instances.
+- Updated `runReminderJob` to use claim-token locking (`reminder_claimed_at`, `reminder_claim_token`) before send attempts.
+- Added safe claim release behavior for non-deliverable/failed rows and stale-claim reacquisition window.
+- Added schema migration updates for reminder claim columns and claim lookup index in `database/schema.sql`.
+- Updated reminder unit tests to validate claim, mark-sent, and release-claim branches.
+- Local validation: targeted `reminderJob` tests PASS, full backend suite PASS (`81/81`), backend build PASS, frontend build PASS.
 - Started LR-14 ICS export implementation and completed event-detail + calendar-context authenticated downloads.
 - Added backend route: `GET /api/v1/events/:id/ics` with ICS payload formatting and attachment headers.
 - Added backend route test coverage for ICS download in `backend/src/__tests__/events.test.ts`.

@@ -154,6 +154,8 @@ CREATE TABLE dbo.event_response (
     notes         NVARCHAR(500)    NULL,
     reminder_sent BIT              NOT NULL DEFAULT 0,
     reminder_sent_at DATETIME      NULL,
+    reminder_claimed_at DATETIME   NULL,
+    reminder_claim_token UNIQUEIDENTIFIER NULL,
     CONSTRAINT PK_event_response            PRIMARY KEY (response_id),
     CONSTRAINT UQ_event_response_pair       UNIQUE      (event_id, member_id),
     CONSTRAINT FK_event_response_event      FOREIGN KEY (event_id)
@@ -181,6 +183,12 @@ BEGIN
 
     IF COL_LENGTH('dbo.event_response', 'reminder_sent_at') IS NULL
         ALTER TABLE dbo.event_response ADD reminder_sent_at DATETIME NULL;
+
+    IF COL_LENGTH('dbo.event_response', 'reminder_claimed_at') IS NULL
+        ALTER TABLE dbo.event_response ADD reminder_claimed_at DATETIME NULL;
+
+    IF COL_LENGTH('dbo.event_response', 'reminder_claim_token') IS NULL
+        ALTER TABLE dbo.event_response ADD reminder_claim_token UNIQUEIDENTIFIER NULL;
 
     IF NOT EXISTS (
       SELECT 1
@@ -551,6 +559,9 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_event_response_member
 
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_event_response_event_resp' AND object_id = OBJECT_ID('dbo.event_response'))
     CREATE INDEX idx_event_response_event_resp    ON dbo.event_response (event_id, response);
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_event_response_reminder_claim' AND object_id = OBJECT_ID('dbo.event_response'))
+    CREATE INDEX idx_event_response_reminder_claim ON dbo.event_response (reminder_claim_token, reminder_claimed_at);
 
 -- waitlist_promotion_offer
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_waitlist_offer_event_status' AND object_id = OBJECT_ID('dbo.waitlist_promotion_offer'))

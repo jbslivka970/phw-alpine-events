@@ -46,7 +46,7 @@ describe('runReminderJob', () => {
           }),
           query: jest.fn().mockImplementation(async (query: string) => {
             requestCalls.push({ params: { ...params }, query });
-            if (query.includes('SELECT e.event_id')) {
+            if (query.includes('SELECT e.event_id') && query.includes('reminder_claim_token')) {
               return { recordset: rows };
             }
             return { rowsAffected: [1] };
@@ -69,11 +69,14 @@ describe('runReminderJob', () => {
       operationReason: 'lookahead_24h',
     }));
 
-    const selectCall = requestCalls.find((call) => call.query.includes('SELECT e.event_id'));
-    expect(selectCall?.params['lookAheadHours']).toBe(24);
-    expect(selectCall?.query).toContain('ISNULL(er.reminder_sent, 0) = 0');
+    const claimCall = requestCalls.find((call) => call.query.includes('SET er.reminder_claimed_at = GETUTCDATE()'));
+    expect(claimCall?.params['lookAheadHours']).toBe(24);
+    expect(claimCall?.query).toContain('ISNULL(er.reminder_sent, 0) = 0');
 
-    const updateCall = requestCalls.find((call) => call.query.includes('UPDATE event_response'));
+    const fetchClaimedCall = requestCalls.find((call) => call.query.includes('WHERE er.reminder_claim_token = @claimToken'));
+    expect(fetchClaimedCall).toBeDefined();
+
+    const updateCall = requestCalls.find((call) => call.query.includes('SET reminder_sent = 1'));
     expect(updateCall).toBeDefined();
     expect(updateCall?.params['response_id']).toBe('response-1');
   });
@@ -106,7 +109,7 @@ describe('runReminderJob', () => {
           }),
           query: jest.fn().mockImplementation(async (query: string) => {
             requestCalls.push({ params: { ...params }, query });
-            if (query.includes('SELECT e.event_id')) {
+            if (query.includes('SELECT e.event_id') && query.includes('reminder_claim_token')) {
               return { recordset: rows };
             }
             return { rowsAffected: [1] };
@@ -125,8 +128,12 @@ describe('runReminderJob', () => {
     expect(notificationService.sendEmail).not.toHaveBeenCalled();
     expect(notificationService.sendSms).not.toHaveBeenCalled();
 
-    const updateCall = requestCalls.find((call) => call.query.includes('UPDATE event_response'));
-    expect(updateCall).toBeUndefined();
+    const markSentCall = requestCalls.find((call) => call.query.includes('SET reminder_sent = 1'));
+    expect(markSentCall).toBeUndefined();
+
+    const releaseClaimCall = requestCalls.find((call) => call.query.includes('SET reminder_claimed_at = NULL'));
+    expect(releaseClaimCall).toBeDefined();
+    expect(releaseClaimCall?.params['response_id']).toBe('response-2');
   });
 
   it('falls back to sms when email send fails and still marks reminder as sent', async () => {
@@ -157,7 +164,7 @@ describe('runReminderJob', () => {
           }),
           query: jest.fn().mockImplementation(async (query: string) => {
             requestCalls.push({ params: { ...params }, query });
-            if (query.includes('SELECT e.event_id')) {
+            if (query.includes('SELECT e.event_id') && query.includes('reminder_claim_token')) {
               return { recordset: rows };
             }
             return { rowsAffected: [1] };
@@ -180,7 +187,7 @@ describe('runReminderJob', () => {
       operationReason: 'lookahead_24h',
     }));
 
-    const updateCall = requestCalls.find((call) => call.query.includes('UPDATE event_response'));
+    const updateCall = requestCalls.find((call) => call.query.includes('SET reminder_sent = 1'));
     expect(updateCall).toBeDefined();
     expect(updateCall?.params['response_id']).toBe('response-3');
   });
@@ -226,7 +233,7 @@ describe('runReminderJob', () => {
           }),
           query: jest.fn().mockImplementation(async (query: string) => {
             requestCalls.push({ params: { ...params }, query });
-            if (query.includes('SELECT e.event_id')) {
+            if (query.includes('SELECT e.event_id') && query.includes('reminder_claim_token')) {
               return { recordset: rows };
             }
             return { rowsAffected: [1] };
@@ -246,8 +253,12 @@ describe('runReminderJob', () => {
 
     expect(notificationService.sendEmail).toHaveBeenCalledTimes(2);
 
-    const updateCalls = requestCalls.filter((call) => call.query.includes('UPDATE event_response'));
+    const updateCalls = requestCalls.filter((call) => call.query.includes('SET reminder_sent = 1'));
     expect(updateCalls).toHaveLength(1);
     expect(updateCalls[0]?.params['response_id']).toBe('response-5');
+
+    const releaseCalls = requestCalls.filter((call) => call.query.includes('SET reminder_claimed_at = NULL'));
+    expect(releaseCalls).toHaveLength(1);
+    expect(releaseCalls[0]?.params['response_id']).toBe('response-4');
   });
 });
