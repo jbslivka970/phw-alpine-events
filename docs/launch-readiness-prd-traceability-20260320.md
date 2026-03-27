@@ -133,6 +133,9 @@ Before full launch sign-off, collect and attach:
 ## 10) Execution Log
 
 2026-03-27
+- Fixed TAVF add-flow access mismatch where users with admin create permissions could see Add/New actions but were redirected to dashboard on `/tavf/new`.
+- Updated frontend route protection to allow both `ADMIN` and `EVENT_CREATOR` for `GET /tavf/new`, matching `canCreateEvents()` behavior and backend authorization (`requireEventCreatorOrAdmin`).
+- Local validation: frontend production build PASS after route-authorization fix.
 - Enhanced LR-06 event update notifications to include explicit before/after changed-field detail summaries (for example: `Event date/time: <before> -> <after>`) instead of only field-name lists.
 - Updated `PUT /api/v1/events/:id` flow to compute and pass per-field change details for published-event update notifications.
 - Expanded changed-field label coverage in notification summarization for role capacities (`mentor_capacity`, `participant_capacity`).
