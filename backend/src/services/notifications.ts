@@ -55,6 +55,7 @@ interface EventNotificationPayload {
 
 interface EventUpdateNotificationPayload extends EventNotificationPayload {
   changedFields: string[];
+  changeSummary?: string | null;
   updateReason?: string | null;
 }
 
@@ -807,7 +808,7 @@ async function sendEventUpdatedNotification(payload: EventUpdateNotificationPayl
          AND er.response IN ('yes', 'maybe', 'waitlist')`
     );
 
-  const changeSummary = summarizeChangedFields(payload.changedFields);
+  const changeSummary = payload.changeSummary?.trim() || summarizeChangedFields(payload.changedFields);
 
   for (const recipient of recipientsResult.recordset) {
     const variables = {
@@ -1058,6 +1059,8 @@ function summarizeChangedFields(changedFields: string[]): string {
     location: 'location',
     event_date: 'event date/time',
     end_date: 'end time',
+    mentor_capacity: 'mentor capacity',
+    participant_capacity: 'participant capacity',
     capacity: 'capacity',
   };
 

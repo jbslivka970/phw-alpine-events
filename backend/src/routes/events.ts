@@ -577,6 +577,7 @@ router.put('/:id', writeLimiter, authenticate, requireEventCreatorOrAdmin, async
     }
 
     if (existing.status === 'published' && changedFields.length > 0) {
+      const changeSummary = buildChangedFieldSummary(changedFields, existing, updated.recordset[0]);
       await sendEventUpdatedNotification({
         event_id: req.params.id,
         title: updated.recordset[0].title,
@@ -584,6 +585,7 @@ router.put('/:id', writeLimiter, authenticate, requireEventCreatorOrAdmin, async
         location: updated.recordset[0].location,
         description: updated.recordset[0].description,
         changedFields,
+        changeSummary,
         updateReason: (req.body?.update_reason as string | undefined) ?? (req.body?.reason as string | undefined) ?? null,
       });
     }
@@ -770,6 +772,65 @@ function normalizeNumber(value: unknown): number | null {
 
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function buildChangedFieldSummary(
+  changedFields: string[],
+  before: Record<string, unknown>,
+  after: Record<string, unknown>
+): string {
+  return changedFields
+    .map((field) => {
+      const label = changedFieldLabel(field);
+      const previous = formatChangedFieldValue(field, before[field]);
+      const next = formatChangedFieldValue(field, after[field]);
+      return `${label}: ${previous} -> ${next}`;
+    })
+    .join('; ');
+}
+
+function changedFieldLabel(field: string): string {
+  const labels: Record<string, string> = {
+    title: 'Title',
+    description: 'Description',
+    location: 'Location',
+    event_date: 'Event date/time',
+    end_date: 'End time',
+    mentor_capacity: 'Mentor capacity',
+    participant_capacity: 'Participant capacity',
+    capacity: 'Capacity',
+  };
+
+  return labels[field] ?? field;
+}
+
+function formatChangedFieldValue(field: string, value: unknown): string {
+  if (value === undefined || value === null) {
+    return '(empty)';
+  }
+
+  if (field === 'event_date' || field === 'end_date') {
+    const millis = toUtcMillis(value);
+    if (millis === null) {
+      return '(invalid date)';
+    }
+    return new Date(millis).toISOString();
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : '(empty)';
+  }
+
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
+
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+
+  return String(value);
 }
 
 function parseCapacity(value: unknown): number | null {

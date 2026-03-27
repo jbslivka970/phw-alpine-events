@@ -193,6 +193,7 @@ describe('events routes', () => {
     expect(sendEventUpdatedNotification).toHaveBeenCalledWith(
       expect.objectContaining({
         changedFields: expect.arrayContaining(['event_date']),
+        changeSummary: expect.stringContaining('Event date/time: 2026-04-01T18:00:00.000Z -> 2026-04-02T18:00:00.000Z'),
       })
     );
   });

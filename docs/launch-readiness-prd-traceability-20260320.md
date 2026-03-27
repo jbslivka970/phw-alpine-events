@@ -132,6 +132,13 @@ Before full launch sign-off, collect and attach:
 
 ## 10) Execution Log
 
+2026-03-27
+- Enhanced LR-06 event update notifications to include explicit before/after changed-field detail summaries (for example: `Event date/time: <before> -> <after>`) instead of only field-name lists.
+- Updated `PUT /api/v1/events/:id` flow to compute and pass per-field change details for published-event update notifications.
+- Expanded changed-field label coverage in notification summarization for role capacities (`mentor_capacity`, `participant_capacity`).
+- Added route test assertion to verify detailed change summary content is passed into update notifications.
+- Local validation: targeted events route tests PASS (`10/10`), full backend suite PASS (`85/85`), backend build PASS, frontend build PASS.
+
 2026-03-25
 - Started LR-02 with a new inbound SMS compliance smoke harness.
 - Added script: `scripts/sms-compliance-smoke.js`.
