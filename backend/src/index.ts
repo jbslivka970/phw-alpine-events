@@ -26,6 +26,7 @@ import { loadServerConfig } from './config';
 import { errorHandler, notFoundHandler } from './middleware/error';
 import { runReminderJob } from './jobs/reminderJob';
 import { runTavfExpiryJob } from './jobs/tavfExpiryJob';
+import { runWaitlistLifecycleJob } from './jobs/waitlistLifecycleJob';
 import apiRouter from './routes';
 
 const app = express();
@@ -49,6 +50,7 @@ app.use(errorHandler);
 
 let reminderTimer: NodeJS.Timeout | undefined;
 let tavfExpiryTimer: NodeJS.Timeout | undefined;
+let waitlistLifecycleTimer: NodeJS.Timeout | undefined;
 
 function parseMs(value: string | undefined, fallback: number): number {
   if (!value) {
@@ -82,6 +84,7 @@ function scheduleJobs(): void {
   const reminderIntervalMs = parseMs(process.env['REMINDER_JOB_INTERVAL_MS'], 60 * 60 * 1000);
   const reminderLookAheadHours = parseMs(process.env['REMINDER_LOOKAHEAD_HOURS'], 48);
   const tavfExpiryIntervalMs = parseMs(process.env['TAVF_EXPIRY_JOB_INTERVAL_MS'], 24 * 60 * 60 * 1000);
+  const waitlistLifecycleIntervalMs = parseMs(process.env['WAITLIST_JOB_INTERVAL_MS'], 15 * 60 * 1000);
 
   const runReminder = async (): Promise<void> => {
     try {
@@ -99,8 +102,17 @@ function scheduleJobs(): void {
     }
   };
 
+  const runWaitlistLifecycle = async (): Promise<void> => {
+    try {
+      await runWaitlistLifecycleJob();
+    } catch (error) {
+      console.error('[scheduler] waitlist lifecycle job failed', error);
+    }
+  };
+
   void runReminder();
   void runTavfExpiry();
+  void runWaitlistLifecycle();
 
   reminderTimer = setInterval(() => {
     void runReminder();
@@ -108,6 +120,9 @@ function scheduleJobs(): void {
   tavfExpiryTimer = setInterval(() => {
     void runTavfExpiry();
   }, tavfExpiryIntervalMs);
+  waitlistLifecycleTimer = setInterval(() => {
+    void runWaitlistLifecycle();
+  }, waitlistLifecycleIntervalMs);
 
   console.log(JSON.stringify({
     level: 'info',
@@ -115,6 +130,7 @@ function scheduleJobs(): void {
     reminderIntervalMs,
     reminderLookAheadHours,
     tavfExpiryIntervalMs,
+    waitlistLifecycleIntervalMs,
     timestamp: new Date().toISOString(),
   }));
 }
@@ -129,6 +145,10 @@ function clearSchedulers(): void {
   if (tavfExpiryTimer) {
     clearInterval(tavfExpiryTimer);
     tavfExpiryTimer = undefined;
+  }
+  if (waitlistLifecycleTimer) {
+    clearInterval(waitlistLifecycleTimer);
+    waitlistLifecycleTimer = undefined;
   }
 }
 

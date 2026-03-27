@@ -157,6 +157,7 @@ Optional backend settings:
 - `ACS_EMAIL_FROM`
 - `ACS_EMAIL_TO`
 - `ACS_SMS_FROM`
+- `WAITLIST_JOB_INTERVAL_MS`
 
 ## Smoke Test Sequence
 
