@@ -11,6 +11,7 @@ const accounts = [
       navAdmin: true,
       tavfNewAllowed: false,
       adminAllowed: true,
+      eventCreateAllowed: true,
     },
   },
   {
@@ -21,6 +22,7 @@ const accounts = [
       navAdmin: false,
       tavfNewAllowed: true,
       adminAllowed: false,
+      eventCreateAllowed: true,
     },
   },
   {
@@ -31,6 +33,7 @@ const accounts = [
       navAdmin: false,
       tavfNewAllowed: true,
       adminAllowed: false,
+      eventCreateAllowed: false,
     },
   },
 ].filter((a) => a.username && a.password);
@@ -263,6 +266,14 @@ async function runForAccount(account) {
     result.checks.adminAllowed = /\/admin(\?|$)/.test(adminUrl);
     result.checks.adminExpected = account.expect.adminAllowed;
 
+    const eventsUrl = await navigateAndGetSettledUrl(page, `${appUrl}/events`);
+    result.checks.eventsUrl = eventsUrl;
+    result.checks.eventsPageLoaded = /\/events(\?|$)/.test(eventsUrl);
+
+    const eventCreateVisible = await page.getByRole('button', { name: /new event/i }).isVisible().catch(() => false);
+    result.checks.eventCreateVisible = eventCreateVisible;
+    result.checks.eventCreateExpected = account.expect.eventCreateAllowed;
+
     if (result.checks.adminNavVisible !== result.checks.adminNavExpected) {
       result.mismatches.push(`adminNavVisible expected ${result.checks.adminNavExpected} but got ${result.checks.adminNavVisible}`);
     }
@@ -273,6 +284,14 @@ async function runForAccount(account) {
 
     if (result.checks.adminAllowed !== result.checks.adminExpected) {
       result.mismatches.push(`adminAllowed expected ${result.checks.adminExpected} but got ${result.checks.adminAllowed}`);
+    }
+
+    if (!result.checks.eventsPageLoaded) {
+      result.mismatches.push(`eventsPageLoaded expected true but got ${result.checks.eventsPageLoaded}`);
+    }
+
+    if (result.checks.eventCreateVisible !== result.checks.eventCreateExpected) {
+      result.mismatches.push(`eventCreateVisible expected ${result.checks.eventCreateExpected} but got ${result.checks.eventCreateVisible}`);
     }
 
     const signOut = page.getByRole('button', { name: /sign out/i });
