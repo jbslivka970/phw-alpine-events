@@ -93,6 +93,10 @@ function useAuth() {
     return hasRole(ROLES.ADMIN) || hasRole(ROLES.EVENT_CREATOR)
   }
 
+  function canCreateTavfPostings(): boolean {
+    return hasRole(ROLES.EVENT_CREATOR) || hasRole(ROLES.USER)
+  }
+
   const interactionBusy = inProgress !== InteractionStatus.None
 
   async function login() {
@@ -194,7 +198,19 @@ function useAuth() {
     })
   }, [account, instance, interactionBusy])
 
-  return { hasRole, isAdmin, canCreateEvents, isAuthenticated, login, logout, user, interactionBusy, isLoggingIn, loginError }
+  return {
+    hasRole,
+    isAdmin,
+    canCreateEvents,
+    canCreateTavfPostings,
+    isAuthenticated,
+    login,
+    logout,
+    user,
+    interactionBusy,
+    isLoggingIn,
+    loginError,
+  }
 }
 
 function isInteractionRequired(error: unknown): boolean {

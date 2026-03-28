@@ -18,7 +18,7 @@ jest.mock('../middleware/auth', () => ({
     req.user = {
       sub: '00000000-0000-0000-0000-000000000001',
       email: 'test@example.com',
-      roles: ['ADMIN'],
+      roles: ['EVENT_CREATOR'],
       rawClaims: {},
     };
     next();

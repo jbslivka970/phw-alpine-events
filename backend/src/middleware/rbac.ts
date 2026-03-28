@@ -19,6 +19,7 @@ function requireRole(...roles: AppRole[]) {
 
 const requireAdmin = requireRole('ADMIN');
 const requireEventCreatorOrAdmin = requireRole('ADMIN', 'EVENT_CREATOR');
+const requireTavfCreator = requireRole('EVENT_CREATOR', 'USER');
 const requireAnyAuthenticatedRole = requireRole('ADMIN', 'EVENT_CREATOR', 'USER');
 
-export { requireAdmin, requireAnyAuthenticatedRole, requireEventCreatorOrAdmin, requireRole };
+export { requireAdmin, requireAnyAuthenticatedRole, requireEventCreatorOrAdmin, requireRole, requireTavfCreator };

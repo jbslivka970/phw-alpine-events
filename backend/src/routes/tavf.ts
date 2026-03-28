@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import authenticate from '../middleware/auth';
 import { apiLimiter, writeLimiter } from '../middleware/rateLimiter';
-import { requireAnyAuthenticatedRole, requireEventCreatorOrAdmin } from '../middleware/rbac';
+import { requireAnyAuthenticatedRole, requireEventCreatorOrAdmin, requireTavfCreator } from '../middleware/rbac';
 import * as tavf from '../services/tavfService';
 
 const router = Router();
@@ -50,7 +50,7 @@ router.get('/postings/:id', apiLimiter, async (req: Request, res: Response): Pro
  * POST /api/tavf/postings
  * Body: CreatePostingInput
  */
-router.post('/postings', writeLimiter, requireEventCreatorOrAdmin, async (req: Request, res: Response): Promise<void> => {
+router.post('/postings', writeLimiter, requireTavfCreator, async (req: Request, res: Response): Promise<void> => {
   try {
     const { guide_member_id, event_date, location, capacity, species, description } = req.body as tavf.CreatePostingInput;
     if (!guide_member_id || !event_date || !location || !capacity) {

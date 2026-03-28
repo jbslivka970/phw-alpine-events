@@ -7,9 +7,10 @@ import { useAuth } from '../hooks/useAuth'
 interface ProtectedRouteProps {
   children: ReactNode
   requiredRole?: AppRole
+  requiredRoles?: AppRole[]
 }
 
-function ProtectedRoute({ children, requiredRole }: ProtectedRouteProps) {
+function ProtectedRoute({ children, requiredRole, requiredRoles }: ProtectedRouteProps) {
   const isAuthenticated = useIsAuthenticated()
   const { hasRole } = useAuth()
   const location = useLocation()
@@ -19,6 +20,10 @@ function ProtectedRoute({ children, requiredRole }: ProtectedRouteProps) {
   }
 
   if (requiredRole && !hasRole(requiredRole)) {
+    return <Navigate to="/dashboard" replace />
+  }
+
+  if (requiredRoles && !requiredRoles.some((role) => hasRole(role))) {
     return <Navigate to="/dashboard" replace />
   }
 
