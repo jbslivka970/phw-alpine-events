@@ -94,7 +94,7 @@ function useAuth() {
   }
 
   function canCreateTavfPostings(): boolean {
-    return isAuthenticated && !isAdmin()
+    return Boolean(user) && !isAdmin()
   }
 
   const interactionBusy = inProgress !== InteractionStatus.None
