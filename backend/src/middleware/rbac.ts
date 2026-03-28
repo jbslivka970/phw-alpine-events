@@ -17,9 +17,23 @@ function requireRole(...roles: AppRole[]) {
   };
 }
 
+function requireNonAdmin(req: Request, res: Response, next: NextFunction): void {
+  if (!req.user) {
+    res.status(401).json({ error: 'Authentication required' });
+    return;
+  }
+
+  if (req.user.roles.includes('ADMIN')) {
+    res.status(403).json({ error: 'Insufficient permissions' });
+    return;
+  }
+
+  next();
+}
+
 const requireAdmin = requireRole('ADMIN');
 const requireEventCreatorOrAdmin = requireRole('ADMIN', 'EVENT_CREATOR');
-const requireTavfCreator = requireRole('EVENT_CREATOR', 'USER');
+const requireTavfCreator = requireNonAdmin;
 const requireAnyAuthenticatedRole = requireRole('ADMIN', 'EVENT_CREATOR', 'USER');
 
 export { requireAdmin, requireAnyAuthenticatedRole, requireEventCreatorOrAdmin, requireRole, requireTavfCreator };

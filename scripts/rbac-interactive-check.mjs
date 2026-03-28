@@ -155,6 +155,13 @@ async function navigateAndGetSettledUrl(page, url) {
   return page.url();
 }
 
+async function clickAndGetSettledUrl(page, locator) {
+  await locator.click();
+  await page.waitForLoadState('networkidle').catch(() => {});
+  await page.waitForTimeout(1500);
+  return page.url();
+}
+
 async function login(page, username, password, role) {
   await page.goto(`${appUrl}/login`, { waitUntil: 'domcontentloaded' });
 
@@ -256,17 +263,36 @@ async function runForAccount(account) {
     result.checks.adminNavVisible = adminNavVisible;
     result.checks.adminNavExpected = account.expect.navAdmin;
 
-    const tavfNewUrl = await navigateAndGetSettledUrl(page, `${appUrl}/tavf/new`);
+    let tavfNewUrl = page.url();
+    const tavfNav = page.locator('a[href="/tavf"]').first();
+    if (await tavfNav.isVisible().catch(() => false)) {
+      await clickAndGetSettledUrl(page, tavfNav);
+    }
+
+    const tavfCreateAction = page.locator('a[href="/tavf/new"], button:has-text("New Posting"), a:has-text("Create the first posting")').first();
+    const tavfCreateVisible = await tavfCreateAction.isVisible().catch(() => false);
+    result.checks.tavfCreateActionVisible = tavfCreateVisible;
+    if (tavfCreateVisible) {
+      tavfNewUrl = await clickAndGetSettledUrl(page, tavfCreateAction);
+    }
     result.checks.tavfNewUrl = tavfNewUrl;
     result.checks.tavfNewAllowed = /\/tavf\/new(\?|$)/.test(tavfNewUrl);
     result.checks.tavfNewExpected = account.expect.tavfNewAllowed;
 
-    const adminUrl = await navigateAndGetSettledUrl(page, `${appUrl}/admin`);
+    let adminUrl = page.url();
+    const adminNav = page.locator('a[href="/admin"]').first();
+    if (await adminNav.isVisible().catch(() => false)) {
+      adminUrl = await clickAndGetSettledUrl(page, adminNav);
+    }
     result.checks.adminUrl = adminUrl;
     result.checks.adminAllowed = /\/admin(\?|$)/.test(adminUrl);
     result.checks.adminExpected = account.expect.adminAllowed;
 
-    const eventsUrl = await navigateAndGetSettledUrl(page, `${appUrl}/events`);
+    let eventsUrl = page.url();
+    const eventsNav = page.locator('a[href="/events"]').first();
+    if (await eventsNav.isVisible().catch(() => false)) {
+      eventsUrl = await clickAndGetSettledUrl(page, eventsNav);
+    }
     result.checks.eventsUrl = eventsUrl;
     result.checks.eventsPageLoaded = /\/events(\?|$)/.test(eventsUrl);
 

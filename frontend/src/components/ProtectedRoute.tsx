@@ -9,9 +9,10 @@ interface ProtectedRouteProps {
   children: ReactNode
   requiredRole?: AppRole
   requiredRoles?: AppRole[]
+  disallowedRoles?: AppRole[]
 }
 
-function ProtectedRoute({ children, requiredRole, requiredRoles }: ProtectedRouteProps) {
+function ProtectedRoute({ children, requiredRole, requiredRoles, disallowedRoles }: ProtectedRouteProps) {
   const { accounts, inProgress } = useMsal()
   const isAuthenticated = useIsAuthenticated()
   const { hasRole } = useAuth()
@@ -32,6 +33,10 @@ function ProtectedRoute({ children, requiredRole, requiredRoles }: ProtectedRout
   }
 
   if (requiredRoles && !requiredRoles.some((role) => hasRole(role))) {
+    return <Navigate to="/dashboard" replace />
+  }
+
+  if (disallowedRoles && disallowedRoles.some((role) => hasRole(role))) {
     return <Navigate to="/dashboard" replace />
   }
 

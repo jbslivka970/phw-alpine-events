@@ -94,7 +94,7 @@ function useAuth() {
   }
 
   function canCreateTavfPostings(): boolean {
-    return hasRole(ROLES.EVENT_CREATOR) || hasRole(ROLES.USER)
+    return isAuthenticated && !isAdmin()
   }
 
   const interactionBusy = inProgress !== InteractionStatus.None
