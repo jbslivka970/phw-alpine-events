@@ -1,4 +1,5 @@
-import { useIsAuthenticated } from '@azure/msal-react'
+import { InteractionStatus } from '@azure/msal-browser'
+import { useIsAuthenticated, useMsal } from '@azure/msal-react'
 import type { ReactNode } from 'react'
 import { Navigate, useLocation } from 'react-router-dom'
 import type { AppRole } from '../authConfig'
@@ -11,11 +12,18 @@ interface ProtectedRouteProps {
 }
 
 function ProtectedRoute({ children, requiredRole, requiredRoles }: ProtectedRouteProps) {
+  const { accounts, inProgress } = useMsal()
   const isAuthenticated = useIsAuthenticated()
   const { hasRole } = useAuth()
   const location = useLocation()
+  const authReady = inProgress === InteractionStatus.None
+  const hasKnownAccount = accounts.length > 0
 
-  if (!isAuthenticated) {
+  if (!authReady) {
+    return null
+  }
+
+  if (!isAuthenticated && !hasKnownAccount) {
     return <Navigate to="/login" state={{ from: location }} replace />
   }
 

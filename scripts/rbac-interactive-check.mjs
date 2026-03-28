@@ -220,10 +220,10 @@ async function runForAccount(account) {
 
     const roleClaims = await page.evaluate(() => {
       const values = [];
-      const keys = Object.keys(window.localStorage).filter((key) => key.includes('msal') && key.includes('account'));
+      const keys = Object.keys(window.sessionStorage).filter((key) => key.includes('msal') && key.includes('account'));
       for (const key of keys) {
         try {
-          const parsed = JSON.parse(window.localStorage.getItem(key) ?? '{}');
+          const parsed = JSON.parse(window.sessionStorage.getItem(key) ?? '{}');
           const claims = parsed?.idTokenClaims ?? {};
           const raw = [
             claims.roles,
