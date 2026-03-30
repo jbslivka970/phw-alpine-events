@@ -259,21 +259,40 @@ async function runForAccount(account) {
     });
     result.checks.roleClaims = roleClaims;
 
+    const displayedUserLabel = await page.locator('.phw-layout__user span').first().textContent().catch(() => null);
+    result.checks.displayedUser = displayedUserLabel?.trim() ?? null;
+
     const adminNavVisible = await page.locator('a[href="/admin"]').first().isVisible().catch(() => false);
     result.checks.adminNavVisible = adminNavVisible;
     result.checks.adminNavExpected = account.expect.navAdmin;
 
     let tavfNewUrl = page.url();
     const tavfNav = page.locator('a[href="/tavf"]').first();
-    if (await tavfNav.isVisible().catch(() => false)) {
-      await clickAndGetSettledUrl(page, tavfNav);
+    const tavfNavVisible = await tavfNav.isVisible().catch(() => false);
+    result.checks.tavfNavVisible = tavfNavVisible;
+    if (tavfNavVisible) {
+      result.checks.tavfNavUrl = await clickAndGetSettledUrl(page, tavfNav);
+    } else {
+      result.checks.tavfNavUrl = page.url();
     }
 
     const tavfCreateAction = page.locator('a[href="/tavf/new"], button:has-text("New Posting"), a:has-text("Create the first posting")').first();
     const tavfCreateVisible = await tavfCreateAction.isVisible().catch(() => false);
     result.checks.tavfCreateActionVisible = tavfCreateVisible;
+    const tavfDomDiagnostics = await page.evaluate(() => {
+      const header = document.querySelector('.page-header');
+      const createLink = document.querySelector('a[href="/tavf/new"]');
+      return {
+        headerText: header?.textContent?.replace(/\s+/g, ' ').trim() ?? null,
+        hasCreateLinkInDom: Boolean(createLink),
+      };
+    });
+    result.checks.tavfHeaderText = tavfDomDiagnostics.headerText;
+    result.checks.tavfCreateLinkInDom = tavfDomDiagnostics.hasCreateLinkInDom;
     if (tavfCreateVisible) {
       tavfNewUrl = await clickAndGetSettledUrl(page, tavfCreateAction);
+    } else {
+      tavfNewUrl = page.url();
     }
     result.checks.tavfNewUrl = tavfNewUrl;
     result.checks.tavfNewAllowed = /\/tavf\/new(\?|$)/.test(tavfNewUrl);

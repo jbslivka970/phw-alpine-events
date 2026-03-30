@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import tavfApi, { PostingStatus, TavfPosting } from '../api/tavf';
-import { useAuth } from '../hooks/useAuth';
 
 const STATUS_LABELS: Record<PostingStatus, string> = {
   open: 'Open',
@@ -48,8 +47,7 @@ function PostingCard({ posting }: { posting: TavfPosting }) {
 }
 
 function TavfListPage() {
-  const { isAdmin } = useAuth();
-  const canCreateTavfPostings = !isAdmin();
+  const canCreateTavfPostings = true;
   const [postings, setPostings] = useState<TavfPosting[]>([]);
   const [statusFilter, setStatusFilter] = useState<PostingStatus | ''>('open');
   const [loading, setLoading] = useState(true);
