@@ -153,9 +153,88 @@ jobs:
         VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL }}
       run: cd frontend && npm run build
 
+    - name: Package frontend artifact
+      run: cd frontend/dist && zip -r ../../frontend-release.zip .
+
     - name: Deploy frontend to Azure
-      uses: azure/webapps-deploy@v2
-      with:
-        app-name: ${{ vars.AZURE_FRONTEND_WEBAPP_NAME }}
-        publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_FRONTEND }}
-        package: frontend/dist
+      env:
+        AZURE_FRONTEND_WEBAPP_NAME: ${{ vars.AZURE_FRONTEND_WEBAPP_NAME }}
+        FRONTEND_PUBLISH_PROFILE: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_FRONTEND }}
+      run: |
+        python3 - <<'PY'
+        import base64
+        import json
+        import os
+        import time
+        import urllib.error
+        import urllib.parse
+        import urllib.request
+        import xml.etree.ElementTree as ET
+
+        app_name = os.environ['AZURE_FRONTEND_WEBAPP_NAME']
+        publish_profile_xml = os.environ['FRONTEND_PUBLISH_PROFILE']
+
+        root = ET.fromstring(publish_profile_xml)
+        profiles = root.findall('.//publishProfile')
+
+        selected = None
+        for profile in profiles:
+          method = (profile.attrib.get('publishMethod') or '').lower()
+          if method in ('msdeploy', 'zipdeploy'):
+            selected = profile
+            break
+
+        if selected is None and profiles:
+          selected = profiles[0]
+
+        if selected is None:
+          raise SystemExit('No publishProfile element found in frontend publish profile secret')
+
+        username = selected.attrib.get('userName')
+        password = selected.attrib.get('userPWD')
+        if not username or not password:
+          raise SystemExit('Publish profile is missing username/password')
+
+        kudu_base = f'https://{app_name}.scm.azurewebsites.net'
+        deploy_url = f'{kudu_base}/api/zipdeploy?isAsync=true'
+
+        with open('frontend-release.zip', 'rb') as zip_file:
+          zip_payload = zip_file.read()
+
+        auth = base64.b64encode(f'{username}:{password}'.encode('utf-8')).decode('ascii')
+        headers = {
+          'Authorization': f'Basic {auth}',
+          'Content-Type': 'application/zip',
+        }
+
+        request = urllib.request.Request(deploy_url, data=zip_payload, headers=headers, method='POST')
+        try:
+          with urllib.request.urlopen(request, timeout=180) as response:
+            _ = response.read()
+            print(f'Zipdeploy accepted with status {response.status}')
+        except urllib.error.HTTPError as error:
+          body = error.read().decode('utf-8', errors='replace')
+          raise SystemExit(f'Zipdeploy request failed: HTTP {error.code} {body}')
+
+        status_url = f'{kudu_base}/api/deployments/latest'
+        for attempt in range(60):
+          status_request = urllib.request.Request(status_url, headers=headers, method='GET')
+          with urllib.request.urlopen(status_request, timeout=60) as response:
+            payload = json.loads(response.read().decode('utf-8'))
+
+          status = payload.get('status')
+          progress = payload.get('progress') or ''
+          print(f'Deploy poll {attempt + 1}: status={status} progress={progress}')
+
+          # Kudu deployment status 4 = success, 3 = failed
+          if status == 4:
+            print('Frontend deployment succeeded')
+            break
+          if status == 3:
+            log_url = payload.get('log_url')
+            raise SystemExit(f'Frontend deployment failed. log_url={log_url}')
+
+          time.sleep(5)
+        else:
+          raise SystemExit('Timed out waiting for frontend deployment completion')
+        PY
