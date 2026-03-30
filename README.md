@@ -59,16 +59,26 @@ The pipeline lives in `.github/workflows/ci-cd.yml`.
 
 - `build` installs and compiles the frontend and backend
 - `deploy` assembles the backend deployment package and pushes it to Azure App Service on pushes to `main`
+- `deploy_frontend` builds the frontend and deploys `frontend/dist` to the frontend Azure App Service on pushes to `main`
 
 ### Required GitHub Variables
 
 - `AZURE_WEBAPP_NAME`
+- `AZURE_FRONTEND_WEBAPP_NAME`
+- `VITE_EXTERNAL_CLIENT_ID`
+- `VITE_EXTERNAL_TENANT_ID`
+- `VITE_EXTERNAL_TENANT_NAME`
+- `VITE_API_SCOPE`
+- `VITE_API_BASE_URL`
 
 ### Required GitHub Secrets
 
 - `AZUREAPPSERVICE_PUBLISHPROFILE`
+- `AZUREAPPSERVICE_PUBLISHPROFILE_FRONTEND`
 
-If `AZURE_WEBAPP_NAME` is not configured, the deploy job is skipped and the workflow behaves as build-only validation.
+If `AZURE_WEBAPP_NAME` is not configured, the backend deploy job is skipped.
+If `AZURE_FRONTEND_WEBAPP_NAME` or the required `VITE_*` variables are not configured, the frontend deploy job is skipped.
+In both cases, the workflow still runs build and test validation.
 
 ## Local Development
 
