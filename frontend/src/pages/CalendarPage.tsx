@@ -85,16 +85,21 @@ function parseDispositionFilename(headerValue: string | null): string | null {
 }
 
 async function downloadEventIcs(event: CalendarEvent): Promise<void> {
-  const { blob, headers } = await calendarApi.downloadIcs(event.event_id);
-  const objectUrl = URL.createObjectURL(blob);
-  const anchor = document.createElement('a');
-  const fromHeader = parseDispositionFilename(headers.get('content-disposition'));
-  anchor.href = objectUrl;
-  anchor.download = fromHeader ?? suggestedIcsFilename(event);
-  document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
-  URL.revokeObjectURL(objectUrl);
+  try {
+    const { blob, headers } = await calendarApi.downloadIcs(event.event_id);
+    const objectUrl = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    const fromHeader = parseDispositionFilename(headers.get('content-disposition'));
+    anchor.href = objectUrl;
+    anchor.download = fromHeader ?? suggestedIcsFilename(event);
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(objectUrl);
+  } catch (error) {
+    console.error('Failed to download calendar file', error);
+    window.alert('Unable to download this event calendar file right now. Please try again.');
+  }
 }
 
 // ---------------------------------------------------------------------------

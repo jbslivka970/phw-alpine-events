@@ -162,30 +162,50 @@ function TavfDetailPage() {
   }
 
   async function handleStatusChange(appId: string, status: ApplicationStatus) {
-    await tavfApi.updateApplicationStatus(appId, status);
-    await load();
+    try {
+      await tavfApi.updateApplicationStatus(appId, status);
+      await load();
+    } catch (err) {
+      setError((err as Error).message ?? 'Failed to update application status');
+    }
   }
 
   async function handleMatch(postingId: string, appId: string) {
-    await tavfApi.createMatch({ posting_id: postingId, application_id: appId, matched_by: user?.id });
-    await load();
+    try {
+      await tavfApi.createMatch({ posting_id: postingId, application_id: appId, matched_by: user?.id });
+      await load();
+    } catch (err) {
+      setError((err as Error).message ?? 'Failed to confirm match');
+    }
   }
 
   async function handleCancelMatch(matchId: string) {
-    await tavfApi.deleteMatch(matchId);
-    await load();
+    try {
+      await tavfApi.deleteMatch(matchId);
+      await load();
+    } catch (err) {
+      setError((err as Error).message ?? 'Failed to cancel match');
+    }
   }
 
   async function handleDeletePosting() {
     if (!id || !confirm('Delete this posting? This cannot be undone.')) return;
-    await tavfApi.deletePosting(id);
-    navigate('/tavf');
+    try {
+      await tavfApi.deletePosting(id);
+      navigate('/tavf');
+    } catch (err) {
+      setError((err as Error).message ?? 'Failed to delete posting');
+    }
   }
 
   async function handlePostingStatusChange(status: PostingStatus) {
     if (!id) return;
-    await tavfApi.updatePosting(id, { status });
-    await load();
+    try {
+      await tavfApi.updatePosting(id, { status });
+      await load();
+    } catch (err) {
+      setError((err as Error).message ?? 'Failed to update posting status');
+    }
   }
 
   if (loading) return <div className="page-container"><p className="loading-text">Loading…</p></div>;

@@ -17,7 +17,7 @@ function useAuth() {
   const isAuthenticated = useIsAuthenticated()
   const account = accounts[0] ?? null
   const loginRequestRef = useRef<Promise<void> | null>(null)
-  const interactiveTokenRequestRef = useRef<Promise<string | null> | null>(null)
+  const tokenRedirectInFlightRef = useRef(false)
 
   const accountClaims = account?.idTokenClaims as Record<string, unknown> | undefined
   const [resolvedRoles, setResolvedRoles] = useState<AppRole[]>(() => mapRoles(accountClaims))
@@ -120,6 +120,11 @@ function useAuth() {
         }
       } catch (error: unknown) {
         const code = (error as { errorCode?: string })?.errorCode
+        if (code === 'popup_window_error' || code === 'empty_window_error') {
+          setLoginError('Popup blocked. Redirecting to sign-in...')
+          await instance.loginRedirect(loginRequest)
+          return
+        }
         if (code === 'user_cancelled') {
           setLoginError('Sign-in was cancelled.')
           return
@@ -170,30 +175,23 @@ function useAuth() {
           return null
         }
 
-        if (!interactiveTokenRequestRef.current) {
-          interactiveTokenRequestRef.current = instance.acquireTokenPopup({
-            ...loginRequest,
-            account,
-          })
-            .then((response) => {
-              if (response.account) {
-                instance.setActiveAccount(response.account)
-              }
-              return response.accessToken
+        if (!tokenRedirectInFlightRef.current) {
+          tokenRedirectInFlightRef.current = true
+          try {
+            await instance.acquireTokenRedirect({
+              ...loginRequest,
+              account,
             })
-            .catch((popupError: unknown) => {
-              const code = (popupError as { errorCode?: string })?.errorCode
-              if (code !== 'user_cancelled' && code !== 'interaction_in_progress') {
-                console.error('[MSAL] Interactive token acquisition failed:', popupError)
-              }
-              return null
-            })
-            .finally(() => {
-              interactiveTokenRequestRef.current = null
-            })
+          } catch (redirectError: unknown) {
+            const code = (redirectError as { errorCode?: string })?.errorCode
+            if (code !== 'interaction_in_progress') {
+              console.error('[MSAL] Redirect token acquisition failed:', redirectError)
+            }
+            tokenRedirectInFlightRef.current = false
+          }
         }
 
-        return interactiveTokenRequestRef.current
+        return null
       }
     })
   }, [account, instance, interactionBusy])

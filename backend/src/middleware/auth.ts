@@ -59,37 +59,23 @@ function extractRoles(claims: JwtPayload): AppRole[] {
   const rawRoles: string[] = [];
   const validRoles: AppRole[] = ['ADMIN', 'EVENT_CREATOR', 'USER'];
 
-  if (Array.isArray(claims['roles'])) {
-    rawRoles.push(...(claims['roles'] as string[]));
-  }
+  const pushClaimValues = (value: unknown): void => {
+    if (typeof value === 'string') {
+      rawRoles.push(...value.split(',').map((role) => role.trim()).filter(Boolean));
+      return;
+    }
 
-  if (typeof claims['extension_roles'] === 'string') {
-    rawRoles.push(
-      ...(claims['extension_roles'] as string)
-        .split(',')
-        .map((role) => role.trim())
-    );
-  }
+    if (Array.isArray(value)) {
+      rawRoles.push(...value.filter((role): role is string => typeof role === 'string').map((role) => role.trim()).filter(Boolean));
+    }
+  };
 
-  if (typeof claims['extension_Roles'] === 'string') {
-    rawRoles.push(
-      ...(claims['extension_Roles'] as string)
-        .split(',')
-        .map((role) => role.trim())
-    );
-  }
-
-  if (Array.isArray(claims['appRoles'])) {
-    rawRoles.push(...(claims['appRoles'] as string[]));
-  }
-
-  if (Array.isArray(claims['app_roles'])) {
-    rawRoles.push(...(claims['app_roles'] as string[]));
-  }
-
-  if (Array.isArray(claims['groups'])) {
-    rawRoles.push(...(claims['groups'] as string[]));
-  }
+  pushClaimValues(claims['roles']);
+  pushClaimValues(claims['extension_roles']);
+  pushClaimValues(claims['extension_Roles']);
+  pushClaimValues(claims['appRoles']);
+  pushClaimValues(claims['app_roles']);
+  pushClaimValues(claims['groups']);
 
   return rawRoles
     .map((role) => role.toUpperCase())
