@@ -159,7 +159,8 @@ jobs:
     - name: Deploy frontend to Azure
       env:
         AZURE_FRONTEND_WEBAPP_NAME: ${{ vars.AZURE_FRONTEND_WEBAPP_NAME }}
-        FRONTEND_PUBLISH_PROFILE: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_FRONTEND }}
+        FRONTEND_PUBLISH_USERNAME: ${{ secrets.AZURE_FRONTEND_PUBLISH_USERNAME }}
+        FRONTEND_PUBLISH_PASSWORD: ${{ secrets.AZURE_FRONTEND_PUBLISH_PASSWORD }}
       run: |
         python3 - <<'PY'
         import base64
@@ -167,33 +168,13 @@ jobs:
         import os
         import time
         import urllib.error
-        import urllib.parse
         import urllib.request
-        import xml.etree.ElementTree as ET
 
         app_name = os.environ['AZURE_FRONTEND_WEBAPP_NAME']
-        publish_profile_xml = os.environ['FRONTEND_PUBLISH_PROFILE']
-
-        root = ET.fromstring(publish_profile_xml)
-        profiles = root.findall('.//publishProfile')
-
-        selected = None
-        for profile in profiles:
-          method = (profile.attrib.get('publishMethod') or '').lower()
-          if method in ('msdeploy', 'zipdeploy'):
-            selected = profile
-            break
-
-        if selected is None and profiles:
-          selected = profiles[0]
-
-        if selected is None:
-          raise SystemExit('No publishProfile element found in frontend publish profile secret')
-
-        username = selected.attrib.get('userName')
-        password = selected.attrib.get('userPWD')
+        username = os.environ['FRONTEND_PUBLISH_USERNAME']
+        password = os.environ['FRONTEND_PUBLISH_PASSWORD']
         if not username or not password:
-          raise SystemExit('Publish profile is missing username/password')
+          raise SystemExit('Missing frontend publish credentials secrets')
 
         kudu_base = f'https://{app_name}.scm.azurewebsites.net'
         deploy_url = f'{kudu_base}/api/zipdeploy?isAsync=true'
