@@ -75,13 +75,51 @@ jobs:
         cd deploy-package
         zip -r ../release.zip .
 
-    - name: Deploy to Azure
+    - name: Deploy to Azure (attempt 1)
+      id: deploy_attempt_1
+      continue-on-error: true
       uses: azure/webapps-deploy@v2
       with:
         app-name: ${{ vars.AZURE_WEBAPP_NAME }}
         slot-name: 'production'
         publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE }}
         package: release.zip
+
+    - name: Backoff before retry
+      if: ${{ steps.deploy_attempt_1.outcome == 'failure' }}
+      run: sleep 30
+
+    - name: Deploy to Azure (attempt 2)
+      id: deploy_attempt_2
+      if: ${{ steps.deploy_attempt_1.outcome == 'failure' }}
+      continue-on-error: true
+      uses: azure/webapps-deploy@v2
+      with:
+        app-name: ${{ vars.AZURE_WEBAPP_NAME }}
+        slot-name: 'production'
+        publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE }}
+        package: release.zip
+
+    - name: Backoff before final retry
+      if: ${{ steps.deploy_attempt_1.outcome == 'failure' && steps.deploy_attempt_2.outcome == 'failure' }}
+      run: sleep 60
+
+    - name: Deploy to Azure (attempt 3)
+      id: deploy_attempt_3
+      if: ${{ steps.deploy_attempt_1.outcome == 'failure' && steps.deploy_attempt_2.outcome == 'failure' }}
+      continue-on-error: true
+      uses: azure/webapps-deploy@v2
+      with:
+        app-name: ${{ vars.AZURE_WEBAPP_NAME }}
+        slot-name: 'production'
+        publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE }}
+        package: release.zip
+
+    - name: Fail deploy after retries exhausted
+      if: ${{ steps.deploy_attempt_1.outcome == 'failure' && steps.deploy_attempt_2.outcome == 'failure' && steps.deploy_attempt_3.outcome == 'failure' }}
+      run: |
+        echo "Azure deployment failed after 3 attempts."
+        exit 1
 
     - name: Run post-deploy compliance smokes
       run: |
