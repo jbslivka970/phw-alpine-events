@@ -279,7 +279,7 @@ async function processInboundMessage(from: string, rawMessage: string, source: I
   }
 
   if (normalized === 'help') {
-    const reply = 'PHW Alpine: Reply Y, N, M, or W to event texts. Reply STOP to opt out. For more help, contact chapter leadership.';
+    const reply = "PHW Alpine: Reply Y, N, M, or W to event texts. For multiple invites, include the event number like 'Y 1' or '1 Y'. Add role when needed: 'Y M 1' or '1 Y P'. Reply STOP to opt out.";
     await notificationService.sendSms({
       to: member.mobile_phone,
       message: reply,
@@ -292,9 +292,12 @@ async function processInboundMessage(from: string, rawMessage: string, source: I
     );
   }
 
+  const pendingEvents = await listPendingEventsForMember(member.member_id);
   const parsed = parseRsvpKeyword(normalized);
   if (!parsed) {
-    const reply = "PHW Alpine: Didn't understand. Reply Y, N, M, or W. If you have multiple invites, reply like 'Y 1'. Reply STOP to opt out.";
+    const reply = pendingEvents.length > 1
+      ? `PHW Alpine: Didn't understand. Reply Y, N, M, or W and include an event number like 'Y 1' or '1 Y'. ${formatPendingEvents(pendingEvents)}`
+      : "PHW Alpine: Didn't understand. Reply Y, N, M, or W. If you have multiple invites, reply like 'Y 1'. Reply STOP to opt out.";
     await notificationService.sendSms({
       to: member.mobile_phone,
       message: reply,
@@ -307,7 +310,6 @@ async function processInboundMessage(from: string, rawMessage: string, source: I
     );
   }
 
-  const pendingEvents = await listPendingEventsForMember(member.member_id);
   if (pendingEvents.length === 0) {
     const reply = 'PHW Alpine: You do not have any open event invites awaiting RSVP right now.';
     await notificationService.sendSms({
@@ -470,18 +472,46 @@ async function optOutMember(memberId: string): Promise<void> {
 }
 
 function parseRsvpKeyword(message: string): { response: RsvpResponse; responseRole?: 'MENTOR' | 'PARTICIPANT'; eventIndex?: number } | null {
-  const match = /^(y|yes|n|no|m|maybe|w|waitlist)(?:\s+(mentor|participant|m|p))?(?:\s+(\d+))?$/.exec(message);
-  if (!match) {
+  const tokens = message.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (tokens.length === 0 || tokens.length > 3) {
     return null;
   }
 
-  const response = RESPONSE_MAP[match[1]];
-  const responseRole = parseResponseRole(match[2]);
-  const eventIndex = match[3] ? parseInt(match[3], 10) : undefined;
+  let response: RsvpResponse | undefined;
+  let responseRole: 'MENTOR' | 'PARTICIPANT' | undefined;
+  let eventIndex: number | undefined;
+
+  for (const token of tokens) {
+    if (!response && RESPONSE_MAP[token]) {
+      response = RESPONSE_MAP[token];
+      continue;
+    }
+
+    const parsedRole = parseResponseRole(token);
+    if (!responseRole && parsedRole) {
+      responseRole = parsedRole;
+      continue;
+    }
+
+    if (!eventIndex && /^\d+$/.test(token)) {
+      const parsedIndex = parseInt(token, 10);
+      if (!Number.isNaN(parsedIndex)) {
+        eventIndex = parsedIndex;
+        continue;
+      }
+    }
+
+    return null;
+  }
+
+  if (!response) {
+    return null;
+  }
+
   return {
     response,
     responseRole,
-    eventIndex: eventIndex && !Number.isNaN(eventIndex) ? eventIndex : undefined,
+    eventIndex,
   };
 }
 
@@ -518,16 +548,20 @@ function resolveTargetEvent(eventIndex: number | undefined, pendingEvents: Pendi
 }
 
 function buildAmbiguityReply(pendingEvents: PendingEvent[], attemptedIndex?: number): string {
-  const eventList = pendingEvents
+  const eventList = formatPendingEvents(pendingEvents);
+
+  if (attemptedIndex !== undefined && (attemptedIndex < 1 || attemptedIndex > pendingEvents.length)) {
+    return `PHW Alpine: That event number is out of range. Reply like 'Y 1', 'N 1', 'M 1', or 'W 1'. You can also reply '1 Y'. ${eventList}`;
+  }
+
+  return `PHW Alpine: You have multiple open invites. Reply like 'Y 1', 'N 1', 'M 1', or 'W 1'. You can also reply '1 Y'. ${eventList}`;
+}
+
+function formatPendingEvents(pendingEvents: PendingEvent[]): string {
+  return pendingEvents
     .slice(0, 3)
     .map((event, index) => `${index + 1}) ${event.title}`)
     .join(' ');
-
-  if (attemptedIndex !== undefined && (attemptedIndex < 1 || attemptedIndex > pendingEvents.length)) {
-    return `PHW Alpine: That event number is out of range. Reply like 'Y 1', 'N 1', 'M 1', or 'W 1'. ${eventList}`;
-  }
-
-  return `PHW Alpine: You have multiple open invites. Reply like 'Y 1', 'N 1', 'M 1', or 'W 1'. ${eventList}`;
 }
 
 function isTokenizedRsvpPayload(body: unknown): boolean {

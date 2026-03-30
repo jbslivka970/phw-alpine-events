@@ -232,6 +232,68 @@ describe('sms routes', () => {
     expect(res.body.reply).toContain('out of range');
   });
 
+  it('POST /api/sms/inbound records RSVP when index is provided before response keyword', async () => {
+    const queryResults: QueryResult[] = [
+      { recordset: [{ member_id: 'member-1', mobile_phone: '+13035551212' }] },
+      {
+        recordset: [
+          { event_id: 'event-1', title: 'Climb Night', event_date: new Date('2025-01-01T18:00:00Z'), location: 'Gym' },
+          { event_id: 'event-2', title: 'Ski Tour', event_date: new Date('2025-01-03T18:00:00Z'), location: 'Trailhead' },
+        ],
+      },
+      { recordset: [{ event_id: 'event-2', title: 'Ski Tour', status: 'published', mentor_capacity: null, participant_capacity: 10, capacity: 10, event_date: new Date('2025-01-03T18:00:00Z') }] },
+      { recordset: [{ yes_count: 0 }] },
+      { recordset: [{ reserved_count: 0, has_active_offer: 0 }] },
+      { recordset: [{ response_id: 'response-2', event_id: 'event-2', member_id: 'member-1', response: 'yes', responded_at: new Date('2025-01-01T12:00:00Z'), notes: 'SMS reply received: 2 Y P' }] },
+      { recordset: [{ first_name: 'Pat', email: 'pat@example.com', mobile_phone: '+13035551212', sms_opt_in: true }] },
+    ];
+    const mockRequest = {
+      input: jest.fn().mockReturnThis(),
+      query: jest.fn().mockImplementation(async () => queryResults.shift() ?? { recordset: [] }),
+    };
+    (getPool as jest.Mock).mockResolvedValue({ request: () => mockRequest });
+
+    const res = await request(app)
+      .post('/api/sms/inbound')
+      .send({ from: '+13035551212', message: '2 Y P' });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      status: 'recorded',
+      member_id: 'member-1',
+      event_id: 'event-2',
+      response: 'yes',
+    });
+    expect(mockRequest.input).toHaveBeenCalledWith('response_role', 'NVarChar', 'PARTICIPANT');
+  });
+
+  it('POST /api/sms/inbound includes indexed guidance for invalid command with multiple events', async () => {
+    const queryResults: QueryResult[] = [
+      { recordset: [{ member_id: 'member-1', mobile_phone: '+13035551212' }] },
+      {
+        recordset: [
+          { event_id: 'event-1', title: 'Climb Night', event_date: new Date('2025-01-01T18:00:00Z'), location: 'Gym' },
+          { event_id: 'event-2', title: 'Ski Tour', event_date: new Date('2025-01-03T18:00:00Z'), location: 'Trailhead' },
+        ],
+      },
+    ];
+    const mockRequest = {
+      input: jest.fn().mockReturnThis(),
+      query: jest.fn().mockImplementation(async () => queryResults.shift() ?? { recordset: [] }),
+    };
+    (getPool as jest.Mock).mockResolvedValue({ request: () => mockRequest });
+
+    const res = await request(app)
+      .post('/api/sms/inbound')
+      .send({ from: '+13035551212', message: 'sure thing' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('unrecognized');
+    expect(res.body.reply).toContain('Y 1');
+    expect(res.body.reply).toContain('1 Y');
+    expect(res.body.reply).toContain('1) Climb Night');
+  });
+
   it('POST /api/sms/inbound responds to Event Grid validation requests', async () => {
     const res = await request(app)
       .post('/api/sms/inbound')
