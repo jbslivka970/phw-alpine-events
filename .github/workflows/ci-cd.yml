@@ -121,6 +121,7 @@ jobs:
     if: >-
       github.event_name == 'push' &&
       github.ref == 'refs/heads/main' &&
+      vars.AZURE_FRONTEND_RESOURCE_GROUP != '' &&
       vars.AZURE_FRONTEND_WEBAPP_NAME != '' &&
       vars.VITE_EXTERNAL_CLIENT_ID != '' &&
       vars.VITE_EXTERNAL_TENANT_ID != '' &&
@@ -156,66 +157,15 @@ jobs:
     - name: Package frontend artifact
       run: cd frontend/dist && zip -r ../../frontend-release.zip .
 
+    - name: Azure login (frontend deploy)
+      uses: azure/login@v2
+      with:
+        creds: ${{ secrets.AZURE_FRONTEND_DEPLOY_CREDENTIALS }}
+
     - name: Deploy frontend to Azure
-      env:
-        AZURE_FRONTEND_WEBAPP_NAME: ${{ vars.AZURE_FRONTEND_WEBAPP_NAME }}
-        FRONTEND_PUBLISH_USERNAME: ${{ secrets.AZURE_FRONTEND_PUBLISH_USERNAME }}
-        FRONTEND_PUBLISH_PASSWORD: ${{ secrets.AZURE_FRONTEND_PUBLISH_PASSWORD }}
       run: |
-        python3 - <<'PY'
-        import base64
-        import json
-        import os
-        import time
-        import urllib.error
-        import urllib.request
-
-        app_name = os.environ['AZURE_FRONTEND_WEBAPP_NAME']
-        username = os.environ['FRONTEND_PUBLISH_USERNAME']
-        password = os.environ['FRONTEND_PUBLISH_PASSWORD']
-        if not username or not password:
-          raise SystemExit('Missing frontend publish credentials secrets')
-
-        kudu_base = f'https://{app_name}.scm.azurewebsites.net'
-        deploy_url = f'{kudu_base}/api/zipdeploy?isAsync=true'
-
-        with open('frontend-release.zip', 'rb') as zip_file:
-          zip_payload = zip_file.read()
-
-        auth = base64.b64encode(f'{username}:{password}'.encode('utf-8')).decode('ascii')
-        headers = {
-          'Authorization': f'Basic {auth}',
-          'Content-Type': 'application/zip',
-        }
-
-        request = urllib.request.Request(deploy_url, data=zip_payload, headers=headers, method='POST')
-        try:
-          with urllib.request.urlopen(request, timeout=180) as response:
-            _ = response.read()
-            print(f'Zipdeploy accepted with status {response.status}')
-        except urllib.error.HTTPError as error:
-          body = error.read().decode('utf-8', errors='replace')
-          raise SystemExit(f'Zipdeploy request failed: HTTP {error.code} {body}')
-
-        status_url = f'{kudu_base}/api/deployments/latest'
-        for attempt in range(60):
-          status_request = urllib.request.Request(status_url, headers=headers, method='GET')
-          with urllib.request.urlopen(status_request, timeout=60) as response:
-            payload = json.loads(response.read().decode('utf-8'))
-
-          status = payload.get('status')
-          progress = payload.get('progress') or ''
-          print(f'Deploy poll {attempt + 1}: status={status} progress={progress}')
-
-          # Kudu deployment status 4 = success, 3 = failed
-          if status == 4:
-            print('Frontend deployment succeeded')
-            break
-          if status == 3:
-            log_url = payload.get('log_url')
-            raise SystemExit(f'Frontend deployment failed. log_url={log_url}')
-
-          time.sleep(5)
-        else:
-          raise SystemExit('Timed out waiting for frontend deployment completion')
-        PY
+        az webapp deploy \
+          --resource-group "${{ vars.AZURE_FRONTEND_RESOURCE_GROUP }}" \
+          --name "${{ vars.AZURE_FRONTEND_WEBAPP_NAME }}" \
+          --src-path frontend-release.zip \
+          --type zip

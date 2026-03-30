@@ -65,6 +65,7 @@ The pipeline lives in `.github/workflows/ci-cd.yml`.
 
 - `AZURE_WEBAPP_NAME`
 - `AZURE_FRONTEND_WEBAPP_NAME`
+- `AZURE_FRONTEND_RESOURCE_GROUP`
 - `VITE_EXTERNAL_CLIENT_ID`
 - `VITE_EXTERNAL_TENANT_ID`
 - `VITE_EXTERNAL_TENANT_NAME`
@@ -74,8 +75,7 @@ The pipeline lives in `.github/workflows/ci-cd.yml`.
 ### Required GitHub Secrets
 
 - `AZUREAPPSERVICE_PUBLISHPROFILE`
-- `AZURE_FRONTEND_PUBLISH_USERNAME`
-- `AZURE_FRONTEND_PUBLISH_PASSWORD`
+- `AZURE_FRONTEND_DEPLOY_CREDENTIALS`
 
 If `AZURE_WEBAPP_NAME` is not configured, the backend deploy job is skipped.
 If `AZURE_FRONTEND_WEBAPP_NAME` or the required `VITE_*` variables are not configured, the frontend deploy job is skipped.
