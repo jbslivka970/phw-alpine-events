@@ -157,6 +157,5 @@ jobs:
       uses: azure/webapps-deploy@v2
       with:
         app-name: ${{ vars.AZURE_FRONTEND_WEBAPP_NAME }}
-        slot-name: 'production'
         publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_FRONTEND }}
         package: frontend/dist
