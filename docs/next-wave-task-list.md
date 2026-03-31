@@ -15,6 +15,8 @@ Context: Planned immediately after Wave 1 lock, push, and production deployment.
 
 ## P0 (Start Immediately)
 
+Status (2026-03-31): Complete
+
 1. CSV import conflict review UI
 - Build preview state for records with same email but different names.
 - Add approve/create/skip actions in import commit flow.
@@ -34,6 +36,12 @@ Context: Planned immediately after Wave 1 lock, push, and production deployment.
 - Promote first eligible waitlist member when a slot opens.
 - Add acceptance window and fallback to next candidate.
 - Record all promotions in notification and response logs.
+
+P0 verification snapshot (2026-03-31):
+
+- Frontend flow harness covers TAVF, Events, and Import conflict workflows via `npm --prefix frontend run test:flows`.
+- CI now runs frontend flow harness as a required build step in `.github/workflows/ci-cd.yml`.
+- Backend targeted suites for import/events/waitlist promotion pass.
 
 ## P1 (Second Batch)
 

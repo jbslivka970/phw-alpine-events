@@ -168,6 +168,12 @@ It also validates Events flow paths:
 - cancel status transition path from event cards
 - API delete contract (`DELETE /events/:id`) to guard endpoint wiring
 
+Import flow coverage included in the same command:
+
+- shared-email conflict table rendering in CSV preview
+- default conflict decision (`skip`) and explicit override (`create`)
+- commit payload includes row-level conflict resolutions
+
 For full frontend unit/integration tests:
 
 ```bash
