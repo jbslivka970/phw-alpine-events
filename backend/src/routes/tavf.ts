@@ -141,11 +141,13 @@ router.post('/postings', writeLimiter, requireTavfCreator, async (req: Request, 
 
     let resolvedGuideMemberId: string | null = null;
     if (typeof guide_member_id === 'string' && guide_member_id.trim().length > 0) {
-      if (!UUID_PATTERN.test(guide_member_id)) {
-        res.status(400).json({ error: 'guide_member_id must be a valid UUID when provided.' });
-        return;
+      if (UUID_PATTERN.test(guide_member_id)) {
+        resolvedGuideMemberId = guide_member_id;
+      } else {
+        // Backward compatibility: older clients may send auth subject/local account IDs.
+        // If so, derive the guide member from authenticated identity instead of failing.
+        resolvedGuideMemberId = await resolveGuideMemberId(req.user);
       }
-      resolvedGuideMemberId = guide_member_id;
     } else {
       resolvedGuideMemberId = await resolveGuideMemberId(req.user);
     }
