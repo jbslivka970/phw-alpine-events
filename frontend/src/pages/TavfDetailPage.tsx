@@ -172,7 +172,7 @@ function TavfDetailPage() {
 
   async function handleMatch(postingId: string, appId: string) {
     try {
-      await tavfApi.createMatch({ posting_id: postingId, application_id: appId, matched_by: user?.id });
+      await tavfApi.createMatch({ posting_id: postingId, application_id: appId });
       await load();
     } catch (err) {
       setError((err as Error).message ?? 'Failed to confirm match');

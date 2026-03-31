@@ -74,6 +74,10 @@ export interface CreateMatchInput {
   notes?: string;
 }
 
+function isUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
 // ---------------------------------------------------------------------------
 // Postings
 // ---------------------------------------------------------------------------
@@ -275,6 +279,18 @@ export async function getMatch(matchId: string): Promise<TavfMatch | null> {
 export async function createMatch(input: CreateMatchInput): Promise<TavfMatch> {
   const pool = await getPool();
 
+  let matchedByMemberId: string | null = null;
+  if (input.matched_by && isUuid(input.matched_by)) {
+    const memberResult = await pool
+      .request()
+      .input('member_id', sql.UniqueIdentifier, input.matched_by)
+      .query<{ member_id: string }>(`SELECT member_id FROM member WHERE member_id = @member_id`);
+
+    if (memberResult.recordset.length > 0) {
+      matchedByMemberId = input.matched_by;
+    }
+  }
+
   const postingResult = await pool
     .request()
     .input('posting_id', sql.UniqueIdentifier, input.posting_id)
@@ -293,7 +309,7 @@ export async function createMatch(input: CreateMatchInput): Promise<TavfMatch> {
     .request()
     .input('posting_id', sql.UniqueIdentifier, input.posting_id)
     .input('application_id', sql.UniqueIdentifier, input.application_id)
-    .input('matched_by', sql.UniqueIdentifier, input.matched_by ?? null)
+    .input('matched_by', sql.UniqueIdentifier, matchedByMemberId)
     .input('notes', sql.NVarChar(1000), input.notes ?? null)
     .query<TavfMatch>(`
       INSERT INTO tavf_match (posting_id, application_id, matched_by, notes)
@@ -336,7 +352,7 @@ export async function createMatch(input: CreateMatchInput): Promise<TavfMatch> {
     .input('event_date', sql.DateTime, posting.event_date)
     .input('location', sql.NVarChar(300), posting.location)
     .input('capacity', sql.Int, 2)
-    .input('created_by', sql.UniqueIdentifier, input.matched_by ?? null)
+    .input('created_by', sql.UniqueIdentifier, null)
     .query(
       `INSERT INTO event
          (event_id, title, event_date, location, capacity, status, created_by, created_at, updated_at)
