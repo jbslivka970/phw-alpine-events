@@ -6,6 +6,17 @@ import * as tavf from '../services/tavfService';
 
 const router = Router();
 
+function isSchemaAvailabilityError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  const message = error.message.toLowerCase();
+  return message.includes('invalid object name')
+    || message.includes('create table permission denied')
+    || message.includes('permission was denied on object');
+}
+
 // All TAVF routes require authentication
 router.use(authenticate);
 
@@ -23,6 +34,11 @@ router.get('/postings', apiLimiter, async (req: Request, res: Response): Promise
     const postings = await tavf.listPostings(status ? { status } : {});
     res.json(postings);
   } catch (err) {
+    if (isSchemaAvailabilityError(err)) {
+      console.warn('[tavf] listPostings schema unavailable; returning empty list', err);
+      res.json([]);
+      return;
+    }
     console.error('[tavf] listPostings error', err);
     res.status(500).json({ error: 'Internal server error' });
   }

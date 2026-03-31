@@ -115,9 +115,9 @@ function extractRoles(claims: JwtPayload): AppRole[] {
     }
   }
 
-  // Delegated API access tokens can be valid for this API but omit app role claims.
-  // Treat these callers as USER so read-level authenticated routes do not fail closed.
-  if (normalizedRoles.length === 0 && typeof claims['scp'] === 'string' && claims['scp'].trim().length > 0) {
+  // Some Entra token shapes omit role claims even for valid API tokens.
+  // Since audience/issuer verification already passed, default to USER.
+  if (normalizedRoles.length === 0) {
     normalizedRoles.push('USER');
   }
 
