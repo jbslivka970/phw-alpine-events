@@ -47,6 +47,10 @@ jobs:
       if: ${{ github.event_name == 'push' && vars.E2E_API_BASE_URL != '' && vars.E2E_APP_URL != '' }}
       run: npm ci
 
+    - name: Install Playwright Chromium
+      if: ${{ github.event_name == 'push' && vars.E2E_API_BASE_URL != '' && vars.E2E_APP_URL != '' }}
+      run: npx playwright install --with-deps chromium
+
     - name: Refresh Playwright tokens and storage state
       if: ${{ github.event_name == 'push' && vars.E2E_API_BASE_URL != '' && vars.E2E_APP_URL != '' }}
       env:
