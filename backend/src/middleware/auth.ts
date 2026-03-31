@@ -57,7 +57,35 @@ function getSigningKey(header: jwt.JwtHeader, callback: jwt.SigningKeyCallback):
 
 function extractRoles(claims: JwtPayload): AppRole[] {
   const rawRoles: string[] = [];
-  const validRoles: AppRole[] = ['ADMIN', 'EVENT_CREATOR', 'USER'];
+  const normalizedRoles: AppRole[] = [];
+
+  const normalizeRole = (value: string): AppRole | null => {
+    const normalized = value.trim().toUpperCase().replace(/[\s-]+/g, '_');
+
+    if (normalized === 'ADMIN') {
+      return 'ADMIN';
+    }
+    if (normalized === 'EVENT_CREATOR') {
+      return 'EVENT_CREATOR';
+    }
+    if (normalized === 'USER') {
+      return 'USER';
+    }
+
+    if (['ADMINISTRATOR', 'CHAPTER_ADMIN', 'SUPERADMIN', 'SUPER_ADMIN'].includes(normalized)) {
+      return 'ADMIN';
+    }
+
+    if (['EVENTCREATOR', 'EVENT_MANAGER', 'EVENT_ADMIN'].includes(normalized)) {
+      return 'EVENT_CREATOR';
+    }
+
+    if (['MEMBER', 'PARTICIPANT', 'READER'].includes(normalized)) {
+      return 'USER';
+    }
+
+    return null;
+  };
 
   const pushClaimValues = (value: unknown): void => {
     if (typeof value === 'string') {
@@ -77,9 +105,14 @@ function extractRoles(claims: JwtPayload): AppRole[] {
   pushClaimValues(claims['app_roles']);
   pushClaimValues(claims['groups']);
 
-  return rawRoles
-    .map((role) => role.toUpperCase())
-    .filter((role): role is AppRole => validRoles.includes(role as AppRole));
+  for (const role of rawRoles) {
+    const normalized = normalizeRole(role);
+    if (normalized && !normalizedRoles.includes(normalized)) {
+      normalizedRoles.push(normalized);
+    }
+  }
+
+  return normalizedRoles;
 }
 
 function authenticate(req: Request, res: Response, next: NextFunction): void {

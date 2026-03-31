@@ -6,10 +6,10 @@ import { useAuth } from '../hooks/useAuth';
 function TavfNewPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const capacity = 1;
 
   const [eventDate, setEventDate] = useState('');
   const [location, setLocation] = useState('');
-  const [capacity, setCapacity] = useState<number>(1);
   const [species, setSpecies] = useState('');
   const [description, setDescription] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -77,17 +77,8 @@ function TavfNewPage() {
         </div>
 
         <div className="form-group">
-          <label className="form-label" htmlFor="capacity">Veteran slots <span className="form-required">*</span></label>
-          <input
-            id="capacity"
-            type="number"
-            className="form-input form-input--narrow"
-            min={1}
-            max={20}
-            value={capacity}
-            onChange={e => setCapacity(parseInt(e.target.value, 10))}
-            required
-          />
+          <label className="form-label">Veteran slots</label>
+          <p className="form-help-text">1 slot per posting (guide and one veteran, 1:1).</p>
         </div>
 
         <div className="form-group">

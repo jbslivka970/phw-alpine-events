@@ -132,6 +132,18 @@ function DashboardPage() {
             if (active) setStats((cur) => ({ ...cur, totalMembers: 0 }));
           }
         }
+      } catch {
+        if (active) {
+          setUpcoming([]);
+          setMyRsvps([]);
+          setOpenPostings([]);
+          setStats({
+            totalMembers: 0,
+            totalEventsThisYear: 0,
+            upcomingEvents: 0,
+            totalRsvps: 0,
+          });
+        }
       } finally {
         if (active) setLoading(false);
       }
