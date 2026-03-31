@@ -188,19 +188,54 @@ Use this for authenticated API path regression checks across roles:
 npm run test:e2e:role-matrix
 ```
 
+For browser route validation with authenticated storage state (Preferences + TAVF paths):
+
+```bash
+npm run test:e2e:browser
+```
+
+For full API + browser suite:
+
+```bash
+npm run test:e2e
+```
+
+Before running on demand, refresh short-lived tokens and storage state:
+
+```bash
+E2E_APP_URL=https://phwalpineeventsfe873a.azurewebsites.net \
+PW_EVENT_CREATOR_USER=<upn> PW_EVENT_CREATOR_PASS=<password> \
+PW_MEMBER_USER=<upn> PW_MEMBER_PASS=<password> \
+PW_ADMIN_USER=<upn> PW_ADMIN_PASS=<password> \
+npm run e2e:refresh-tokens
+```
+
 Required environment variables:
 
 - `E2E_API_BASE_URL` (for example `https://phwalpineeventsjb873a.azurewebsites.net/api/v1`)
-- `PW_EVENT_CREATOR_TOKEN` (bearer token for an event-creator test user)
+- `E2E_APP_URL` (for example `https://phwalpineeventsfe873a.azurewebsites.net`)
 
-Optional environment variable:
+Required credential variables for refresh script:
 
-- `PW_MEMBER_TOKEN` (adds non-creator authenticated coverage on status transitions)
+- `PW_EVENT_CREATOR_USER`, `PW_EVENT_CREATOR_PASS`
+- `PW_MEMBER_USER`, `PW_MEMBER_PASS`
+
+Optional credential variables:
+
+- `PW_ADMIN_USER`, `PW_ADMIN_PASS`
+
+Token variables are generated automatically by refresh script (or can be pre-supplied):
+
+- `PW_EVENT_CREATOR_TOKEN`
+- `PW_MEMBER_TOKEN`
+- `PW_ADMIN_TOKEN`
 
 This suite guards recent production regressions by asserting:
 
-- authenticated calls to `PUT /events/:id/status` are not blocked by `401/403`
+- table-driven role x endpoint permission contracts across `/events`, `/events/:id/status`, `/admin/users`, and `/tavf/postings`
+- authenticated calls to `PUT /events/:id/status` are not blocked by `401/403` for valid roles
 - TAVF posting create no longer fails UUID-validation when stale clients send legacy guide IDs
+- browser-level authenticated paths for `/preferences` and `/tavf/new` using Playwright storage state
 
 ## Production Plumbing Checklist
 
@@ -232,12 +267,14 @@ Optional backend settings:
 Optional CI/CD secret:
 
 - `COMPLIANCE_ALERT_WEBHOOK_URL` webhook endpoint (Teams/Slack/custom) notified when post-deploy compliance smokes fail on `main`
-- `PW_EVENT_CREATOR_TOKEN` bearer token used by Playwright role-matrix checks
-- `PW_MEMBER_TOKEN` optional bearer token for additional authenticated-member checks
+- `PW_EVENT_CREATOR_USER`, `PW_EVENT_CREATOR_PASS` credentials for Playwright token refresh
+- `PW_MEMBER_USER`, `PW_MEMBER_PASS` credentials for Playwright token refresh
+- `PW_ADMIN_USER`, `PW_ADMIN_PASS` optional admin credentials for admin-only contract coverage
 
 Optional CI/CD variable:
 
 - `E2E_API_BASE_URL` base API URL used by Playwright role-matrix checks
+- `E2E_APP_URL` frontend base URL used for browser-authenticated route checks
 
 ## Smoke Test Sequence
 

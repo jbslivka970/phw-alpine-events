@@ -43,3 +43,8 @@ frontend-static-*.zip
 # Database
 *.db
 *.sqlite
+
+# Playwright
+playwright-report/
+test-results/
+tests/e2e/.auth/

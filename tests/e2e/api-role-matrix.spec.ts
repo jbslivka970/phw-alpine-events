@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type APIRequestContext } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
 
 function resolveApiBaseUrl(): string {
@@ -17,70 +17,146 @@ function resolveApiBaseUrl(): string {
 }
 
 const apiBaseUrl = resolveApiBaseUrl();
-const eventCreatorToken = process.env.PW_EVENT_CREATOR_TOKEN ?? '';
-const memberToken = process.env.PW_MEMBER_TOKEN ?? '';
+const tokensByRole = {
+  ADMIN: process.env.PW_ADMIN_TOKEN ?? '',
+  EVENT_CREATOR: process.env.PW_EVENT_CREATOR_TOKEN ?? '',
+  USER: process.env.PW_MEMBER_TOKEN ?? '',
+} as const;
+
+type Role = keyof typeof tokensByRole;
+type ContractCase = {
+  name: string;
+  method: 'GET' | 'POST' | 'PUT';
+  path: string;
+  payload?: Record<string, unknown>;
+  expectedByRole: Record<Role, 'allow' | 'deny'>;
+  customAssert?: (status: number, bodyText: string) => Promise<void> | void;
+};
+
+const eventId = randomUUID();
+const futureDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+const contracts: ContractCase[] = [
+  {
+    name: 'Events list is accessible to all authenticated roles',
+    method: 'GET',
+    path: '/events',
+    expectedByRole: {
+      ADMIN: 'allow',
+      EVENT_CREATOR: 'allow',
+      USER: 'allow',
+    },
+  },
+  {
+    name: 'Event status transition endpoint accepts all authenticated roles',
+    method: 'PUT',
+    path: `/events/${eventId}/status`,
+    payload: { status: 'cancelled' },
+    expectedByRole: {
+      ADMIN: 'allow',
+      EVENT_CREATOR: 'allow',
+      USER: 'allow',
+    },
+  },
+  {
+    name: 'Event creation is limited to admin/event creator roles',
+    method: 'POST',
+    path: '/events',
+    payload: {
+      title: 'Playwright Contract Event',
+      description: 'role matrix contract',
+      location: 'Playwright',
+      event_date: futureDate,
+      start_time: '09:00',
+      end_time: '11:00',
+      status: 'draft',
+      capacity: 10,
+    },
+    expectedByRole: {
+      ADMIN: 'allow',
+      EVENT_CREATOR: 'allow',
+      USER: 'deny',
+    },
+  },
+  {
+    name: 'Admin users endpoint is admin-only',
+    method: 'GET',
+    path: '/admin/users?page=1&pageSize=1',
+    expectedByRole: {
+      ADMIN: 'allow',
+      EVENT_CREATOR: 'deny',
+      USER: 'deny',
+    },
+  },
+  {
+    name: 'TAVF create denies admin and allows non-admin roles past RBAC gate',
+    method: 'POST',
+    path: '/tavf/postings',
+    payload: {
+      guide_member_id: 'legacy-auth-subject',
+      event_date: futureDate,
+      location: 'Playwright Smoke River',
+      capacity: 1,
+      species: 'Trout',
+    },
+    expectedByRole: {
+      ADMIN: 'deny',
+      EVENT_CREATOR: 'allow',
+      USER: 'allow',
+    },
+    customAssert: async (status, bodyText) => {
+      if (status === 400) {
+        expect(bodyText.toLowerCase()).not.toContain('guide_member_id must be a valid uuid');
+      }
+    },
+  },
+];
+
+async function invokeContract(request: APIRequestContext, method: ContractCase['method'], path: string, token: string, payload?: Record<string, unknown>) {
+  const url = `${apiBaseUrl}${path}`;
+  if (method === 'GET') {
+    return request.get(url, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+  }
+  if (method === 'PUT') {
+    return request.put(url, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: payload,
+    });
+  }
+  return request.post(url, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: payload,
+  });
+}
 
 test.describe('API role-path matrix', () => {
   test.skip(!apiBaseUrl, 'E2E_API_BASE_URL (or BACKEND_BASE_URL) is required.');
 
-  test('events status endpoint allows authenticated callers through authz gate', async ({ request }) => {
-    test.skip(!eventCreatorToken, 'PW_EVENT_CREATOR_TOKEN is required for this assertion.');
+  for (const contract of contracts) {
+    test(contract.name, async ({ request }) => {
+      for (const role of Object.keys(tokensByRole) as Role[]) {
+        const token = tokensByRole[role];
+        test.skip(!token, `${role} token is required for this assertion.`);
 
-    const eventId = randomUUID();
-    const response = await request.put(`${apiBaseUrl}/events/${eventId}/status`, {
-      headers: {
-        Authorization: `Bearer ${eventCreatorToken}`,
-      },
-      data: {
-        status: 'cancelled',
-      },
+        const response = await invokeContract(request, contract.method, contract.path, token, contract.payload);
+        const status = response.status();
+        const bodyText = await response.text();
+        const expected = contract.expectedByRole[role];
+
+        if (expected === 'allow') {
+          expect(status, `${role} should be authorized for ${contract.method} ${contract.path}`).not.toBe(401);
+          expect(status, `${role} should be authorized for ${contract.method} ${contract.path}`).not.toBe(403);
+          expect(status, `${role} should not trigger server errors on ${contract.method} ${contract.path}`).not.toBe(500);
+        } else {
+          expect([401, 403], `${role} should be denied for ${contract.method} ${contract.path}`).toContain(status);
+        }
+
+        if (contract.customAssert) {
+          await contract.customAssert(status, bodyText);
+        }
+      }
     });
-
-    expect(response.status(), 'authenticated event creator should not be blocked by RBAC').not.toBe(401);
-    expect(response.status(), 'authenticated event creator should not be blocked by RBAC').not.toBe(403);
-  });
-
-  test('events status endpoint also allows non-creator authenticated callers through authz gate', async ({ request }) => {
-    test.skip(!memberToken, 'PW_MEMBER_TOKEN is required for this assertion.');
-
-    const eventId = randomUUID();
-    const response = await request.put(`${apiBaseUrl}/events/${eventId}/status`, {
-      headers: {
-        Authorization: `Bearer ${memberToken}`,
-      },
-      data: {
-        status: 'cancelled',
-      },
-    });
-
-    expect(response.status(), 'authenticated member should not be blocked by RBAC').not.toBe(401);
-    expect(response.status(), 'authenticated member should not be blocked by RBAC').not.toBe(403);
-  });
-
-  test('tavf create accepts legacy non-UUID guide ids without UUID-validation failure', async ({ request }) => {
-    test.skip(!eventCreatorToken, 'PW_EVENT_CREATOR_TOKEN is required for this assertion.');
-
-    const eventDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-    const response = await request.post(`${apiBaseUrl}/tavf/postings`, {
-      headers: {
-        Authorization: `Bearer ${eventCreatorToken}`,
-      },
-      data: {
-        guide_member_id: 'legacy-auth-subject',
-        event_date: eventDate,
-        location: 'Playwright Smoke River',
-        capacity: 1,
-        species: 'Trout',
-      },
-    });
-
-    expect(response.status(), 'TAVF create should not crash').not.toBe(500);
-    expect(response.status(), 'authenticated caller should not be blocked').not.toBe(401);
-    expect(response.status(), 'authenticated caller should not be blocked').not.toBe(403);
-
-    if (response.status() === 400) {
-      const body = await response.json() as { error?: string };
-      expect((body.error ?? '').toLowerCase()).not.toContain('guide_member_id must be a valid uuid');
-    }
-  });
+  }
 });
