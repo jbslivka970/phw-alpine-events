@@ -24,12 +24,16 @@ const tokensByRole = {
 } as const;
 
 type Role = keyof typeof tokensByRole;
+type RoleCapabilities = {
+  isAdmin: boolean;
+  isEventCreator: boolean;
+};
 type ContractCase = {
   name: string;
   method: 'GET' | 'POST' | 'PUT';
   path: string;
   payload?: Record<string, unknown>;
-  expectedByRole: Record<Role, 'allow' | 'deny'>;
+  expectedByRole: (capabilities: RoleCapabilities) => 'allow' | 'deny';
   customAssert?: (status: number, bodyText: string) => Promise<void> | void;
 };
 
@@ -41,22 +45,14 @@ const contracts: ContractCase[] = [
     name: 'Events list is accessible to all authenticated roles',
     method: 'GET',
     path: '/events',
-    expectedByRole: {
-      ADMIN: 'allow',
-      EVENT_CREATOR: 'allow',
-      USER: 'allow',
-    },
+    expectedByRole: () => 'allow',
   },
   {
     name: 'Event status transition endpoint accepts all authenticated roles',
     method: 'PUT',
     path: `/events/${eventId}/status`,
     payload: { status: 'cancelled' },
-    expectedByRole: {
-      ADMIN: 'allow',
-      EVENT_CREATOR: 'allow',
-      USER: 'allow',
-    },
+    expectedByRole: () => 'allow',
   },
   {
     name: 'Event creation is limited to admin/event creator roles',
@@ -72,21 +68,13 @@ const contracts: ContractCase[] = [
       status: 'draft',
       capacity: 10,
     },
-    expectedByRole: {
-      ADMIN: 'allow',
-      EVENT_CREATOR: 'allow',
-      USER: 'deny',
-    },
+    expectedByRole: ({ isAdmin, isEventCreator }) => (isAdmin || isEventCreator ? 'allow' : 'deny'),
   },
   {
     name: 'Admin users endpoint is admin-only',
     method: 'GET',
     path: '/admin/users?page=1&pageSize=1',
-    expectedByRole: {
-      ADMIN: 'allow',
-      EVENT_CREATOR: 'deny',
-      USER: 'deny',
-    },
+    expectedByRole: ({ isAdmin }) => (isAdmin ? 'allow' : 'deny'),
   },
   {
     name: 'TAVF create denies admin and allows non-admin roles past RBAC gate',
@@ -99,11 +87,7 @@ const contracts: ContractCase[] = [
       capacity: 1,
       species: 'Trout',
     },
-    expectedByRole: {
-      ADMIN: 'deny',
-      EVENT_CREATOR: 'allow',
-      USER: 'allow',
-    },
+    expectedByRole: ({ isAdmin }) => (isAdmin ? 'deny' : 'allow'),
     customAssert: async (status, bodyText) => {
       if (status === 400) {
         expect(bodyText.toLowerCase()).not.toContain('guide_member_id must be a valid uuid');
@@ -131,6 +115,43 @@ async function invokeContract(request: APIRequestContext, method: ContractCase['
   });
 }
 
+function decodeCapabilities(token: string): RoleCapabilities {
+  try {
+    const payloadPart = token.split('.')[1] ?? '';
+    const payloadJson = Buffer.from(payloadPart, 'base64url').toString('utf8');
+    const payload = JSON.parse(payloadJson) as {
+      roles?: unknown;
+      role?: unknown;
+      app_roles?: unknown;
+      appRoles?: unknown;
+    };
+
+    const values: string[] = [];
+    for (const candidate of [payload.roles, payload.role, payload.app_roles, payload.appRoles]) {
+      if (typeof candidate === 'string') {
+        values.push(candidate);
+      } else if (Array.isArray(candidate)) {
+        for (const value of candidate) {
+          if (typeof value === 'string') {
+            values.push(value);
+          }
+        }
+      }
+    }
+
+    const normalized = new Set(values.map((role) => role.trim().toUpperCase().replace(/[\s-]+/g, '_')));
+    return {
+      isAdmin: normalized.has('ADMIN'),
+      isEventCreator: normalized.has('EVENT_CREATOR'),
+    };
+  } catch {
+    return {
+      isAdmin: false,
+      isEventCreator: false,
+    };
+  }
+}
+
 test.describe('API role-path matrix', () => {
   test.skip(!apiBaseUrl, 'E2E_API_BASE_URL (or BACKEND_BASE_URL) is required.');
 
@@ -139,11 +160,12 @@ test.describe('API role-path matrix', () => {
       for (const role of Object.keys(tokensByRole) as Role[]) {
         const token = tokensByRole[role];
         test.skip(!token, `${role} token is required for this assertion.`);
+        const capabilities = decodeCapabilities(token);
 
         const response = await invokeContract(request, contract.method, contract.path, token, contract.payload);
         const status = response.status();
         const bodyText = await response.text();
-        const expected = contract.expectedByRole[role];
+        const expected = contract.expectedByRole(capabilities);
 
         if (expected === 'allow') {
           expect(status, `${role} should be authorized for ${contract.method} ${contract.path}`).not.toBe(401);

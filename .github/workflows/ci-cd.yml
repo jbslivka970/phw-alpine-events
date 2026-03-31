@@ -69,6 +69,12 @@ jobs:
       env:
         E2E_API_BASE_URL: ${{ vars.E2E_API_BASE_URL }}
         E2E_APP_URL: ${{ vars.E2E_APP_URL }}
+        PW_ADMIN_USER: ${{ secrets.PW_ADMIN_USER }}
+        PW_ADMIN_PASS: ${{ secrets.PW_ADMIN_PASS }}
+        PW_EVENT_CREATOR_USER: ${{ secrets.PW_EVENT_CREATOR_USER }}
+        PW_EVENT_CREATOR_PASS: ${{ secrets.PW_EVENT_CREATOR_PASS }}
+        PW_MEMBER_USER: ${{ secrets.PW_MEMBER_USER }}
+        PW_MEMBER_PASS: ${{ secrets.PW_MEMBER_PASS }}
       run: npm run test:e2e
 
   deploy:
