@@ -155,9 +155,18 @@ function authenticate(req: Request, res: Response, next: NextFunction): void {
       }
 
       const claims = decoded as JwtPayload;
+      const emailClaim =
+        typeof claims['email'] === 'string'
+          ? claims['email']
+          : typeof claims['preferred_username'] === 'string'
+            ? claims['preferred_username']
+            : typeof claims['upn'] === 'string'
+              ? claims['upn']
+              : undefined;
+
       req.user = {
         sub: String(claims['oid'] ?? claims['sub'] ?? ''),
-        email: typeof claims['email'] === 'string' ? claims['email'] : undefined,
+        email: emailClaim,
         name: typeof claims['name'] === 'string' ? claims['name'] : undefined,
         roles: extractRoles(claims),
         rawClaims: claims,

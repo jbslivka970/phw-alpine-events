@@ -27,7 +27,6 @@ function TavfNewPage() {
 
     try {
       const posting = await tavfApi.createPosting({
-        guide_member_id: user.id,
         event_date: eventDate,
         location,
         capacity,

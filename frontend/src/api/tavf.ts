@@ -46,7 +46,7 @@ const tavfApi = {
     apiGet<TavfPosting>(`/tavf/postings/${id}`),
 
   createPosting: (data: {
-    guide_member_id: string;
+    guide_member_id?: string;
     event_date: string;
     location: string;
     capacity: number;

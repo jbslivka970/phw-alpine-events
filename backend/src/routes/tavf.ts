@@ -3,8 +3,11 @@ import authenticate from '../middleware/auth';
 import { apiLimiter, writeLimiter } from '../middleware/rateLimiter';
 import { requireEventCreatorOrAdmin, requireTavfCreator } from '../middleware/rbac';
 import * as tavf from '../services/tavfService';
+import { getPool, sql } from '../db';
 
 const router = Router();
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function isSchemaAvailabilityError(error: unknown): boolean {
   if (!(error instanceof Error)) {
@@ -15,6 +18,69 @@ function isSchemaAvailabilityError(error: unknown): boolean {
   return message.includes('invalid object name')
     || message.includes('create table permission denied')
     || message.includes('permission was denied on object');
+}
+
+function splitDisplayName(name: string | undefined, fallbackEmail: string): { firstName: string; lastName: string } {
+  const base = (name ?? '').trim();
+  if (!base) {
+    const localPart = fallbackEmail.split('@')[0] ?? 'member';
+    return { firstName: localPart.slice(0, 80), lastName: 'Member' };
+  }
+
+  const pieces = base.split(/\s+/).filter(Boolean);
+  if (pieces.length === 1) {
+    return { firstName: pieces[0]!.slice(0, 80), lastName: 'Member' };
+  }
+
+  return {
+    firstName: (pieces.shift() ?? 'Member').slice(0, 80),
+    lastName: pieces.join(' ').slice(0, 80) || 'Member',
+  };
+}
+
+async function resolveGuideMemberId(
+  user: Request['user']
+): Promise<string | null> {
+  const pool = await getPool();
+
+  const email = user?.email?.trim().toLowerCase();
+  if (!email) {
+    return null;
+  }
+
+  const byEmail = await pool
+    .request()
+    .input('email', sql.NVarChar(320), email)
+    .query<{ member_id: string }>('SELECT TOP 1 member_id FROM member WHERE LOWER(email) = @email ORDER BY is_active DESC, updated_at DESC');
+
+  if ((byEmail.recordset[0]?.member_id ?? '').length > 0) {
+    return byEmail.recordset[0]!.member_id;
+  }
+
+  const { firstName, lastName } = splitDisplayName(user?.name, email);
+
+  try {
+    const created = await pool
+      .request()
+      .input('first_name', sql.NVarChar(100), firstName)
+      .input('last_name', sql.NVarChar(100), lastName)
+      .input('email', sql.NVarChar(320), email)
+      .query<{ member_id: string }>(
+        `INSERT INTO member
+           (first_name, last_name, email, mobile_phone, sms_opt_in, email_opt_out, source)
+         OUTPUT INSERTED.member_id
+         VALUES
+           (@first_name, @last_name, @email, NULL, 0, 0, 'manual')`
+      );
+
+    return created.recordset[0]?.member_id ?? null;
+  } catch {
+    const raced = await pool
+      .request()
+      .input('email', sql.NVarChar(320), email)
+      .query<{ member_id: string }>('SELECT TOP 1 member_id FROM member WHERE LOWER(email) = @email ORDER BY is_active DESC, updated_at DESC');
+    return raced.recordset[0]?.member_id ?? null;
+  }
 }
 
 // All TAVF routes require authentication
@@ -67,14 +133,42 @@ router.get('/postings/:id', apiLimiter, async (req: Request, res: Response): Pro
  */
 router.post('/postings', writeLimiter, requireTavfCreator, async (req: Request, res: Response): Promise<void> => {
   try {
-    const { guide_member_id, event_date, location, capacity, species, description } = req.body as tavf.CreatePostingInput;
-    if (!guide_member_id || !event_date || !location || !capacity) {
-      res.status(400).json({ error: 'guide_member_id, event_date, location, and capacity are required' });
+    const { guide_member_id, event_date, location, capacity, species, description } = req.body as Partial<tavf.CreatePostingInput>;
+    if (!event_date || !location || !capacity) {
+      res.status(400).json({ error: 'event_date, location, and capacity are required' });
       return;
     }
-    const posting = await tavf.createPosting({ guide_member_id, event_date, location, capacity, species, description });
+
+    let resolvedGuideMemberId: string | null = null;
+    if (typeof guide_member_id === 'string' && guide_member_id.trim().length > 0) {
+      if (!UUID_PATTERN.test(guide_member_id)) {
+        res.status(400).json({ error: 'guide_member_id must be a valid UUID when provided.' });
+        return;
+      }
+      resolvedGuideMemberId = guide_member_id;
+    } else {
+      resolvedGuideMemberId = await resolveGuideMemberId(req.user);
+    }
+
+    if (!resolvedGuideMemberId) {
+      res.status(400).json({ error: 'Unable to resolve a member profile for this authenticated user.' });
+      return;
+    }
+
+    const posting = await tavf.createPosting({
+      guide_member_id: resolvedGuideMemberId,
+      event_date,
+      location,
+      capacity,
+      species,
+      description,
+    });
     res.status(201).json(posting);
   } catch (err) {
+    if (err instanceof Error && err.message.toLowerCase().includes('fk_tavf_posting_guide')) {
+      res.status(400).json({ error: 'Guide member profile is invalid or missing.' });
+      return;
+    }
     console.error('[tavf] createPosting error', err);
     res.status(500).json({ error: 'Internal server error' });
   }

@@ -32,7 +32,7 @@ app.use('/api/tavf', tavfRouter);
 
 const POSTING: tavfService.TavfPosting = {
   posting_id: 'p-1111',
-  guide_member_id: 'g-2222',
+  guide_member_id: '11111111-1111-4111-8111-111111111111',
   event_date: '2025-07-04',
   location: 'Rocky Mountain National Park',
   capacity: 2,
@@ -99,7 +99,7 @@ describe('TaVF Posting routes', () => {
     const res = await request(app)
       .post('/api/tavf/postings')
       .send({
-        guide_member_id: 'g-2222',
+        guide_member_id: '11111111-1111-4111-8111-111111111111',
         event_date: '2025-07-04',
         location: 'Rocky Mountain National Park',
         capacity: 2,
@@ -111,7 +111,7 @@ describe('TaVF Posting routes', () => {
   it('POST /api/tavf/postings returns 400 when required fields missing', async () => {
     const res = await request(app)
       .post('/api/tavf/postings')
-      .send({ guide_member_id: 'g-2222' });
+      .send({ guide_member_id: '11111111-1111-4111-8111-111111111111' });
     expect(res.status).toBe(400);
   });
 
