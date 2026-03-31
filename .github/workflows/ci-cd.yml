@@ -44,11 +44,11 @@ jobs:
       run: cd backend && npm test -- --runInBand
 
     - name: Install Playwright role-matrix dependencies
-      if: ${{ github.event_name == 'push' && vars.E2E_API_BASE_URL != '' && secrets.PW_EVENT_CREATOR_TOKEN != '' }}
+      if: ${{ github.event_name == 'push' && vars.E2E_API_BASE_URL != '' }}
       run: npm ci
 
     - name: Run Playwright role matrix
-      if: ${{ github.event_name == 'push' && vars.E2E_API_BASE_URL != '' && secrets.PW_EVENT_CREATOR_TOKEN != '' }}
+      if: ${{ github.event_name == 'push' && vars.E2E_API_BASE_URL != '' }}
       env:
         E2E_API_BASE_URL: ${{ vars.E2E_API_BASE_URL }}
         PW_EVENT_CREATOR_TOKEN: ${{ secrets.PW_EVENT_CREATOR_TOKEN }}
