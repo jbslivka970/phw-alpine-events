@@ -43,6 +43,18 @@ jobs:
     - name: Test backend
       run: cd backend && npm test -- --runInBand
 
+    - name: Install Playwright role-matrix dependencies
+      if: ${{ github.event_name == 'push' && vars.E2E_API_BASE_URL != '' && secrets.PW_EVENT_CREATOR_TOKEN != '' }}
+      run: npm ci
+
+    - name: Run Playwright role matrix
+      if: ${{ github.event_name == 'push' && vars.E2E_API_BASE_URL != '' && secrets.PW_EVENT_CREATOR_TOKEN != '' }}
+      env:
+        E2E_API_BASE_URL: ${{ vars.E2E_API_BASE_URL }}
+        PW_EVENT_CREATOR_TOKEN: ${{ secrets.PW_EVENT_CREATOR_TOKEN }}
+        PW_MEMBER_TOKEN: ${{ secrets.PW_MEMBER_TOKEN }}
+      run: npm run test:e2e:role-matrix
+
   deploy:
     runs-on: ubuntu-latest
     needs: build

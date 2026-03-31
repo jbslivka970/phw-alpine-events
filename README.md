@@ -180,6 +180,28 @@ For full frontend unit/integration tests:
 cd frontend && npm test
 ```
 
+### Playwright Role-Matrix Regression Suite
+
+Use this for authenticated API path regression checks across roles:
+
+```bash
+npm run test:e2e:role-matrix
+```
+
+Required environment variables:
+
+- `E2E_API_BASE_URL` (for example `https://phwalpineeventsjb873a.azurewebsites.net/api/v1`)
+- `PW_EVENT_CREATOR_TOKEN` (bearer token for an event-creator test user)
+
+Optional environment variable:
+
+- `PW_MEMBER_TOKEN` (adds non-creator authenticated coverage on status transitions)
+
+This suite guards recent production regressions by asserting:
+
+- authenticated calls to `PUT /events/:id/status` are not blocked by `401/403`
+- TAVF posting create no longer fails UUID-validation when stale clients send legacy guide IDs
+
 ## Production Plumbing Checklist
 
 Backend App Service settings required for full functionality:
@@ -210,6 +232,12 @@ Optional backend settings:
 Optional CI/CD secret:
 
 - `COMPLIANCE_ALERT_WEBHOOK_URL` webhook endpoint (Teams/Slack/custom) notified when post-deploy compliance smokes fail on `main`
+- `PW_EVENT_CREATOR_TOKEN` bearer token used by Playwright role-matrix checks
+- `PW_MEMBER_TOKEN` optional bearer token for additional authenticated-member checks
+
+Optional CI/CD variable:
+
+- `E2E_API_BASE_URL` base API URL used by Playwright role-matrix checks
 
 ## Smoke Test Sequence
 
