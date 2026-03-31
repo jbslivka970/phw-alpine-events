@@ -15,7 +15,7 @@ function NotificationPreferencesPage() {
     let active = true
 
     async function loadMember() {
-      if (!user?.id) {
+      if (!user?.email) {
         if (active) {
           setLoading(false)
           setError('No member profile is available for this session.')
@@ -26,7 +26,12 @@ function NotificationPreferencesPage() {
       try {
         setLoading(true)
         setError(null)
-        const record = await membersApi.get(user.id)
+        const list = await membersApi.list({ page: 1, pageSize: 10, search: user.email })
+        const normalizedEmail = user.email.trim().toLowerCase()
+        const record = list.data.find((candidate) => candidate.email.trim().toLowerCase() === normalizedEmail) ?? null
+        if (!record) {
+          throw new Error('No member profile is available for this account email.')
+        }
         if (active) {
           setMember(record)
         }
@@ -46,7 +51,7 @@ function NotificationPreferencesPage() {
     return () => {
       active = false
     }
-  }, [user?.id])
+  }, [user?.email])
 
   async function handleSmsToggle(nextValue: boolean) {
     if (!member) {
