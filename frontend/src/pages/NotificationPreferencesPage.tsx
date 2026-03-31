@@ -3,6 +3,18 @@ import { Link } from 'react-router-dom'
 import { membersApi, type MemberRecord } from '../api/members'
 import { useAuth } from '../hooks/useAuth'
 
+type ChannelPreference = 'email_only' | 'sms_only' | 'both'
+
+function deriveChannelPreference(member: MemberRecord): ChannelPreference {
+  if (member.sms_opt_in && !member.email_opt_out) {
+    return 'both'
+  }
+  if (member.sms_opt_in && member.email_opt_out) {
+    return 'sms_only'
+  }
+  return 'email_only'
+}
+
 function NotificationPreferencesPage() {
   const { user } = useAuth()
   const [member, setMember] = useState<MemberRecord | null>(null)
@@ -53,7 +65,7 @@ function NotificationPreferencesPage() {
     }
   }, [user?.email])
 
-  async function handleSmsToggle(nextValue: boolean) {
+  async function handleChannelPreferenceChange(nextPreference: ChannelPreference) {
     if (!member) {
       return
     }
@@ -62,15 +74,17 @@ function NotificationPreferencesPage() {
       setSaving(true)
       setError(null)
       setNotice(null)
-      const updated = await membersApi.updateSmsConsent(member.member_id, nextValue)
+      const updated = await membersApi.updateChannelPreference(member.member_id, nextPreference)
       setMember(updated)
-      setNotice(
-        nextValue
-          ? 'SMS notifications enabled. A confirmation text is sent when your number is available.'
-          : 'SMS notifications disabled. You can still reply STOP to any future message that arrives in flight.'
-      )
+      if (nextPreference === 'both') {
+        setNotice('You will receive both email and SMS updates for chapter events.')
+      } else if (nextPreference === 'sms_only') {
+        setNotice('You will receive SMS-only updates. Email notifications are opted out.')
+      } else {
+        setNotice('You will receive email-only updates. SMS notifications are opted out.')
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to update SMS preferences.')
+      setError(err instanceof Error ? err.message : 'Unable to update notification preferences.')
     } finally {
       setSaving(false)
     }
@@ -85,7 +99,7 @@ function NotificationPreferencesPage() {
 
       <div className="card-grid">
         <section className="card">
-          <h2 className="card__title">SMS Notifications</h2>
+          <h2 className="card__title">Notification Channels</h2>
 
           {loading && <p className="card__body">Loading your member profile…</p>}
           {!loading && error && <p className="error-text">{error}</p>}
@@ -93,10 +107,18 @@ function NotificationPreferencesPage() {
           {!loading && member && (
             <div className="preferences-panel">
               <p className="card__body">
+                Preferred channels:{' '}
+                <strong>{deriveChannelPreference(member).replace('_', ' ')}</strong>
+              </p>
+              <p className="card__body">
                 Mobile number: <strong>{member.mobile_phone ?? 'No mobile number on file'}</strong>
               </p>
               <p className="card__body">
-                Current status:{' '}
+                Email status:{' '}
+                <strong>{member.email_opt_out ? 'Opted out' : 'Opted in'}</strong>
+              </p>
+              <p className="card__body">
+                SMS status:{' '}
                 <strong>{member.sms_opt_in ? 'Opted in' : 'Opted out'}</strong>
               </p>
               {member.sms_opt_in_date && (
@@ -110,21 +132,24 @@ function NotificationPreferencesPage() {
                 </p>
               )}
 
-              <label className="preferences-toggle">
-                <input
-                  type="checkbox"
-                  checked={member.sms_opt_in}
-                  disabled={saving || !member.mobile_phone}
-                  onChange={(event) => {
-                    void handleSmsToggle(event.target.checked)
-                  }}
-                />
-                <span>
-                  I agree to receive SMS notifications about chapter events, RSVP reminders,
-                  and schedule updates. Message frequency varies. Message and data rates may
-                  apply. Reply STOP to opt out and HELP for help.
-                </span>
-              </label>
+              <label className="members-search-label" htmlFor="notification-channel-preference">Choose channels</label>
+              <select
+                id="notification-channel-preference"
+                className="members-input"
+                value={deriveChannelPreference(member)}
+                disabled={saving}
+                onChange={(event) => {
+                  void handleChannelPreferenceChange(event.target.value as ChannelPreference)
+                }}
+              >
+                <option value="email_only">Email only</option>
+                <option value="sms_only" disabled={!member.mobile_phone}>SMS only</option>
+                <option value="both" disabled={!member.mobile_phone}>Both email and SMS</option>
+              </select>
+              <p className="card__body">
+                SMS messages may include RSVP reminders and event updates. Message frequency varies.
+                Message and data rates may apply. Reply STOP to opt out and HELP for help.
+              </p>
 
               {!member.mobile_phone && (
                 <p className="card__body">

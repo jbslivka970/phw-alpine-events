@@ -62,12 +62,27 @@ router.patch('/:id/sms-consent', writeLimiter, authenticate, requireAnyAuthentic
       return;
     }
 
-    if (!isAdmin(req) && req.user?.sub !== memberId) {
+    const pool = await getPool();
+    const memberResult = await pool
+      .request()
+      .input('member_id', sql.UniqueIdentifier, memberId)
+      .query<{ member_id: string; email: string | null }>(
+        `SELECT member_id, email
+         FROM member
+         WHERE member_id = @member_id`
+      );
+
+    const memberRecord = memberResult.recordset[0];
+    if (!memberRecord) {
+      res.status(404).json({ error: 'Member not found.' });
+      return;
+    }
+
+    if (!isAdmin(req) && !isSelfMember(req, memberId, memberRecord.email)) {
       res.status(403).json({ error: 'Insufficient permissions.' });
       return;
     }
 
-    const pool = await getPool();
     const updatedResult = await pool
       .request()
       .input('member_id', sql.UniqueIdentifier, memberId)
@@ -95,6 +110,95 @@ router.patch('/:id/sms-consent', writeLimiter, authenticate, requireAnyAuthentic
     );
 
     if (smsOptIn && updated.mobile_phone) {
+      await notificationService.sendSms({
+        to: updated.mobile_phone,
+        message: "PHW Alpine: You've opted in for event notifications. Reply STOP to unsubscribe. Msg&data rates may apply.",
+        memberId,
+      });
+    }
+
+    res.json(updated);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.patch('/:id/channel-preference', writeLimiter, authenticate, requireAnyAuthenticatedRole, async (req, res, next) => {
+  try {
+    const memberId = req.params.id;
+    const preference = req.body?.channel_preference as string | undefined;
+
+    if (preference !== 'email_only' && preference !== 'sms_only' && preference !== 'both') {
+      res.status(400).json({ error: 'channel_preference must be one of: email_only, sms_only, both.' });
+      return;
+    }
+
+    const nextSmsOptIn = preference === 'sms_only' || preference === 'both';
+    const nextEmailOptOut = preference === 'sms_only';
+    const pool = await getPool();
+
+    const existingResult = await pool
+      .request()
+      .input('member_id', sql.UniqueIdentifier, memberId)
+      .query<{
+        member_id: string;
+        email: string | null;
+        mobile_phone: string | null;
+        sms_opt_in: boolean;
+      }>(
+        `SELECT member_id, email, mobile_phone, sms_opt_in
+         FROM member
+         WHERE member_id = @member_id`
+      );
+
+    const existing = existingResult.recordset[0];
+    if (!existing) {
+      res.status(404).json({ error: 'Member not found.' });
+      return;
+    }
+
+    if (!isAdmin(req) && !isSelfMember(req, memberId, existing.email)) {
+      res.status(403).json({ error: 'Insufficient permissions.' });
+      return;
+    }
+
+    if (nextSmsOptIn && !existing.mobile_phone) {
+      res.status(400).json({ error: 'A mobile phone number is required before SMS can be enabled.' });
+      return;
+    }
+
+    const updatedResult = await pool
+      .request()
+      .input('member_id', sql.UniqueIdentifier, memberId)
+      .input('sms_opt_in', sql.Bit, nextSmsOptIn ? 1 : 0)
+      .input('email_opt_out', sql.Bit, nextEmailOptOut ? 1 : 0)
+      .query(
+        `UPDATE member
+         SET sms_opt_in = @sms_opt_in,
+             sms_opt_in_date = CASE WHEN @sms_opt_in = 1 THEN GETUTCDATE() ELSE sms_opt_in_date END,
+             sms_opt_out_date = CASE WHEN @sms_opt_in = 1 THEN NULL ELSE GETUTCDATE() END,
+             email_opt_out = @email_opt_out,
+             updated_at = GETUTCDATE()
+         OUTPUT INSERTED.*
+         WHERE member_id = @member_id`
+      );
+
+    const updated = updatedResult.recordset[0];
+    if (!updated) {
+      res.status(404).json({ error: 'Member not found.' });
+      return;
+    }
+
+    if (existing.sms_opt_in !== nextSmsOptIn) {
+      await notificationService.writeSmsConsentLog(
+        memberId,
+        nextSmsOptIn ? 'opt_in' : 'opt_out',
+        'manual',
+        'Updated from channel preference'
+      );
+    }
+
+    if (nextSmsOptIn && updated.mobile_phone) {
       await notificationService.sendSms({
         to: updated.mobile_phone,
         message: "PHW Alpine: You've opted in for event notifications. Reply STOP to unsubscribe. Msg&data rates may apply.",
@@ -268,6 +372,18 @@ function isHttpError(error: unknown, statusCode: number): error is Error & { sta
 
 function isAdmin(req: { user?: { roles?: string[] } }): boolean {
   return Boolean(req.user?.roles?.includes('ADMIN'));
+}
+
+function isSelfMember(req: { user?: { sub?: string; email?: string } }, memberId: string, memberEmail: string | null): boolean {
+  if (req.user?.sub === memberId) {
+    return true;
+  }
+
+  if (!req.user?.email || !memberEmail) {
+    return false;
+  }
+
+  return req.user.email.trim().toLowerCase() === memberEmail.trim().toLowerCase();
 }
 
 export default router;

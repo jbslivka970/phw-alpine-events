@@ -97,9 +97,23 @@ function DashboardPage() {
           upcomingEvents: next.length,
         }));
 
-        if (user?.id && isUuid(user.id)) {
+        let resolvedMemberId: string | null = null;
+        if (user?.email) {
           try {
-            const responses = await membersApi.rsvps(user.id);
+            const memberList = await membersApi.list({ page: 1, pageSize: 10, search: user.email });
+            const normalizedEmail = user.email.trim().toLowerCase();
+            resolvedMemberId = memberList.data.find((candidate) => candidate.email.trim().toLowerCase() === normalizedEmail)?.member_id ?? null;
+          } catch {
+            resolvedMemberId = null;
+          }
+        }
+        if (!resolvedMemberId && user?.id && isUuid(user.id)) {
+          resolvedMemberId = user.id;
+        }
+
+        if (resolvedMemberId) {
+          try {
+            const responses = await membersApi.rsvps(resolvedMemberId);
             if (active) {
               setMyRsvps(
                 responses.slice(0, 4).map((row) => ({
@@ -153,7 +167,7 @@ function DashboardPage() {
     return () => {
       active = false;
     };
-  }, [isAdminUser, now, user?.id]);
+  }, [isAdminUser, now, user?.email, user?.id]);
 
   const displayName = user?.name?.split(' ')[0] ?? undefined;
 

@@ -34,9 +34,10 @@ jest.mock('../middleware/auth', () => ({
   default: (req: express.Request, _res: express.Response, next: express.NextFunction) => {
     const headerRoles = (req.headers['x-test-roles'] as string | undefined) ?? 'ADMIN';
     const headerSub = (req.headers['x-test-sub'] as string | undefined) ?? '00000000-0000-0000-0000-000000000001';
+    const headerEmail = (req.headers['x-test-email'] as string | undefined) ?? 'admin@example.com';
     req.user = {
       sub: headerSub,
-      email: 'admin@example.com',
+      email: headerEmail,
       roles: headerRoles.split(',') as ('ADMIN' | 'EVENT_CREATOR' | 'USER')[],
       rawClaims: {},
     };
@@ -86,19 +87,29 @@ describe('members routes', () => {
   });
 
   it('PATCH /api/members/:id/sms-consent blocks non-admin editing other users', async () => {
+    const mockRequest = createRequest(async () => ({
+      recordset: [{ member_id: 'member-2', email: 'different@example.com' }],
+    }));
+    (getPool as jest.Mock).mockResolvedValue({ request: () => mockRequest });
+
     const res = await request(app)
       .patch('/api/members/member-2/sms-consent')
       .set('x-test-roles', 'USER')
       .set('x-test-sub', 'member-1')
+      .set('x-test-email', 'member@example.com')
       .send({ sms_opt_in: true });
 
     expect(res.status).toBe(403);
   });
 
   it('PATCH /api/members/:id/sms-consent updates consent and writes log', async () => {
-    const mockRequest = createRequest(async () => ({
-      recordset: [{ member_id: 'member-1', mobile_phone: '+13035551212', sms_opt_in: true }],
-    }));
+    const mockRequest = {
+      input: jest.fn().mockReturnThis(),
+      query: jest
+        .fn()
+        .mockResolvedValueOnce({ recordset: [{ member_id: 'member-1', email: 'admin@example.com' }] })
+        .mockResolvedValueOnce({ recordset: [{ member_id: 'member-1', mobile_phone: '+13035551212', sms_opt_in: true }] }),
+    };
     (getPool as jest.Mock).mockResolvedValue({ request: () => mockRequest });
 
     const res = await request(app)
@@ -108,6 +119,54 @@ describe('members routes', () => {
     expect(res.status).toBe(200);
     expect(notificationService.writeSmsConsentLog).toHaveBeenCalledWith('member-1', 'opt_in', 'manual');
     expect(notificationService.sendSms).toHaveBeenCalled();
+  });
+
+  it('PATCH /api/members/:id/channel-preference updates both sms and email flags', async () => {
+    const mockRequest = {
+      input: jest.fn().mockReturnThis(),
+      query: jest
+        .fn()
+        .mockResolvedValueOnce({
+          recordset: [{ member_id: 'member-1', email: 'admin@example.com', mobile_phone: '+13035551212', sms_opt_in: false }],
+        })
+        .mockResolvedValueOnce({
+          recordset: [{ member_id: 'member-1', mobile_phone: '+13035551212', sms_opt_in: true, email_opt_out: false }],
+        }),
+    };
+    (getPool as jest.Mock).mockResolvedValue({ request: () => mockRequest });
+
+    const res = await request(app)
+      .patch('/api/members/member-1/channel-preference')
+      .send({ channel_preference: 'both' });
+
+    expect(res.status).toBe(200);
+    expect(notificationService.writeSmsConsentLog).toHaveBeenCalledWith(
+      'member-1',
+      'opt_in',
+      'manual',
+      'Updated from channel preference'
+    );
+    expect(notificationService.sendSms).toHaveBeenCalled();
+  });
+
+  it('PATCH /api/members/:id/sms-consent allows same-email self-service even when sub differs', async () => {
+    const mockRequest = {
+      input: jest.fn().mockReturnThis(),
+      query: jest
+        .fn()
+        .mockResolvedValueOnce({ recordset: [{ member_id: 'member-2', email: 'member@example.com' }] })
+        .mockResolvedValueOnce({ recordset: [{ member_id: 'member-2', mobile_phone: '+13035550111', sms_opt_in: true }] }),
+    };
+    (getPool as jest.Mock).mockResolvedValue({ request: () => mockRequest });
+
+    const res = await request(app)
+      .patch('/api/members/member-2/sms-consent')
+      .set('x-test-roles', 'USER')
+      .set('x-test-sub', 'auth-subject-that-is-not-member-id')
+      .set('x-test-email', 'member@example.com')
+      .send({ sms_opt_in: true });
+
+    expect(res.status).toBe(200);
   });
 
   it('POST /api/members maps duplicate member error to 409', async () => {

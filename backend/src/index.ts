@@ -27,6 +27,7 @@ import { errorHandler, notFoundHandler } from './middleware/error';
 import { runReminderJob } from './jobs/reminderJob';
 import { runTavfExpiryJob } from './jobs/tavfExpiryJob';
 import { runWaitlistLifecycleJob } from './jobs/waitlistLifecycleJob';
+import { runRetentionJob } from './jobs/retentionJob';
 import apiRouter from './routes';
 
 const app = express();
@@ -51,6 +52,7 @@ app.use(errorHandler);
 let reminderTimer: NodeJS.Timeout | undefined;
 let tavfExpiryTimer: NodeJS.Timeout | undefined;
 let waitlistLifecycleTimer: NodeJS.Timeout | undefined;
+let retentionTimer: NodeJS.Timeout | undefined;
 
 function parseMs(value: string | undefined, fallback: number): number {
   if (!value) {
@@ -85,6 +87,8 @@ function scheduleJobs(): void {
   const reminderLookAheadHours = parseMs(process.env['REMINDER_LOOKAHEAD_HOURS'], 48);
   const tavfExpiryIntervalMs = parseMs(process.env['TAVF_EXPIRY_JOB_INTERVAL_MS'], 24 * 60 * 60 * 1000);
   const waitlistLifecycleIntervalMs = parseMs(process.env['WAITLIST_JOB_INTERVAL_MS'], 15 * 60 * 1000);
+  const retentionEnabled = parseBool(process.env['RETENTION_JOB_ENABLED'], false);
+  const retentionIntervalMs = parseMs(process.env['RETENTION_JOB_INTERVAL_MS'], 24 * 60 * 60 * 1000);
 
   const runReminder = async (): Promise<void> => {
     try {
@@ -110,9 +114,20 @@ function scheduleJobs(): void {
     }
   };
 
+  const runRetention = async (): Promise<void> => {
+    try {
+      await runRetentionJob();
+    } catch (error) {
+      console.error('[scheduler] retention job failed', error);
+    }
+  };
+
   void runReminder();
   void runTavfExpiry();
   void runWaitlistLifecycle();
+  if (retentionEnabled) {
+    void runRetention();
+  }
 
   reminderTimer = setInterval(() => {
     void runReminder();
@@ -123,6 +138,11 @@ function scheduleJobs(): void {
   waitlistLifecycleTimer = setInterval(() => {
     void runWaitlistLifecycle();
   }, waitlistLifecycleIntervalMs);
+  if (retentionEnabled) {
+    retentionTimer = setInterval(() => {
+      void runRetention();
+    }, retentionIntervalMs);
+  }
 
   console.log(JSON.stringify({
     level: 'info',
@@ -131,6 +151,8 @@ function scheduleJobs(): void {
     reminderLookAheadHours,
     tavfExpiryIntervalMs,
     waitlistLifecycleIntervalMs,
+    retentionEnabled,
+    retentionIntervalMs,
     timestamp: new Date().toISOString(),
   }));
 }
@@ -149,6 +171,10 @@ function clearSchedulers(): void {
   if (waitlistLifecycleTimer) {
     clearInterval(waitlistLifecycleTimer);
     waitlistLifecycleTimer = undefined;
+  }
+  if (retentionTimer) {
+    clearInterval(retentionTimer);
+    retentionTimer = undefined;
   }
 }
 

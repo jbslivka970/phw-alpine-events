@@ -19,7 +19,7 @@ Legend:
 
 ### 2.1 Member Management (Section 6.1, US-MM)
 
-Status: **Mostly Complete**
+Status: **Complete (with UX depth follow-up)**
 
 Implemented evidence:
 - CSV import preview/commit/logs and shared-email conflict workflow exists in UI and API stack.
@@ -28,7 +28,7 @@ Implemented evidence:
 - Phone normalization support is wired in member/import services.
 
 Gaps:
-- PRD asks for broader channel preferences (email-only / SMS-only / both). Current self-service page is SMS toggle only.
+- Channel preferences (`email_only`, `sms_only`, `both`) now exist for admin and self-service flows; remaining improvement is richer preference explanations and onboarding copy.
 
 ### 2.2 Group Management (Section 6.2, US-MM-09)
 
@@ -49,12 +49,14 @@ Implemented evidence:
 - Reminder job and waitlist auto-promotion mechanics exist.
 - Update/cancel notification dispatch flows exist.
 - Notification runtime mode/strict readiness checks now exist in startup diagnostics and preflight guards.
+- Template management CRUD exists as dedicated API + admin page.
+- AI invite draft generation is implemented (OpenAI-backed with deterministic fallback).
+- Assignment equity recommendations endpoint/UI is implemented.
+- Regional email To-line config exists via `ACS_EMAIL_TO`.
 
 Gaps vs PRD:
-- **Template management CRUD (admin)** required by PRD task list is not exposed as a dedicated route/page.
-- **AI invite generation** is not implemented.
-- **AI equity recommendations** for assignment are not implemented.
-- **Email To-line regional admin addresses** is only partially aligned. Current ACS implementation sends `to: senderAddress`, `bcc: recipient`, not an explicit configurable regional admin list.
+- AI invite output is currently draft-only and not yet fully integrated into template lifecycle/versioning workflows.
+- Notification template runtime still uses built-in template modules for core sends; database template CRUD exists but is not yet the authoritative render source for all operations.
 
 ### 2.4 Take a Vet Fishing (Section 6.4, US-TV)
 
@@ -69,14 +71,14 @@ Gap:
 
 ### 2.5 Calendar + Reporting (Section 6.5/6.6, US-CR)
 
-Status: **Partial**
+Status: **Mostly Complete**
 
 Implemented evidence:
 - Calendar month/list with capacity badges exists.
 - Reports summary/export/participation are implemented.
+- ICS download endpoint and calendar UI action are implemented.
 
 Gaps:
-- **ICS download** for individual events not found.
 - Notification delivery report endpoint and UI table exist; add export/chart polish only if needed.
 
 ### 2.6 Compliance / Legal / UX (Sections 4.3, 4.4, 10.x)
@@ -90,23 +92,23 @@ Implemented evidence:
 
 Gaps:
 - Full production proof of ACS/Event Grid inbound path and carrier compliance reporting should remain a recurring smoke check.
-- Data retention automation windows described in PRD are not represented as explicit jobs in repo.
+- Data retention now has a scheduled scaffold job; production retention policy values and governance sign-off still need to be finalized.
 
 ## 3) Next Tasks (Prioritized, PRD-Mapped)
 
 ## P0 - Must close for PRD alignment
 
-1. **End-to-end inbound SMS compliance path (Event Grid integration + proof in prod)**  
-   PRD refs: Section 4.3, US-MM-08, US-EM-05  
-   Implementation: verify/deploy inbound ACS -> Event Grid -> handler for STOP/HELP/Y/N/M/W, plus recurring smoke checks.
+1. **Production retention policy finalization + rollout**  
+   PRD refs: Section 11.x / governance controls  
+   Implementation: set retention windows per table/env, validate dry-run results, then enable delete mode in production.
 
-2. **Automated reminders (default 3-day behavior, configurable timing)**  
-   PRD refs: Section 6.3.4, US-EM-06/07  
-   Implementation: scheduled dispatch with idempotent send markers and operational observability.
+2. **Template runtime unification**  
+   PRD refs: US-EM-13, T-EVT-16  
+   Implementation: make DB templates authoritative render source for event invite/update/cancel/reminder channels.
 
-3. **Email unsubscribe handling (functional, auditable)**  
-   PRD refs: Section 4.4  
-   Implementation: signed unsubscribe link + persistence + enforcement.
+3. **AI invite workflow completion**  
+   PRD refs: US-EM-12, T-EVT-15  
+   Implementation: connect generated drafts to template save/send workflows with review/audit controls.
 
 ## P1 - Should Have
 

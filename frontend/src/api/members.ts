@@ -58,6 +58,8 @@ const membersApi = {
   update: (id: string, data: Partial<MemberRecord>) => apiPatch<MemberRecord>(`/members/${id}`, data),
   updateSmsConsent: (id: string, sms_opt_in: boolean) =>
     apiPatch<MemberRecord>(`/members/${id}/sms-consent`, { sms_opt_in }),
+  updateChannelPreference: (id: string, channel_preference: 'email_only' | 'sms_only' | 'both') =>
+    apiPatch<MemberRecord>(`/members/${id}/channel-preference`, { channel_preference }),
   consentLog: (id: string) => apiGet<SmsConsentLogRow[]>(`/members/${id}/sms-consent-log`),
   participation: (id: string) => apiGet<MemberParticipation>(`/members/${id}/participation`),
   rsvps: (id: string) => apiGet<Array<{

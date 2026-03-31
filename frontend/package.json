@@ -11,7 +11,7 @@
     "build": "vite build",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:flows": "vitest run src/pages/__tests__/TavfDetailPage.test.tsx src/pages/__tests__/EventsPage.test.tsx src/pages/__tests__/ImportPage.test.tsx src/api/__tests__/eventsApi.test.ts",
+    "test:flows": "vitest run src/pages/__tests__/TavfDetailPage.test.tsx src/pages/__tests__/EventsPage.test.tsx src/pages/__tests__/ImportPage.test.tsx src/pages/__tests__/DashboardPage.test.tsx src/pages/__tests__/NotificationPreferencesPage.test.tsx src/api/__tests__/eventsApi.test.ts",
     "lint": "eslint . --ext js,jsx --report-unused-disable-directives --max-warnings 0",
     "preview": "vite preview"
   },

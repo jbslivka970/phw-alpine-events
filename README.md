@@ -188,7 +188,7 @@ Use this for authenticated API path regression checks across roles:
 npm run test:e2e:role-matrix
 ```
 
-For browser route validation with authenticated storage state (Preferences + TAVF paths):
+For browser route validation with credential-based login (Preferences + TAVF paths):
 
 ```bash
 npm run test:e2e:browser
@@ -235,7 +235,20 @@ This suite guards recent production regressions by asserting:
 - table-driven role x endpoint permission contracts across `/events`, `/events/:id/status`, `/admin/users`, and `/tavf/postings`
 - authenticated calls to `PUT /events/:id/status` are not blocked by `401/403` for valid roles
 - TAVF posting create no longer fails UUID-validation when stale clients send legacy guide IDs
-- browser-level authenticated paths for `/preferences` and `/tavf/new` using Playwright storage state
+- browser-level authenticated paths for `/preferences` and `/tavf/new` using live credential login
+- preferences page only calls member detail APIs with UUID member IDs and never surfaces Invalid GUID errors
+
+Notification preference behavior:
+
+- `/preferences` now supports self-service channel modes: `email_only`, `sms_only`, and `both`.
+- Preference updates write through to member `sms_opt_in` and `email_opt_out` flags.
+- SMS-enabled selections require a mobile phone on file.
+
+CI trigger strategy for a lighter dev process:
+
+- PRs and main pushes run build, backend tests, and frontend regression-flow tests.
+- Full Playwright role matrix + browser flows run only on version tag pushes (`v*`), release publication, or manual workflow dispatch.
+- Release publication also runs compliance smoke checks against production backend endpoints.
 
 ## Production Plumbing Checklist
 
@@ -263,6 +276,12 @@ Optional backend settings:
 - `APPINSIGHTS_INSTRUMENTATIONKEY` or `APPLICATIONINSIGHTS_CONNECTION_STRING`
 - `OPENAI_API_KEY` (for AI invite generation)
 - `OPENAI_MODEL` (optional override; default `gpt-4.1-mini`)
+- `RETENTION_JOB_ENABLED` (set `true` to enable scheduled log-retention cleanup)
+- `RETENTION_JOB_INTERVAL_MS` (job cadence; default 24h)
+- `RETENTION_DRY_RUN` (set `true` to count rows only, no deletes)
+- `RETENTION_NOTIFICATION_LOG_DAYS` (default `180`)
+- `RETENTION_INBOUND_SMS_LOG_DAYS` (default `365`)
+- `RETENTION_EMAIL_PREFERENCE_LOG_DAYS` (default `365`)
 
 Optional CI/CD secret:
 
