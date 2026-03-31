@@ -146,6 +146,34 @@ The backend listens on `http://localhost:3001` by default. The frontend runs thr
 
 For local frontend API calls, Vite proxies `/api/*` to `http://localhost:3001`.
 
+### Frontend Flow Regression Pattern
+
+Use this to run a focused frontend flow suite before merges or deploys:
+
+```bash
+cd frontend && npm run test:flows
+```
+
+This suite currently validates the TAVF detail page paths that have recently regressed:
+
+- admin load path (posting + applications + matches)
+- confirm match request shape (no `matched_by` leakage from auth subject)
+- backend 500 surfacing in UI during match confirmation
+- non-admin apply flow request payload
+
+It also validates Events flow paths:
+
+- create-event modal payload normalization and submission
+- edit-event save path with update reason
+- cancel status transition path from event cards
+- API delete contract (`DELETE /events/:id`) to guard endpoint wiring
+
+For full frontend unit/integration tests:
+
+```bash
+cd frontend && npm test
+```
+
 ## Production Plumbing Checklist
 
 Backend App Service settings required for full functionality:
