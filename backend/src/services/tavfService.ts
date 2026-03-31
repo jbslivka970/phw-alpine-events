@@ -2,6 +2,78 @@ import sql from 'mssql';
 import { getPool } from '../db';
 import * as notifications from './notifications';
 
+let tavfSchemaEnsurePromise: Promise<void> | null = null;
+
+async function ensureTavfSchema(): Promise<void> {
+  if (tavfSchemaEnsurePromise) {
+    return tavfSchemaEnsurePromise;
+  }
+
+  tavfSchemaEnsurePromise = (async () => {
+    const pool = await getPool();
+    await pool.request().query(`
+      IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'tavf_posting')
+      BEGIN
+          CREATE TABLE dbo.tavf_posting (
+              posting_id      UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+              guide_member_id UNIQUEIDENTIFIER NOT NULL REFERENCES dbo.member(member_id),
+              event_date      DATE NOT NULL,
+              location        NVARCHAR(500) NOT NULL,
+              capacity        INT NOT NULL DEFAULT 1,
+              species         NVARCHAR(200),
+              description     NVARCHAR(2000),
+              status          NVARCHAR(20) NOT NULL DEFAULT 'open'
+                                  CONSTRAINT chk_tavf_posting_status CHECK (status IN ('open', 'filled', 'cancelled')),
+              created_at      DATETIME NOT NULL DEFAULT GETDATE(),
+              updated_at      DATETIME NOT NULL DEFAULT GETDATE()
+          );
+          CREATE INDEX idx_tavf_posting_guide  ON dbo.tavf_posting(guide_member_id);
+          CREATE INDEX idx_tavf_posting_date   ON dbo.tavf_posting(event_date);
+          CREATE INDEX idx_tavf_posting_status ON dbo.tavf_posting(status);
+      END;
+
+      IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'tavf_application')
+      BEGIN
+          CREATE TABLE dbo.tavf_application (
+              application_id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+              posting_id     UNIQUEIDENTIFIER NOT NULL REFERENCES dbo.tavf_posting(posting_id),
+              vet_member_id  UNIQUEIDENTIFIER NOT NULL REFERENCES dbo.member(member_id),
+              notes          NVARCHAR(1000),
+              status         NVARCHAR(20) NOT NULL DEFAULT 'pending'
+                                 CONSTRAINT chk_tavf_application_status CHECK (status IN ('pending', 'matched', 'waitlisted', 'withdrawn')),
+              applied_at     DATETIME NOT NULL DEFAULT GETDATE(),
+              updated_at     DATETIME NOT NULL DEFAULT GETDATE(),
+              CONSTRAINT uq_tavf_application UNIQUE (posting_id, vet_member_id)
+          );
+          CREATE INDEX idx_tavf_application_posting ON dbo.tavf_application(posting_id);
+          CREATE INDEX idx_tavf_application_vet     ON dbo.tavf_application(vet_member_id);
+      END;
+
+      IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'tavf_match')
+      BEGIN
+          CREATE TABLE dbo.tavf_match (
+              match_id       UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+              posting_id     UNIQUEIDENTIFIER NOT NULL REFERENCES dbo.tavf_posting(posting_id),
+              application_id UNIQUEIDENTIFIER NOT NULL REFERENCES dbo.tavf_application(application_id),
+              matched_by     UNIQUEIDENTIFIER REFERENCES dbo.member(member_id),
+              matched_at     DATETIME NOT NULL DEFAULT GETDATE(),
+              status         NVARCHAR(20) NOT NULL DEFAULT 'confirmed'
+                                 CONSTRAINT chk_tavf_match_status CHECK (status IN ('confirmed', 'cancelled')),
+              notes          NVARCHAR(1000),
+              CONSTRAINT uq_tavf_match UNIQUE (posting_id, application_id)
+          );
+          CREATE INDEX idx_tavf_match_posting     ON dbo.tavf_match(posting_id);
+          CREATE INDEX idx_tavf_match_application ON dbo.tavf_match(application_id);
+      END;
+    `);
+  })().catch((error) => {
+    tavfSchemaEnsurePromise = null;
+    throw error;
+  });
+
+  return tavfSchemaEnsurePromise;
+}
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -85,6 +157,7 @@ function isUuid(value: string): boolean {
 export async function listPostings(
   filters: { status?: PostingStatus } = {}
 ): Promise<TavfPosting[]> {
+  await ensureTavfSchema();
   const pool = await getPool();
   const req = pool.request();
   let query = `SELECT * FROM tavf_posting`;
@@ -98,6 +171,7 @@ export async function listPostings(
 }
 
 export async function getPosting(postingId: string): Promise<TavfPosting | null> {
+  await ensureTavfSchema();
   const pool = await getPool();
   const result = await pool
     .request()
@@ -107,6 +181,7 @@ export async function getPosting(postingId: string): Promise<TavfPosting | null>
 }
 
 export async function createPosting(input: CreatePostingInput): Promise<TavfPosting> {
+  await ensureTavfSchema();
   const pool = await getPool();
   const result = await pool
     .request()
@@ -134,6 +209,7 @@ export async function updatePosting(
   postingId: string,
   input: UpdatePostingInput
 ): Promise<TavfPosting | null> {
+  await ensureTavfSchema();
   const existing = await getPosting(postingId);
   if (!existing) return null;
 
@@ -172,6 +248,7 @@ export async function updatePosting(
 }
 
 export async function deletePosting(postingId: string): Promise<boolean> {
+  await ensureTavfSchema();
   const pool = await getPool();
   const result = await pool
     .request()
@@ -187,6 +264,7 @@ export async function deletePosting(postingId: string): Promise<boolean> {
 export async function listApplicationsForPosting(
   postingId: string
 ): Promise<TavfApplication[]> {
+  await ensureTavfSchema();
   const pool = await getPool();
   const result = await pool
     .request()
@@ -198,6 +276,7 @@ export async function listApplicationsForPosting(
 }
 
 export async function getApplication(applicationId: string): Promise<TavfApplication | null> {
+  await ensureTavfSchema();
   const pool = await getPool();
   const result = await pool
     .request()
@@ -211,6 +290,7 @@ export async function getApplication(applicationId: string): Promise<TavfApplica
 export async function createApplication(
   input: CreateApplicationInput
 ): Promise<TavfApplication> {
+  await ensureTavfSchema();
   const pool = await getPool();
   const result = await pool
     .request()
@@ -233,6 +313,7 @@ export async function updateApplicationStatus(
   applicationId: string,
   status: ApplicationStatus
 ): Promise<TavfApplication | null> {
+  await ensureTavfSchema();
   const pool = await getPool();
   const result = await pool
     .request()
@@ -252,6 +333,7 @@ export async function updateApplicationStatus(
 // ---------------------------------------------------------------------------
 
 export async function listMatchesForPosting(postingId: string): Promise<TavfMatch[]> {
+  await ensureTavfSchema();
   const pool = await getPool();
   const result = await pool
     .request()
@@ -263,6 +345,7 @@ export async function listMatchesForPosting(postingId: string): Promise<TavfMatc
 }
 
 export async function getMatch(matchId: string): Promise<TavfMatch | null> {
+  await ensureTavfSchema();
   const pool = await getPool();
   const result = await pool
     .request()
@@ -277,6 +360,7 @@ export async function getMatch(matchId: string): Promise<TavfMatch | null> {
  * whether the posting is now 'filled'.
  */
 export async function createMatch(input: CreateMatchInput): Promise<TavfMatch> {
+  await ensureTavfSchema();
   const pool = await getPool();
 
   let matchedByMemberId: string | null = null;
@@ -366,6 +450,7 @@ export async function createMatch(input: CreateMatchInput): Promise<TavfMatch> {
 }
 
 export async function cancelMatch(matchId: string): Promise<TavfMatch | null> {
+  await ensureTavfSchema();
   const pool = await getPool();
 
   // Get the match first to know posting/application IDs
