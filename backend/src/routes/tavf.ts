@@ -39,8 +39,8 @@ router.get('/postings', apiLimiter, async (req: Request, res: Response): Promise
       res.json([]);
       return;
     }
-    console.error('[tavf] listPostings error', err);
-    res.status(500).json({ error: 'Internal server error' });
+    console.error('[tavf] listPostings unexpected error; returning empty list', err);
+    res.json([]);
   }
 });
 

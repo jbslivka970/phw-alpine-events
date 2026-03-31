@@ -34,6 +34,13 @@ function requireNonAdmin(req: Request, res: Response, next: NextFunction): void 
 const requireAdmin = requireRole('ADMIN');
 const requireEventCreatorOrAdmin = requireRole('ADMIN', 'EVENT_CREATOR');
 const requireTavfCreator = requireNonAdmin;
-const requireAnyAuthenticatedRole = requireRole('ADMIN', 'EVENT_CREATOR', 'USER');
+function requireAnyAuthenticatedRole(req: Request, res: Response, next: NextFunction): void {
+  if (!req.user) {
+    res.status(401).json({ error: 'Authentication required' });
+    return;
+  }
+
+  next();
+}
 
 export { requireAdmin, requireAnyAuthenticatedRole, requireEventCreatorOrAdmin, requireRole, requireTavfCreator };
