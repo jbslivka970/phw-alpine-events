@@ -1,14 +1,13 @@
 import { Router, Request, Response } from 'express';
 import authenticate from '../middleware/auth';
 import { apiLimiter, writeLimiter } from '../middleware/rateLimiter';
-import { requireAnyAuthenticatedRole, requireEventCreatorOrAdmin, requireTavfCreator } from '../middleware/rbac';
+import { requireEventCreatorOrAdmin, requireTavfCreator } from '../middleware/rbac';
 import * as tavf from '../services/tavfService';
 
 const router = Router();
 
 // All TAVF routes require authentication
 router.use(authenticate);
-router.use(requireAnyAuthenticatedRole);
 
 // ---------------------------------------------------------------------------
 // Postings
