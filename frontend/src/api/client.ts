@@ -11,9 +11,52 @@ const resolvedBase = shouldUseProductionFallback ? PRODUCTION_BACKEND_FALLBACK :
 const BASE_URL = resolvedBase.endsWith('/') ? resolvedBase.slice(0, -1) : resolvedBase;
 
 let getToken: TokenGetter = async () => null;
+const AUTH_RETRY_DELAY_MS = 250;
 
 function setTokenGetter(fn: TokenGetter): void {
   getToken = fn;
+}
+
+function hasAuthorizationHeader(headers?: HeadersInit): boolean {
+  if (!headers) {
+    return false;
+  }
+  const normalized = new Headers(headers);
+  return normalized.has('Authorization');
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+async function fetchWithAuthRetry(
+  path: string,
+  initFactory: () => Promise<RequestInit>
+): Promise<Response> {
+  const url = `${BASE_URL}${path}`;
+  const initialInit = await initFactory();
+  let response = await fetch(url, initialInit);
+
+  if (response.status !== 401) {
+    return response;
+  }
+
+  const initialHadAuth = hasAuthorizationHeader(initialInit.headers);
+  if (!initialHadAuth) {
+    await delay(AUTH_RETRY_DELAY_MS);
+  }
+
+  const retryInit = await initFactory();
+  const retryHasAuth = hasAuthorizationHeader(retryInit.headers);
+
+  // Retry when a token was not yet available (or becomes available) during auth warm-up.
+  if (!initialHadAuth || retryHasAuth) {
+    response = await fetch(url, retryInit);
+  }
+
+  return response;
 }
 
 async function buildHeaders(extra?: HeadersInit): Promise<HeadersInit> {
@@ -44,70 +87,72 @@ async function parseResponse<T>(response: Response): Promise<T> {
 }
 
 async function apiGet<T>(path: string): Promise<T> {
-  const response = await fetch(`${BASE_URL}${path}`, {
+  const response = await fetchWithAuthRetry(path, async () => ({
     method: 'GET',
     headers: await buildHeaders(),
-  });
+  }));
   return parseResponse<T>(response);
 }
 
 async function apiPost<T>(path: string, body?: unknown): Promise<T> {
-  const response = await fetch(`${BASE_URL}${path}`, {
+  const response = await fetchWithAuthRetry(path, async () => ({
     method: 'POST',
     headers: await buildHeaders(),
     body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
+  }));
   return parseResponse<T>(response);
 }
 
 async function apiPostForm<T>(path: string, formData: FormData): Promise<T> {
-  const token = await getToken();
-  const headers: Record<string, string> = {};
+  const response = await fetchWithAuthRetry(path, async () => {
+    const token = await getToken();
+    const headers: Record<string, string> = {};
 
-  if (token) {
-    headers.Authorization = `Bearer ${token}`;
-  }
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
 
-  const response = await fetch(`${BASE_URL}${path}`, {
-    method: 'POST',
-    headers,
-    body: formData,
+    return {
+      method: 'POST',
+      headers,
+      body: formData,
+    };
   });
 
   return parseResponse<T>(response);
 }
 
 async function apiPut<T>(path: string, body?: unknown): Promise<T> {
-  const response = await fetch(`${BASE_URL}${path}`, {
+  const response = await fetchWithAuthRetry(path, async () => ({
     method: 'PUT',
     headers: await buildHeaders(),
     body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
+  }));
   return parseResponse<T>(response);
 }
 
 async function apiPatch<T>(path: string, body?: unknown): Promise<T> {
-  const response = await fetch(`${BASE_URL}${path}`, {
+  const response = await fetchWithAuthRetry(path, async () => ({
     method: 'PATCH',
     headers: await buildHeaders(),
     body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
+  }));
   return parseResponse<T>(response);
 }
 
 async function apiDelete<T>(path: string): Promise<T> {
-  const response = await fetch(`${BASE_URL}${path}`, {
+  const response = await fetchWithAuthRetry(path, async () => ({
     method: 'DELETE',
     headers: await buildHeaders(),
-  });
+  }));
   return parseResponse<T>(response);
 }
 
 async function apiGetBlob(path: string): Promise<{ blob: Blob; headers: Headers }> {
-  const response = await fetch(`${BASE_URL}${path}`, {
+  const response = await fetchWithAuthRetry(path, async () => ({
     method: 'GET',
     headers: await buildHeaders(),
-  });
+  }));
 
   if (!response.ok) {
     const message = await response.text().catch(() => response.statusText);
