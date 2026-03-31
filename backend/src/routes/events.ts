@@ -602,7 +602,7 @@ router.put('/:id', writeLimiter, authenticate, requireEventCreatorOrAdmin, async
   }
 });
 
-router.put('/:id/status', writeLimiter, authenticate, requireEventCreatorOrAdmin, async (req, res) => {
+router.put('/:id/status', writeLimiter, authenticate, requireAnyAuthenticatedRole, async (req, res) => {
   try {
     const newStatus = (req.body?.status as string | undefined)?.toLowerCase();
     if (!newStatus) {
