@@ -99,8 +99,11 @@ function extractRoles(claims: JwtPayload): AppRole[] {
   };
 
   pushClaimValues(claims['roles']);
+  pushClaimValues(claims['role']);
   pushClaimValues(claims['extension_roles']);
   pushClaimValues(claims['extension_Roles']);
+  pushClaimValues(claims['extension_role']);
+  pushClaimValues(claims['extension_Role']);
   pushClaimValues(claims['appRoles']);
   pushClaimValues(claims['app_roles']);
   pushClaimValues(claims['groups']);
@@ -110,6 +113,12 @@ function extractRoles(claims: JwtPayload): AppRole[] {
     if (normalized && !normalizedRoles.includes(normalized)) {
       normalizedRoles.push(normalized);
     }
+  }
+
+  // Delegated API access tokens can be valid for this API but omit app role claims.
+  // Treat these callers as USER so read-level authenticated routes do not fail closed.
+  if (normalizedRoles.length === 0 && typeof claims['scp'] === 'string' && claims['scp'].trim().length > 0) {
+    normalizedRoles.push('USER');
   }
 
   return normalizedRoles;
