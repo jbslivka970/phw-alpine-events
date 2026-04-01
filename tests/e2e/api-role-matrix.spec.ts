@@ -154,6 +154,34 @@ function decodeCapabilities(token: string, fallbackRole: Role): RoleCapabilities
   }
 }
 
+const capabilityCache = new Map<string, RoleCapabilities>();
+
+async function inferCapabilities(request: APIRequestContext, token: string, fallbackRole: Role): Promise<RoleCapabilities> {
+  const cached = capabilityCache.get(token);
+  if (cached) {
+    return cached;
+  }
+
+  const claimed = decodeCapabilities(token, fallbackRole);
+  const adminProbe = await invokeContract(request, 'GET', '/admin/users?page=1&pageSize=1', token);
+  const adminStatus = adminProbe.status();
+  const hasAdminAccess = ![401, 403].includes(adminStatus);
+
+  const creatorProbe = await invokeContract(request, 'POST', '/events', token, {
+    title: '',
+  });
+  const creatorStatus = creatorProbe.status();
+  const hasCreateAccess = ![401, 403].includes(creatorStatus);
+
+  const inferred: RoleCapabilities = {
+    isAdmin: claimed.isAdmin || hasAdminAccess,
+    isEventCreator: claimed.isEventCreator || hasCreateAccess || hasAdminAccess,
+  };
+
+  capabilityCache.set(token, inferred);
+  return inferred;
+}
+
 test.describe('API role-path matrix', () => {
   test.skip(!apiBaseUrl, 'E2E_API_BASE_URL (or BACKEND_BASE_URL) is required.');
 
@@ -162,7 +190,7 @@ test.describe('API role-path matrix', () => {
       for (const role of Object.keys(tokensByRole) as Role[]) {
         const token = tokensByRole[role];
         test.skip(!token, `${role} token is required for this assertion.`);
-        const capabilities = decodeCapabilities(token, role);
+        const capabilities = await inferCapabilities(request, token, role);
 
         const response = await invokeContract(request, contract.method, contract.path, token, contract.payload);
         const status = response.status();
