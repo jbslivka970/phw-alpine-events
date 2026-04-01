@@ -37,6 +37,13 @@ interface NotificationRuntimeStatus {
   reasons: string[];
 }
 
+interface ProviderDeliveryStatusResult {
+  provider_status: string | null;
+  provider_error_detail: string | null;
+  provider_checked_at: string;
+  provider_source: 'acs_email';
+}
+
 class NotificationConfigurationError extends Error {
   constructor(message: string) {
     super(message);
@@ -540,6 +547,7 @@ let emailService: IEmailService = new StubEmailService();
 let smsService: ISmsService = new StubSmsService();
 let isRealEmailService = false;
 let isRealSmsService = false;
+let acsEmailStatusClient: EmailClient | null = null;
 const notificationInitReasons: string[] = [];
 const hasValidAcsConnectionString = Boolean(
   acsConfig.connectionString &&
@@ -622,6 +630,82 @@ function assertChannelsAvailable(channels: { emailNeeded: boolean; smsNeeded: bo
     throw new NotificationConfigurationError(
       `Notification channel unavailable for ${context}: SMS delivery is required but ACS SMS is not configured.`
     );
+  }
+}
+
+function getAcsEmailStatusClient(): EmailClient | null {
+  if (!acsConfig.isConfigured || !hasValidAcsConnectionString) {
+    return null;
+  }
+
+  if (!acsEmailStatusClient) {
+    acsEmailStatusClient = new EmailClient(acsConfig.connectionString ?? '');
+  }
+
+  return acsEmailStatusClient;
+}
+
+async function getAcsEmailProviderDeliveryStatus(providerId: string): Promise<ProviderDeliveryStatusResult> {
+  const checkedAt = new Date().toISOString();
+  const trimmedProviderId = providerId.trim();
+  if (!trimmedProviderId) {
+    return {
+      provider_status: null,
+      provider_error_detail: 'Missing provider_id.',
+      provider_checked_at: checkedAt,
+      provider_source: 'acs_email',
+    };
+  }
+
+  const client = getAcsEmailStatusClient();
+  if (!client) {
+    return {
+      provider_status: null,
+      provider_error_detail: 'ACS email provider client is not configured.',
+      provider_checked_at: checkedAt,
+      provider_source: 'acs_email',
+    };
+  }
+
+  try {
+    const internalClient = (client as unknown as {
+      generatedClient?: {
+        email?: {
+          getSendResult?: (operationId: string) => Promise<{ status?: string; error?: { message?: string } | string }>;
+        };
+      };
+    }).generatedClient;
+
+    if (!internalClient?.email?.getSendResult) {
+      return {
+        provider_status: null,
+        provider_error_detail: 'Installed @azure/communication-email SDK does not expose getSendResult.',
+        provider_checked_at: checkedAt,
+        provider_source: 'acs_email',
+      };
+    }
+
+    const result = (await internalClient.email.getSendResult(trimmedProviderId)) as {
+      status?: string;
+      error?: { message?: string } | string;
+    };
+    const providerError = typeof result?.error === 'string'
+      ? result.error
+      : result?.error?.message;
+
+    return {
+      provider_status: result?.status ?? null,
+      provider_error_detail: providerError ?? null,
+      provider_checked_at: checkedAt,
+      provider_source: 'acs_email',
+    };
+  } catch (error) {
+    return {
+      provider_status: null,
+      provider_error_detail: error instanceof Error ? error.message : String(error),
+      provider_checked_at: checkedAt,
+      provider_source: 'acs_email',
+    };
   }
 }
 
@@ -1573,6 +1657,7 @@ export {
   StubEmailService,
   StubSmsService,
   notificationService,
+  getAcsEmailProviderDeliveryStatus,
 };
 export type {
   EventNotificationPayload,
@@ -1585,4 +1670,5 @@ export type {
   ISmsService,
   NotificationChannel,
   NotificationStatus,
+  ProviderDeliveryStatusResult,
 };

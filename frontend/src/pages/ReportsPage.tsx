@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { reportsApi } from '../api/reports';
-import type { DeliveryFilters, DeliveryTrendRow } from '../api/reports';
+import type { DeliveryFilters, DeliveryLogRow, DeliveryTrendRow } from '../api/reports';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -33,6 +33,18 @@ interface DeliverySummaryRow {
   status: 'queued' | 'sent' | 'delivered' | 'failed' | 'stubbed' | 'skipped';
   operation_type: string | null;
   count: number;
+}
+
+function formatDateTime(isoDateTime: string): string {
+  return new Date(isoDateTime).toLocaleString('en-GB', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  });
 }
 
 function formatShortDay(isoDate: string): string {
@@ -175,9 +187,17 @@ function ReportsPage() {
   const [error, setError] = useState<string | null>(null);
   const [deliveryRows, setDeliveryRows] = useState<DeliverySummaryRow[]>([]);
   const [deliveryTrends, setDeliveryTrends] = useState<DeliveryTrendRow[]>([]);
+  const [deliveryLogs, setDeliveryLogs] = useState<DeliveryLogRow[]>([]);
+  const [deliveryLogsTotal, setDeliveryLogsTotal] = useState(0);
+  const [deliveryLogsLoading, setDeliveryLogsLoading] = useState(false);
+  const [deliveryLogsError, setDeliveryLogsError] = useState<string | null>(null);
+  const [deliveryPage, setDeliveryPage] = useState(1);
+  const [providerStatusEnabled, setProviderStatusEnabled] = useState(false);
+  const [providerRefreshTick, setProviderRefreshTick] = useState(0);
   const [deliveryChannel, setDeliveryChannel] = useState<'all' | 'email' | 'sms'>('all');
   const [deliveryStatus, setDeliveryStatus] = useState<'all' | 'queued' | 'sent' | 'delivered' | 'failed' | 'stubbed' | 'skipped'>('all');
   const [deliveryOperation, setDeliveryOperation] = useState('');
+  const [deliveryEventId, setDeliveryEventId] = useState('');
 
   useEffect(() => {
     let active = true;
@@ -256,6 +276,52 @@ function ReportsPage() {
     };
   }, [fromDate, toDate, deliveryChannel, deliveryStatus, deliveryOperation]);
 
+  useEffect(() => {
+    setDeliveryPage(1);
+  }, [fromDate, toDate, deliveryChannel, deliveryStatus, deliveryOperation]);
+
+  useEffect(() => {
+    let active = true;
+    const filters: DeliveryFilters & { event_id?: string; page?: number; page_size?: number; include_provider_status?: boolean } = {
+      channel: deliveryChannel === 'all' ? undefined : deliveryChannel,
+      status: deliveryStatus === 'all' ? undefined : deliveryStatus,
+      operation_type: deliveryOperation.trim() || undefined,
+      event_id: deliveryEventId.trim() || undefined,
+      page: deliveryPage,
+      page_size: 25,
+      include_provider_status: providerStatusEnabled,
+    };
+
+    setDeliveryLogsLoading(true);
+    setDeliveryLogsError(null);
+    reportsApi
+      .deliveryLogs(fromDate, toDate, filters)
+      .then((data) => {
+        if (!active) {
+          return;
+        }
+        setDeliveryLogs(data.rows as DeliveryLogRow[]);
+        setDeliveryLogsTotal(data.total_rows);
+      })
+      .catch((err: unknown) => {
+        if (!active) {
+          return;
+        }
+        setDeliveryLogs([]);
+        setDeliveryLogsTotal(0);
+        setDeliveryLogsError(err instanceof Error ? err.message : 'Failed to load delivery logs.');
+      })
+      .finally(() => {
+        if (active) {
+          setDeliveryLogsLoading(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [fromDate, toDate, deliveryChannel, deliveryStatus, deliveryOperation, deliveryEventId, deliveryPage, providerStatusEnabled, providerRefreshTick]);
+
   const trendTotals = deliveryTrends.reduce(
     (acc, row) => {
       acc.total += row.total_count;
@@ -267,6 +333,8 @@ function ReportsPage() {
   const trendFailureRate = trendTotals.total > 0
     ? `${Math.round((trendTotals.failed / trendTotals.total) * 100)}%`
     : '0%';
+  const logPageSize = 25;
+  const totalLogPages = Math.max(1, Math.ceil(deliveryLogsTotal / logPageSize));
 
   const fillRatePct = `${Math.round(summary.avg_fill_rate * 100)}%`;
   const attendRate =
@@ -328,6 +396,18 @@ function ReportsPage() {
             value={deliveryOperation}
             placeholder="event_invite"
             onChange={(e) => setDeliveryOperation(e.target.value)}
+          />
+        </label>
+        <label>
+          Event ID
+          <input
+            type="text"
+            value={deliveryEventId}
+            placeholder="optional UUID"
+            onChange={(e) => {
+              setDeliveryEventId(e.target.value);
+              setDeliveryPage(1);
+            }}
           />
         </label>
       </div>
@@ -418,6 +498,94 @@ function ReportsPage() {
             )}
           </tbody>
         </table>
+      </div>
+
+      <div className="summary-table-wrapper">
+        <div className="delivery-log-header">
+          <h2>Recent Delivery Attempts</h2>
+          <div className="delivery-log-actions">
+            <button
+              className="btn btn-secondary"
+              onClick={() => {
+                setProviderStatusEnabled(true);
+                setProviderRefreshTick((value) => value + 1);
+              }}
+              disabled={deliveryLogsLoading}
+            >
+              {deliveryLogsLoading && providerStatusEnabled ? 'Refreshing…' : 'Refresh Provider Status'}
+            </button>
+            <button
+              className="btn btn-secondary"
+              onClick={() => {
+                setProviderStatusEnabled(false);
+                setProviderRefreshTick((value) => value + 1);
+              }}
+              disabled={deliveryLogsLoading || !providerStatusEnabled}
+            >
+              Hide Provider Status
+            </button>
+          </div>
+        </div>
+
+        {deliveryLogsError && <p className="members-error">{deliveryLogsError}</p>}
+        {deliveryLogsLoading && <p className="members-loading">Loading delivery logs...</p>}
+
+        <table className="summary-table">
+          <thead>
+            <tr>
+              <th>Sent At</th>
+              <th>Channel</th>
+              <th>Recipient</th>
+              <th>Status</th>
+              <th>Provider Status</th>
+              <th>Operation</th>
+              <th>Event ID</th>
+              <th>Error</th>
+            </tr>
+          </thead>
+          <tbody>
+            {deliveryLogs.length === 0 ? (
+              <tr>
+                <td colSpan={8} className="empty-state">No delivery logs in this range.</td>
+              </tr>
+            ) : (
+              deliveryLogs.map((row) => (
+                <tr key={row.log_id}>
+                  <td>{formatDateTime(row.sent_at)}</td>
+                  <td>{row.channel}</td>
+                  <td>{row.recipient}</td>
+                  <td>{row.status}</td>
+                  <td>
+                    {providerStatusEnabled
+                      ? (row.provider_status ?? (row.channel === 'sms' ? 'Not available for SMS pull' : 'No provider status'))
+                      : 'Hidden'}
+                  </td>
+                  <td>{row.operation_type ?? 'general'}</td>
+                  <td className="delivery-log-event-id">{row.event_id ?? '—'}</td>
+                  <td className="delivery-log-error-cell">{row.provider_error_detail ?? row.error_detail ?? '—'}</td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+
+        <div className="delivery-log-pagination">
+          <button
+            className="btn btn-secondary"
+            disabled={deliveryPage <= 1 || deliveryLogsLoading}
+            onClick={() => setDeliveryPage((value) => Math.max(1, value - 1))}
+          >
+            Prev
+          </button>
+          <span>Page {deliveryPage} of {totalLogPages}</span>
+          <button
+            className="btn btn-secondary"
+            disabled={deliveryPage >= totalLogPages || deliveryLogsLoading}
+            onClick={() => setDeliveryPage((value) => Math.min(totalLogPages, value + 1))}
+          >
+            Next
+          </button>
+        </div>
       </div>
 
       {/* Export section */}

@@ -3,6 +3,7 @@ import { getPool, sql } from '../db';
 import authenticate from '../middleware/auth';
 import { apiLimiter } from '../middleware/rateLimiter';
 import { requireAdmin } from '../middleware/rbac';
+import { getAcsEmailProviderDeliveryStatus } from '../services/notifications';
 
 const router = Router();
 
@@ -63,6 +64,35 @@ interface DeliveryTrendPayload {
   rows: DeliveryTrendRow[];
 }
 
+interface DeliveryLogRow {
+  log_id: string;
+  sent_at: string;
+  event_id: string | null;
+  member_id: string | null;
+  template_id: string | null;
+  channel: string;
+  recipient: string;
+  status: string;
+  operation_type: string | null;
+  operation_reason: string | null;
+  provider_id: string | null;
+  error_detail: string | null;
+  provider_status: string | null;
+  provider_error_detail: string | null;
+  provider_checked_at: string | null;
+  provider_source: string | null;
+}
+
+interface DeliveryLogPayload {
+  from: string;
+  to: string;
+  page: number;
+  page_size: number;
+  total_rows: number;
+  include_provider_status: boolean;
+  rows: DeliveryLogRow[];
+}
+
 interface ReminderDuplicateRow {
   event_id: string;
   member_id: string;
@@ -94,6 +124,42 @@ function optionalQueryValue(value: unknown): string | null {
   }
   const trimmed = value.trim();
   return trimmed ? trimmed : null;
+}
+
+function parsePositiveInt(value: unknown, fallback: number, max: number): number {
+  if (typeof value !== 'string') {
+    return fallback;
+  }
+
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback;
+  }
+
+  return Math.min(parsed, max);
+}
+
+function parseBoolean(value: unknown, fallback = false): boolean {
+  if (typeof value !== 'string') {
+    return fallback;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) {
+    return fallback;
+  }
+
+  return ['1', 'true', 'yes', 'on'].includes(normalized);
+}
+
+function parseUuidOrNull(value: string | null): string | null {
+  if (!value) {
+    return null;
+  }
+
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+    ? value
+    : null;
 }
 
 async function queryEventSummary(fromDate: Date, toDate: Date): Promise<EventSummaryRow[]> {
@@ -411,6 +477,146 @@ router.get('/delivery/trends', apiLimiter, authenticate, requireAdmin, async (re
     res.json(payload);
   } catch (error) {
     console.error('GET /reports/delivery/trends failed', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.get('/delivery/logs', apiLimiter, authenticate, requireAdmin, async (req: Request, res: Response) => {
+  const now = new Date();
+  const defaultFrom = new Date(now.getFullYear(), now.getMonth(), 1);
+  const fromDate = parseDate(req.query.from, defaultFrom);
+  const toDate = parseDate(req.query.to, now);
+  const channel = optionalQueryValue(req.query.channel);
+  const status = optionalQueryValue(req.query.status);
+  const operationType = optionalQueryValue(req.query.operation_type);
+  const eventId = parseUuidOrNull(optionalQueryValue(req.query.event_id));
+  const pageSize = parsePositiveInt(req.query.page_size, 25, 100);
+  const page = parsePositiveInt(req.query.page, 1, 5000);
+  const includeProviderStatus = parseBoolean(req.query.include_provider_status, false);
+  const offset = (page - 1) * pageSize;
+  toDate.setHours(23, 59, 59, 999);
+
+  try {
+    const pool = await getPool();
+    const baseRequest = pool
+      .request()
+      .input('fromDate', sql.DateTime, fromDate)
+      .input('toDate', sql.DateTime, toDate)
+      .input('channel', sql.NVarChar(16), channel)
+      .input('status', sql.NVarChar(32), status)
+      .input('operationType', sql.NVarChar(64), operationType)
+      .input('eventId', sql.UniqueIdentifier, eventId)
+      .input('offset', sql.Int, offset)
+      .input('pageSize', sql.Int, pageSize);
+
+    const rowsResult = await baseRequest.query<{
+      log_id: string;
+      sent_at: Date;
+      event_id: string | null;
+      member_id: string | null;
+      template_id: string | null;
+      channel: string;
+      recipient: string;
+      status: string;
+      operation_type: string | null;
+      operation_reason: string | null;
+      provider_id: string | null;
+      error_detail: string | null;
+    }>(
+      `SELECT
+          log_id,
+          sent_at,
+          event_id,
+          member_id,
+          template_id,
+          channel,
+          recipient,
+          status,
+          operation_type,
+          operation_reason,
+          provider_id,
+          error_detail
+       FROM notification_log
+       WHERE sent_at >= @fromDate
+         AND sent_at <= @toDate
+         AND (@channel IS NULL OR channel = @channel)
+         AND (@status IS NULL OR status = @status)
+         AND (@operationType IS NULL OR operation_type = @operationType)
+         AND (@eventId IS NULL OR event_id = @eventId)
+       ORDER BY sent_at DESC
+       OFFSET @offset ROWS
+       FETCH NEXT @pageSize ROWS ONLY`
+    );
+
+    const countResult = await pool
+      .request()
+      .input('fromDate', sql.DateTime, fromDate)
+      .input('toDate', sql.DateTime, toDate)
+      .input('channel', sql.NVarChar(16), channel)
+      .input('status', sql.NVarChar(32), status)
+      .input('operationType', sql.NVarChar(64), operationType)
+      .input('eventId', sql.UniqueIdentifier, eventId)
+      .query<{ total_rows: number }>(
+        `SELECT COUNT(*) AS total_rows
+         FROM notification_log
+         WHERE sent_at >= @fromDate
+           AND sent_at <= @toDate
+           AND (@channel IS NULL OR channel = @channel)
+           AND (@status IS NULL OR status = @status)
+           AND (@operationType IS NULL OR operation_type = @operationType)
+           AND (@eventId IS NULL OR event_id = @eventId)`
+      );
+
+    const providerStatusByLogId = new Map<string, {
+      provider_status: string | null;
+      provider_error_detail: string | null;
+      provider_checked_at: string;
+      provider_source: string;
+    }>();
+
+    if (includeProviderStatus) {
+      const eligibleRows = rowsResult.recordset.filter((row) => row.channel === 'email' && Boolean(row.provider_id));
+      await Promise.all(
+        eligibleRows.map(async (row) => {
+          const statusResult = await getAcsEmailProviderDeliveryStatus(row.provider_id as string);
+          providerStatusByLogId.set(row.log_id, statusResult);
+        })
+      );
+    }
+
+    const payload: DeliveryLogPayload = {
+      from: formatIsoDate(fromDate),
+      to: formatIsoDate(toDate),
+      page,
+      page_size: pageSize,
+      total_rows: countResult.recordset[0]?.total_rows ?? 0,
+      include_provider_status: includeProviderStatus,
+      rows: rowsResult.recordset.map((row) => {
+        const providerStatus = providerStatusByLogId.get(row.log_id);
+        return {
+          log_id: row.log_id,
+          sent_at: row.sent_at.toISOString(),
+          event_id: row.event_id,
+          member_id: row.member_id,
+          template_id: row.template_id,
+          channel: row.channel,
+          recipient: row.recipient,
+          status: row.status,
+          operation_type: row.operation_type,
+          operation_reason: row.operation_reason,
+          provider_id: row.provider_id,
+          error_detail: row.error_detail,
+          provider_status: providerStatus?.provider_status ?? null,
+          provider_error_detail: providerStatus?.provider_error_detail ?? null,
+          provider_checked_at: providerStatus?.provider_checked_at ?? null,
+          provider_source: providerStatus?.provider_source ?? null,
+        };
+      }),
+    };
+
+    res.json(payload);
+  } catch (error) {
+    console.error('GET /reports/delivery/logs failed', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
