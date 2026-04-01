@@ -6,6 +6,9 @@ Full-stack event management system for Project Healing Waters Colorado Alpine Ch
 
 - Wave 1 release lock and deploy record: `docs/wave-1-release-lock.md`
 - Next-wave planning list: `docs/next-wave-task-list.md`
+- PRD implementation compare and remaining gaps: `docs/prd-v1_1-full-compare-20260320.md`
+
+Current top priorities are operational sign-off items: retention policy rollout, template governance evidence cadence, and recurring production compliance smoke evidence.
 
 ## Overview
 
@@ -300,6 +303,7 @@ Optional CI/CD variable:
 Operational guidance:
 
 - Template governance and approval policy: `docs/template-governance-policy.md`
+- PRD gap tracker: `docs/prd-v1_1-full-compare-20260320.md`
 
 Admin retention governance:
 
