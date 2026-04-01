@@ -74,6 +74,11 @@ interface WaitlistPromotionNotificationPayload {
   expires_at: Date | string;
 }
 
+interface RuntimeTemplateOverride {
+  subject: string | null;
+  body: string;
+}
+
 interface SendEmailOptions {
   to: string;
   subject: string;
@@ -458,6 +463,73 @@ class NotificationService {
   }
 }
 
+function stripHtmlToText(value: string): string {
+  return value
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+async function getActiveTemplateOverride(templateName: string, channel: 'email' | 'sms'): Promise<RuntimeTemplateOverride | null> {
+  try {
+    const pool = await getPool();
+    const result = await pool
+      .request()
+      .input('template_name', sql.NVarChar(100), templateName)
+      .input('channel', sql.NVarChar(10), channel)
+      .query<{ subject: string | null; body: string }>(
+        `SELECT TOP 1 subject, body
+         FROM notification_template
+         WHERE template_name = @template_name
+           AND channel = @channel
+           AND is_active = 1
+         ORDER BY updated_at DESC`
+      );
+
+    const row = result.recordset[0];
+    return row ? { subject: row.subject, body: row.body } : null;
+  } catch (error) {
+    console.warn('[NotificationService] Failed to load runtime template override, using built-in template.', {
+      templateName,
+      channel,
+      error,
+    });
+    return null;
+  }
+}
+
+function renderEmailTemplate(
+  override: RuntimeTemplateOverride | null,
+  fallback: { subject: string; htmlBody: string; textBody: string },
+  variables: Record<string, string>
+): { subject: string; htmlBody: string; textBody: string } {
+  if (!override) {
+    return {
+      subject: renderTemplate(fallback.subject, variables),
+      htmlBody: renderTemplate(fallback.htmlBody, variables),
+      textBody: renderTemplate(fallback.textBody, variables),
+    };
+  }
+
+  const renderedHtmlBody = renderTemplate(override.body, variables);
+  const subjectSource = override.subject && override.subject.trim().length > 0
+    ? override.subject
+    : fallback.subject;
+
+  return {
+    subject: renderTemplate(subjectSource, variables),
+    htmlBody: renderedHtmlBody,
+    textBody: stripHtmlToText(renderedHtmlBody),
+  };
+}
+
+function renderSmsTemplate(override: RuntimeTemplateOverride | null, fallbackBody: string, variables: Record<string, string>): string {
+  return renderTemplate(override?.body ?? fallbackBody, variables);
+}
+
 const acsConfig = loadAcsConfig();
 let emailService: IEmailService = new StubEmailService();
 let smsService: ISmsService = new StubSmsService();
@@ -633,6 +705,11 @@ async function assertEventUpdatedNotificationReady(eventId: string): Promise<voi
 async function sendEventPublishedNotification(payload: EventNotificationPayload): Promise<void> {
   await assertEventPublishedNotificationReady(payload.event_id);
 
+  const [emailTemplateOverride, smsTemplateOverride] = await Promise.all([
+    getActiveTemplateOverride(eventInviteTemplate.displayName, 'email'),
+    getActiveTemplateOverride(eventInviteTemplate.displayName, 'sms'),
+  ]);
+
   const pool = await getPool();
   const recipientsResult = await pool
     .request()
@@ -672,11 +749,16 @@ async function sendEventPublishedNotification(payload: EventNotificationPayload)
       inferRoleFromGroupName(recipient.group_name)
     );
     if (!recipient.email_opt_out && recipient.email) {
+      const renderedEmail = renderEmailTemplate(emailTemplateOverride, {
+        subject: eventInviteTemplate.subjectTemplate ?? '',
+        htmlBody: eventInviteTemplate.htmlBodyTemplate ?? '',
+        textBody: eventInviteTemplate.textBodyTemplate ?? '',
+      }, variables);
       await notificationService.sendEmail({
         to: recipient.email,
-        subject: renderTemplate(eventInviteTemplate.subjectTemplate ?? '', variables),
-        htmlBody: renderTemplate(eventInviteTemplate.htmlBodyTemplate ?? '', variables),
-        textBody: renderTemplate(eventInviteTemplate.textBodyTemplate ?? '', variables),
+        subject: renderedEmail.subject,
+        htmlBody: renderedEmail.htmlBody,
+        textBody: renderedEmail.textBody,
         templateId: eventInviteTemplate.templateId,
         memberId: recipient.member_id,
         eventId: payload.event_id,
@@ -687,7 +769,7 @@ async function sendEventPublishedNotification(payload: EventNotificationPayload)
     if (recipient.mobile_phone && recipient.sms_opt_in) {
       await notificationService.sendSms({
         to: recipient.mobile_phone,
-        message: renderTemplate(eventInviteTemplate.smsBodyTemplate ?? '', variables),
+        message: renderSmsTemplate(smsTemplateOverride, eventInviteTemplate.smsBodyTemplate ?? '', variables),
         templateId: eventInviteTemplate.templateId,
         memberId: recipient.member_id,
         eventId: payload.event_id,
@@ -699,6 +781,11 @@ async function sendEventPublishedNotification(payload: EventNotificationPayload)
 
 async function sendEventCancelledNotification(payload: EventNotificationPayload): Promise<void> {
   await assertEventCancelledNotificationReady(payload.event_id);
+
+  const [emailTemplateOverride, smsTemplateOverride] = await Promise.all([
+    getActiveTemplateOverride(eventCancellationTemplate.displayName, 'email'),
+    getActiveTemplateOverride(eventCancellationTemplate.displayName, 'sms'),
+  ]);
 
   const pool = await getPool();
   const recipientsResult = await pool
@@ -737,7 +824,7 @@ async function sendEventCancelledNotification(payload: EventNotificationPayload)
     if (preferredChannel === 'sms' && canSms) {
       await notificationService.sendSms({
         to: recipient.mobile_phone as string,
-        message: renderTemplate(eventCancellationTemplate.smsBodyTemplate ?? '', variables),
+        message: renderSmsTemplate(smsTemplateOverride, eventCancellationTemplate.smsBodyTemplate ?? '', variables),
         templateId: eventCancellationTemplate.templateId,
         memberId: recipient.member_id,
         eventId: payload.event_id,
@@ -748,11 +835,16 @@ async function sendEventCancelledNotification(payload: EventNotificationPayload)
     }
 
     if (canEmail) {
+      const renderedEmail = renderEmailTemplate(emailTemplateOverride, {
+        subject: eventCancellationTemplate.subjectTemplate ?? '',
+        htmlBody: eventCancellationTemplate.htmlBodyTemplate ?? '',
+        textBody: eventCancellationTemplate.textBodyTemplate ?? '',
+      }, variables);
       await notificationService.sendEmail({
         to: recipient.email,
-        subject: renderTemplate(eventCancellationTemplate.subjectTemplate ?? '', variables),
-        htmlBody: renderTemplate(eventCancellationTemplate.htmlBodyTemplate ?? '', variables),
-        textBody: renderTemplate(eventCancellationTemplate.textBodyTemplate ?? '', variables),
+        subject: renderedEmail.subject,
+        htmlBody: renderedEmail.htmlBody,
+        textBody: renderedEmail.textBody,
         templateId: eventCancellationTemplate.templateId,
         memberId: recipient.member_id,
         eventId: payload.event_id,
@@ -765,7 +857,7 @@ async function sendEventCancelledNotification(payload: EventNotificationPayload)
     if (canSms) {
       await notificationService.sendSms({
         to: recipient.mobile_phone as string,
-        message: renderTemplate(eventCancellationTemplate.smsBodyTemplate ?? '', variables),
+        message: renderSmsTemplate(smsTemplateOverride, eventCancellationTemplate.smsBodyTemplate ?? '', variables),
         templateId: eventCancellationTemplate.templateId,
         memberId: recipient.member_id,
         eventId: payload.event_id,
@@ -782,6 +874,11 @@ async function sendEventUpdatedNotification(payload: EventUpdateNotificationPayl
   }
 
   await assertEventUpdatedNotificationReady(payload.event_id);
+
+  const [emailTemplateOverride, smsTemplateOverride] = await Promise.all([
+    getActiveTemplateOverride(eventUpdateTemplate.displayName, 'email'),
+    getActiveTemplateOverride(eventUpdateTemplate.displayName, 'sms'),
+  ]);
 
   const pool = await getPool();
   const recipientsResult = await pool
@@ -823,7 +920,7 @@ async function sendEventUpdatedNotification(payload: EventUpdateNotificationPayl
     if (preferredChannel === 'sms' && canSms) {
       await notificationService.sendSms({
         to: recipient.mobile_phone as string,
-        message: renderTemplate(eventUpdateTemplate.smsBodyTemplate ?? '', variables),
+        message: renderSmsTemplate(smsTemplateOverride, eventUpdateTemplate.smsBodyTemplate ?? '', variables),
         templateId: eventUpdateTemplate.templateId,
         memberId: recipient.member_id,
         eventId: payload.event_id,
@@ -834,11 +931,16 @@ async function sendEventUpdatedNotification(payload: EventUpdateNotificationPayl
     }
 
     if (canEmail) {
+      const renderedEmail = renderEmailTemplate(emailTemplateOverride, {
+        subject: eventUpdateTemplate.subjectTemplate ?? '',
+        htmlBody: eventUpdateTemplate.htmlBodyTemplate ?? '',
+        textBody: eventUpdateTemplate.textBodyTemplate ?? '',
+      }, variables);
       await notificationService.sendEmail({
         to: recipient.email,
-        subject: renderTemplate(eventUpdateTemplate.subjectTemplate ?? '', variables),
-        htmlBody: renderTemplate(eventUpdateTemplate.htmlBodyTemplate ?? '', variables),
-        textBody: renderTemplate(eventUpdateTemplate.textBodyTemplate ?? '', variables),
+        subject: renderedEmail.subject,
+        htmlBody: renderedEmail.htmlBody,
+        textBody: renderedEmail.textBody,
         templateId: eventUpdateTemplate.templateId,
         memberId: recipient.member_id,
         eventId: payload.event_id,
@@ -851,7 +953,7 @@ async function sendEventUpdatedNotification(payload: EventUpdateNotificationPayl
     if (canSms) {
       await notificationService.sendSms({
         to: recipient.mobile_phone as string,
-        message: renderTemplate(eventUpdateTemplate.smsBodyTemplate ?? '', variables),
+        message: renderSmsTemplate(smsTemplateOverride, eventUpdateTemplate.smsBodyTemplate ?? '', variables),
         templateId: eventUpdateTemplate.templateId,
         memberId: recipient.member_id,
         eventId: payload.event_id,
@@ -900,6 +1002,11 @@ function sendRsvpConfirmation(payload: RsvpNotificationPayload): void {
 }
 
 async function sendWaitlistPromotionNotification(payload: WaitlistPromotionNotificationPayload): Promise<void> {
+  const [emailTemplateOverride, smsTemplateOverride] = await Promise.all([
+    getActiveTemplateOverride(waitlistPromotionTemplate.displayName, 'email'),
+    getActiveTemplateOverride(waitlistPromotionTemplate.displayName, 'sms'),
+  ]);
+
   const expiresAt = formatEventDate(payload.expires_at);
   const variables = {
     ...buildEventVariables(payload, payload.member_id),
@@ -913,7 +1020,7 @@ async function sendWaitlistPromotionNotification(payload: WaitlistPromotionNotif
   if (preferred === 'sms' && canSms) {
     await notificationService.sendSms({
       to: payload.recipientPhone as string,
-      message: renderTemplate(waitlistPromotionTemplate.smsBodyTemplate ?? '', variables),
+      message: renderSmsTemplate(smsTemplateOverride, waitlistPromotionTemplate.smsBodyTemplate ?? '', variables),
       templateId: waitlistPromotionTemplate.templateId,
       memberId: payload.member_id,
       eventId: payload.event_id,
@@ -924,11 +1031,16 @@ async function sendWaitlistPromotionNotification(payload: WaitlistPromotionNotif
   }
 
   if (canEmail) {
+    const renderedEmail = renderEmailTemplate(emailTemplateOverride, {
+      subject: waitlistPromotionTemplate.subjectTemplate ?? '',
+      htmlBody: waitlistPromotionTemplate.htmlBodyTemplate ?? '',
+      textBody: waitlistPromotionTemplate.textBodyTemplate ?? '',
+    }, variables);
     await notificationService.sendEmail({
       to: payload.recipientEmail as string,
-      subject: renderTemplate(waitlistPromotionTemplate.subjectTemplate ?? '', variables),
-      htmlBody: renderTemplate(waitlistPromotionTemplate.htmlBodyTemplate ?? '', variables),
-      textBody: renderTemplate(waitlistPromotionTemplate.textBodyTemplate ?? '', variables),
+      subject: renderedEmail.subject,
+      htmlBody: renderedEmail.htmlBody,
+      textBody: renderedEmail.textBody,
       templateId: waitlistPromotionTemplate.templateId,
       memberId: payload.member_id,
       eventId: payload.event_id,
@@ -941,7 +1053,7 @@ async function sendWaitlistPromotionNotification(payload: WaitlistPromotionNotif
   if (canSms) {
     await notificationService.sendSms({
       to: payload.recipientPhone as string,
-      message: renderTemplate(waitlistPromotionTemplate.smsBodyTemplate ?? '', variables),
+      message: renderSmsTemplate(smsTemplateOverride, waitlistPromotionTemplate.smsBodyTemplate ?? '', variables),
       templateId: waitlistPromotionTemplate.templateId,
       memberId: payload.member_id,
       eventId: payload.event_id,

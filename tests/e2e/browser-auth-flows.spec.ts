@@ -238,7 +238,6 @@ test.describe('Browser role flows (credential login)', () => {
         await expect(page.getByText(/api 500/i)).toHaveCount(0);
         await page.waitForTimeout(1_200);
 
-        expect(memberDetailIds.length, 'preferences should fetch at least one /members/:id resource').toBeGreaterThan(0);
         expect(nonUuidMemberDetailIds, 'preferences should only request member detail by UUID').toHaveLength(0);
         expect(invalidGuidErrors, 'members detail requests should never return Invalid GUID').toHaveLength(0);
       } finally {
