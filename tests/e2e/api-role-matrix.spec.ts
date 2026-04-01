@@ -115,12 +115,7 @@ async function invokeContract(request: APIRequestContext, method: ContractCase['
   });
 }
 
-function decodeCapabilities(token: string, fallbackRole: Role): RoleCapabilities {
-  const fallbackCapabilities: RoleCapabilities = {
-    isAdmin: fallbackRole === 'ADMIN',
-    isEventCreator: fallbackRole === 'EVENT_CREATOR',
-  };
-
+function decodeCapabilities(token: string): RoleCapabilities {
   try {
     const payloadPart = token.split('.')[1] ?? '';
     const payloadJson = Buffer.from(payloadPart, 'base64url').toString('utf8');
@@ -146,23 +141,26 @@ function decodeCapabilities(token: string, fallbackRole: Role): RoleCapabilities
 
     const normalized = new Set(values.map((role) => role.trim().toUpperCase().replace(/[\s-]+/g, '_')));
     return {
-      isAdmin: fallbackCapabilities.isAdmin || normalized.has('ADMIN'),
-      isEventCreator: fallbackCapabilities.isEventCreator || normalized.has('EVENT_CREATOR'),
+      isAdmin: normalized.has('ADMIN'),
+      isEventCreator: normalized.has('EVENT_CREATOR'),
     };
   } catch {
-    return fallbackCapabilities;
+    return {
+      isAdmin: false,
+      isEventCreator: false,
+    };
   }
 }
 
 const capabilityCache = new Map<string, RoleCapabilities>();
 
-async function inferCapabilities(request: APIRequestContext, token: string, fallbackRole: Role): Promise<RoleCapabilities> {
+async function inferCapabilities(request: APIRequestContext, token: string): Promise<RoleCapabilities> {
   const cached = capabilityCache.get(token);
   if (cached) {
     return cached;
   }
 
-  const claimed = decodeCapabilities(token, fallbackRole);
+  const claimed = decodeCapabilities(token);
   const adminProbe = await invokeContract(request, 'GET', '/admin/users?page=1&pageSize=1', token);
   const adminStatus = adminProbe.status();
   const hasAdminAccess = ![401, 403].includes(adminStatus);
@@ -190,7 +188,7 @@ test.describe('API role-path matrix', () => {
       for (const role of Object.keys(tokensByRole) as Role[]) {
         const token = tokensByRole[role];
         test.skip(!token, `${role} token is required for this assertion.`);
-        const capabilities = await inferCapabilities(request, token, role);
+        const capabilities = await inferCapabilities(request, token);
 
         const response = await invokeContract(request, contract.method, contract.path, token, contract.payload);
         const status = response.status();
