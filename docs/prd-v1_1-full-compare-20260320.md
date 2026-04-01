@@ -6,9 +6,9 @@ This report is a code-and-behavior comparison against the current implementation
 
 ## 1) Current Baseline
 
-- Branch/repo state: clean tracked files, synced with `origin/main`
-- Latest reliability commit already pushed: `00c6976`
-- Backend production health endpoints were previously validated as healthy (`/health`, `/health/startup`, `/health/ready`)
+- Mainline has been consolidated and version-tagged through `v1.2.2`.
+- Backend production health endpoints were previously validated as healthy (`/health`, `/health/startup`, `/health/ready`).
+- Core PRD feature domains are implemented; remaining gaps are primarily operational governance and recurring production verification evidence.
 
 ## 2) PRD Coverage Matrix
 
@@ -40,7 +40,7 @@ Implemented evidence:
 
 ### 2.3 Event Management + Notifications (Section 6.3, US-EM)
 
-Status: **Partial**
+Status: **Complete (with governance and production-evidence follow-up)**
 
 Implemented evidence:
 - Event CRUD/status transitions, publish/update/cancel flows exist.
@@ -55,8 +55,7 @@ Implemented evidence:
 - Regional email To-line config exists via `ACS_EMAIL_TO`.
 
 Gaps vs PRD:
-- Database templates are authoritative render source for core event send flows (invite/update/cancel/reminder/waitlist promotion), RSVP confirmation, and TAVF lifecycle notifications.
-- Remaining AI/template gap is mostly operational governance depth (for example, formal approval policy and periodic audit review process), not core product capability.
+- Remaining gap is operational governance depth (for example, formal approval policy execution and periodic audit review evidence), not core product capability.
 
 ### 2.4 Take a Vet Fishing (Section 6.4, US-TV)
 
@@ -71,7 +70,7 @@ Gap:
 
 ### 2.5 Calendar + Reporting (Section 6.5/6.6, US-CR)
 
-Status: **Mostly Complete**
+Status: **Complete (with UX polish follow-up)**
 
 Implemented evidence:
 - Calendar month/list with capacity badges exists.
@@ -79,7 +78,7 @@ Implemented evidence:
 - ICS download endpoint and calendar UI action are implemented.
 
 Gaps:
-- Notification delivery report endpoint and UI table exist; add export/chart polish only if needed.
+- Notification delivery report endpoint and UI table exist; optional export/chart polish can be scheduled as UX enhancement.
 
 ### 2.6 Compliance / Legal / UX (Sections 4.3, 4.4, 10.x)
 
@@ -96,61 +95,45 @@ Gaps:
 
 ## 3) Next Tasks (Prioritized, PRD-Mapped)
 
-## P0 - Must close for PRD alignment
+## P0 - Must close for operational sign-off
 
 1. **Production retention policy finalization + rollout**  
    PRD refs: Section 11.x / governance controls  
-   Implementation: set retention windows per table/env, validate dry-run results, then enable delete mode in production.
+   Implementation: set retention windows per table/env, validate dry-run results, then enable delete mode in production with documented approvals.
 
-2. **Operationalize AI/template governance controls**  
-   PRD refs: US-EM-12, T-EVT-15  
-   Implementation: document and enforce approval/review cadence, ownership, and audit checkpoints for template changes.
+2. **Operationalize template governance cadence**  
+   PRD refs: US-EM-12, T-EVT-15, US-EM-13, T-EVT-16  
+   Implementation: run the documented approval and periodic audit process in production and capture evidence.
 
-## P1 - Should Have
+3. **Recurring inbound compliance smoke evidence**  
+   PRD refs: Sections 4.3, 4.4, 10.x  
+   Implementation: execute scheduled production STOP/HELP/RSVP smoke checks and archive results.
 
-4. **Build notification template management (admin CRUD)**  
-   PRD refs: US-EM-13, T-EVT-16  
-   Implementation: template routes + admin page + validation for variables/length constraints.
+## P1 - Should Have (quality and operations hardening)
 
-5. **Add ICS event download**  
-   PRD refs: US-CR-07, T-CAL-08  
-   Implementation: backend `.ics` generator endpoint and calendar/detail UI button.
+4. **Notification reporting UX polish**  
+   PRD refs: Section 6.6  
+   Implementation: optional report export/chart views for delivery trends.
 
-6. **Implement channel preference model beyond SMS toggle**  
-   PRD refs: Section 10.4 (notification preferences)  
-   Implementation: member-level channel mode (`email_only`, `sms_only`, `both`) and enforcement in dispatch layer.
-
-7. **Regional admin To-line configuration for email dispatch**  
-   PRD refs: Section 6.3.2, 13 (open question resolved by config)  
-   Implementation: configurable admin-to list in app settings; keep recipients in BCC.
-
-## P2 - Nice to Have / Phase 4
-
-8. **AI invite generation**  
-   PRD refs: US-EM-12, T-EVT-15
-
-9. **AI participation equity recommendations in assignment UX**  
-   PRD refs: US-EM-09, T-EVT-11
+5. **Chunk-size reduction and frontend performance tuning**  
+   PRD refs: NFR usability/performance intent  
+   Implementation: code-split large bundles and verify unchanged behavior.
 
 ## 4) Suggested Execution Order (Smallest Risk First)
 
-1. Inbound SMS compliance path + production smoke
-2. Reminder scheduling + idempotency tests
-3. Email unsubscribe flow
-4. ICS endpoint + UI action
-5. Template CRUD
-6. Channel preference model extension
-7. AI features
+1. Retention dry-run evidence review and production window approval
+2. Retention delete-mode production rollout with safeguards
+3. Template governance approval/audit evidence checkpoint
+4. Scheduled inbound SMS compliance smoke with archived proof
+5. Optional reporting and frontend performance polish
 
 ## 5) Acceptance Checks For Next Wave
 
-- Inbound SMS STOP/HELP/RSVP works through deployed Event Grid path in production.
-- Reminder dispatch runs on schedule and avoids duplicate sends.
-- Unsubscribe link disables future email dispatch for opted-out member.
-- Event detail/calendar exposes working `.ics` download.
-- Template CRUD can safely create, validate, and set default templates.
-- Notification preferences enforce channel mode in all dispatch paths.
-- TAVF creation/match/cancel trigger notifications and notification log entries under real channel mode.
+- Retention preview output is reviewed and approved for each target table before delete mode enablement.
+- Retention delete mode runs with confirmation guard and per-target delete caps in production.
+- Template change reviews and rollback audits are performed on cadence and recorded.
+- Inbound SMS STOP/HELP/RSVP path works through deployed Event Grid path in production on recurring smoke checks.
+- Existing functional coverage remains green (backend tests, frontend tests, and CI deployment pipeline).
 
 ## 6) Evidence Pointers (Key Files)
 
