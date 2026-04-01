@@ -75,6 +75,33 @@ describe('notifications service', () => {
     }));
   });
 
+  it('sendSms does not truncate a 160 character message', async () => {
+    const mockEmail = { sendEmail: jest.fn().mockResolvedValue(undefined) };
+    const mockSms = { sendSms: jest.fn().mockResolvedValue('provider-124') };
+    const service = new NotificationService(mockEmail, mockSms, true, true);
+
+    const logSpy = jest
+      .spyOn(service as unknown as { writeNotificationLog: (...args: unknown[]) => Promise<void> }, 'writeNotificationLog')
+      .mockResolvedValue(undefined);
+
+    const exactLengthMessage = 'B'.repeat(160);
+    await service.sendSms({
+      to: '+13035550003',
+      message: exactLengthMessage,
+      operationType: 'unit_test',
+    });
+
+    expect(mockSms.sendSms).toHaveBeenCalledTimes(1);
+    const smsArgs = mockSms.sendSms.mock.calls[0][0] as { message: string };
+    expect(smsArgs.message).toBe(exactLengthMessage);
+    expect(logSpy).toHaveBeenCalledWith(expect.objectContaining({
+      channel: 'sms',
+      status: 'sent',
+      providerId: 'provider-124',
+      operationType: 'unit_test',
+    }));
+  });
+
   it('sendSms logs skipped when member has not opted into SMS', async () => {
     const mockEmail = { sendEmail: jest.fn().mockResolvedValue(undefined) };
     const mockSms = { sendSms: jest.fn().mockResolvedValue('provider-456') };
@@ -124,6 +151,30 @@ describe('notifications service', () => {
       status: 'failed',
       operationType: 'unit_test',
       errorDetail: 'smtp down',
+    }));
+  });
+
+  it('sendSms logs failed when provider send throws', async () => {
+    const mockEmail = { sendEmail: jest.fn().mockResolvedValue(undefined) };
+    const mockSms = { sendSms: jest.fn().mockRejectedValue(new Error('carrier down')) };
+    const service = new NotificationService(mockEmail, mockSms, true, true);
+
+    const logSpy = jest
+      .spyOn(service as unknown as { writeNotificationLog: (...args: unknown[]) => Promise<void> }, 'writeNotificationLog')
+      .mockResolvedValue(undefined);
+
+    await service.sendSms({
+      to: '+13035550004',
+      message: 'Status update',
+      operationType: 'unit_test',
+    });
+
+    expect(mockSms.sendSms).toHaveBeenCalledTimes(1);
+    expect(logSpy).toHaveBeenCalledWith(expect.objectContaining({
+      channel: 'sms',
+      status: 'failed',
+      operationType: 'unit_test',
+      errorDetail: 'carrier down',
     }));
   });
 });
