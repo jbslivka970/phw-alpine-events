@@ -57,6 +57,9 @@ describe('retention job', () => {
       },
       query: jest.fn(async (sqlText: string) => {
         calls.push({ sql: sqlText, params: { ...request.params } });
+        if (sqlText.includes('SELECT COUNT(*) AS count_to_delete')) {
+          return { recordset: [{ count_to_delete: 5 }] };
+        }
         return { recordset: [{ deleted_count: 5 }] };
       }),
     };
@@ -65,6 +68,7 @@ describe('retention job', () => {
 
     const results = await runRetentionJob({
       dryRun: false,
+      confirmDelete: true,
       notificationLogDays: 30,
       inboundSmsLogDays: 0,
       emailPreferenceLogDays: 0,
@@ -76,6 +80,40 @@ describe('retention job', () => {
       mode: 'delete',
       affectedRows: 5,
     });
-    expect(calls[0]?.sql).toContain('DELETE FROM notification_log');
+    expect(calls.some((call) => call.sql.includes('SELECT COUNT(*) AS count_to_delete'))).toBe(true);
+    expect(calls.some((call) => call.sql.includes('DELETE FROM notification_log'))).toBe(true);
+  });
+
+  it('falls back to dry-run when delete is requested without explicit confirmation', async () => {
+    const calls: QueryCall[] = [];
+    const request = {
+      params: {} as Record<string, unknown>,
+      input(name: string, _type: unknown, value: unknown) {
+        this.params[name] = value;
+        return this;
+      },
+      query: jest.fn(async (sqlText: string) => {
+        calls.push({ sql: sqlText, params: { ...request.params } });
+        return { recordset: [{ count_to_delete: 3 }] };
+      }),
+    };
+
+    (getPool as jest.Mock).mockResolvedValue({ request: () => request });
+
+    const results = await runRetentionJob({
+      dryRun: false,
+      confirmDelete: false,
+      notificationLogDays: 30,
+      inboundSmsLogDays: 0,
+      emailPreferenceLogDays: 0,
+    });
+
+    expect(results).toHaveLength(1);
+    expect(results[0]).toMatchObject({
+      target: 'notification_log',
+      mode: 'dry-run',
+      affectedRows: 3,
+    });
+    expect(calls.some((call) => call.sql.includes('DELETE FROM notification_log'))).toBe(false);
   });
 });

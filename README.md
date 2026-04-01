@@ -279,6 +279,8 @@ Optional backend settings:
 - `RETENTION_JOB_ENABLED` (set `true` to enable scheduled log-retention cleanup)
 - `RETENTION_JOB_INTERVAL_MS` (job cadence; default 24h)
 - `RETENTION_DRY_RUN` (set `true` to count rows only, no deletes)
+- `RETENTION_CONFIRM_DELETE` (must be `true` to allow delete mode; otherwise job auto-falls back to dry-run)
+- `RETENTION_MAX_DELETE_PER_TARGET` (safety cap per target in delete mode; default `50000`)
 - `RETENTION_NOTIFICATION_LOG_DAYS` (default `180`)
 - `RETENTION_INBOUND_SMS_LOG_DAYS` (default `365`)
 - `RETENTION_EMAIL_PREFERENCE_LOG_DAYS` (default `365`)

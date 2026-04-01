@@ -9,6 +9,8 @@ type RetentionTarget = {
 
 type RetentionRunOptions = {
   dryRun?: boolean;
+  confirmDelete?: boolean;
+  maxDeletePerTarget?: number;
   notificationLogDays?: number;
   inboundSmsLogDays?: number;
   emailPreferenceLogDays?: number;
@@ -29,8 +31,16 @@ function parsePositiveInt(value: string | undefined, fallback: number): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-function resolveOptions(overrides?: RetentionRunOptions): { dryRun: boolean; targets: RetentionTarget[] } {
-  const dryRun = overrides?.dryRun ?? /^(1|true|yes|on)$/i.test(process.env['RETENTION_DRY_RUN'] ?? 'false');
+function resolveOptions(overrides?: RetentionRunOptions): { dryRun: boolean; maxDeletePerTarget: number; targets: RetentionTarget[] } {
+  const requestedDryRun = overrides?.dryRun ?? /^(1|true|yes|on)$/i.test(process.env['RETENTION_DRY_RUN'] ?? 'false');
+  const confirmDelete = overrides?.confirmDelete ?? /^(1|true|yes|on)$/i.test(process.env['RETENTION_CONFIRM_DELETE'] ?? 'false');
+  const maxDeletePerTarget = overrides?.maxDeletePerTarget ?? parsePositiveInt(process.env['RETENTION_MAX_DELETE_PER_TARGET'], 50000);
+
+  const dryRun = requestedDryRun || !confirmDelete;
+  if (!requestedDryRun && !confirmDelete) {
+    console.warn('[retentionJob] Delete mode requested without RETENTION_CONFIRM_DELETE=true. Running in dry-run mode.');
+  }
+
   const notificationLogDays = overrides?.notificationLogDays ?? parsePositiveInt(process.env['RETENTION_NOTIFICATION_LOG_DAYS'], 180);
   const inboundSmsLogDays = overrides?.inboundSmsLogDays ?? parsePositiveInt(process.env['RETENTION_INBOUND_SMS_LOG_DAYS'], 365);
   const emailPreferenceLogDays = overrides?.emailPreferenceLogDays ?? parsePositiveInt(process.env['RETENTION_EMAIL_PREFERENCE_LOG_DAYS'], 365);
@@ -56,7 +66,7 @@ function resolveOptions(overrides?: RetentionRunOptions): { dryRun: boolean; tar
     },
   ];
 
-  return { dryRun, targets };
+  return { dryRun, maxDeletePerTarget, targets };
 }
 
 async function countCandidates(target: RetentionTarget): Promise<number> {
@@ -88,14 +98,26 @@ async function deleteCandidates(target: RetentionTarget): Promise<number> {
 }
 
 async function runRetentionJob(overrides?: RetentionRunOptions): Promise<RetentionResult[]> {
-  const { dryRun, targets } = resolveOptions(overrides);
+  const { dryRun, maxDeletePerTarget, targets } = resolveOptions(overrides);
   const enabledTargets = targets.filter((target) => target.retentionDays > 0);
   const results: RetentionResult[] = [];
 
   for (const target of enabledTargets) {
-    const affectedRows = dryRun
-      ? await countCandidates(target)
-      : await deleteCandidates(target);
+    let affectedRows = 0;
+    if (dryRun) {
+      affectedRows = await countCandidates(target);
+    } else {
+      const candidates = await countCandidates(target);
+      if (maxDeletePerTarget > 0 && candidates > maxDeletePerTarget) {
+        throw new Error(
+          `[retentionJob] ${target.label} candidate count ${candidates} exceeds RETENTION_MAX_DELETE_PER_TARGET=${maxDeletePerTarget}. Reduce scope or increase the limit intentionally.`
+        );
+      }
+
+      affectedRows = candidates === 0
+        ? 0
+        : await deleteCandidates(target);
+    }
 
     results.push({
       target: target.label,
