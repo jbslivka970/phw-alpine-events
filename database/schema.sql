@@ -689,3 +689,32 @@ BEGIN
     CREATE INDEX idx_tavf_match_posting     ON dbo.tavf_match(posting_id);
     CREATE INDEX idx_tavf_match_application ON dbo.tavf_match(application_id);
 END;
+-- ---------------------------------------------------------------------------
+-- Wave 2 Migrations
+-- ---------------------------------------------------------------------------
+
+-- Add 'skipped' to notification_log.status CHECK constraint
+-- Drop old constraint and recreate with 'skipped' included
+IF EXISTS (
+    SELECT 1 FROM sys.check_constraints
+    WHERE parent_object_id = OBJECT_ID('dbo.notification_log')
+      AND name LIKE '%status%'
+)
+BEGIN
+    DECLARE @constraintName NVARCHAR(200);
+    SELECT @constraintName = name
+    FROM sys.check_constraints
+    WHERE parent_object_id = OBJECT_ID('dbo.notification_log')
+      AND name LIKE '%status%';
+    EXEC('ALTER TABLE dbo.notification_log DROP CONSTRAINT ' + @constraintName);
+    ALTER TABLE dbo.notification_log
+        ADD CONSTRAINT CHK_notification_log_status
+        CHECK (status IN ('queued', 'sent', 'delivered', 'failed', 'stubbed', 'skipped'));
+END;
+
+-- Add attended and attendance_notes columns to event_assignment if not present
+IF COL_LENGTH('dbo.event_assignment', 'attended') IS NULL
+    ALTER TABLE dbo.event_assignment ADD attended BIT NOT NULL DEFAULT 0;
+
+IF COL_LENGTH('dbo.event_assignment', 'attendance_notes') IS NULL
+    ALTER TABLE dbo.event_assignment ADD attendance_notes NVARCHAR(500) NULL;
