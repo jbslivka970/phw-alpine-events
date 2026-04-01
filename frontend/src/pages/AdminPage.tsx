@@ -46,8 +46,14 @@ function AdminPage() {
   const [selectedEventId, setSelectedEventId] = useState<string>('')
   const [inviteTone, setInviteTone] = useState<'friendly' | 'professional'>('friendly')
   const [isGeneratingInvite, setIsGeneratingInvite] = useState(false)
+  const [isApplyingInvite, setIsApplyingInvite] = useState(false)
   const [inviteDraft, setInviteDraft] = useState<{ subject: string; emailBody: string; smsBody: string; provider: string } | null>(null)
   const [inviteError, setInviteError] = useState<string | null>(null)
+  const [inviteApplyError, setInviteApplyError] = useState<string | null>(null)
+  const [inviteApplySuccess, setInviteApplySuccess] = useState<string | null>(null)
+  const [inviteTemplateName, setInviteTemplateName] = useState('Event Invite')
+  const [inviteReviewed, setInviteReviewed] = useState(false)
+  const [inviteReviewNote, setInviteReviewNote] = useState('')
 
   useEffect(() => {
     const rawBase = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? '/api/v1'
@@ -107,6 +113,8 @@ function AdminPage() {
 
     setIsGeneratingInvite(true)
     setInviteError(null)
+    setInviteApplyError(null)
+    setInviteApplySuccess(null)
     try {
       const draft = await adminApi.generateInviteDraft({
         event_id: selectedEventId,
@@ -117,6 +125,39 @@ function AdminPage() {
       setInviteError(error instanceof Error ? error.message : 'Failed to generate invite draft.')
     } finally {
       setIsGeneratingInvite(false)
+    }
+  }
+
+  async function handleApplyInviteDraft() {
+    if (!inviteDraft) {
+      setInviteApplyError('Generate a draft first.')
+      return
+    }
+    if (!selectedEventId) {
+      setInviteApplyError('Select an event before applying templates.')
+      return
+    }
+    if (!inviteReviewed) {
+      setInviteApplyError('Review and confirm the draft before applying.')
+      return
+    }
+
+    setIsApplyingInvite(true)
+    setInviteApplyError(null)
+    setInviteApplySuccess(null)
+    try {
+      const response = await adminApi.applyInviteDraftToTemplates({
+        event_id: selectedEventId,
+        tone: inviteTone,
+        template_name: inviteTemplateName.trim() || 'Event Invite',
+        approved: true,
+        review_note: inviteReviewNote.trim() || undefined,
+      })
+      setInviteApplySuccess(`Applied to ${response.template_name} (email + sms) at ${new Date(response.applied_at).toLocaleString()}.`)
+    } catch (error) {
+      setInviteApplyError(error instanceof Error ? error.message : 'Failed to apply invite draft to templates.')
+    } finally {
+      setIsApplyingInvite(false)
     }
   }
 
@@ -296,6 +337,39 @@ function AdminPage() {
                 <textarea className="members-input" rows={3} readOnly value={inviteDraft.smsBody} />
               </div>
               <small style={{ color: 'var(--muted)' }}>Provider: {inviteDraft.provider}</small>
+
+              <div style={{ display: 'grid', gap: 8, marginTop: 6 }}>
+                <input
+                  className="members-input"
+                  value={inviteTemplateName}
+                  onChange={(e) => setInviteTemplateName(e.target.value)}
+                  placeholder="Template name"
+                />
+                <textarea
+                  className="members-input"
+                  rows={2}
+                  value={inviteReviewNote}
+                  onChange={(e) => setInviteReviewNote(e.target.value)}
+                  placeholder="Review note (optional)"
+                />
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <input
+                    type="checkbox"
+                    checked={inviteReviewed}
+                    onChange={(e) => setInviteReviewed(e.target.checked)}
+                  />
+                  I reviewed this draft and approve applying it to active templates.
+                </label>
+                <button
+                  className="btn btn--secondary btn--sm"
+                  disabled={isApplyingInvite || !inviteReviewed}
+                  onClick={() => void handleApplyInviteDraft()}
+                >
+                  {isApplyingInvite ? 'Applying…' : 'Apply Draft To Templates'}
+                </button>
+                {inviteApplyError && <p className="members-error">{inviteApplyError}</p>}
+                {inviteApplySuccess && <p style={{ color: '#1a7f37', margin: 0 }}>{inviteApplySuccess}</p>}
+              </div>
             </div>
           )}
         </section>

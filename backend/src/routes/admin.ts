@@ -7,6 +7,17 @@ import { generateInviteDraft } from '../services/aiInviteService';
 
 const router = Router();
 
+type InviteTone = 'friendly' | 'professional';
+
+interface InviteDraftRequestBody {
+  event_id?: string;
+  title?: string;
+  event_date?: string;
+  location?: string | null;
+  description?: string | null;
+  tone?: string;
+}
+
 router.use(apiLimiter, authenticate, requireAdmin);
 
 router.get('/users', async (req, res) => {
@@ -229,61 +240,212 @@ router.post('/import', writeLimiter, async (req, res) => {
 
 router.post('/ai/invite-draft', writeLimiter, async (req, res) => {
   try {
-    const eventId = (req.body?.event_id as string | undefined)?.trim();
-    const toneRaw = (req.body?.tone as string | undefined)?.toLowerCase();
-    const tone = toneRaw === 'professional' ? 'professional' : 'friendly';
-
-    let title = (req.body?.title as string | undefined)?.trim();
-    let eventDate = (req.body?.event_date as string | undefined)?.trim();
-    let location = (req.body?.location as string | undefined)?.trim() ?? null;
-    let description = (req.body?.description as string | undefined)?.trim() ?? null;
-
-    if (eventId) {
-      const pool = await getPool();
-      const eventResult = await pool
-        .request()
-        .input('event_id', sql.UniqueIdentifier, eventId)
-        .query<{ title: string; event_date: Date | string; location: string | null; description: string | null }>(
-          `SELECT title, event_date, location, description
-           FROM event
-           WHERE event_id = @event_id`
-        );
-
-      const event = eventResult.recordset[0];
-      if (!event) {
-        res.status(404).json({ error: 'Event not found.' });
-        return;
-      }
-
-      title = event.title;
-      eventDate = new Date(event.event_date).toISOString();
-      location = event.location;
-      description = event.description;
-    }
-
-    if (!title || !eventDate) {
-      res.status(400).json({ error: 'title and event_date are required (or provide event_id).' });
-      return;
-    }
-
-    const draft = await generateInviteDraft({
-      eventTitle: title,
-      eventDate,
-      location,
-      description,
-      tone,
-    });
+    const { draft, source, tone } = await resolveInviteDraftRequest(req.body as InviteDraftRequestBody);
 
     res.json({
       ...draft,
-      source: eventId ? 'event' : 'ad_hoc',
+      source,
       tone,
     });
   } catch (error) {
+    if (error instanceof Error) {
+      if (error.message === 'Event not found.') {
+        res.status(404).json({ error: 'Event not found.' });
+        return;
+      }
+      if (error.message.includes('title and event_date are required')) {
+        res.status(400).json({ error: 'title and event_date are required (or provide event_id).' });
+        return;
+      }
+    }
     console.error('POST /admin/ai/invite-draft failed', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
+
+router.post('/ai/invite-draft/apply', writeLimiter, async (req, res) => {
+  try {
+    const approved = req.body?.approved === true;
+    if (!approved) {
+      res.status(400).json({ error: 'approved must be true to apply invite draft templates.' });
+      return;
+    }
+
+    const templateNameRaw = (req.body?.template_name as string | undefined)?.trim();
+    const templateName = templateNameRaw && templateNameRaw.length > 0 ? templateNameRaw : 'Event Invite';
+    const reviewNoteRaw = (req.body?.review_note as string | undefined)?.trim();
+    const reviewNote = reviewNoteRaw && reviewNoteRaw.length > 0 ? reviewNoteRaw.slice(0, 500) : null;
+
+    const { draft, source, tone } = await resolveInviteDraftRequest(req.body as InviteDraftRequestBody);
+    const pool = await getPool();
+
+    const [emailTemplate, smsTemplate] = await Promise.all([
+      upsertNotificationTemplate(pool, {
+        templateName,
+        channel: 'email',
+        subject: draft.subject,
+        body: draft.emailBody,
+      }),
+      upsertNotificationTemplate(pool, {
+        templateName,
+        channel: 'sms',
+        subject: null,
+        body: draft.smsBody,
+      }),
+    ]);
+
+    const appliedBy = req.user?.email ?? req.user?.sub ?? 'unknown';
+    console.log(JSON.stringify({
+      level: 'info',
+      event: 'admin_ai_invite_template_applied',
+      templateName,
+      source,
+      tone,
+      provider: draft.provider,
+      approved,
+      reviewNote,
+      appliedBy,
+      appliedAt: new Date().toISOString(),
+    }));
+
+    res.status(200).json({
+      template_name: templateName,
+      source,
+      tone,
+      provider: draft.provider,
+      approved,
+      review_note: reviewNote,
+      applied_by: appliedBy,
+      applied_at: new Date().toISOString(),
+      templates: {
+        email: {
+          template_id: emailTemplate.template_id,
+          updated_at: emailTemplate.updated_at.toISOString(),
+        },
+        sms: {
+          template_id: smsTemplate.template_id,
+          updated_at: smsTemplate.updated_at.toISOString(),
+        },
+      },
+    });
+  } catch (error) {
+    if (error instanceof Error) {
+      if (error.message === 'Event not found.') {
+        res.status(404).json({ error: 'Event not found.' });
+        return;
+      }
+      if (error.message.includes('title and event_date are required')) {
+        res.status(400).json({ error: 'title and event_date are required (or provide event_id).' });
+        return;
+      }
+    }
+    console.error('POST /admin/ai/invite-draft/apply failed', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+async function resolveInviteDraftRequest(body: InviteDraftRequestBody): Promise<{
+  draft: Awaited<ReturnType<typeof generateInviteDraft>>;
+  source: 'event' | 'ad_hoc';
+  tone: InviteTone;
+}> {
+  const eventId = body?.event_id?.trim();
+  const toneRaw = body?.tone?.toLowerCase();
+  const tone: InviteTone = toneRaw === 'professional' ? 'professional' : 'friendly';
+
+  let title = body?.title?.trim();
+  let eventDate = body?.event_date?.trim();
+  let location = typeof body?.location === 'string' ? body.location.trim() : body?.location ?? null;
+  let description = typeof body?.description === 'string' ? body.description.trim() : body?.description ?? null;
+
+  if (eventId) {
+    const pool = await getPool();
+    const eventResult = await pool
+      .request()
+      .input('event_id', sql.UniqueIdentifier, eventId)
+      .query<{ title: string; event_date: Date | string; location: string | null; description: string | null }>(
+        `SELECT title, event_date, location, description
+         FROM event
+         WHERE event_id = @event_id`
+      );
+
+    const event = eventResult.recordset[0];
+    if (!event) {
+      throw new Error('Event not found.');
+    }
+
+    title = event.title;
+    eventDate = new Date(event.event_date).toISOString();
+    location = event.location;
+    description = event.description;
+  }
+
+  if (!title || !eventDate) {
+    throw new Error('title and event_date are required (or provide event_id).');
+  }
+
+  const draft = await generateInviteDraft({
+    eventTitle: title,
+    eventDate,
+    location,
+    description,
+    tone,
+  });
+
+  return {
+    draft,
+    source: eventId ? 'event' : 'ad_hoc',
+    tone,
+  };
+}
+
+async function upsertNotificationTemplate(
+  pool: Awaited<ReturnType<typeof getPool>>,
+  input: { templateName: string; channel: 'email' | 'sms'; subject: string | null; body: string }
+): Promise<{ template_id: string; updated_at: Date }> {
+  const existing = await pool
+    .request()
+    .input('template_name', sql.NVarChar(100), input.templateName)
+    .input('channel', sql.NVarChar(10), input.channel)
+    .query<{ template_id: string }>(
+      `SELECT TOP 1 template_id
+       FROM notification_template
+       WHERE template_name = @template_name
+         AND channel = @channel`
+    );
+
+  const existingId = existing.recordset[0]?.template_id;
+  if (existingId) {
+    const updated = await pool
+      .request()
+      .input('template_id', sql.UniqueIdentifier, existingId)
+      .input('subject', sql.NVarChar(300), input.channel === 'email' ? input.subject : null)
+      .input('body', sql.NVarChar(sql.MAX), input.body)
+      .query<{ template_id: string; updated_at: Date }>(
+        `UPDATE notification_template
+         SET subject = @subject,
+             body = @body,
+             is_active = 1,
+             updated_at = GETUTCDATE()
+         OUTPUT INSERTED.template_id, INSERTED.updated_at
+         WHERE template_id = @template_id`
+      );
+    return updated.recordset[0];
+  }
+
+  const inserted = await pool
+    .request()
+    .input('template_name', sql.NVarChar(100), input.templateName)
+    .input('channel', sql.NVarChar(10), input.channel)
+    .input('subject', sql.NVarChar(300), input.channel === 'email' ? input.subject : null)
+    .input('body', sql.NVarChar(sql.MAX), input.body)
+    .query<{ template_id: string; updated_at: Date }>(
+      `INSERT INTO notification_template (template_id, template_name, channel, subject, body, is_active, created_at, updated_at)
+       OUTPUT INSERTED.template_id, INSERTED.updated_at
+       VALUES (NEWID(), @template_name, @channel, @subject, @body, 1, GETUTCDATE(), GETUTCDATE())`
+    );
+  return inserted.recordset[0];
+}
 
 function parsePositiveInt(raw: string | undefined, fallback: number): number {
   const parsed = Number.parseInt(raw ?? '', 10);

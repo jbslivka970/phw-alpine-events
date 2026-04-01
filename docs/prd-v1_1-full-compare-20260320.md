@@ -55,7 +55,7 @@ Implemented evidence:
 - Regional email To-line config exists via `ACS_EMAIL_TO`.
 
 Gaps vs PRD:
-- AI invite output is currently draft-only and not yet fully integrated into template lifecycle/versioning workflows.
+- AI invite draft flow now supports admin-reviewed apply into active notification templates (email + sms) for production sends.
 - Database templates are now authoritative render source for core event send flows (invite/update/cancel/reminder/waitlist promotion), RSVP confirmation, and TAVF lifecycle notifications.
 
 ### 2.4 Take a Vet Fishing (Section 6.4, US-TV)
@@ -102,9 +102,9 @@ Gaps:
    PRD refs: Section 11.x / governance controls  
    Implementation: set retention windows per table/env, validate dry-run results, then enable delete mode in production.
 
-2. **AI invite workflow completion**  
+2. **AI invite workflow hardening**  
    PRD refs: US-EM-12, T-EVT-15  
-   Implementation: connect generated drafts to template save/send workflows with review/audit controls.
+   Implementation: add richer revision history/version rollback UX beyond current reviewed apply flow.
 
 ## P1 - Should Have
 

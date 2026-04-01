@@ -18,10 +18,33 @@ interface InviteDraftResponse {
   tone: 'friendly' | 'professional';
 }
 
+interface ApplyInviteDraftRequest extends InviteDraftRequest {
+  template_name?: string;
+  approved: boolean;
+  review_note?: string;
+}
+
+interface ApplyInviteDraftResponse {
+  template_name: string;
+  source: 'event' | 'ad_hoc';
+  tone: 'friendly' | 'professional';
+  provider: 'openai' | 'fallback';
+  approved: boolean;
+  review_note: string | null;
+  applied_by: string;
+  applied_at: string;
+  templates: {
+    email: { template_id: string; updated_at: string };
+    sms: { template_id: string; updated_at: string };
+  };
+}
+
 const adminApi = {
   generateInviteDraft: (payload: InviteDraftRequest) =>
     apiPost<InviteDraftResponse>('/admin/ai/invite-draft', payload),
+  applyInviteDraftToTemplates: (payload: ApplyInviteDraftRequest) =>
+    apiPost<ApplyInviteDraftResponse>('/admin/ai/invite-draft/apply', payload),
 };
 
 export { adminApi };
-export type { InviteDraftRequest, InviteDraftResponse };
+export type { InviteDraftRequest, InviteDraftResponse, ApplyInviteDraftRequest, ApplyInviteDraftResponse };

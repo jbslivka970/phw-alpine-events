@@ -7,11 +7,12 @@ import { generateInviteDraft } from '../services/aiInviteService';
 jest.mock('../db', () => ({
   getPool: jest.fn(),
   sql: {
-    NVarChar: 'NVarChar',
+    NVarChar: (length?: number) => `NVarChar(${length ?? 'default'})`,
     Int: 'Int',
     DateTime: 'DateTime',
     Bit: 'Bit',
     UniqueIdentifier: 'UniqueIdentifier',
+    MAX: 'MAX',
   },
 }));
 
@@ -117,5 +118,68 @@ describe('admin routes', () => {
     expect(res.status).toBe(200);
     expect(generateInviteDraft).toHaveBeenCalledTimes(1);
     expect(res.body.subject).toBe('You are invited');
+  });
+
+  it('POST /api/admin/ai/invite-draft/apply requires explicit approval', async () => {
+    const res = await request(app)
+      .post('/api/admin/ai/invite-draft/apply')
+      .send({
+        title: 'Casting Clinic',
+        event_date: '2026-06-01T18:00:00.000Z',
+        approved: false,
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain('approved must be true');
+  });
+
+  it('POST /api/admin/ai/invite-draft/apply upserts email and sms templates', async () => {
+    (generateInviteDraft as jest.Mock).mockResolvedValue({
+      subject: 'You are invited',
+      emailBody: 'Email draft',
+      smsBody: 'SMS draft',
+      provider: 'fallback',
+    });
+
+    const requestMock = createRequest(async (query: string) => {
+      if (query.includes('SELECT TOP 1 template_id') && query.includes('channel = @channel')) {
+        const channel = [...requestMock.input.mock.calls]
+          .reverse()
+          .find((call) => call[0] === 'channel')?.[2];
+        if (channel === 'email') {
+          return { recordset: [{ template_id: 'existing-email-template' }] };
+        }
+        return { recordset: [] };
+      }
+
+      if (query.includes('UPDATE notification_template')) {
+        return { recordset: [{ template_id: 'existing-email-template', updated_at: new Date('2026-06-01T00:00:00.000Z') }] };
+      }
+
+      if (query.includes('INSERT INTO notification_template')) {
+        return { recordset: [{ template_id: 'new-sms-template', updated_at: new Date('2026-06-01T00:00:01.000Z') }] };
+      }
+
+      return { recordset: [] };
+    });
+
+    (getPool as jest.Mock).mockResolvedValue({ request: () => requestMock });
+
+    const res = await request(app)
+      .post('/api/admin/ai/invite-draft/apply')
+      .send({
+        title: 'Casting Clinic',
+        event_date: '2026-06-01T18:00:00.000Z',
+        tone: 'friendly',
+        approved: true,
+        template_name: 'Event Invite',
+        review_note: 'Reviewed by admin',
+      });
+
+    expect(res.status).toBe(200);
+    expect(generateInviteDraft).toHaveBeenCalledTimes(1);
+    expect(res.body.template_name).toBe('Event Invite');
+    expect(res.body.templates.email.template_id).toBe('existing-email-template');
+    expect(res.body.templates.sms.template_id).toBe('new-sms-template');
   });
 });
