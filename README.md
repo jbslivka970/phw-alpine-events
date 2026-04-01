@@ -301,6 +301,11 @@ Operational guidance:
 
 - Template governance and approval policy: `docs/template-governance-policy.md`
 
+Admin retention governance:
+
+- Use `POST /api/v1/admin/retention/preview` to generate dry-run retention evidence before enabling delete mode.
+- Optional request body fields: `notification_log_days`, `inbound_sms_log_days`, `email_preference_log_days`, `format` (`json` or `csv`).
+
 ## Smoke Test Sequence
 
 1. Verify app process and API root:

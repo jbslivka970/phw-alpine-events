@@ -3,6 +3,7 @@ import request from 'supertest';
 import adminRouter from '../routes/admin';
 import { getPool } from '../db';
 import { generateInviteDraft } from '../services/aiInviteService';
+import { runRetentionJob } from '../jobs/retentionJob';
 
 jest.mock('../db', () => ({
   getPool: jest.fn(),
@@ -36,6 +37,10 @@ jest.mock('../middleware/rateLimiter', () => ({
 
 jest.mock('../services/aiInviteService', () => ({
   generateInviteDraft: jest.fn(),
+}));
+
+jest.mock('../jobs/retentionJob', () => ({
+  runRetentionJob: jest.fn(),
 }));
 
 interface MockRequest {
@@ -181,5 +186,52 @@ describe('admin routes', () => {
     expect(res.body.template_name).toBe('Event Invite');
     expect(res.body.templates.email.template_id).toBe('existing-email-template');
     expect(res.body.templates.sms.template_id).toBe('new-sms-template');
+  });
+
+  it('POST /api/admin/retention/preview returns dry-run JSON results', async () => {
+    (runRetentionJob as jest.Mock).mockResolvedValue([
+      {
+        target: 'notification_log',
+        retentionDays: 30,
+        affectedRows: 12,
+        mode: 'dry-run',
+      },
+    ]);
+
+    const res = await request(app)
+      .post('/api/admin/retention/preview')
+      .send({
+        notification_log_days: 30,
+      });
+
+    expect(res.status).toBe(200);
+    expect(runRetentionJob).toHaveBeenCalledWith(expect.objectContaining({
+      dryRun: true,
+      notificationLogDays: 30,
+    }));
+    expect(res.body.mode).toBe('dry-run');
+    expect(res.body.results).toHaveLength(1);
+  });
+
+  it('POST /api/admin/retention/preview returns csv when requested', async () => {
+    (runRetentionJob as jest.Mock).mockResolvedValue([
+      {
+        target: 'notification_log',
+        retentionDays: 30,
+        affectedRows: 5,
+        mode: 'dry-run',
+      },
+    ]);
+
+    const res = await request(app)
+      .post('/api/admin/retention/preview')
+      .send({
+        format: 'csv',
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toContain('text/csv');
+    expect(res.text).toContain('target,retention_days,candidate_rows,mode,generated_at,generated_by');
+    expect(res.text).toContain('"notification_log"');
   });
 });

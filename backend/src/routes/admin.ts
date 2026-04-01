@@ -4,6 +4,7 @@ import authenticate from '../middleware/auth';
 import { apiLimiter, writeLimiter } from '../middleware/rateLimiter';
 import { requireAdmin } from '../middleware/rbac';
 import { generateInviteDraft } from '../services/aiInviteService';
+import { runRetentionJob } from '../jobs/retentionJob';
 
 const router = Router();
 
@@ -16,6 +17,13 @@ interface InviteDraftRequestBody {
   location?: string | null;
   description?: string | null;
   tone?: string;
+}
+
+interface RetentionPreviewRequestBody {
+  notification_log_days?: number;
+  inbound_sms_log_days?: number;
+  email_preference_log_days?: number;
+  format?: 'json' | 'csv';
 }
 
 router.use(apiLimiter, authenticate, requireAdmin);
@@ -344,6 +352,56 @@ router.post('/ai/invite-draft/apply', writeLimiter, async (req, res) => {
   }
 });
 
+router.post('/retention/preview', async (req, res) => {
+  try {
+    const body = (req.body ?? {}) as RetentionPreviewRequestBody;
+    const notificationLogDays = parseOptionalPositiveInt(body.notification_log_days);
+    const inboundSmsLogDays = parseOptionalPositiveInt(body.inbound_sms_log_days);
+    const emailPreferenceLogDays = parseOptionalPositiveInt(body.email_preference_log_days);
+    const format = body.format === 'csv' ? 'csv' : 'json';
+
+    const results = await runRetentionJob({
+      dryRun: true,
+      notificationLogDays,
+      inboundSmsLogDays,
+      emailPreferenceLogDays,
+    });
+
+    const generatedAt = new Date().toISOString();
+    const generatedBy = req.user?.email ?? req.user?.sub ?? 'unknown';
+
+    if (format === 'csv') {
+      const csvLines = [
+        'target,retention_days,candidate_rows,mode,generated_at,generated_by',
+        ...results.map((row) => {
+          return [
+            row.target,
+            String(row.retentionDays),
+            String(row.affectedRows),
+            row.mode,
+            generatedAt,
+            generatedBy,
+          ].map((value) => `"${String(value).replace(/"/g, '""')}"`).join(',');
+        }),
+      ];
+
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.status(200).send(csvLines.join('\n'));
+      return;
+    }
+
+    res.status(200).json({
+      generated_at: generatedAt,
+      generated_by: generatedBy,
+      mode: 'dry-run',
+      results,
+    });
+  } catch (error) {
+    console.error('POST /admin/retention/preview failed', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 async function resolveInviteDraftRequest(body: InviteDraftRequestBody): Promise<{
   draft: Awaited<ReturnType<typeof generateInviteDraft>>;
   source: 'event' | 'ad_hoc';
@@ -453,6 +511,14 @@ function parsePositiveInt(raw: string | undefined, fallback: number): number {
     return fallback;
   }
   return parsed;
+}
+
+function parseOptionalPositiveInt(value: unknown): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return undefined;
+  }
+  const normalized = Math.floor(value);
+  return normalized > 0 ? normalized : undefined;
 }
 
 export default router;

@@ -54,6 +54,13 @@ function AdminPage() {
   const [inviteTemplateName, setInviteTemplateName] = useState('Event Invite')
   const [inviteReviewed, setInviteReviewed] = useState(false)
   const [inviteReviewNote, setInviteReviewNote] = useState('')
+  const [retentionPreviewBusy, setRetentionPreviewBusy] = useState(false)
+  const [retentionPreviewError, setRetentionPreviewError] = useState<string | null>(null)
+  const [retentionPreviewGeneratedAt, setRetentionPreviewGeneratedAt] = useState<string | null>(null)
+  const [retentionNotificationDays, setRetentionNotificationDays] = useState('180')
+  const [retentionInboundSmsDays, setRetentionInboundSmsDays] = useState('365')
+  const [retentionEmailPrefDays, setRetentionEmailPrefDays] = useState('365')
+  const [retentionPreviewRows, setRetentionPreviewRows] = useState<Array<{ target: string; retentionDays: number; affectedRows: number }>>([])
 
   useEffect(() => {
     const rawBase = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? '/api/v1'
@@ -158,6 +165,34 @@ function AdminPage() {
       setInviteApplyError(error instanceof Error ? error.message : 'Failed to apply invite draft to templates.')
     } finally {
       setIsApplyingInvite(false)
+    }
+  }
+
+  async function handleRetentionPreview() {
+    setRetentionPreviewBusy(true)
+    setRetentionPreviewError(null)
+    try {
+      const parseDays = (value: string) => {
+        const parsed = Number.parseInt(value, 10)
+        return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined
+      }
+
+      const response = await adminApi.previewRetention({
+        notification_log_days: parseDays(retentionNotificationDays),
+        inbound_sms_log_days: parseDays(retentionInboundSmsDays),
+        email_preference_log_days: parseDays(retentionEmailPrefDays),
+      })
+
+      setRetentionPreviewGeneratedAt(response.generated_at)
+      setRetentionPreviewRows(response.results.map((row) => ({
+        target: row.target,
+        retentionDays: row.retentionDays,
+        affectedRows: row.affectedRows,
+      })))
+    } catch (error) {
+      setRetentionPreviewError(error instanceof Error ? error.message : 'Failed to preview retention results.')
+    } finally {
+      setRetentionPreviewBusy(false)
     }
   }
 
@@ -371,6 +406,66 @@ function AdminPage() {
                 {inviteApplySuccess && <p style={{ color: '#1a7f37', margin: 0 }}>{inviteApplySuccess}</p>}
               </div>
             </div>
+          )}
+        </section>
+
+        <section className="card admin-tools-card">
+          <h2 className="admin-section-title">Retention Dry-Run Preview</h2>
+          <p className="page-subtitle" style={{ marginBottom: '0.9rem' }}>
+            Preview candidate row counts before enabling retention delete mode in production.
+          </p>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8, marginBottom: 10 }}>
+            <input
+              className="members-input"
+              value={retentionNotificationDays}
+              onChange={(e) => setRetentionNotificationDays(e.target.value)}
+              placeholder="notification_log days"
+            />
+            <input
+              className="members-input"
+              value={retentionInboundSmsDays}
+              onChange={(e) => setRetentionInboundSmsDays(e.target.value)}
+              placeholder="inbound_sms_log days"
+            />
+            <input
+              className="members-input"
+              value={retentionEmailPrefDays}
+              onChange={(e) => setRetentionEmailPrefDays(e.target.value)}
+              placeholder="email_preference_log days"
+            />
+          </div>
+
+          <button className="btn btn--primary btn--sm" disabled={retentionPreviewBusy} onClick={() => void handleRetentionPreview()}>
+            {retentionPreviewBusy ? 'Running Preview…' : 'Run Retention Preview'}
+          </button>
+
+          {retentionPreviewError && <p className="members-error" style={{ marginTop: 10 }}>{retentionPreviewError}</p>}
+          {retentionPreviewGeneratedAt && (
+            <small style={{ color: 'var(--muted)', display: 'block', marginTop: 10 }}>
+              Generated: {new Date(retentionPreviewGeneratedAt).toLocaleString()}
+            </small>
+          )}
+
+          {retentionPreviewRows.length > 0 && (
+            <table className="members-table" style={{ marginTop: 10 }}>
+              <thead>
+                <tr>
+                  <th>Target</th>
+                  <th>Retention Days</th>
+                  <th>Candidate Rows</th>
+                </tr>
+              </thead>
+              <tbody>
+                {retentionPreviewRows.map((row) => (
+                  <tr key={row.target}>
+                    <td>{row.target}</td>
+                    <td>{row.retentionDays}</td>
+                    <td>{row.affectedRows.toLocaleString()}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           )}
         </section>
 

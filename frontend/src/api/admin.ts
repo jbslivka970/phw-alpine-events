@@ -39,12 +39,41 @@ interface ApplyInviteDraftResponse {
   };
 }
 
+interface RetentionPreviewRequest {
+  notification_log_days?: number;
+  inbound_sms_log_days?: number;
+  email_preference_log_days?: number;
+}
+
+interface RetentionPreviewResult {
+  target: 'notification_log' | 'inbound_sms_log' | 'email_preference_log';
+  retentionDays: number;
+  affectedRows: number;
+  mode: 'dry-run';
+}
+
+interface RetentionPreviewResponse {
+  generated_at: string;
+  generated_by: string;
+  mode: 'dry-run';
+  results: RetentionPreviewResult[];
+}
+
 const adminApi = {
   generateInviteDraft: (payload: InviteDraftRequest) =>
     apiPost<InviteDraftResponse>('/admin/ai/invite-draft', payload),
   applyInviteDraftToTemplates: (payload: ApplyInviteDraftRequest) =>
     apiPost<ApplyInviteDraftResponse>('/admin/ai/invite-draft/apply', payload),
+  previewRetention: (payload: RetentionPreviewRequest) =>
+    apiPost<RetentionPreviewResponse>('/admin/retention/preview', payload),
 };
 
 export { adminApi };
-export type { InviteDraftRequest, InviteDraftResponse, ApplyInviteDraftRequest, ApplyInviteDraftResponse };
+export type {
+  InviteDraftRequest,
+  InviteDraftResponse,
+  ApplyInviteDraftRequest,
+  ApplyInviteDraftResponse,
+  RetentionPreviewRequest,
+  RetentionPreviewResponse,
+};

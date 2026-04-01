@@ -92,7 +92,7 @@ Implemented evidence:
 
 Gaps:
 - Full production proof of ACS/Event Grid inbound path and carrier compliance reporting should remain a recurring smoke check.
-- Data retention now has a scheduled scaffold job; production retention policy values and governance sign-off still need to be finalized.
+- Data retention now includes scheduled job controls plus admin dry-run preview evidence (`/admin/retention/preview`); production policy values and governance sign-off execution remain to be finalized.
 
 ## 3) Next Tasks (Prioritized, PRD-Mapped)
 
