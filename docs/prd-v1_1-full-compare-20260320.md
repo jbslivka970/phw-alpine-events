@@ -56,7 +56,7 @@ Implemented evidence:
 
 Gaps vs PRD:
 - AI invite output is currently draft-only and not yet fully integrated into template lifecycle/versioning workflows.
-- Notification template runtime still uses built-in template modules for core sends; database template CRUD exists but is not yet the authoritative render source for all operations.
+- Database templates are now authoritative render source for core event send flows (invite/update/cancel/reminder/waitlist promotion); remaining non-event notification paths (for example RSVP confirmation and TAVF notifications) still rely on built-in bodies.
 
 ### 2.4 Take a Vet Fishing (Section 6.4, US-TV)
 
@@ -104,7 +104,7 @@ Gaps:
 
 2. **Template runtime unification**  
    PRD refs: US-EM-13, T-EVT-16  
-   Implementation: make DB templates authoritative render source for event invite/update/cancel/reminder channels.
+   Implementation: extend DB template authority to remaining non-event notifications (RSVP confirmation and TAVF lifecycle sends).
 
 3. **AI invite workflow completion**  
    PRD refs: US-EM-12, T-EVT-15  

@@ -20,9 +20,59 @@ interface UpcomingEventRow {
   sms_opt_in: boolean;
 }
 
+interface RuntimeTemplateOverride {
+  subject: string | null;
+  body: string;
+}
+
+function stripHtmlToText(value: string): string {
+  return value
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+async function getActiveTemplateOverride(
+  pool: Awaited<ReturnType<typeof getPool>>,
+  templateName: string,
+  channel: 'email' | 'sms'
+): Promise<RuntimeTemplateOverride | null> {
+  try {
+    const result = await pool
+      .request()
+      .input('template_name', templateName)
+      .input('channel', channel)
+      .query<{ subject: string | null; body: string }>(
+        `SELECT TOP 1 subject, body
+         FROM notification_template
+         WHERE template_name = @template_name
+           AND channel = @channel
+           AND is_active = 1
+         ORDER BY updated_at DESC`
+      );
+
+    const row = result.recordset?.[0];
+    return row ? { subject: row.subject, body: row.body } : null;
+  } catch (error) {
+    console.warn('[reminderJob] failed to load runtime template override; using built-in template', {
+      templateName,
+      channel,
+      error,
+    });
+    return null;
+  }
+}
+
 async function runReminderJob(lookAheadHours = 48): Promise<void> {
   const pool = await getPool();
   const claimToken = randomUUID();
+  const [emailTemplateOverride, smsTemplateOverride] = await Promise.all([
+    getActiveTemplateOverride(pool, eventReminderTemplate.displayName, 'email'),
+    getActiveTemplateOverride(pool, eventReminderTemplate.displayName, 'sms'),
+  ]);
 
   await pool
     .request()
@@ -90,11 +140,20 @@ async function runReminderJob(lookAheadHours = 48): Promise<void> {
     try {
       if (!row.email_opt_out && row.email) {
         try {
+          const emailHtmlBody = renderTemplate(
+            emailTemplateOverride?.body ?? eventReminderTemplate.htmlBodyTemplate ?? '',
+            variables
+          );
+          const emailSubjectSource = emailTemplateOverride?.subject?.trim()
+            ? emailTemplateOverride.subject
+            : eventReminderTemplate.subjectTemplate ?? '';
           await notificationService.sendEmail({
             to: row.email,
-            subject: renderTemplate(eventReminderTemplate.subjectTemplate ?? '', variables),
-            htmlBody: renderTemplate(eventReminderTemplate.htmlBodyTemplate ?? '', variables),
-            textBody: renderTemplate(eventReminderTemplate.textBodyTemplate ?? '', variables),
+            subject: renderTemplate(emailSubjectSource, variables),
+            htmlBody: emailHtmlBody,
+            textBody: emailTemplateOverride
+              ? stripHtmlToText(emailHtmlBody)
+              : renderTemplate(eventReminderTemplate.textBodyTemplate ?? '', variables),
             templateId: eventReminderTemplate.templateId,
             memberId: row.member_id,
             eventId: row.event_id,
@@ -116,7 +175,7 @@ async function runReminderJob(lookAheadHours = 48): Promise<void> {
         try {
           await notificationService.sendSms({
             to: row.mobile_phone,
-            message: renderTemplate(eventReminderTemplate.smsBodyTemplate ?? '', variables),
+            message: renderTemplate(smsTemplateOverride?.body ?? eventReminderTemplate.smsBodyTemplate ?? '', variables),
             templateId: eventReminderTemplate.templateId,
             memberId: row.member_id,
             eventId: row.event_id,
