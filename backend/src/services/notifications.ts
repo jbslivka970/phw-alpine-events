@@ -74,6 +74,11 @@ interface WaitlistPromotionNotificationPayload {
   expires_at: Date | string;
 }
 
+const tavfNewPostingTemplateName = 'TAVF New Posting';
+const tavfApplicationReceivedTemplateName = 'TAVF Application Received';
+const tavfMatchConfirmedTemplateName = 'TAVF Match Confirmed';
+const tavfMatchCancelledTemplateName = 'TAVF Match Cancelled';
+
 interface RuntimeTemplateOverride {
   subject: string | null;
   body: string;
@@ -1205,6 +1210,11 @@ function summarizeChangedFields(changedFields: string[]): string {
 
 async function notifyNewPosting(postingId: string): Promise<void> {
   const pool = await getPool();
+  const [emailTemplateOverride, smsTemplateOverride] = await Promise.all([
+    getActiveTemplateOverride(tavfNewPostingTemplateName, 'email'),
+    getActiveTemplateOverride(tavfNewPostingTemplateName, 'sms'),
+  ]);
+
   const postingResult = await pool
     .request()
     .input('posting_id', sql.UniqueIdentifier, postingId)
@@ -1231,25 +1241,40 @@ async function notifyNewPosting(postingId: string): Promise<void> {
     );
 
   const eventDate = posting.event_date.toLocaleDateString();
-  const subject = `New TAVF opportunity: ${posting.location} on ${eventDate}`;
-  const body = `New TAVF opportunity: ${posting.location} on ${eventDate}. View: /tavf/${posting.posting_id}`;
+  const variables = {
+    location: posting.location,
+    eventDate,
+    postingUrl: `/tavf/${posting.posting_id}`,
+  };
+  const renderedEmail = renderEmailTemplate(emailTemplateOverride, {
+    subject: 'New TAVF opportunity: {{location}} on {{eventDate}}',
+    htmlBody: '<p>New TAVF opportunity: {{location}} on {{eventDate}}. View: {{postingUrl}}</p>',
+    textBody: 'New TAVF opportunity: {{location}} on {{eventDate}}. View: {{postingUrl}}',
+  }, variables);
+  const renderedSms = renderSmsTemplate(
+    smsTemplateOverride,
+    'PHW Alpine TAVF: New opportunity at {{location}} on {{eventDate}}. Open app for details. Reply STOP to opt out.',
+    variables
+  );
 
   for (const recipient of recipients.recordset) {
     if (recipient.email && !recipient.email_opt_out) {
       await notificationService.sendEmail({
         to: recipient.email,
-        subject,
-        htmlBody: `<p>${body}</p>`,
-        textBody: body,
+        subject: renderedEmail.subject,
+        htmlBody: renderedEmail.htmlBody,
+        textBody: renderedEmail.textBody,
         memberId: recipient.member_id,
+        operationType: 'tavf_new_posting',
       });
     }
 
     if (recipient.sms_opt_in && recipient.mobile_phone) {
       await notificationService.sendSms({
         to: recipient.mobile_phone,
-        message: `PHW Alpine TAVF: New opportunity at ${posting.location} on ${eventDate}. Open app for details. Reply STOP to opt out.`,
+        message: renderedSms,
         memberId: recipient.member_id,
+        operationType: 'tavf_new_posting',
       });
     }
   }
@@ -1257,6 +1282,11 @@ async function notifyNewPosting(postingId: string): Promise<void> {
 
 async function notifyApplicationReceived(applicationId: string): Promise<void> {
   const pool = await getPool();
+  const [emailTemplateOverride, smsTemplateOverride] = await Promise.all([
+    getActiveTemplateOverride(tavfApplicationReceivedTemplateName, 'email'),
+    getActiveTemplateOverride(tavfApplicationReceivedTemplateName, 'sms'),
+  ]);
+
   const result = await pool
     .request()
     .input('application_id', sql.UniqueIdentifier, applicationId)
@@ -1289,28 +1319,48 @@ async function notifyApplicationReceived(applicationId: string): Promise<void> {
   }
 
   const dateLabel = row.event_date.toLocaleDateString();
-  const subject = `New TAVF Application - ${row.location} on ${dateLabel}`;
-  const body = `${row.vet_first_name ?? 'A member'} applied for your TAVF posting at ${row.location} on ${dateLabel}.`;
+  const variables = {
+    applicantName: row.vet_first_name ?? 'A member',
+    location: row.location,
+    eventDate: dateLabel,
+  };
+  const renderedEmail = renderEmailTemplate(emailTemplateOverride, {
+    subject: 'New TAVF Application - {{location}} on {{eventDate}}',
+    htmlBody: '<p>{{applicantName}} applied for your TAVF posting at {{location}} on {{eventDate}}.</p>',
+    textBody: '{{applicantName}} applied for your TAVF posting at {{location}} on {{eventDate}}.',
+  }, variables);
+  const renderedSms = renderSmsTemplate(
+    smsTemplateOverride,
+    'PHW Alpine TAVF: New application for your {{location}} posting on {{eventDate}}. Open app to review. Reply STOP to opt out.',
+    variables
+  );
 
   await notificationService.sendEmail({
     to: row.guide_email,
-    subject,
-    htmlBody: `<p>${body}</p>`,
-    textBody: body,
+    subject: renderedEmail.subject,
+    htmlBody: renderedEmail.htmlBody,
+    textBody: renderedEmail.textBody,
     memberId: row.guide_member_id,
+    operationType: 'tavf_application_received',
   });
 
   if (row.guide_sms_opt_in && row.guide_mobile_phone) {
     await notificationService.sendSms({
       to: row.guide_mobile_phone,
-      message: `PHW Alpine TAVF: New application for your ${row.location} posting on ${dateLabel}. Open app to review. Reply STOP to opt out.`,
+      message: renderedSms,
       memberId: row.guide_member_id,
+      operationType: 'tavf_application_received',
     });
   }
 }
 
 async function notifyMatchConfirmed(matchId: string): Promise<void> {
   const pool = await getPool();
+  const [emailTemplateOverride, smsTemplateOverride] = await Promise.all([
+    getActiveTemplateOverride(tavfMatchConfirmedTemplateName, 'email'),
+    getActiveTemplateOverride(tavfMatchConfirmedTemplateName, 'sms'),
+  ]);
+
   const result = await pool
     .request()
     .input('match_id', sql.UniqueIdentifier, matchId)
@@ -1352,43 +1402,65 @@ async function notifyMatchConfirmed(matchId: string): Promise<void> {
   }
 
   const dateLabel = row.event_date.toLocaleDateString();
-  const subject = `TAVF Match Confirmed - ${row.location} on ${dateLabel}`;
+  const variables = {
+    location: row.location,
+    eventDate: dateLabel,
+  };
+  const renderedEmail = renderEmailTemplate(emailTemplateOverride, {
+    subject: 'TAVF Match Confirmed - {{location}} on {{eventDate}}',
+    htmlBody: '<p>Your TAVF match is confirmed for {{location}} on {{eventDate}}.</p>',
+    textBody: 'Your TAVF match is confirmed for {{location}} on {{eventDate}}.',
+  }, variables);
+  const renderedSms = renderSmsTemplate(
+    smsTemplateOverride,
+    'PHW Alpine TAVF: Match confirmed for {{location}} on {{eventDate}}.',
+    variables
+  );
 
   await notificationService.sendEmail({
     to: row.guide_email,
-    subject,
-    htmlBody: `<p>Your TAVF match is confirmed for ${row.location} on ${dateLabel}.</p>`,
-    textBody: `Your TAVF match is confirmed for ${row.location} on ${dateLabel}.`,
+    subject: renderedEmail.subject,
+    htmlBody: renderedEmail.htmlBody,
+    textBody: renderedEmail.textBody,
     memberId: row.guide_member_id,
+    operationType: 'tavf_match_confirmed',
   });
 
   await notificationService.sendEmail({
     to: row.vet_email,
-    subject,
-    htmlBody: `<p>Your TAVF match is confirmed for ${row.location} on ${dateLabel}.</p>`,
-    textBody: `Your TAVF match is confirmed for ${row.location} on ${dateLabel}.`,
+    subject: renderedEmail.subject,
+    htmlBody: renderedEmail.htmlBody,
+    textBody: renderedEmail.textBody,
     memberId: row.vet_member_id,
+    operationType: 'tavf_match_confirmed',
   });
 
   if (row.guide_sms_opt_in && row.guide_mobile_phone) {
     await notificationService.sendSms({
       to: row.guide_mobile_phone,
-      message: `PHW Alpine TAVF: Match confirmed for ${row.location} on ${dateLabel}.`,
+      message: renderedSms,
       memberId: row.guide_member_id,
+      operationType: 'tavf_match_confirmed',
     });
   }
 
   if (row.vet_sms_opt_in && row.vet_mobile_phone) {
     await notificationService.sendSms({
       to: row.vet_mobile_phone,
-      message: `PHW Alpine TAVF: Match confirmed for ${row.location} on ${dateLabel}.`,
+      message: renderedSms,
       memberId: row.vet_member_id,
+      operationType: 'tavf_match_confirmed',
     });
   }
 }
 
 async function notifyMatchCancelled(matchId: string): Promise<void> {
   const pool = await getPool();
+  const [emailTemplateOverride, smsTemplateOverride] = await Promise.all([
+    getActiveTemplateOverride(tavfMatchCancelledTemplateName, 'email'),
+    getActiveTemplateOverride(tavfMatchCancelledTemplateName, 'sms'),
+  ]);
+
   const result = await pool
     .request()
     .input('match_id', sql.UniqueIdentifier, matchId)
@@ -1428,37 +1500,54 @@ async function notifyMatchCancelled(matchId: string): Promise<void> {
   }
 
   const dateLabel = row.event_date.toLocaleDateString();
-  const subject = `TAVF Match Cancelled - ${row.location} on ${dateLabel}`;
+  const variables = {
+    location: row.location,
+    eventDate: dateLabel,
+  };
+  const renderedEmail = renderEmailTemplate(emailTemplateOverride, {
+    subject: 'TAVF Match Cancelled - {{location}} on {{eventDate}}',
+    htmlBody: '<p>Your TAVF match for {{location}} on {{eventDate}} has been cancelled.</p>',
+    textBody: 'Your TAVF match for {{location}} on {{eventDate}} has been cancelled.',
+  }, variables);
+  const renderedSms = renderSmsTemplate(
+    smsTemplateOverride,
+    'PHW Alpine TAVF: Match cancelled for {{location}} on {{eventDate}}.',
+    variables
+  );
 
   await notificationService.sendEmail({
     to: row.guide_email,
-    subject,
-    htmlBody: `<p>Your TAVF match for ${row.location} on ${dateLabel} has been cancelled.</p>`,
-    textBody: `Your TAVF match for ${row.location} on ${dateLabel} has been cancelled.`,
+    subject: renderedEmail.subject,
+    htmlBody: renderedEmail.htmlBody,
+    textBody: renderedEmail.textBody,
     memberId: row.guide_member_id,
+    operationType: 'tavf_match_cancelled',
   });
 
   await notificationService.sendEmail({
     to: row.vet_email,
-    subject,
-    htmlBody: `<p>Your TAVF match for ${row.location} on ${dateLabel} has been cancelled.</p>`,
-    textBody: `Your TAVF match for ${row.location} on ${dateLabel} has been cancelled.`,
+    subject: renderedEmail.subject,
+    htmlBody: renderedEmail.htmlBody,
+    textBody: renderedEmail.textBody,
     memberId: row.vet_member_id,
+    operationType: 'tavf_match_cancelled',
   });
 
   if (row.guide_sms_opt_in && row.guide_mobile_phone) {
     await notificationService.sendSms({
       to: row.guide_mobile_phone,
-      message: `PHW Alpine TAVF: Match cancelled for ${row.location} on ${dateLabel}.`,
+      message: renderedSms,
       memberId: row.guide_member_id,
+      operationType: 'tavf_match_cancelled',
     });
   }
 
   if (row.vet_sms_opt_in && row.vet_mobile_phone) {
     await notificationService.sendSms({
       to: row.vet_mobile_phone,
-      message: `PHW Alpine TAVF: Match cancelled for ${row.location} on ${dateLabel}.`,
+      message: renderedSms,
       memberId: row.vet_member_id,
+      operationType: 'tavf_match_cancelled',
     });
   }
 }

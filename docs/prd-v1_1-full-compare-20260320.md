@@ -56,7 +56,7 @@ Implemented evidence:
 
 Gaps vs PRD:
 - AI invite output is currently draft-only and not yet fully integrated into template lifecycle/versioning workflows.
-- Database templates are now authoritative render source for core event send flows (invite/update/cancel/reminder/waitlist promotion) plus RSVP confirmation; remaining non-event notification paths are primarily TAVF lifecycle notifications.
+- Database templates are now authoritative render source for core event send flows (invite/update/cancel/reminder/waitlist promotion), RSVP confirmation, and TAVF lifecycle notifications.
 
 ### 2.4 Take a Vet Fishing (Section 6.4, US-TV)
 
@@ -102,11 +102,7 @@ Gaps:
    PRD refs: Section 11.x / governance controls  
    Implementation: set retention windows per table/env, validate dry-run results, then enable delete mode in production.
 
-2. **Template runtime unification**  
-   PRD refs: US-EM-13, T-EVT-16  
-   Implementation: extend DB template authority to remaining TAVF lifecycle notifications.
-
-3. **AI invite workflow completion**  
+2. **AI invite workflow completion**  
    PRD refs: US-EM-12, T-EVT-15  
    Implementation: connect generated drafts to template save/send workflows with review/audit controls.
 
