@@ -297,6 +297,10 @@ Optional CI/CD variable:
 - `E2E_API_BASE_URL` base API URL used by Playwright role-matrix checks
 - `E2E_APP_URL` frontend base URL used for browser-authenticated route checks
 
+Operational guidance:
+
+- Template governance and approval policy: `docs/template-governance-policy.md`
+
 ## Smoke Test Sequence
 
 1. Verify app process and API root:
