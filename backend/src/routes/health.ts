@@ -1,6 +1,6 @@
 import { Request, Response, Router } from 'express';
 import { getPool } from '../db';
-import { loadAcsConfig, loadAuthConfig } from '../config';
+import { loadAcsConfig, loadAuthConfig, loadTwilioSmsConfig } from '../config';
 import { getNotificationRuntimeStatus } from '../services/notifications';
 
 const router = Router();
@@ -62,6 +62,7 @@ router.get('/ready', async (_req: Request, res: Response): Promise<void> => {
 router.get('/startup', (_req: Request, res: Response) => {
   const authConfig = loadAuthConfig();
   const acsConfig = loadAcsConfig();
+  const twilioSmsConfig = loadTwilioSmsConfig();
   const notificationStatus = getNotificationRuntimeStatus();
   const telemetryConfigured = Boolean(
     process.env['APPINSIGHTS_INSTRUMENTATIONKEY'] || process.env['APPLICATIONINSIGHTS_CONNECTION_STRING']
@@ -82,7 +83,7 @@ router.get('/startup', (_req: Request, res: Response) => {
     checks: {
       dbEnvConfigured: dbMissing.length === 0,
       authConfigured: authConfig.isConfigured,
-      notificationsConfigured: acsConfig.isConfigured,
+      notificationsConfigured: acsConfig.isConfigured || twilioSmsConfig.isConfigured,
       notificationMode: notificationStatus.mode,
       notificationStrictModeEnabled: notificationStatus.strictModeEnabled,
       emailNotificationChannel: notificationStatus.emailServiceMode,
@@ -95,6 +96,7 @@ router.get('/startup', (_req: Request, res: Response) => {
       optional: [
         ...(!process.env['ACS_CONNECTION_STRING'] ? ['ACS_CONNECTION_STRING'] : []),
         ...(process.env['ACS_CONNECTION_STRING'] && !process.env['ACS_EMAIL_FROM'] ? ['ACS_EMAIL_FROM'] : []),
+        ...(!twilioSmsConfig.isConfigured ? ['TWILIO_ACCOUNT_SID_OR_ACS_SMS_CONFIG'] : []),
         ...(!telemetryConfigured ? ['APPINSIGHTS_INSTRUMENTATIONKEY_OR_APPLICATIONINSIGHTS_CONNECTION_STRING'] : []),
       ],
       notifications: notificationStatus.reasons,

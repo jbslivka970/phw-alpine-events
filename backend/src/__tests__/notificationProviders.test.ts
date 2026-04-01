@@ -1,9 +1,11 @@
 import { EmailClient } from '@azure/communication-email';
 import { SmsClient } from '@azure/communication-sms';
-import { AcsEmailService, AcsSmsService } from '../services/notifications';
+import twilio from 'twilio';
+import { AcsEmailService, AcsSmsService, TwilioSmsService } from '../services/notifications';
 
 const emailBeginSendMock = jest.fn();
 const smsSendMock = jest.fn();
+const twilioMessagesCreateMock = jest.fn();
 
 jest.mock('@azure/communication-email', () => ({
   EmailClient: jest.fn().mockImplementation(() => ({
@@ -16,6 +18,14 @@ jest.mock('@azure/communication-sms', () => ({
     send: smsSendMock,
   })),
 }));
+
+jest.mock('twilio', () =>
+  jest.fn().mockImplementation(() => ({
+    messages: {
+      create: twilioMessagesCreateMock,
+    },
+  }))
+);
 
 describe('ACS notification providers', () => {
   beforeEach(() => {
@@ -100,5 +110,33 @@ describe('ACS notification providers', () => {
     await expect(
       service.sendSms({ to: '+13035551111', message: 'Reminder text' })
     ).rejects.toThrow('ACS SMS send failed: Blocked by carrier');
+  });
+
+  it('TwilioSmsService sends using messaging service SID and returns message sid', async () => {
+    twilioMessagesCreateMock.mockResolvedValue({ sid: 'SM1234567890' });
+
+    const service = new TwilioSmsService('AC123', 'auth-token', 'MG123');
+    const providerId = await service.sendSms({
+      to: '+13035551111',
+      message: 'Reminder text',
+    });
+
+    expect(twilio).toHaveBeenCalledWith('AC123', 'auth-token');
+    expect(twilioMessagesCreateMock).toHaveBeenCalledWith({
+      to: '+13035551111',
+      body: 'Reminder text',
+      messagingServiceSid: 'MG123',
+    });
+    expect(providerId).toBe('SM1234567890');
+  });
+
+  it('TwilioSmsService throws when response does not include sid', async () => {
+    twilioMessagesCreateMock.mockResolvedValue({});
+
+    const service = new TwilioSmsService('AC123', 'auth-token', 'MG123');
+
+    await expect(
+      service.sendSms({ to: '+13035551111', message: 'Reminder text' })
+    ).rejects.toThrow('Twilio SMS send did not return a message SID.');
   });
 });

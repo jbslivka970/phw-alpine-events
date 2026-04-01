@@ -34,6 +34,13 @@ interface AcsConfig {
   smsFrom?: string;
 }
 
+interface TwilioSmsConfig {
+  isConfigured: boolean;
+  accountSid?: string;
+  authToken?: string;
+  messagingServiceSid?: string;
+}
+
 interface RsvpLinkConfig {
   isConfigured: boolean;
   frontendBaseUrl: string;
@@ -168,5 +175,19 @@ function loadRsvpLinkConfig(): RsvpLinkConfig {
   };
 }
 
-export { loadAcsConfig, loadAuthConfig, loadDbConfig, loadRsvpLinkConfig, loadServerConfig };
-export type { AcsConfig, AuthConfig, DbConfig, RsvpLinkConfig, ServerConfig };
+function loadTwilioSmsConfig(): TwilioSmsConfig {
+  const accountSid = optionalEnv('TWILIO_ACCOUNT_SID');
+  const authToken = optionalEnv('TWILIO_AUTH_TOKEN');
+  const messagingServiceSid = optionalEnv('TWILIO_MESSAGING_SERVICE_SID');
+
+  const isConfigured = Boolean(accountSid && authToken && messagingServiceSid);
+  return {
+    isConfigured,
+    accountSid,
+    authToken,
+    messagingServiceSid,
+  };
+}
+
+export { loadAcsConfig, loadAuthConfig, loadDbConfig, loadRsvpLinkConfig, loadServerConfig, loadTwilioSmsConfig };
+export type { AcsConfig, AuthConfig, DbConfig, RsvpLinkConfig, ServerConfig, TwilioSmsConfig };

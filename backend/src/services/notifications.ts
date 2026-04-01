@@ -1,7 +1,8 @@
 import { EmailClient } from '@azure/communication-email';
 import { SmsClient } from '@azure/communication-sms';
 import { getPool, sql } from '../db';
-import { loadAcsConfig } from '../config';
+import twilio from 'twilio';
+import { loadAcsConfig, loadTwilioSmsConfig } from '../config';
 import { renderTemplate } from '../templates/NotificationTemplate';
 import { eventCancellationTemplate } from '../templates/eventCancellation';
 import { eventInviteTemplate } from '../templates/eventInvite';
@@ -235,6 +236,32 @@ class AcsSmsService implements ISmsService {
     }
 
     return firstRecipient.messageId;
+  }
+}
+
+class TwilioSmsService implements ISmsService {
+  private readonly client: ReturnType<typeof twilio>;
+
+  constructor(
+    private readonly accountSid: string,
+    private readonly authToken: string,
+    private readonly messagingServiceSid: string
+  ) {
+    this.client = twilio(this.accountSid, this.authToken);
+  }
+
+  async sendSms(options: SendSmsOptions): Promise<string | undefined> {
+    const result = await this.client.messages.create({
+      to: options.to,
+      body: options.message,
+      messagingServiceSid: this.messagingServiceSid,
+    }) as { sid?: string };
+
+    if (!result?.sid) {
+      throw new Error('Twilio SMS send did not return a message SID.');
+    }
+
+    return result.sid;
   }
 }
 
@@ -543,6 +570,7 @@ function renderSmsTemplate(override: RuntimeTemplateOverride | null, fallbackBod
 }
 
 const acsConfig = loadAcsConfig();
+const twilioSmsConfig = loadTwilioSmsConfig();
 let emailService: IEmailService = new StubEmailService();
 let smsService: ISmsService = new StubSmsService();
 let isRealEmailService = false;
@@ -557,12 +585,12 @@ const hasValidAcsConnectionString = Boolean(
 
 const strictModeEnabled = /^(1|true|yes|on)$/i.test(process.env['NOTIFICATIONS_STRICT_MODE'] ?? '');
 
-if (!acsConfig.isConfigured) {
-  notificationInitReasons.push('ACS core configuration is incomplete (connection string or email sender missing).');
-  console.warn('[NotificationService] ACS not configured. Email and SMS sends are running in stub mode.');
+if (!acsConfig.connectionString || !acsConfig.emailFrom) {
+  notificationInitReasons.push('ACS email configuration is incomplete (connection string or email sender missing).');
+  console.warn('[NotificationService] ACS email is not configured. Email sends are running in stub mode.');
 } else if (!hasValidAcsConnectionString) {
-  notificationInitReasons.push('ACS connection string is invalid.');
-  console.warn('[NotificationService] ACS connection string appears invalid. Email and SMS sends are running in stub mode.');
+  notificationInitReasons.push('ACS email connection string is invalid.');
+  console.warn('[NotificationService] ACS connection string appears invalid. Email sends are running in stub mode.');
 } else {
   try {
     const toLineAddresses = parseToLineAddresses(acsConfig.emailTo, acsConfig.emailFrom ?? '');
@@ -572,19 +600,33 @@ if (!acsConfig.isConfigured) {
     notificationInitReasons.push('Failed to initialize ACS email client.');
     console.warn('[NotificationService] Failed to initialize ACS email client, falling back to stub mode.', error);
   }
+}
 
-  if (!acsConfig.smsFrom) {
-    notificationInitReasons.push('ACS_SMS_FROM is missing; SMS service is unavailable.');
-    console.warn('[NotificationService] ACS_SMS_FROM is not set. SMS sends are running in stub mode.');
-  } else {
-    try {
-      smsService = new AcsSmsService(acsConfig.connectionString ?? '', acsConfig.smsFrom);
-      isRealSmsService = true;
-    } catch (error) {
-      notificationInitReasons.push('Failed to initialize ACS SMS client.');
-      console.warn('[NotificationService] Failed to initialize ACS SMS client, falling back to stub mode.', error);
-    }
+if (twilioSmsConfig.isConfigured) {
+  try {
+    smsService = new TwilioSmsService(
+      twilioSmsConfig.accountSid ?? '',
+      twilioSmsConfig.authToken ?? '',
+      twilioSmsConfig.messagingServiceSid ?? ''
+    );
+    isRealSmsService = true;
+  } catch (error) {
+    notificationInitReasons.push('Failed to initialize Twilio SMS client.');
+    console.warn('[NotificationService] Failed to initialize Twilio SMS client, falling back to stub mode.', error);
   }
+} else if (hasValidAcsConnectionString && acsConfig.smsFrom) {
+  try {
+    smsService = new AcsSmsService(acsConfig.connectionString ?? '', acsConfig.smsFrom);
+    isRealSmsService = true;
+  } catch (error) {
+    notificationInitReasons.push('Failed to initialize ACS SMS client.');
+    console.warn('[NotificationService] Failed to initialize ACS SMS client, falling back to stub mode.', error);
+  }
+} else {
+  notificationInitReasons.push(
+    'No SMS provider configured. Set TWILIO_ACCOUNT_SID/TWILIO_AUTH_TOKEN/TWILIO_MESSAGING_SERVICE_SID or ACS_CONNECTION_STRING/ACS_SMS_FROM.'
+  );
+  console.warn('[NotificationService] No SMS provider configured. SMS sends are running in stub mode.');
 }
 
 const notificationService = new NotificationService(
@@ -622,13 +664,13 @@ function assertChannelsAvailable(channels: { emailNeeded: boolean; smsNeeded: bo
 
   if (channels.emailNeeded && !isRealEmailService) {
     throw new NotificationConfigurationError(
-      `Notification channel unavailable for ${context}: email delivery is required but ACS email is not configured.`
+      `Notification channel unavailable for ${context}: email delivery is required but email provider is not configured.`
     );
   }
 
   if (channels.smsNeeded && !isRealSmsService) {
     throw new NotificationConfigurationError(
-      `Notification channel unavailable for ${context}: SMS delivery is required but ACS SMS is not configured.`
+      `Notification channel unavailable for ${context}: SMS delivery is required but no SMS provider is configured.`
     );
   }
 }
@@ -1649,6 +1691,7 @@ export {
   notifyNewPosting,
   AcsEmailService,
   AcsSmsService,
+  TwilioSmsService,
   sendEventCancelledNotification,
   sendEventPublishedNotification,
   sendEventUpdatedNotification,

@@ -113,7 +113,10 @@ Key backend variables:
 - `ACS_CONNECTION_STRING`
 - `ACS_EMAIL_FROM`
 - `ACS_EMAIL_TO` (optional comma-separated To-line addresses for regional admin dispatch)
-- `ACS_SMS_FROM`
+- `TWILIO_ACCOUNT_SID` (recommended for SMS)
+- `TWILIO_AUTH_TOKEN` (recommended for SMS)
+- `TWILIO_MESSAGING_SERVICE_SID` (recommended for SMS)
+- `ACS_SMS_FROM` (optional SMS fallback when Twilio is not configured)
 - `AZURE_AD_B2C_TENANT_NAME`
 - `AZURE_TENANT_ID`
 - `AZURE_CLIENT_ID`
@@ -274,7 +277,10 @@ Optional backend settings:
 - `ACS_CONNECTION_STRING`
 - `ACS_EMAIL_FROM`
 - `ACS_EMAIL_TO`
-- `ACS_SMS_FROM`
+- `TWILIO_ACCOUNT_SID` (preferred SMS provider)
+- `TWILIO_AUTH_TOKEN`
+- `TWILIO_MESSAGING_SERVICE_SID`
+- `ACS_SMS_FROM` (fallback SMS sender if Twilio is not configured)
 - `WAITLIST_JOB_INTERVAL_MS`
 - `APPINSIGHTS_INSTRUMENTATIONKEY` or `APPLICATIONINSIGHTS_CONNECTION_STRING`
 - `OPENAI_API_KEY` (for AI invite generation)
