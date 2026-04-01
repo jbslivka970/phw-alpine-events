@@ -115,7 +115,12 @@ async function invokeContract(request: APIRequestContext, method: ContractCase['
   });
 }
 
-function decodeCapabilities(token: string): RoleCapabilities {
+function decodeCapabilities(token: string, fallbackRole: Role): RoleCapabilities {
+  const fallbackCapabilities: RoleCapabilities = {
+    isAdmin: fallbackRole === 'ADMIN',
+    isEventCreator: fallbackRole === 'EVENT_CREATOR',
+  };
+
   try {
     const payloadPart = token.split('.')[1] ?? '';
     const payloadJson = Buffer.from(payloadPart, 'base64url').toString('utf8');
@@ -141,14 +146,11 @@ function decodeCapabilities(token: string): RoleCapabilities {
 
     const normalized = new Set(values.map((role) => role.trim().toUpperCase().replace(/[\s-]+/g, '_')));
     return {
-      isAdmin: normalized.has('ADMIN'),
-      isEventCreator: normalized.has('EVENT_CREATOR'),
+      isAdmin: fallbackCapabilities.isAdmin || normalized.has('ADMIN'),
+      isEventCreator: fallbackCapabilities.isEventCreator || normalized.has('EVENT_CREATOR'),
     };
   } catch {
-    return {
-      isAdmin: false,
-      isEventCreator: false,
-    };
+    return fallbackCapabilities;
   }
 }
 
@@ -160,7 +162,7 @@ test.describe('API role-path matrix', () => {
       for (const role of Object.keys(tokensByRole) as Role[]) {
         const token = tokensByRole[role];
         test.skip(!token, `${role} token is required for this assertion.`);
-        const capabilities = decodeCapabilities(token);
+        const capabilities = decodeCapabilities(token, role);
 
         const response = await invokeContract(request, contract.method, contract.path, token, contract.payload);
         const status = response.status();
