@@ -49,14 +49,14 @@ Implemented evidence:
 - Reminder job and waitlist auto-promotion mechanics exist.
 - Update/cancel notification dispatch flows exist.
 - Notification runtime mode/strict readiness checks now exist in startup diagnostics and preflight guards.
-- Template management CRUD exists as dedicated API + admin page.
-- AI invite draft generation is implemented (OpenAI-backed with deterministic fallback).
+- Template management now includes CRUD plus version history/rollback support.
+- AI invite draft generation is implemented (OpenAI-backed with deterministic fallback) and can be applied to active templates with admin review confirmation.
 - Assignment equity recommendations endpoint/UI is implemented.
 - Regional email To-line config exists via `ACS_EMAIL_TO`.
 
 Gaps vs PRD:
-- AI invite draft flow now supports admin-reviewed apply into active notification templates (email + sms) for production sends.
-- Database templates are now authoritative render source for core event send flows (invite/update/cancel/reminder/waitlist promotion), RSVP confirmation, and TAVF lifecycle notifications.
+- Database templates are authoritative render source for core event send flows (invite/update/cancel/reminder/waitlist promotion), RSVP confirmation, and TAVF lifecycle notifications.
+- Remaining AI/template gap is mostly operational governance depth (for example, formal approval policy and periodic audit review process), not core product capability.
 
 ### 2.4 Take a Vet Fishing (Section 6.4, US-TV)
 
@@ -102,9 +102,9 @@ Gaps:
    PRD refs: Section 11.x / governance controls  
    Implementation: set retention windows per table/env, validate dry-run results, then enable delete mode in production.
 
-2. **AI invite workflow hardening**  
+2. **Operationalize AI/template governance controls**  
    PRD refs: US-EM-12, T-EVT-15  
-   Implementation: add richer revision history/version rollback UX beyond current reviewed apply flow.
+   Implementation: document and enforce approval/review cadence, ownership, and audit checkpoints for template changes.
 
 ## P1 - Should Have
 

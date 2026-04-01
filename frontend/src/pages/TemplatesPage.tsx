@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { templatesApi } from '../api/templates';
 import type { NotificationTemplateRecord, TemplateChannel } from '../api/templates';
+import type { TemplateVersionRecord } from '../api/templates';
 
 interface TemplateFormState {
   template_name: string;
@@ -37,6 +38,13 @@ function TemplatesPage() {
   const [showInactive, setShowInactive] = useState(false);
   const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
   const [form, setForm] = useState<TemplateFormState>(EMPTY_FORM);
+  const [historyTemplateId, setHistoryTemplateId] = useState<string | null>(null);
+  const [historyRows, setHistoryRows] = useState<TemplateVersionRecord[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [rollbackReason, setRollbackReason] = useState('');
+  const [rollbackApproved, setRollbackApproved] = useState(false);
+  const [rollbackBusyVersionId, setRollbackBusyVersionId] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -141,6 +149,47 @@ function TemplatesPage() {
       setTemplates((current) => current.map((row) => (row.template_id === updated.template_id ? updated : row)));
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to deactivate template.');
+    }
+  }
+
+  async function handleLoadHistory(templateId: string) {
+    setHistoryTemplateId(templateId);
+    setHistoryRows([]);
+    setHistoryError(null);
+    setHistoryLoading(true);
+    setRollbackReason('');
+    setRollbackApproved(false);
+    try {
+      const rows = await templatesApi.history(templateId);
+      setHistoryRows(rows);
+    } catch (e: unknown) {
+      setHistoryError(e instanceof Error ? e.message : 'Failed to load template history.');
+    } finally {
+      setHistoryLoading(false);
+    }
+  }
+
+  async function handleRollback(templateId: string, versionId: string) {
+    if (!rollbackApproved) {
+      setHistoryError('Approve rollback before applying a previous version.');
+      return;
+    }
+
+    setHistoryError(null);
+    setRollbackBusyVersionId(versionId);
+    try {
+      const updated = await templatesApi.rollback(templateId, {
+        version_id: versionId,
+        approved: true,
+        reason: rollbackReason.trim() || undefined,
+      });
+
+      setTemplates((current) => current.map((row) => (row.template_id === updated.template_id ? updated : row)));
+      await handleLoadHistory(templateId);
+    } catch (e: unknown) {
+      setHistoryError(e instanceof Error ? e.message : 'Rollback failed.');
+    } finally {
+      setRollbackBusyVersionId(null);
     }
   }
 
@@ -266,6 +315,12 @@ function TemplatesPage() {
                         <button className="btn btn--outline btn--sm" onClick={() => startEdit(template)}>
                           Edit
                         </button>
+                        <button
+                          className="btn btn--outline btn--sm"
+                          onClick={() => void handleLoadHistory(template.template_id)}
+                        >
+                          History
+                        </button>
                         {template.is_active && (
                           <button
                             className="btn btn--outline btn--sm"
@@ -283,6 +338,69 @@ function TemplatesPage() {
           </table>
         )}
       </section>
+
+      {historyTemplateId && (
+        <section className="card" style={{ marginTop: 14 }}>
+          <h2 style={{ marginTop: 0 }}>Template History</h2>
+          <p className="page__subtitle" style={{ marginTop: 0 }}>Template ID: {historyTemplateId}</p>
+
+          <textarea
+            className="members-input"
+            rows={2}
+            placeholder="Rollback reason (optional)"
+            value={rollbackReason}
+            onChange={(e) => setRollbackReason(e.target.value)}
+            style={{ marginBottom: 8 }}
+          />
+          <label className="members-checkbox" style={{ marginBottom: 10 }}>
+            <input
+              type="checkbox"
+              checked={rollbackApproved}
+              onChange={(e) => setRollbackApproved(e.target.checked)}
+            />
+            I reviewed this version and approve rollback.
+          </label>
+
+          {historyError && <p className="members-error">{historyError}</p>}
+
+          {historyLoading ? (
+            <p className="members-loading">Loading history...</p>
+          ) : historyRows.length === 0 ? (
+            <p className="members-loading">No history snapshots found yet.</p>
+          ) : (
+            <table className="members-table">
+              <thead>
+                <tr>
+                  <th>When</th>
+                  <th>Action</th>
+                  <th>By</th>
+                  <th>Reason</th>
+                  <th>Rollback</th>
+                </tr>
+              </thead>
+              <tbody>
+                {historyRows.map((row) => (
+                  <tr key={row.version_id}>
+                    <td>{new Date(row.created_at).toLocaleString()}</td>
+                    <td>{row.action}</td>
+                    <td>{row.changed_by ?? 'system'}</td>
+                    <td>{row.reason ?? '—'}</td>
+                    <td>
+                      <button
+                        className="btn btn--outline btn--sm"
+                        disabled={rollbackBusyVersionId === row.version_id || !rollbackApproved}
+                        onClick={() => void handleRollback(historyTemplateId, row.version_id)}
+                      >
+                        {rollbackBusyVersionId === row.version_id ? 'Applying…' : 'Rollback'}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </section>
+      )}
     </div>
   );
 }

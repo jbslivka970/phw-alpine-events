@@ -258,6 +258,24 @@ CREATE TABLE dbo.notification_template (
     CONSTRAINT UQ_notification_template_name   UNIQUE      (template_name, channel)
 );
 
+IF OBJECT_ID(N'dbo.notification_template_version', N'U') IS NULL
+CREATE TABLE dbo.notification_template_version (
+    version_id     UNIQUEIDENTIFIER NOT NULL DEFAULT NEWID(),
+    template_id    UNIQUEIDENTIFIER NOT NULL,
+    template_name  NVARCHAR(100)    NOT NULL,
+    channel        NVARCHAR(10)     NOT NULL CHECK (channel IN ('email', 'sms')),
+    subject        NVARCHAR(300)    NULL,
+    body           NVARCHAR(MAX)    NOT NULL,
+    is_active      BIT              NOT NULL,
+    action         NVARCHAR(30)     NOT NULL CHECK (action IN ('update', 'deactivate', 'rollback_before', 'rollback_applied')),
+    reason         NVARCHAR(500)    NULL,
+    changed_by     NVARCHAR(255)    NULL,
+    created_at     DATETIME         NOT NULL DEFAULT GETUTCDATE(),
+    CONSTRAINT PK_notification_template_version PRIMARY KEY (version_id),
+    CONSTRAINT FK_notification_template_version_template FOREIGN KEY (template_id)
+        REFERENCES dbo.notification_template (template_id)
+);
+
 -- ---------------------------------------------------------------------------
 -- 9. NotificationLog  (record of every notification sent or attempted)
 -- ---------------------------------------------------------------------------

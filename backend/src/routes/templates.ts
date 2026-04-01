@@ -19,11 +19,59 @@ interface TemplateRow {
   updated_at: Date;
 }
 
+interface TemplateVersionRow {
+  version_id: string;
+  template_id: string;
+  template_name: string;
+  channel: NotificationChannel;
+  subject: string | null;
+  body: string;
+  is_active: boolean;
+  action: 'update' | 'deactivate' | 'rollback_before' | 'rollback_applied';
+  reason: string | null;
+  changed_by: string | null;
+  created_at: Date;
+}
+
 function parseChannel(value: unknown): NotificationChannel | undefined {
   if (value === 'email' || value === 'sms') {
     return value;
   }
   return undefined;
+}
+
+async function writeTemplateVersion(
+  template: TemplateRow,
+  action: TemplateVersionRow['action'],
+  changedBy: string | null,
+  reason?: string | null
+): Promise<void> {
+  try {
+    const pool = await getPool();
+    await pool
+      .request()
+      .input('template_id', sql.UniqueIdentifier, template.template_id)
+      .input('template_name', sql.NVarChar(100), template.template_name)
+      .input('channel', sql.NVarChar(10), template.channel)
+      .input('subject', sql.NVarChar(300), template.subject)
+      .input('body', sql.NVarChar(sql.MAX), template.body)
+      .input('is_active', sql.Bit, template.is_active ? 1 : 0)
+      .input('action', sql.NVarChar(30), action)
+      .input('reason', sql.NVarChar(500), reason ?? null)
+      .input('changed_by', sql.NVarChar(255), changedBy)
+      .query(
+        `INSERT INTO notification_template_version
+         (version_id, template_id, template_name, channel, subject, body, is_active, action, reason, changed_by, created_at)
+         VALUES (NEWID(), @template_id, @template_name, @channel, @subject, @body, @is_active, @action, @reason, @changed_by, GETUTCDATE())`
+      );
+  } catch (error) {
+    // Non-blocking so template management still works if history table is not yet provisioned.
+    console.warn('[templates] failed to write template version snapshot', {
+      templateId: template.template_id,
+      action,
+      error,
+    });
+  }
 }
 
 router.get('/', apiLimiter, authenticate, requireAdmin, async (req, res, next) => {
@@ -151,6 +199,13 @@ router.patch('/:id', writeLimiter, authenticate, requireAdmin, async (req, res, 
       return;
     }
 
+    await writeTemplateVersion(
+      existing,
+      'update',
+      req.user?.email ?? req.user?.sub ?? null,
+      typeof req.body?.reason === 'string' ? req.body.reason.trim().slice(0, 500) : null,
+    );
+
     const updatedResult = await pool
       .request()
       .input('template_id', sql.UniqueIdentifier, templateId)
@@ -190,6 +245,22 @@ router.delete('/:id', writeLimiter, authenticate, requireAdmin, async (req, res,
   try {
     const templateId = req.params.id;
     const pool = await getPool();
+
+    const existingResult = await pool
+      .request()
+      .input('template_id', sql.UniqueIdentifier, templateId)
+      .query<TemplateRow>(
+        `SELECT template_id, template_name, channel, subject, body, is_active, created_at, updated_at
+         FROM notification_template
+         WHERE template_id = @template_id`
+      );
+
+    const existing = existingResult.recordset[0];
+    if (!existing) {
+      res.status(404).json({ error: 'Template not found.' });
+      return;
+    }
+
     const result = await pool
       .request()
       .input('template_id', sql.UniqueIdentifier, templateId)
@@ -202,15 +273,133 @@ router.delete('/:id', writeLimiter, authenticate, requireAdmin, async (req, res,
       );
 
     const row = result.recordset[0];
-    if (!row) {
-      res.status(404).json({ error: 'Template not found.' });
-      return;
-    }
+
+    await writeTemplateVersion(
+      existing,
+      'deactivate',
+      req.user?.email ?? req.user?.sub ?? null,
+      'Template deactivated',
+    );
 
     res.json({
       ...row,
       created_at: row.created_at.toISOString(),
       updated_at: row.updated_at.toISOString(),
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/:id/history', apiLimiter, authenticate, requireAdmin, async (req, res, next) => {
+  try {
+    const templateId = req.params.id;
+    const pool = await getPool();
+    const result = await pool
+      .request()
+      .input('template_id', sql.UniqueIdentifier, templateId)
+      .query<TemplateVersionRow>(
+        `SELECT version_id, template_id, template_name, channel, subject, body, is_active, action, reason, changed_by, created_at
+         FROM notification_template_version
+         WHERE template_id = @template_id
+         ORDER BY created_at DESC`
+      );
+
+    res.json(result.recordset.map((row) => ({
+      ...row,
+      created_at: row.created_at.toISOString(),
+    })));
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/:id/rollback', writeLimiter, authenticate, requireAdmin, async (req, res, next) => {
+  try {
+    const templateId = req.params.id;
+    const versionId = typeof req.body?.version_id === 'string' ? req.body.version_id.trim() : '';
+    const approved = req.body?.approved === true;
+    const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim().slice(0, 500) : null;
+
+    if (!versionId) {
+      res.status(400).json({ error: 'version_id is required.' });
+      return;
+    }
+    if (!approved) {
+      res.status(400).json({ error: 'approved must be true to perform rollback.' });
+      return;
+    }
+
+    const pool = await getPool();
+    const [templateResult, versionResult] = await Promise.all([
+      pool
+        .request()
+        .input('template_id', sql.UniqueIdentifier, templateId)
+        .query<TemplateRow>(
+          `SELECT template_id, template_name, channel, subject, body, is_active, created_at, updated_at
+           FROM notification_template
+           WHERE template_id = @template_id`
+        ),
+      pool
+        .request()
+        .input('template_id', sql.UniqueIdentifier, templateId)
+        .input('version_id', sql.UniqueIdentifier, versionId)
+        .query<TemplateVersionRow>(
+          `SELECT TOP 1 version_id, template_id, template_name, channel, subject, body, is_active, action, reason, changed_by, created_at
+           FROM notification_template_version
+           WHERE template_id = @template_id
+             AND version_id = @version_id`
+        ),
+    ]);
+
+    const existing = templateResult.recordset[0];
+    if (!existing) {
+      res.status(404).json({ error: 'Template not found.' });
+      return;
+    }
+
+    const targetVersion = versionResult.recordset[0];
+    if (!targetVersion) {
+      res.status(404).json({ error: 'Template version not found.' });
+      return;
+    }
+
+    const changedBy = req.user?.email ?? req.user?.sub ?? null;
+    await writeTemplateVersion(existing, 'rollback_before', changedBy, reason ?? `Rollback to version ${versionId}`);
+
+    const updateResult = await pool
+      .request()
+      .input('template_id', sql.UniqueIdentifier, templateId)
+      .input('template_name', sql.NVarChar(100), targetVersion.template_name)
+      .input('channel', sql.NVarChar(10), targetVersion.channel)
+      .input('subject', sql.NVarChar(300), targetVersion.subject)
+      .input('body', sql.NVarChar(sql.MAX), targetVersion.body)
+      .input('is_active', sql.Bit, targetVersion.is_active ? 1 : 0)
+      .query<TemplateRow>(
+        `UPDATE notification_template
+         SET template_name = @template_name,
+             channel = @channel,
+             subject = @subject,
+             body = @body,
+             is_active = @is_active,
+             updated_at = GETUTCDATE()
+         OUTPUT INSERTED.template_id, INSERTED.template_name, INSERTED.channel, INSERTED.subject, INSERTED.body, INSERTED.is_active, INSERTED.created_at, INSERTED.updated_at
+         WHERE template_id = @template_id`
+      );
+
+    const rolledBack = updateResult.recordset[0];
+    if (!rolledBack) {
+      res.status(404).json({ error: 'Template not found.' });
+      return;
+    }
+
+    await writeTemplateVersion(rolledBack, 'rollback_applied', changedBy, reason ?? `Rollback to version ${versionId}`);
+
+    res.json({
+      ...rolledBack,
+      created_at: rolledBack.created_at.toISOString(),
+      updated_at: rolledBack.updated_at.toISOString(),
+      rolled_back_to_version_id: versionId,
     });
   } catch (error) {
     next(error);
