@@ -32,6 +32,7 @@ import apiRouter from './routes';
 
 const app = express();
 const { corsOrigin, port, nodeEnv } = loadServerConfig();
+app.set('trust proxy', nodeEnv === 'production' ? 1 : false);
 const allowedOrigins = (corsOrigin ?? '')
   .split(',')
   .map((value) => value.trim().replace(/\/$/, ''))

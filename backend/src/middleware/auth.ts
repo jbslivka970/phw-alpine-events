@@ -115,12 +115,6 @@ function extractRoles(claims: JwtPayload): AppRole[] {
     }
   }
 
-  // Some Entra token shapes omit role claims even for valid API tokens.
-  // Since audience/issuer verification already passed, default to USER.
-  if (normalizedRoles.length === 0) {
-    normalizedRoles.push('USER');
-  }
-
   return normalizedRoles;
 }
 

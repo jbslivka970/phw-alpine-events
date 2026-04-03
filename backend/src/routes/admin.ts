@@ -26,6 +26,10 @@ interface RetentionPreviewRequestBody {
   format?: 'json' | 'csv';
 }
 
+const MAX_INVITE_TITLE_LENGTH = 160;
+const MAX_INVITE_LOCATION_LENGTH = 200;
+const MAX_INVITE_DESCRIPTION_LENGTH = 2000;
+
 router.use(apiLimiter, authenticate, requireAdmin);
 
 router.get('/users', async (req, res) => {
@@ -261,8 +265,14 @@ router.post('/ai/invite-draft', writeLimiter, async (req, res) => {
         res.status(404).json({ error: 'Event not found.' });
         return;
       }
-      if (error.message.includes('title and event_date are required')) {
-        res.status(400).json({ error: 'title and event_date are required (or provide event_id).' });
+      if (
+        error.message.includes('title and event_date are required')
+        || error.message.includes('title must be <=')
+        || error.message.includes('location must be <=')
+        || error.message.includes('description must be <=')
+        || error.message.includes('event_date must be a valid ISO date string')
+      ) {
+        res.status(400).json({ error: error.message });
         return;
       }
     }
@@ -342,8 +352,14 @@ router.post('/ai/invite-draft/apply', writeLimiter, async (req, res) => {
         res.status(404).json({ error: 'Event not found.' });
         return;
       }
-      if (error.message.includes('title and event_date are required')) {
-        res.status(400).json({ error: 'title and event_date are required (or provide event_id).' });
+      if (
+        error.message.includes('title and event_date are required')
+        || error.message.includes('title must be <=')
+        || error.message.includes('location must be <=')
+        || error.message.includes('description must be <=')
+        || error.message.includes('event_date must be a valid ISO date string')
+      ) {
+        res.status(400).json({ error: error.message });
         return;
       }
     }
@@ -440,6 +456,22 @@ async function resolveInviteDraftRequest(body: InviteDraftRequestBody): Promise<
 
   if (!title || !eventDate) {
     throw new Error('title and event_date are required (or provide event_id).');
+  }
+
+  if (title.length > MAX_INVITE_TITLE_LENGTH) {
+    throw new Error(`title must be <= ${MAX_INVITE_TITLE_LENGTH} characters.`);
+  }
+
+  if (location && location.length > MAX_INVITE_LOCATION_LENGTH) {
+    throw new Error(`location must be <= ${MAX_INVITE_LOCATION_LENGTH} characters.`);
+  }
+
+  if (description && description.length > MAX_INVITE_DESCRIPTION_LENGTH) {
+    throw new Error(`description must be <= ${MAX_INVITE_DESCRIPTION_LENGTH} characters.`);
+  }
+
+  if (Number.isNaN(new Date(eventDate).getTime())) {
+    throw new Error('event_date must be a valid ISO date string.');
   }
 
   const draft = await generateInviteDraft({

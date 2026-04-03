@@ -13,7 +13,7 @@ interface InviteDraftResponse {
   subject: string;
   emailBody: string;
   smsBody: string;
-  provider: 'openai' | 'fallback';
+  provider: 'azure-openai' | 'openai' | 'fallback';
   source: 'event' | 'ad_hoc';
   tone: 'friendly' | 'professional';
 }
@@ -28,7 +28,7 @@ interface ApplyInviteDraftResponse {
   template_name: string;
   source: 'event' | 'ad_hoc';
   tone: 'friendly' | 'professional';
-  provider: 'openai' | 'fallback';
+  provider: 'azure-openai' | 'openai' | 'fallback';
   approved: boolean;
   review_note: string | null;
   applied_by: string;

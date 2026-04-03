@@ -310,6 +310,58 @@ Optional CI/CD secret:
 Optional CI/CD variable:
 
 - `E2E_API_BASE_URL` base API URL used by Playwright role-matrix checks
+
+### AI Feature Setup
+
+The preferred AI setup for this application is Azure OpenAI. The backend invite generator will use Azure OpenAI first when configured, then fall back to the public OpenAI API if those credentials are set, and finally fall back to deterministic invite copy if neither AI provider is configured.
+
+Preferred Azure OpenAI settings:
+
+```bash
+AZURE_OPENAI_ENDPOINT=https://<your-resource>.openai.azure.com
+AZURE_OPENAI_API_KEY=<your-azure-openai-api-key>
+AZURE_OPENAI_DEPLOYMENT=<your-chat-model-deployment-name>
+AZURE_OPENAI_API_VERSION=2024-10-21
+```
+
+Optional public OpenAI compatibility settings:
+
+```bash
+OPENAI_API_KEY=<your-openai-api-key>
+OPENAI_MODEL=gpt-4.1-mini
+```
+
+If no AI provider is configured, the app still works and automatically falls back to deterministic invite copy.
+
+Current AI-related capabilities:
+
+- Admin invite draft generation through `/api/admin/ai/invite-draft`
+- Admin template apply flow through `/api/admin/ai/invite-draft/apply`
+- Deterministic assignment equity recommendations through `/api/events/:id/assignment-recommendations`
+
+Current validation status:
+
+- Backend unit tests cover Azure OpenAI, public OpenAI, provider precedence, and deterministic fallback behavior for invite draft generation.
+- Frontend shows whether a generated invite came from `azure-openai`, `openai`, or `fallback` provider.
+
+Quick enablement checklist for production:
+
+1. Add `AZURE_OPENAI_ENDPOINT` to backend App Service settings.
+2. Add `AZURE_OPENAI_API_KEY`.
+3. Add `AZURE_OPENAI_DEPLOYMENT`.
+4. Optionally add `AZURE_OPENAI_API_VERSION`.
+5. Restart the backend app.
+6. Open Admin → AI Invite Draft and confirm the provider shows `azure-openai`.
+7. Generate and review one invite draft before enabling wider operational use.
+
+Public OpenAI compatibility path:
+
+1. Add `OPENAI_API_KEY`.
+2. Optionally add `OPENAI_MODEL`.
+3. Restart the backend app.
+4. Open Admin → AI Invite Draft and confirm the provider shows `openai`.
+
+If you want Azure OpenAI, you do not need a public OpenAI key.
 - `E2E_APP_URL` frontend base URL used for browser-authenticated route checks
 
 Operational guidance:

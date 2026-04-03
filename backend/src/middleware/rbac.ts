@@ -40,6 +40,11 @@ function requireAnyAuthenticatedRole(req: Request, res: Response, next: NextFunc
     return;
   }
 
+  if ((req.user.roles ?? []).length === 0) {
+    res.status(403).json({ error: 'No recognized application role was found for this account' });
+    return;
+  }
+
   next();
 }
 

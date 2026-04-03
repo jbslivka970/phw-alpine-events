@@ -10,7 +10,7 @@ interface InviteDraftOutput {
   subject: string;
   emailBody: string;
   smsBody: string;
-  provider: 'openai' | 'fallback';
+  provider: 'azure-openai' | 'openai' | 'fallback';
 }
 
 interface OpenAiDraftResponse {
@@ -18,6 +18,18 @@ interface OpenAiDraftResponse {
   email_body?: unknown;
   sms_body?: unknown;
 }
+
+interface AzureOpenAiChatResponse {
+  choices?: Array<{
+    message?: {
+      content?: string | Array<{ type?: string; text?: string }>;
+    };
+  }>;
+}
+
+const OPENAI_TIMEOUT_MS = 12_000;
+const MAX_DESCRIPTION_PROMPT_LENGTH = 1_500;
+const AZURE_OPENAI_API_VERSION = '2024-10-21';
 
 function formatEventDate(value: string): string {
   const parsed = new Date(value);
@@ -84,7 +96,36 @@ function parseOpenAiTextPayload(payload: unknown): string {
   return '';
 }
 
-function toInviteDraftFromJson(text: string): InviteDraftOutput | null {
+function parseAzureOpenAiTextPayload(payload: unknown): string {
+  if (!payload || typeof payload !== 'object') {
+    return '';
+  }
+
+  const choices = (payload as AzureOpenAiChatResponse).choices;
+  if (!Array.isArray(choices)) {
+    return '';
+  }
+
+  for (const choice of choices) {
+    const content = choice?.message?.content;
+    if (typeof content === 'string' && content.trim().length > 0) {
+      return content;
+    }
+    if (Array.isArray(content)) {
+      const joined = content
+        .map((item) => (typeof item?.text === 'string' ? item.text : ''))
+        .join('')
+        .trim();
+      if (joined.length > 0) {
+        return joined;
+      }
+    }
+  }
+
+  return '';
+}
+
+function toInviteDraftFromJson(text: string, provider: 'azure-openai' | 'openai'): InviteDraftOutput | null {
   try {
     const parsed = JSON.parse(text) as OpenAiDraftResponse;
     if (
@@ -99,22 +140,107 @@ function toInviteDraftFromJson(text: string): InviteDraftOutput | null {
       subject: parsed.subject.trim(),
       emailBody: parsed.email_body.trim(),
       smsBody: parsed.sms_body.trim(),
-      provider: 'openai',
+      provider,
     };
   } catch {
     return null;
   }
 }
 
-async function generateInviteDraft(input: InviteDraftInput): Promise<InviteDraftOutput> {
+function buildPrompt(input: InviteDraftInput): { system: string; user: string } {
+  const tone = input.tone ?? 'friendly';
+  const description = input.description?.trim()
+    ? input.description.trim().slice(0, MAX_DESCRIPTION_PROMPT_LENGTH)
+    : 'n/a';
+
+  return {
+    system: 'You generate concise event invite copy for nonprofit chapter communications. Return only JSON with keys: subject, email_body, sms_body.',
+    user: [
+      `Tone: ${tone}`,
+      `Event title: ${input.eventTitle}`,
+      `Event date: ${formatEventDate(input.eventDate)}`,
+      `Location: ${input.location ?? 'TBD'}`,
+      `Description: ${description}`,
+      'Constraints:',
+      '- subject <= 90 characters',
+      '- sms_body <= 280 characters and include RSVP call-to-action',
+      '- no markdown formatting',
+    ].join('\n'),
+  };
+}
+
+async function fetchJsonWithTimeout(url: string, init: RequestInit): Promise<unknown> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => {
+    controller.abort();
+  }, OPENAI_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(url, {
+      ...init,
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      throw new Error(`AI invite generation failed with status ${response.status}`);
+    }
+
+    return await response.json();
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function generateWithAzureOpenAi(input: InviteDraftInput): Promise<InviteDraftOutput | null> {
+  const endpoint = process.env['AZURE_OPENAI_ENDPOINT']?.trim();
+  const apiKey = process.env['AZURE_OPENAI_API_KEY']?.trim();
+  const deployment = process.env['AZURE_OPENAI_DEPLOYMENT']?.trim();
+  const apiVersion = process.env['AZURE_OPENAI_API_VERSION']?.trim() || AZURE_OPENAI_API_VERSION;
+
+  if (!endpoint || !apiKey || !deployment) {
+    return null;
+  }
+
+  const prompt = buildPrompt(input);
+  const normalizedEndpoint = endpoint.replace(/\/$/, '');
+  const url = `${normalizedEndpoint}/openai/deployments/${deployment}/chat/completions?api-version=${encodeURIComponent(apiVersion)}`;
+  const payload = {
+    messages: [
+      { role: 'system', content: prompt.system },
+      { role: 'user', content: prompt.user },
+    ],
+    max_tokens: 450,
+    temperature: 0.4,
+    response_format: { type: 'json_object' },
+  };
+
+  const data = await fetchJsonWithTimeout(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'api-key': apiKey,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const text = parseAzureOpenAiTextPayload(data);
+  const draft = toInviteDraftFromJson(text, 'azure-openai');
+  if (!draft) {
+    throw new Error('Azure OpenAI response did not contain valid invite JSON');
+  }
+
+  return draft;
+}
+
+async function generateWithPublicOpenAi(input: InviteDraftInput): Promise<InviteDraftOutput | null> {
   const apiKey = process.env['OPENAI_API_KEY'];
   const model = process.env['OPENAI_MODEL'] ?? 'gpt-4.1-mini';
 
   if (!apiKey) {
-    return buildFallbackDraft(input);
+    return null;
   }
 
-  const tone = input.tone ?? 'friendly';
+  const prompt = buildPrompt(input);
   const payload = {
     model,
     input: [
@@ -123,7 +249,7 @@ async function generateInviteDraft(input: InviteDraftInput): Promise<InviteDraft
         content: [
           {
             type: 'text',
-            text: 'You generate concise event invite copy for nonprofit chapter communications. Return only JSON with keys: subject, email_body, sms_body.',
+            text: prompt.system,
           },
         ],
       },
@@ -132,17 +258,7 @@ async function generateInviteDraft(input: InviteDraftInput): Promise<InviteDraft
         content: [
           {
             type: 'text',
-            text: [
-              `Tone: ${tone}`,
-              `Event title: ${input.eventTitle}`,
-              `Event date: ${formatEventDate(input.eventDate)}`,
-              `Location: ${input.location ?? 'TBD'}`,
-              `Description: ${input.description ?? 'n/a'}`,
-              'Constraints:',
-              '- subject <= 90 characters',
-              '- sms_body <= 280 characters and include RSVP call-to-action',
-              '- no markdown formatting',
-            ].join('\n'),
+            text: prompt.user,
           },
         ],
       },
@@ -150,29 +266,42 @@ async function generateInviteDraft(input: InviteDraftInput): Promise<InviteDraft
     max_output_tokens: 450,
   };
 
+  const data = await fetchJsonWithTimeout('https://api.openai.com/v1/responses', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const text = parseOpenAiTextPayload(data);
+  const draft = toInviteDraftFromJson(text, 'openai');
+  if (!draft) {
+    throw new Error('OpenAI response did not contain valid invite JSON');
+  }
+
+  return draft;
+}
+
+async function generateInviteDraft(input: InviteDraftInput): Promise<InviteDraftOutput> {
   try {
-    const response = await fetch('https://api.openai.com/v1/responses', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify(payload),
-    });
-
-    if (!response.ok) {
-      throw new Error(`OpenAI invite generation failed with status ${response.status}`);
+    const azureDraft = await generateWithAzureOpenAi(input);
+    if (azureDraft) {
+      return azureDraft;
     }
 
-    const data = await response.json();
-    const text = parseOpenAiTextPayload(data);
-    const draft = toInviteDraftFromJson(text);
-    if (!draft) {
-      throw new Error('OpenAI response did not contain valid invite JSON');
+    const publicDraft = await generateWithPublicOpenAi(input);
+    if (publicDraft) {
+      return publicDraft;
     }
 
-    return draft;
+    return buildFallbackDraft(input);
   } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      console.warn('[aiInviteService] AI invite generation timed out. Falling back to deterministic invite draft.');
+      return buildFallbackDraft(input);
+    }
     console.warn('[aiInviteService] Falling back to deterministic invite draft.', error);
     return buildFallbackDraft(input);
   }
