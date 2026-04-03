@@ -2,7 +2,7 @@ import { EmailClient } from '@azure/communication-email';
 import { SmsClient } from '@azure/communication-sms';
 import { getPool, sql } from '../db';
 import twilio from 'twilio';
-import { loadAcsConfig, loadTwilioSmsConfig } from '../config';
+import { loadAcsConfig, loadTelnyxSmsConfig, loadTwilioSmsConfig } from '../config';
 import { renderTemplate } from '../templates/NotificationTemplate';
 import { eventCancellationTemplate } from '../templates/eventCancellation';
 import { eventInviteTemplate } from '../templates/eventInvite';
@@ -222,10 +222,15 @@ class AcsSmsService implements ISmsService {
       message: options.message,
     });
 
-    const result = rawResult as {
+    // Azure SDK currently returns SmsSendResult[] directly, while older payloads
+    // may still surface as { value: SmsSendResult[] }.
+    const result = rawResult as Array<{ successful?: boolean; messageId?: string; errorMessage?: string }> | {
       value?: Array<{ successful?: boolean; messageId?: string; errorMessage?: string }>;
     };
-    const firstRecipient = result.value?.[0];
+    const recipients = Array.isArray(result)
+      ? result
+      : (Array.isArray(result.value) ? result.value : []);
+    const firstRecipient = recipients[0];
 
     if (!firstRecipient) {
       throw new Error('ACS SMS send did not return recipient results.');
@@ -262,6 +267,57 @@ class TwilioSmsService implements ISmsService {
     }
 
     return result.sid;
+  }
+}
+
+class TelnyxSmsService implements ISmsService {
+  constructor(
+    private readonly apiKey: string,
+    private readonly messagingProfileId?: string,
+    private readonly fromNumber?: string
+  ) {}
+
+  async sendSms(options: SendSmsOptions): Promise<string | undefined> {
+    const payload: Record<string, unknown> = {
+      to: options.to,
+      text: options.message,
+    };
+
+    if (this.messagingProfileId) {
+      payload['messaging_profile_id'] = this.messagingProfileId;
+    }
+
+    if (this.fromNumber) {
+      payload['from'] = this.fromNumber;
+    }
+
+    const response = await fetch('https://api.telnyx.com/v2/messages', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${this.apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const rawBody = await response.text();
+    let parsed: unknown;
+    try {
+      parsed = rawBody ? JSON.parse(rawBody) : undefined;
+    } catch {
+      parsed = rawBody;
+    }
+
+    if (!response.ok) {
+      throw new Error(`Telnyx SMS send failed (${response.status}): ${typeof parsed === 'string' ? parsed : JSON.stringify(parsed)}`);
+    }
+
+    const id = (parsed as { data?: { id?: string } } | undefined)?.data?.id;
+    if (!id) {
+      throw new Error('Telnyx SMS send did not return a message id.');
+    }
+
+    return id;
   }
 }
 
@@ -570,6 +626,7 @@ function renderSmsTemplate(override: RuntimeTemplateOverride | null, fallbackBod
 }
 
 const acsConfig = loadAcsConfig();
+const telnyxSmsConfig = loadTelnyxSmsConfig();
 const twilioSmsConfig = loadTwilioSmsConfig();
 let emailService: IEmailService = new StubEmailService();
 let smsService: ISmsService = new StubSmsService();
@@ -602,7 +659,21 @@ if (!acsConfig.connectionString || !acsConfig.emailFrom) {
   }
 }
 
-if (twilioSmsConfig.isConfigured) {
+if (telnyxSmsConfig.isConfigured) {
+  try {
+    smsService = new TelnyxSmsService(
+      telnyxSmsConfig.apiKey ?? '',
+      telnyxSmsConfig.messagingProfileId,
+      telnyxSmsConfig.fromNumber
+    );
+    isRealSmsService = true;
+  } catch (error) {
+    notificationInitReasons.push('Failed to initialize Telnyx SMS client.');
+    console.warn('[NotificationService] Failed to initialize Telnyx SMS client, attempting fallback providers.', error);
+  }
+}
+
+if (!isRealSmsService && twilioSmsConfig.isConfigured) {
   try {
     smsService = new TwilioSmsService(
       twilioSmsConfig.accountSid ?? '',
@@ -614,19 +685,15 @@ if (twilioSmsConfig.isConfigured) {
     notificationInitReasons.push('Failed to initialize Twilio SMS client.');
     console.warn('[NotificationService] Failed to initialize Twilio SMS client, falling back to stub mode.', error);
   }
-} else if (hasValidAcsConnectionString && acsConfig.smsFrom) {
-  try {
-    smsService = new AcsSmsService(acsConfig.connectionString ?? '', acsConfig.smsFrom);
-    isRealSmsService = true;
-  } catch (error) {
-    notificationInitReasons.push('Failed to initialize ACS SMS client.');
-    console.warn('[NotificationService] Failed to initialize ACS SMS client, falling back to stub mode.', error);
+}
+
+if (!isRealSmsService) {
+  if (acsConfig.smsFrom) {
+    notificationInitReasons.push('ACS SMS configuration detected but ACS SMS is disabled. Configure Telnyx or Twilio credentials to send SMS.');
+  } else {
+    notificationInitReasons.push('No SMS provider configured. Set TELNYX_API_KEY with TELNYX_MESSAGING_PROFILE_ID/TELNYX_FROM_NUMBER, or Twilio credentials.');
   }
-} else {
-  notificationInitReasons.push(
-    'No SMS provider configured. Set TWILIO_ACCOUNT_SID/TWILIO_AUTH_TOKEN/TWILIO_MESSAGING_SERVICE_SID or ACS_CONNECTION_STRING/ACS_SMS_FROM.'
-  );
-  console.warn('[NotificationService] No SMS provider configured. SMS sends are running in stub mode.');
+  console.warn('[NotificationService] No SMS provider is configured. SMS sends are running in stub mode.');
 }
 
 const notificationService = new NotificationService(
@@ -1238,6 +1305,18 @@ function buildEventVariables(
   let noUrl = defaultRsvpUrl;
   let maybeUrl = defaultRsvpUrl;
   let waitlistUrl = defaultRsvpUrl;
+  const replyAddress = process.env['ACS_EMAIL_FROM'] || 'Scheduler@mail.phwcoloradoalpine.org';
+  const createReplyMailto = (response: 'YES' | 'NO' | 'MAYBE' | 'WAITLIST'): string => {
+    const subject = `RSVP ${response} - ${payload.title}`;
+    const body = [
+      `Response: ${response}`,
+      `Event: ${payload.title}`,
+      `Event ID: ${payload.event_id}`,
+      memberId ? `Member ID: ${memberId}` : '',
+      groupContextId ? `Group Context ID: ${groupContextId}` : '',
+    ].filter(Boolean).join('\n');
+    return `mailto:${encodeURIComponent(replyAddress)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  };
 
   if (memberId) {
     try {
@@ -1262,6 +1341,10 @@ function buildEventVariables(
     noUrl,
     maybeUrl,
     waitlistUrl,
+    replyYesMailto: createReplyMailto('YES'),
+    replyNoMailto: createReplyMailto('NO'),
+    replyMaybeMailto: createReplyMailto('MAYBE'),
+    replyWaitlistMailto: createReplyMailto('WAITLIST'),
   };
 }
 

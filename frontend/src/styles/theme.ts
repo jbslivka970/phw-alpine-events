@@ -64,8 +64,15 @@ export const colors = {
 } as const;
 
 export const gradients = {
-  heroBanner: 'linear-gradient(135deg, #1a3a2a 0%, #1b3a5c 40%, #2d5f4d 100%)',
-  navbar: 'linear-gradient(90deg, #0f2e1e 0%, #1a3a2a 100%)',
+  heroBanner: 'linear-gradient(135deg, #0f2e1e 0%, #1b3a5c 40%, #1a3a2a 100%)',
+  navbar: 'linear-gradient(135deg, #0f2e1e 0%, #1a3a2a 50%, #162e24 100%)',
+  button: 'linear-gradient(135deg, #1a3a2a 0%, #0f2e1e 100%)',
+} as const;
+
+export const brand = {
+  orange: '#c46a28',
+  orangeLight: '#e8974e',
+  orangeDark: '#9a4f16',
 } as const;
 
 export const capacityColors = {

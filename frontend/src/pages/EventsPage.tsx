@@ -519,11 +519,11 @@ function EventFormModal({ initial, groups, onSave, onCancel, saving, error, isEd
   }
 
   return (
-    <div className="modal-overlay" role="dialog" aria-modal="true">
+    <div className="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="event-modal-title">
       <div className="modal">
         <div className="modal__header">
-          <h2 className="modal__title">{isEdit ? 'Edit Event' : 'New Event'}</h2>
-          <button className="btn btn--ghost btn--sm" onClick={onCancel} disabled={saving}>✕</button>
+          <h2 id="event-modal-title" className="modal__title">{isEdit ? 'Edit Event' : 'New Event'}</h2>
+          <button className="btn btn--ghost btn--sm" type="button" aria-label="Close event editor" onClick={onCancel} disabled={saving}>✕</button>
         </div>
 
         <div className="modal__body">

@@ -1,0 +1,13 @@
+{
+  "FirstName": "YOUR_FIRST_NAME",
+  "LastName": "YOUR_LAST_NAME",
+  "Email": "YOUR_EMAIL@example.org",
+  "Phone": "+1.9705551234",
+  "AddressMailing": {
+    "Address1": "123 Main St",
+    "City": "Denver",
+    "State": "Colorado",
+    "Country": "US",
+    "PostalCode": "80202"
+  }
+}

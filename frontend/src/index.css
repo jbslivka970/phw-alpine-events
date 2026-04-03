@@ -1,21 +1,21 @@
 :root {
   color: #1d1f22;
-  background: linear-gradient(180deg, #e9ecee 0%, #f6f7f8 100%);
-  font-family: 'Segoe UI', 'Helvetica Neue', sans-serif;
+  background: #f5f4f0;
+  font-family: 'Source Sans 3', system-ui, -apple-system, sans-serif;
   font-size: 16px;
   line-height: 1.5;
-  --surface: rgba(255, 255, 255, 0.92);
+  --surface: rgba(255, 255, 255, 0.96);
   --surface-strong: #ffffff;
-  --border: rgba(29, 31, 34, 0.16);
-  --text: #1d1f22;
-  --muted: #5f6d72;
-  --primary: #8d9ca1;
-  --primary-strong: #1d1f22;
-  --accent: #8d9ca1;
-  --accent-strong: #6f7f84;
-  --shadow: 0 4px 16px rgba(10, 12, 14, 0.14);
-  --radius: 5px;
-  --radius-lg: 10px;
+  --border: rgba(29, 31, 34, 0.12);
+  --text: #1a1a1a;
+  --muted: #73726c;
+  --primary: #2d5f4d;
+  --primary-strong: #1a1a1a;
+  --accent: #c46a28;
+  --accent-strong: #9a4f16;
+  --shadow: 0 4px 16px rgba(10, 12, 14, 0.08);
+  --radius: 8px;
+  --radius-lg: 14px;
 }
 
 * {
@@ -54,22 +54,46 @@ textarea {
   padding: 0.7rem 1.25rem;
   font-weight: 600;
   cursor: pointer;
-  transition: transform 120ms ease, background-color 120ms ease, border-color 120ms ease;
+  transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1), background-color 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
 }
 
 .btn:hover {
   transform: translateY(-1px);
 }
 
+.btn:active {
+  transform: translateY(0);
+}
+
 .btn--primary {
-  background: linear-gradient(135deg, #1f2326, #30373b);
-  color: #f3f6f7;
+  background: linear-gradient(135deg, #1a3a2a 0%, #0f2e1e 100%);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(15, 46, 30, 0.25);
+}
+
+.btn--primary:hover {
+  box-shadow: 0 4px 16px rgba(15, 46, 30, 0.35);
 }
 
 .btn--outline {
   background: transparent;
-  border-color: rgba(255, 255, 255, 0.35);
-  color: #fff;
+  border-color: var(--border);
+  color: var(--primary-strong);
+}
+
+.btn--outline:hover {
+  border-color: var(--primary);
+  background: rgba(45, 95, 77, 0.08);
+}
+
+.app-header .btn--outline {
+  border-color: rgba(255, 255, 255, 0.38);
+  color: #ffffff;
+}
+
+.app-header .btn--outline:hover {
+  border-color: rgba(255, 255, 255, 0.58);
+  background: rgba(255, 255, 255, 0.10);
 }
 
 .btn--sm {
@@ -109,10 +133,10 @@ textarea {
   align-items: center;
   gap: 1.25rem;
   padding: 1rem 1.5rem;
-  background: rgba(22, 24, 28, 0.97);
+  background: linear-gradient(135deg, #0f2e1e 0%, #1a3a2a 50%, #162e24 100%);
   backdrop-filter: blur(12px);
   color: #f4f8fa;
-  box-shadow: 0 2px 12px rgba(8, 9, 10, 0.34);
+  box-shadow: 0 2px 16px rgba(0, 0, 0, 0.18);
 }
 
 .app-header__brand {
@@ -251,18 +275,18 @@ textarea {
 .login-page {
   min-height: 100vh;
   display: grid;
-  place-items: center;
-  padding: 1.5rem;
-  background:
-    linear-gradient(165deg, rgba(16, 18, 21, 0.97), rgba(28, 32, 36, 0.92)),
-    radial-gradient(circle at bottom right, rgba(141, 156, 161, 0.38), transparent 60%);
+  grid-template-columns: 1fr 1fr;
+  background: #f5f4f0;
 }
 
 .login-card {
-  width: min(460px, 100%);
-  padding: 2rem;
+  width: min(420px, 100%);
+  padding: 3rem 2.5rem;
   text-align: center;
-  background: rgba(248, 250, 251, 0.96);
+  background: #fff;
+  border: 1px solid rgba(29, 31, 34, 0.12);
+  border-radius: 20px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.10), 0 4px 12px rgba(0, 0, 0, 0.06);
 }
 
 .login-card__logo {

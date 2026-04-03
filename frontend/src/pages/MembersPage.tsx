@@ -269,10 +269,14 @@ function MembersPage() {
             </div>
             <div className="modal__body">
               <form className="members-form" onSubmit={handleSave}>
-                <input className="members-input" value={edit.first_name} onChange={(e) => setEdit({ ...edit, first_name: e.target.value })} placeholder="First name" required />
-                <input className="members-input" value={edit.last_name} onChange={(e) => setEdit({ ...edit, last_name: e.target.value })} placeholder="Last name" required />
-                <input className="members-input" value={edit.email} onChange={(e) => setEdit({ ...edit, email: e.target.value })} placeholder="Email" required />
-                <input className="members-input" value={edit.mobile_phone} onChange={(e) => setEdit({ ...edit, mobile_phone: e.target.value })} placeholder="Phone" />
+                <label className="members-search-label" htmlFor="member-first-name">First name</label>
+                <input id="member-first-name" className="members-input" value={edit.first_name} onChange={(e) => setEdit({ ...edit, first_name: e.target.value })} placeholder="First name" required />
+                <label className="members-search-label" htmlFor="member-last-name">Last name</label>
+                <input id="member-last-name" className="members-input" value={edit.last_name} onChange={(e) => setEdit({ ...edit, last_name: e.target.value })} placeholder="Last name" required />
+                <label className="members-search-label" htmlFor="member-email">Email</label>
+                <input id="member-email" className="members-input" value={edit.email} onChange={(e) => setEdit({ ...edit, email: e.target.value })} placeholder="Email" required />
+                <label className="members-search-label" htmlFor="member-phone">Phone</label>
+                <input id="member-phone" className="members-input" value={edit.mobile_phone} onChange={(e) => setEdit({ ...edit, mobile_phone: e.target.value })} placeholder="Phone" />
                 <label className="members-search-label" htmlFor="member-channel-preference">Notification channels</label>
                 <select
                   id="member-channel-preference"

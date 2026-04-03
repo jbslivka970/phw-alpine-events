@@ -3,7 +3,8 @@
     "test:e2e": "playwright test",
     "test:e2e:role-matrix": "playwright test tests/e2e/api-role-matrix.spec.ts",
     "test:e2e:browser": "playwright test tests/e2e/browser-auth-flows.spec.ts",
-    "e2e:refresh-tokens": "node scripts/refresh-playwright-tokens.mjs"
+    "e2e:refresh-tokens": "node scripts/refresh-playwright-tokens.mjs",
+    "uat:create-test-event": "node scripts/create-test-event-for-recipient.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",

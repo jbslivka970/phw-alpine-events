@@ -152,6 +152,95 @@ function requiresExplicitRole(response: RsvpResponse): boolean {
   return response === 'yes' || response === 'maybe' || response === 'waitlist';
 }
 
+function resolveResponseRole(
+  response: RsvpResponse,
+  parsedResponseRole: 'MENTOR' | 'PARTICIPANT' | undefined,
+  inferredResponseRole: 'MENTOR' | 'PARTICIPANT' | undefined,
+): 'MENTOR' | 'PARTICIPANT' | undefined {
+  if (parsedResponseRole) {
+    return parsedResponseRole;
+  }
+
+  if (inferredResponseRole) {
+    return inferredResponseRole;
+  }
+
+  // Default role for one-click flow when group context does not imply one.
+  return requiresExplicitRole(response) ? 'PARTICIPANT' : undefined;
+}
+
+function renderRsvpActionHtml(title: string, body: string): string {
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>${title}</title>
+    <style>
+      body { font-family: 'Segoe UI', Arial, sans-serif; margin: 0; padding: 24px; background: #f4f7f9; color: #1f2937; }
+      .card { max-width: 640px; margin: 0 auto; background: #fff; border: 1px solid #dbe3ea; border-radius: 10px; padding: 20px; box-shadow: 0 6px 18px rgba(12, 28, 43, 0.08); }
+      h1 { margin: 0 0 8px; font-size: 1.35rem; }
+      p { margin: 0; line-height: 1.45; }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h1>${title}</h1>
+      <p>${body}</p>
+    </div>
+  </body>
+</html>`;
+}
+
+router.get('/rsvp/:token/respond', apiLimiter, async (req, res) => {
+  try {
+    const response = (req.query.response as string | undefined)?.toLowerCase();
+    if (!response || !VALID_RESPONSES.includes(response as RsvpResponse)) {
+      res.status(400).type('html').send(
+        renderRsvpActionHtml('Invalid RSVP response', `Valid options are: ${VALID_RESPONSES.join(', ')}.`)
+      );
+      return;
+    }
+
+    const normalizedResponse = response as RsvpResponse;
+    const parsedResponseRole = parseResponseRole(req.query.role);
+    const token = verifyRsvpToken(req.params.token);
+    const inferredResponseRole = parsedResponseRole
+      ? undefined
+      : await inferResponseRoleForMember({
+        memberId: token.memberId,
+        groupContextId: token.groupContextId ?? null,
+      });
+    const responseRole = resolveResponseRole(normalizedResponse, parsedResponseRole, inferredResponseRole);
+
+    if (req.query.role !== undefined && !parsedResponseRole) {
+      res.status(400).type('html').send(
+        renderRsvpActionHtml('Invalid role', 'Role must be MENTOR or PARTICIPANT when provided.')
+      );
+      return;
+    }
+
+    await submitPublicRsvp(req.params.token, normalizedResponse, responseRole);
+    const normalizedResponseLabel = normalizedResponse.toUpperCase();
+    const roleText = responseRole ? ` as ${responseRole}` : '';
+    res.status(200).type('html').send(
+      renderRsvpActionHtml('RSVP recorded', `Your RSVP is saved: ${normalizedResponseLabel}${roleText}. This confirms one attendee seat for your member profile.`)
+    );
+  } catch (error) {
+    if (error instanceof RsvpError) {
+      res.status(error.statusCode).type('html').send(
+        renderRsvpActionHtml('Unable to record RSVP', error.message)
+      );
+      return;
+    }
+
+    console.error('GET /events/rsvp/:token/respond failed', error);
+    res.status(401).type('html').send(
+      renderRsvpActionHtml('Invalid or expired RSVP link', error instanceof Error ? error.message : 'Please request a fresh invitation link.')
+    );
+  }
+});
+
 router.get('/rsvp', apiLimiter, async (req, res) => {
   try {
     const row = await getPublicRsvpContext(getRsvpToken(req));
@@ -179,7 +268,8 @@ router.post('/rsvp', writeLimiter, async (req, res) => {
         memberId: token.memberId,
         groupContextId: token.groupContextId ?? null,
       });
-    const responseRole = parsedResponseRole ?? inferredResponseRole;
+    const normalizedResponse = response as RsvpResponse;
+    const responseRole = resolveResponseRole(normalizedResponse, parsedResponseRole, inferredResponseRole);
 
     if (!response) {
       res.status(400).json({ error: `response must be one of: ${VALID_RESPONSES.join(', ')}` });
@@ -195,12 +285,7 @@ router.post('/rsvp', writeLimiter, async (req, res) => {
       return;
     }
 
-    if (requiresExplicitRole(response as RsvpResponse) && !responseRole) {
-      res.status(400).json({ error: 'response_role is required for yes, maybe, and waitlist responses' });
-      return;
-    }
-
-    const record = await submitPublicRsvp(tokenString, response, responseRole);
+    const record = await submitPublicRsvp(tokenString, normalizedResponse, responseRole);
 
     res.json(record);
   } catch (error) {
@@ -239,7 +324,8 @@ router.post('/rsvp/:token', writeLimiter, async (req, res) => {
         memberId: token.memberId,
         groupContextId: token.groupContextId ?? null,
       });
-    const responseRole = parsedResponseRole ?? inferredResponseRole;
+    const normalizedResponse = response as RsvpResponse;
+    const responseRole = resolveResponseRole(normalizedResponse, parsedResponseRole, inferredResponseRole);
     if (!response) {
       res.status(400).json({ error: `response must be one of: ${VALID_RESPONSES.join(', ')}` });
       return;
@@ -254,12 +340,7 @@ router.post('/rsvp/:token', writeLimiter, async (req, res) => {
       return;
     }
 
-    if (requiresExplicitRole(response as RsvpResponse) && !responseRole) {
-      res.status(400).json({ error: 'response_role is required for yes, maybe, and waitlist responses' });
-      return;
-    }
-
-    const record = await submitPublicRsvp(req.params.token, response, responseRole);
+    const record = await submitPublicRsvp(req.params.token, normalizedResponse, responseRole);
     res.json(record);
   } catch (error) {
     if (error instanceof RsvpError) {

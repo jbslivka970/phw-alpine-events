@@ -1,6 +1,6 @@
 import { Link, useNavigate } from 'react-router-dom';
 import { useEffect, useMemo, useState } from 'react';
-import { colors, fonts, gradients, rsvpStyles } from '../styles/theme';
+import { colors, fonts, rsvpStyles } from '../styles/theme';
 import { eventsApi, type EventRecord } from '../api/events';
 import { membersApi } from '../api/members';
 import tavfApi, { type TavfPosting } from '../api/tavf';
@@ -22,31 +22,78 @@ type DashboardStats = {
   totalRsvps: number;
 };
 
+const HERO_PHOTO = '/PHW Photos/PHW-Hartsel25-1410.jpg';
+
+const FALLBACK_GALLERY_PHOTOS = [
+  '/PHW Photos/PHW-Hartsel25-1410.jpg',
+  '/PHW Photos/PHW-Hartsel25-1247.jpg',
+  '/PHW Photos/PHW-Hartsel25-1429.jpg',
+  '/PHW Photos/tarryall Creek fisherman.jpg',
+];
+
+const GALLERY_PHOTOS = [
+  '/PHW Photos/IMG_7247.JPG',
+  '/PHW Photos/IMG_7251.JPG',
+  '/PHW Photos/IMG_7264.JPG',
+  '/PHW Photos/IMG_7266.JPG',
+];
+
 function HeroBanner({ userName }: { userName?: string }) {
   return (
-    <div
-      className="phw-stagger phw-stagger-1"
-      style={{
-        background: gradients.heroBanner,
-        borderRadius: 16,
-        padding: '2rem 2rem 1.75rem',
-        position: 'relative',
-        overflow: 'hidden',
-        marginBottom: '1.25rem',
-      }}
-    >
-      <div className="phw-wave-pattern" />
-      <div style={{ position: 'relative', zIndex: 1 }}>
-        <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11, margin: '0 0 6px', letterSpacing: '2px', textTransform: 'uppercase', fontWeight: 600 }}>
-          Colorado Alpine Chapter
-        </p>
-        <h1 style={{ color: '#fff', fontSize: 24, fontWeight: 600, margin: '0 0 8px' }}>
+    <div className="phw-hero phw-stagger phw-stagger-1">
+      <img
+        className="phw-hero__image"
+        src={HERO_PHOTO}
+        alt="Colorado fly fishing"
+        loading="eager"
+      />
+      <div className="phw-hero__overlay" />
+      <div className="phw-hero__content">
+        <p className="phw-hero__eyebrow">Colorado Alpine Chapter</p>
+        <h1 className="phw-hero__title">
           Welcome back{userName ? `, ${userName}` : ''}
         </h1>
-        <p style={{ color: 'rgba(255,255,255,0.55)', fontSize: 14, margin: 0, fontFamily: fonts.display, fontStyle: 'italic' }}>
+        <p className="phw-hero__subtitle">
           The river is always there, waiting.
         </p>
       </div>
+    </div>
+  );
+}
+
+function PhotoStrip() {
+  return (
+    <div className="phw-photo-strip phw-stagger phw-stagger-2">
+      {GALLERY_PHOTOS.map((src, i) => (
+        <div key={i} className="phw-photo-strip__item">
+          <img
+            src={src}
+            alt={`PHW event ${i + 1}`}
+            loading="lazy"
+            onError={(event) => {
+              const fallbackSrc = FALLBACK_GALLERY_PHOTOS[i % FALLBACK_GALLERY_PHOTOS.length];
+              if (event.currentTarget.src.endsWith(fallbackSrc)) {
+                event.currentTarget.style.opacity = '0';
+                return;
+              }
+              event.currentTarget.src = fallbackSrc;
+            }}
+          />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function StatCard({ label, value, color, delay }: { label: string; value: string | number; color?: string; delay: number }) {
+  return (
+    <div className={`phw-stat-card phw-stagger phw-stagger-${delay}`}>
+      <p style={{ margin: '0 0 6px', fontSize: 11, color: colors.slate[500], textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700 }}>
+        {label}
+      </p>
+      <p style={{ margin: 0, fontSize: 28, fontWeight: 800, color: color ?? colors.slate[950], lineHeight: 1.1 }}>
+        {value}
+      </p>
     </div>
   );
 }
@@ -172,32 +219,22 @@ function DashboardPage() {
   const displayName = user?.name?.split(' ')[0] ?? undefined;
 
   return (
-    <div style={{ maxWidth: 980, margin: '0 auto' }}>
+    <div style={{ maxWidth: 1040, margin: '0 auto' }}>
       <HeroBanner userName={displayName} />
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0,1fr))', gap: 12, marginBottom: '1.5rem' }}>
-        <div className="phw-card phw-stagger phw-stagger-2" style={{ padding: '1rem 1.125rem' }}>
-          <p style={{ margin: '0 0 6px', fontSize: 11, color: colors.slate[500], textTransform: 'uppercase', letterSpacing: '.5px', fontWeight: 600 }}>Members</p>
-          <p style={{ margin: 0, fontSize: 24, fontWeight: 700 }}>{isAdminUser ? stats.totalMembers : '-'}</p>
-        </div>
-        <div className="phw-card phw-stagger phw-stagger-3" style={{ padding: '1rem 1.125rem' }}>
-          <p style={{ margin: '0 0 6px', fontSize: 11, color: colors.slate[500], textTransform: 'uppercase', letterSpacing: '.5px', fontWeight: 600 }}>Events YTD</p>
-          <p style={{ margin: 0, fontSize: 24, fontWeight: 700 }}>{stats.totalEventsThisYear}</p>
-        </div>
-        <div className="phw-card phw-stagger phw-stagger-4" style={{ padding: '1rem 1.125rem' }}>
-          <p style={{ margin: '0 0 6px', fontSize: 11, color: colors.slate[500], textTransform: 'uppercase', letterSpacing: '.5px', fontWeight: 600 }}>Upcoming</p>
-          <p style={{ margin: 0, fontSize: 24, fontWeight: 700, color: colors.forest[600] }}>{stats.upcomingEvents}</p>
-        </div>
-        <div className="phw-card phw-stagger phw-stagger-5" style={{ padding: '1rem 1.125rem' }}>
-          <p style={{ margin: '0 0 6px', fontSize: 11, color: colors.slate[500], textTransform: 'uppercase', letterSpacing: '.5px', fontWeight: 600 }}>Yes RSVPs</p>
-          <p style={{ margin: 0, fontSize: 24, fontWeight: 700, color: colors.golden[700] }}>{stats.totalRsvps}</p>
-        </div>
+      <PhotoStrip />
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0,1fr))', gap: 14, marginBottom: '1.75rem' }}>
+        <StatCard label="Members" value={isAdminUser ? stats.totalMembers : '–'} delay={3} />
+        <StatCard label="Events YTD" value={stats.totalEventsThisYear} delay={4} />
+        <StatCard label="Upcoming" value={stats.upcomingEvents} color={colors.forest[600]} delay={5} />
+        <StatCard label="Yes RSVPs" value={stats.totalRsvps} color="#c46a28" delay={6} />
       </div>
 
-      <div className="phw-stagger phw-stagger-6" style={{ marginBottom: '1.5rem' }}>
-        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 12 }}>
-          <h2 style={{ margin: 0, fontSize: 16 }}>Upcoming events</h2>
-          <Link to="/events" style={{ fontSize: 12, color: colors.forest[600], textDecoration: 'none' }}>View all</Link>
+      <div className="phw-stagger phw-stagger-7" style={{ marginBottom: '1.75rem' }}>
+        <div className="phw-section-header">
+          <h2 className="phw-section-title">Upcoming Events</h2>
+          <Link to="/events" className="phw-section-link">View all &rarr;</Link>
         </div>
 
         {loading ? (
@@ -245,9 +282,11 @@ function DashboardPage() {
         )}
       </div>
 
-      <div className="phw-stagger phw-stagger-7" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0,1fr))', gap: 16 }}>
+      <div className="phw-stagger phw-stagger-8" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0,1fr))', gap: 20 }}>
         <div>
-          <h2 style={{ margin: '0 0 10px', fontSize: 16 }}>My RSVPs</h2>
+          <div className="phw-section-header">
+            <h2 className="phw-section-title">My RSVPs</h2>
+          </div>
           <div className="phw-card" style={{ padding: '4px 1rem' }}>
             {myRsvps.length === 0 ? (
               <EmptyState variant="calendar" title="No RSVPs yet" description="RSVP to an event and it will show here." />
@@ -269,9 +308,9 @@ function DashboardPage() {
         </div>
 
         <div>
-          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 10 }}>
-            <h2 style={{ margin: 0, fontSize: 16 }}>Take a Vet Fishing</h2>
-            <Link to="/tavf" style={{ fontSize: 12, color: colors.forest[600], textDecoration: 'none' }}>View all</Link>
+          <div className="phw-section-header">
+            <h2 className="phw-section-title">Take a Vet Fishing</h2>
+            <Link to="/tavf" className="phw-section-link">View all &rarr;</Link>
           </div>
           <div className="phw-card" style={{ padding: '4px 1rem' }}>
             {openPostings.length === 0 ? (

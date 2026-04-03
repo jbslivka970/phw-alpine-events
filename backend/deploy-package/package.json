@@ -1,0 +1,67 @@
+{
+  "name": "phw-alpine-events-backend",
+  "version": "1.0.1",
+  "description": "Backend API for PHW Alpine Events",
+  "main": "server.js",
+  "engines": {
+    "node": ">=20 <21"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node server.js",
+    "dev": "ts-node src/index.ts",
+    "deploy-schema": "ts-node src/deploy-schema.ts",
+    "test": "jest",
+    "smoke:sms": "node ../scripts/sms-compliance-smoke.js",
+    "smoke:email": "node ../scripts/email-unsubscribe-smoke.js",
+    "smoke:rsvp": "node ../scripts/tokenized-rsvp-smoke.js",
+    "smoke:reminders": "node ../scripts/reminder-duplication-smoke.js",
+    "smoke:all": "npm run smoke:sms && npm run smoke:email && npm run smoke:rsvp",
+    "retention:run": "ts-node src/jobs/retentionJob.ts"
+  },
+  "jest": {
+    "preset": "ts-jest",
+    "testEnvironment": "node",
+    "testMatch": [
+      "**/__tests__/**/*.test.ts"
+    ],
+    "moduleFileExtensions": [
+      "ts",
+      "js",
+      "json"
+    ]
+  },
+  "dependencies": {
+    "@azure/communication-email": "^1.0.0",
+    "@azure/communication-sms": "^1.0.0",
+    "@azure/functions": "^3.5.1",
+    "@azure/identity": "^3.2.0",
+    "@types/multer": "^2.1.0",
+    "cors": "^2.8.5",
+    "csv-parse": "^6.2.0",
+    "dotenv": "^16.0.3",
+    "express": "^4.18.2",
+    "express-rate-limit": "^7.5.1",
+    "helmet": "^6.0.1",
+    "joi": "^17.9.2",
+    "jsonwebtoken": "^9.0.3",
+    "jwks-rsa": "^3.2.2",
+    "mssql": "^9.1.1",
+    "multer": "^2.1.1",
+    "twilio": "^5.10.3"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.13",
+    "@types/express": "^4.17.17",
+    "@types/jest": "^29.5.0",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/mssql": "^9.1.9",
+    "@types/node": "^18.15.11",
+    "@types/supertest": "^2.0.16",
+    "jest": "^29.5.0",
+    "supertest": "^6.3.4",
+    "ts-jest": "^29.1.0",
+    "ts-node": "^10.9.1",
+    "typescript": "^5.0.4"
+  }
+}

@@ -85,14 +85,16 @@ function EmptyState({
           onClick={onAction}
           style={{
             marginTop: '1rem',
-            background: colors.forest[600],
+            background: 'linear-gradient(135deg, #1a3a2a 0%, #0f2e1e 100%)',
             color: 'white',
             border: 'none',
-            padding: '8px 20px',
-            borderRadius: 999,
+            padding: '9px 22px',
+            borderRadius: 10,
             fontSize: 13,
-            fontWeight: 500,
+            fontWeight: 600,
             cursor: 'pointer',
+            boxShadow: '0 2px 8px rgba(15, 46, 30, 0.25)',
+            transition: 'all 180ms ease',
           }}
         >
           {actionLabel}

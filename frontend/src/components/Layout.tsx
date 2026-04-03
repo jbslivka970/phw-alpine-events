@@ -22,27 +22,6 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Admin', to: '/admin', role: ROLES.ADMIN },
 ];
 
-function TroutIcon({ size = 36 }: { size?: number }) {
-  return (
-    <svg width={size} height={Math.round(size * 0.6)} viewBox="0 0 64 38" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path
-        d="M8 19c4-8 16-14 28-12 6 1 12 4 18 8-2 1-5 3-7 5-4 4-10 7-18 8C18 30 10 26 8 19Z"
-        fill="rgba(255,255,255,0.15)"
-        stroke="rgba(255,255,255,0.4)"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-      />
-      <circle cx="44" cy="17" r="2" fill="rgba(255,255,255,0.6)" />
-      <path
-        d="M8 19c-3-5-5-12-4-16M8 19c-3 5-5 12-4 16"
-        stroke="rgba(255,255,255,0.35)"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
-}
-
 function isLinkActive(pathname: string, to: string): boolean {
   return pathname === to || pathname.startsWith(`${to}/`);
 }
@@ -62,17 +41,23 @@ export default function Layout() {
 
   return (
     <div className="phw-layout">
+      <a href="#main-content" className="phw-skip-link">Skip to main content</a>
       <nav className="phw-layout__nav">
         <div className="phw-layout__nav-inner">
           <Link to="/dashboard" className="phw-layout__brand">
-            <TroutIcon />
-            <div>
-              <div className="phw-layout__brand-title">PHW Alpine</div>
+            <img
+              className="phw-layout__brand-logo"
+              src="/branding/PHWLogoHorizontal_Light.png"
+              alt="Project Healing Waters"
+              onError={(e) => { e.currentTarget.style.display = 'none'; }}
+            />
+            <div className="phw-layout__brand-text">
+              <div className="phw-layout__brand-title">Alpine Events</div>
               <div className="phw-layout__brand-subtitle">Colorado Chapter</div>
             </div>
           </Link>
 
-          <div className="phw-layout__links" aria-label="Main navigation">
+          <div className="phw-layout__links">
             {visibleItems.map((item) => (
               <NavLink
                 key={item.to}
@@ -90,7 +75,7 @@ export default function Layout() {
 
           <div className="phw-layout__user">
             {user && (
-              <span style={{ color: 'rgba(255,255,255,0.55)', fontSize: 12 }} title={user.email}>
+              <span className="phw-layout__username" title={user.email}>
                 {user.name}
               </span>
             )}
@@ -101,28 +86,41 @@ export default function Layout() {
         </div>
       </nav>
 
-      <main className="phw-layout__main">
+      <main id="main-content" className="phw-layout__main" tabIndex={-1}>
         <Outlet />
       </main>
 
       <footer className="phw-layout__footer">
         <div className="phw-layout__footer-inner">
           <div>
-            <p style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>Project Healing Waters Fly Fishing</p>
-            <p style={{ margin: '2px 0 0', fontSize: 12, color: 'var(--phw-slate-600)', fontFamily: 'var(--phw-font-display)', fontStyle: 'italic' }}>
+            <div className="phw-footer__brand">
+              <img
+                className="phw-footer__logo"
+                src="/branding/PHWTroutLogoSagebrush-1.png"
+                alt="PHW Trout"
+                onError={(e) => { e.currentTarget.style.display = 'none'; }}
+              />
+              <p className="phw-footer__name">Project Healing Waters Fly Fishing</p>
+            </div>
+            <p className="phw-footer__tagline">
               Healing America's veterans through the therapeutic art of fly fishing
             </p>
+            <p className="phw-footer__credit">
+              &copy; {new Date().getFullYear()} Colorado Alpine Chapter
+            </p>
+            <p className="phw-footer__accessibility">
+              Accessibility notice: PHW Alpine Events aims to conform to WCAG 2.1 AA. If you need assistance accessing any feature, email{' '}
+              <a href="mailto:accessibility@phwcoloradoalpine.org">accessibility@phwcoloradoalpine.org</a>.
+            </p>
           </div>
-          <div style={{ display: 'inline-flex', gap: 14, alignItems: 'center' }}>
-            <a href="https://projecthealingwaters.org" target="_blank" rel="noreferrer" style={{ fontSize: 12, color: 'var(--phw-forest-600)', textDecoration: 'none' }}>
+          <div className="phw-footer__links">
+            <a href="https://projecthealingwaters.org" target="_blank" rel="noreferrer" className="phw-footer__link phw-footer__link--accent">
               PHW National
             </a>
-            <a href="https://projecthealingwaters.org/privacy-policy/" target="_blank" rel="noreferrer" style={{ fontSize: 12, color: 'var(--phw-slate-600)', textDecoration: 'none' }}>
+            <a href="https://projecthealingwaters.org/privacy-policy/" target="_blank" rel="noreferrer" className="phw-footer__link">
               Privacy Policy
             </a>
-            <span style={{ fontSize: 11, color: 'var(--phw-slate-400)' }}>
-              {new Date().getFullYear()} Colorado Alpine Chapter
-            </span>
+            <Link to="/terms" className="phw-footer__link">Terms</Link>
           </div>
         </div>
       </footer>

@@ -19,6 +19,25 @@ interface MemberRsvpUrls {
 
 type ResponseRole = 'MENTOR' | 'PARTICIPANT';
 
+function getPublicApiBaseUrl(): string {
+  const explicit = process.env['PUBLIC_API_BASE_URL'] || process.env['API_BASE_URL'];
+  if (explicit) {
+    return explicit.replace(/\/$/, '');
+  }
+
+  const appServiceHost = process.env['WEBSITE_HOSTNAME'];
+  if (appServiceHost) {
+    return `https://${appServiceHost}`;
+  }
+
+  const nodeEnv = process.env['NODE_ENV'] || 'development';
+  if (nodeEnv !== 'production') {
+    return 'http://localhost:3001';
+  }
+
+  throw new Error('PUBLIC_API_BASE_URL (or WEBSITE_HOSTNAME) is required in production to generate RSVP action links.');
+}
+
 function createRsvpToken(eventId: string, memberId: string, groupContextId?: string): string {
   const config = loadRsvpLinkConfig();
   if (!config.isConfigured) {
@@ -78,14 +97,18 @@ function buildMemberRsvpUrls(
   }
 
   const token = createRsvpToken(eventId, memberId, groupContextId);
-  const path = `${config.frontendBaseUrl}/rsvp/${encodeURIComponent(token)}`;
+  const encodedToken = encodeURIComponent(token);
+  const path = `${config.frontendBaseUrl}/rsvp/${encodedToken}`;
+  const actionPath = `${getPublicApiBaseUrl()}/api/v1/events/rsvp/${encodedToken}/respond`;
 
   const createPresetUrl = (response: 'yes' | 'no' | 'maybe' | 'waitlist'): string => {
     const params = new URLSearchParams({ response });
-    if (preferredRole) {
+    if (response === 'yes' || response === 'maybe' || response === 'waitlist') {
+      params.set('role', preferredRole ?? 'PARTICIPANT');
+    } else if (preferredRole) {
       params.set('role', preferredRole);
     }
-    return `${path}?${params.toString()}`;
+    return `${actionPath}?${params.toString()}`;
   };
 
   return {

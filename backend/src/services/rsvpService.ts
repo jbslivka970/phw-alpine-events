@@ -25,6 +25,11 @@ interface RecordedRsvp {
   reminder_sent_at: Date | null;
 }
 
+interface ExistingResponseRow {
+  response: RsvpResponse;
+  response_role: EventRole | null;
+}
+
 class RsvpError extends Error {
   constructor(message: string, readonly statusCode: number) {
     super(message);
@@ -183,33 +188,54 @@ async function recordRsvpResponse(options: {
 
   const roleCapacity = responseRole === 'MENTOR' ? event.mentor_capacity : event.participant_capacity;
 
+  const existingResponseResult = await pool
+    .request()
+    .input('event_id', sql.UniqueIdentifier, options.eventId)
+    .input('member_id', sql.UniqueIdentifier, options.memberId)
+    .query<ExistingResponseRow>(
+      `SELECT TOP 1 response, response_role
+       FROM event_response
+       WHERE event_id = @event_id AND member_id = @member_id`
+    );
+
+  const existingResponse = existingResponseResult.recordset[0];
+  const existingRole = existingResponse ? normalizeResponseRole(existingResponse.response_role) : undefined;
+  const isDuplicateSubmission = Boolean(
+    existingResponse &&
+    existingResponse.response === options.response &&
+    existingRole === responseRole
+  );
+
   if (options.response === 'yes' && roleCapacity && roleCapacity > 0) {
-    const countResult = await pool
-      .request()
-      .input('event_id', sql.UniqueIdentifier, options.eventId)
-      .input('response_role', sql.NVarChar, responseRole)
-      .query<{ yes_count: number }>(
-        "SELECT COUNT(*) AS yes_count FROM event_response WHERE event_id = @event_id AND response = 'yes' AND response_role = @response_role"
-      );
-    const yesCount = countResult.recordset[0]?.yes_count ?? 0;
+    if (!isDuplicateSubmission) {
+      const countResult = await pool
+        .request()
+        .input('event_id', sql.UniqueIdentifier, options.eventId)
+        .input('member_id', sql.UniqueIdentifier, options.memberId)
+        .input('response_role', sql.NVarChar, responseRole)
+        .query<{ yes_count: number }>(
+          "SELECT COUNT(*) AS yes_count FROM event_response WHERE event_id = @event_id AND response = 'yes' AND response_role = @response_role AND member_id <> @member_id"
+        );
+      const yesCount = countResult.recordset[0]?.yes_count ?? 0;
 
-    const reservationResult = await pool
-      .request()
-      .input('event_id', sql.UniqueIdentifier, options.eventId)
-      .input('member_id', sql.UniqueIdentifier, options.memberId)
-      .input('role', sql.NVarChar, responseRole)
-      .query<{ reserved_count: number; has_active_offer: number }>(
-        `SELECT
-        SUM(CASE WHEN status = 'offered' AND expires_at > GETUTCDATE() AND role = @role AND member_id <> @member_id THEN 1 ELSE 0 END) AS reserved_count,
-        SUM(CASE WHEN status = 'offered' AND expires_at > GETUTCDATE() AND role = @role AND member_id = @member_id THEN 1 ELSE 0 END) AS has_active_offer
-         FROM waitlist_promotion_offer
-         WHERE event_id = @event_id`
-      );
+      const reservationResult = await pool
+        .request()
+        .input('event_id', sql.UniqueIdentifier, options.eventId)
+        .input('member_id', sql.UniqueIdentifier, options.memberId)
+        .input('role', sql.NVarChar, responseRole)
+        .query<{ reserved_count: number; has_active_offer: number }>(
+          `SELECT
+          SUM(CASE WHEN status = 'offered' AND expires_at > GETUTCDATE() AND role = @role AND member_id <> @member_id THEN 1 ELSE 0 END) AS reserved_count,
+          SUM(CASE WHEN status = 'offered' AND expires_at > GETUTCDATE() AND role = @role AND member_id = @member_id THEN 1 ELSE 0 END) AS has_active_offer
+           FROM waitlist_promotion_offer
+           WHERE event_id = @event_id`
+        );
 
-    const reservedCount = reservationResult.recordset[0]?.reserved_count ?? 0;
-    const hasActiveOffer = (reservationResult.recordset[0]?.has_active_offer ?? 0) > 0;
-    if (yesCount + reservedCount >= roleCapacity && !hasActiveOffer) {
-      throw new RsvpError('Event is full. Use waitlist response.', 409);
+      const reservedCount = reservationResult.recordset[0]?.reserved_count ?? 0;
+      const hasActiveOffer = (reservationResult.recordset[0]?.has_active_offer ?? 0) > 0;
+      if (yesCount + reservedCount >= roleCapacity && !hasActiveOffer) {
+        throw new RsvpError('Event is full. Use waitlist response.', 409);
+      }
     }
   }
 
@@ -272,7 +298,7 @@ async function recordRsvpResponse(options: {
     );
 
   const member = memberResult.recordset[0];
-  if (member) {
+  if (member && !isDuplicateSubmission) {
     sendRsvpConfirmation({
       eventId: event.event_id,
       eventTitle: event.title,

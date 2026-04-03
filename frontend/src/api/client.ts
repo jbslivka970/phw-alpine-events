@@ -6,7 +6,7 @@ const PRODUCTION_BACKEND_FALLBACK = 'https://phwalpineeventsjb873a.azurewebsites
 const shouldUseProductionFallback = import.meta.env.PROD
   && rawBase === DEFAULT_BASE
   && typeof window !== 'undefined'
-  && /phwalpineeventsfe873a\.azurewebsites\.net$/i.test(window.location.hostname);
+  && /^(phwalpineeventsfe873a\.azurewebsites\.net|app\.phwcoloradoalpine\.org)$/i.test(window.location.hostname);
 const resolvedBase = shouldUseProductionFallback ? PRODUCTION_BACKEND_FALLBACK : rawBase;
 const BASE_URL = resolvedBase.endsWith('/') ? resolvedBase.slice(0, -1) : resolvedBase;
 

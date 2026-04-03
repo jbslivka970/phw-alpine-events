@@ -80,6 +80,7 @@ describe('sms routes', () => {
       { recordset: [{ member_id: 'member-1', mobile_phone: '+13035551212' }] },
       { recordset: [{ event_id: 'event-1', title: 'Climb Night', event_date: new Date('2025-01-01T18:00:00Z'), location: 'Gym' }] },
       { recordset: [{ event_id: 'event-1', title: 'Climb Night', status: 'published', mentor_capacity: null, participant_capacity: 10, capacity: 10, event_date: new Date('2025-01-01T18:00:00Z') }] },
+      { recordset: [] },
       { recordset: [{ yes_count: 0 }] },
       { recordset: [{ reserved_count: 0, has_active_offer: 0 }] },
       { recordset: [{ response_id: 'response-1', event_id: 'event-1', member_id: 'member-1', response: 'yes', responded_at: new Date('2025-01-01T12:00:00Z'), notes: 'SMS reply received: Y' }] },
@@ -126,6 +127,7 @@ describe('sms routes', () => {
           },
         ],
       },
+      { recordset: [] },
       { recordset: [{ yes_count: 0 }] },
       { recordset: [{ reserved_count: 0, has_active_offer: 0 }] },
       {
@@ -242,6 +244,7 @@ describe('sms routes', () => {
         ],
       },
       { recordset: [{ event_id: 'event-2', title: 'Ski Tour', status: 'published', mentor_capacity: null, participant_capacity: 10, capacity: 10, event_date: new Date('2025-01-03T18:00:00Z') }] },
+      { recordset: [] },
       { recordset: [{ yes_count: 0 }] },
       { recordset: [{ reserved_count: 0, has_active_offer: 0 }] },
       { recordset: [{ response_id: 'response-2', event_id: 'event-2', member_id: 'member-1', response: 'yes', responded_at: new Date('2025-01-01T12:00:00Z'), notes: 'SMS reply received: 2 Y P' }] },
@@ -341,6 +344,32 @@ describe('sms routes', () => {
     expect(res.status).toBe(200);
     expect(res.body.processed).toHaveLength(1);
     expect(res.body.processed[0]).toMatchObject({ status: 'opted_out', member_id: 'member-1' });
+  });
+
+  it('POST /api/sms/inbound processes Telnyx webhook payloads', async () => {
+    const queryResults: QueryResult[] = [
+      { recordset: [{ member_id: 'member-1', mobile_phone: '+13035551212' }] },
+      { rowsAffected: [1] },
+    ];
+    const mockRequest = {
+      input: jest.fn().mockReturnThis(),
+      query: jest.fn().mockImplementation(async () => queryResults.shift() ?? { recordset: [] }),
+    };
+    (getPool as jest.Mock).mockResolvedValue({ request: () => mockRequest });
+
+    const res = await request(app)
+      .post('/api/sms/inbound')
+      .send({
+        data: {
+          payload: {
+            from: { phone_number: '+13035551212' },
+            text: 'STOP',
+          },
+        },
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ status: 'opted_out', member_id: 'member-1' });
   });
 
   it('GET /api/sms/inbound/logs returns inbound audit records', async () => {

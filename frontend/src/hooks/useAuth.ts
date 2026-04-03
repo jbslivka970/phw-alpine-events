@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useIsAuthenticated, useMsal } from '@azure/msal-react'
 import { InteractionStatus } from '@azure/msal-browser'
-import { loginRequest, ROLES } from '../authConfig'
+import { hasAuthConfig, loginRequest, ROLES } from '../authConfig'
 import type { AppRole } from '../authConfig'
 import { setTokenGetter } from '../api/client'
 
@@ -100,6 +100,11 @@ function useAuth() {
   const interactionBusy = inProgress !== InteractionStatus.None
 
   async function login() {
+    if (!hasAuthConfig) {
+      setLoginError('Sign-in is temporarily unavailable because Azure AD app settings are missing in this build. Please contact an administrator.')
+      return
+    }
+
     if (interactionBusy && !loginRequestRef.current) {
       setLoginError('Authentication is still finalizing from a previous attempt. Please try again in a moment.')
       return

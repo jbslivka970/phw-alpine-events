@@ -13,9 +13,11 @@ const apiScope = import.meta.env.VITE_API_SCOPE as string | undefined
 
 const hasExternalIdConfig = Boolean(externalTenantName && externalTenantId)
 const hasB2CConfig = Boolean(b2cTenantName && b2cPolicyName)
+const hasAuthConfig = Boolean(clientId && (authorityOverride || hasB2CConfig || hasExternalIdConfig))
 
-if (import.meta.env.PROD && (!clientId || (!authorityOverride && !hasB2CConfig && !hasExternalIdConfig))) {
-  throw new Error('Azure AD frontend configuration is incomplete (B2C/External ID).')
+if (import.meta.env.PROD && !hasAuthConfig) {
+  // Keep public routes (for example RSVP links from email) usable even if auth env vars are missing.
+  console.warn('Azure AD frontend configuration is incomplete (B2C/External ID). Authenticated routes may not function.')
 }
 
 const fallbackAuthority = 'https://login.microsoftonline.com/common'
@@ -42,7 +44,8 @@ const knownAuthorities = knownAuthorityOverride
 
 const msalConfig: Configuration = {
   auth: {
-    clientId: clientId ?? 'dev-placeholder-client-id',
+    // Keep MSAL initialization valid, but gate sign-in when real auth config is missing.
+    clientId: clientId ?? '11111111-1111-1111-1111-111111111111',
     authority,
     knownAuthorities,
     redirectUri: window.location.origin,
@@ -70,4 +73,5 @@ const ROLES = {
 type AppRole = (typeof ROLES)[keyof typeof ROLES]
 
 export { loginRequest, msalConfig, ROLES }
+export { hasAuthConfig }
 export type { AppRole }

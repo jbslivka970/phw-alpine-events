@@ -687,6 +687,11 @@ function extractInboundPayload(body: unknown, headers: Record<string, unknown> =
     throw new Error('Request body is required.');
   }
 
+  const telnyxMessage = extractTelnyxMessage(record);
+  if (telnyxMessage) {
+    return { kind: 'single', from: telnyxMessage.from, message: telnyxMessage.message };
+  }
+
   if (eventTypeHeader === 'Notification' && (record['eventType'] || record['data'])) {
     const eventGridMessage = extractEventGridMessage(record['data']);
     if (!eventGridMessage.from || !eventGridMessage.message) {
@@ -702,6 +707,31 @@ function extractInboundPayload(body: unknown, headers: Record<string, unknown> =
   }
 
   return { kind: 'single', from, message };
+}
+
+function extractTelnyxMessage(record: Record<string, unknown>): { from: string; message: string } | null {
+  const payload = (record['data'] as Record<string, unknown> | undefined)?.['payload'] as Record<string, unknown> | undefined;
+  if (!payload) {
+    return null;
+  }
+
+  const from = readNestedString(payload, ['from', 'phone_number'])
+    ?? readString(payload, 'from')
+    ?? '';
+  const message = readString(payload, 'text')
+    ?? readString(payload, 'body')
+    ?? '';
+
+  const normalizedFrom = from.trim();
+  const normalizedMessage = message.trim();
+  if (!normalizedFrom || !normalizedMessage) {
+    return null;
+  }
+
+  return {
+    from: normalizedFrom,
+    message: normalizedMessage,
+  };
 }
 
 function extractEventGridMessage(data: unknown): { from: string; message: string } {

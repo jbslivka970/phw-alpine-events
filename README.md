@@ -113,10 +113,13 @@ Key backend variables:
 - `ACS_CONNECTION_STRING`
 - `ACS_EMAIL_FROM`
 - `ACS_EMAIL_TO` (optional comma-separated To-line addresses for regional admin dispatch)
-- `TWILIO_ACCOUNT_SID` (recommended for SMS)
-- `TWILIO_AUTH_TOKEN` (recommended for SMS)
-- `TWILIO_MESSAGING_SERVICE_SID` (recommended for SMS)
-- `ACS_SMS_FROM` (optional SMS fallback when Twilio is not configured)
+- `TELNYX_API_KEY` (recommended for SMS)
+- `TELNYX_MESSAGING_PROFILE_ID` (recommended with Telnyx)
+- `TELNYX_FROM_NUMBER` (optional when messaging profile is configured)
+- `TWILIO_ACCOUNT_SID` (optional SMS fallback provider)
+- `TWILIO_AUTH_TOKEN` (optional SMS fallback provider)
+- `TWILIO_MESSAGING_SERVICE_SID` (optional SMS fallback provider)
+- `ACS_SMS_FROM` (legacy SMS fallback metadata only)
 - `AZURE_AD_B2C_TENANT_NAME`
 - `AZURE_TENANT_ID`
 - `AZURE_CLIENT_ID`
@@ -277,10 +280,13 @@ Optional backend settings:
 - `ACS_CONNECTION_STRING`
 - `ACS_EMAIL_FROM`
 - `ACS_EMAIL_TO`
-- `TWILIO_ACCOUNT_SID` (preferred SMS provider)
+- `TELNYX_API_KEY` (preferred SMS provider)
+- `TELNYX_MESSAGING_PROFILE_ID` (or `TELNYX_FROM_NUMBER`)
+- `TELNYX_FROM_NUMBER` (optional when messaging profile is used)
+- `TWILIO_ACCOUNT_SID` (fallback SMS provider)
 - `TWILIO_AUTH_TOKEN`
 - `TWILIO_MESSAGING_SERVICE_SID`
-- `ACS_SMS_FROM` (fallback SMS sender if Twilio is not configured)
+- `ACS_SMS_FROM` (legacy SMS sender metadata)
 - `WAITLIST_JOB_INTERVAL_MS`
 - `APPINSIGHTS_INSTRUMENTATIONKEY` or `APPLICATIONINSIGHTS_CONNECTION_STRING`
 - `OPENAI_API_KEY` (for AI invite generation)

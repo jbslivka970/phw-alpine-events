@@ -41,6 +41,13 @@ interface TwilioSmsConfig {
   messagingServiceSid?: string;
 }
 
+interface TelnyxSmsConfig {
+  isConfigured: boolean;
+  apiKey?: string;
+  messagingProfileId?: string;
+  fromNumber?: string;
+}
+
 interface RsvpLinkConfig {
   isConfigured: boolean;
   frontendBaseUrl: string;
@@ -189,5 +196,19 @@ function loadTwilioSmsConfig(): TwilioSmsConfig {
   };
 }
 
-export { loadAcsConfig, loadAuthConfig, loadDbConfig, loadRsvpLinkConfig, loadServerConfig, loadTwilioSmsConfig };
-export type { AcsConfig, AuthConfig, DbConfig, RsvpLinkConfig, ServerConfig, TwilioSmsConfig };
+function loadTelnyxSmsConfig(): TelnyxSmsConfig {
+  const apiKey = optionalEnv('TELNYX_API_KEY');
+  const messagingProfileId = optionalEnv('TELNYX_MESSAGING_PROFILE_ID');
+  const fromNumber = optionalEnv('TELNYX_FROM_NUMBER');
+
+  const isConfigured = Boolean(apiKey && (messagingProfileId || fromNumber));
+  return {
+    isConfigured,
+    apiKey,
+    messagingProfileId,
+    fromNumber,
+  };
+}
+
+export { loadAcsConfig, loadAuthConfig, loadDbConfig, loadRsvpLinkConfig, loadServerConfig, loadTwilioSmsConfig, loadTelnyxSmsConfig };
+export type { AcsConfig, AuthConfig, DbConfig, RsvpLinkConfig, ServerConfig, TwilioSmsConfig, TelnyxSmsConfig };

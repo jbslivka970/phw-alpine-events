@@ -26,6 +26,7 @@ describe('rsvpService waitlist auto-promotion', () => {
     const queryCalls: string[] = [];
     const queue: Array<{ recordset?: unknown[]; rowsAffected?: number[] }> = [
       { recordset: [{ event_id: 'event-1', title: 'River Day', status: 'published', mentor_capacity: null, participant_capacity: 2, capacity: 2, event_date: new Date('2026-06-01T18:00:00Z') }] },
+      { recordset: [] },
       { recordset: [{ response_id: 'r1', event_id: 'event-1', member_id: 'member-yes', response: 'no', responded_at: new Date('2026-05-01T00:00:00Z'), notes: null }] },
       { recordset: [{ first_name: 'Pat', email: 'pat@example.com', mobile_phone: null, sms_opt_in: false }] },
       { rowsAffected: [0] },
@@ -65,6 +66,7 @@ describe('rsvpService waitlist auto-promotion', () => {
     const queryCalls: string[] = [];
     const queue: Array<{ recordset?: unknown[]; rowsAffected?: number[] }> = [
       { recordset: [{ event_id: 'event-2', title: 'Casting Clinic', status: 'published', mentor_capacity: null, participant_capacity: 3, capacity: 3, event_date: new Date('2026-06-02T18:00:00Z') }] },
+      { recordset: [{ response: 'no', response_role: 'PARTICIPANT' }] },
       { recordset: [{ yes_count: 2 }] },
       { recordset: [{ reserved_count: 0, has_active_offer: 1 }] },
       { recordset: [{ response_id: 'r2', event_id: 'event-2', member_id: 'member-offered', response: 'yes', responded_at: new Date('2026-05-01T00:00:00Z'), notes: null }] },
@@ -93,5 +95,37 @@ describe('rsvpService waitlist auto-promotion', () => {
     });
 
     expect(queryCalls.some((q) => q.includes("SET status = @status") && q.includes('waitlist_promotion_offer'))).toBe(true);
+  });
+
+  it('does not send duplicate RSVP confirmation for identical repeated response', async () => {
+    const queue: Array<{ recordset?: unknown[]; rowsAffected?: number[] }> = [
+      { recordset: [{ event_id: 'event-3', title: 'River Day', status: 'published', mentor_capacity: null, participant_capacity: 5, capacity: 5, event_date: new Date('2026-06-03T18:00:00Z') }] },
+      { recordset: [{ response: 'yes', response_role: 'PARTICIPANT' }] },
+      { recordset: [{ response_id: 'r3', event_id: 'event-3', member_id: 'member-repeat', response: 'yes', responded_at: new Date('2026-05-01T00:00:00Z'), notes: null }] },
+      { recordset: [{ first_name: 'Repeat', email: 'repeat@example.com', mobile_phone: null, sms_opt_in: false }] },
+      { rowsAffected: [0] },
+      { recordset: [{ event_id: 'event-3', title: 'River Day', event_date: new Date('2026-06-03T18:00:00Z'), location: 'Deck', description: 'Desc', status: 'published', mentor_capacity: null, participant_capacity: 5, capacity: 5 }] },
+      { rowsAffected: [0] },
+      { recordset: [{ yes_count: 1, active_offers: 0 }] },
+    ];
+
+    const mockRequest = {
+      input: jest.fn().mockReturnThis(),
+      query: jest.fn().mockImplementation(async () => {
+        return queue.shift() ?? { recordset: [] };
+      }),
+    };
+
+    (getPool as jest.Mock).mockResolvedValue({ request: () => mockRequest });
+
+    await recordRsvpResponse({
+      eventId: 'event-3',
+      memberId: 'member-repeat',
+      response: 'yes',
+      responseChannel: 'tokenized_link',
+      responseRole: 'PARTICIPANT',
+    });
+
+    expect(sendRsvpConfirmation).not.toHaveBeenCalled();
   });
 });

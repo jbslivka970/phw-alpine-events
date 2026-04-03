@@ -310,6 +310,34 @@ describe('events routes', () => {
     );
   });
 
+  it('GET /api/events/rsvp/:token/respond records one-click RSVP response', async () => {
+    const token = createRsvpToken(
+      '00000000-0000-0000-0000-000000000101',
+      '00000000-0000-0000-0000-000000000202',
+      '00000000-0000-0000-0000-000000000303'
+    );
+    const queue = [
+      { recordset: [{ event_id: '00000000-0000-0000-0000-000000000101', title: 'Fly Tying 101', status: 'published', mentor_capacity: null, participant_capacity: 12, capacity: 12, event_date: new Date('2026-04-01T18:00:00.000Z') }] },
+      { recordset: [{ yes_count: 0 }] },
+      { recordset: [{ reserved_count: 0, has_active_offer: 0 }] },
+      { recordset: [{ response_id: 'response-3', event_id: '00000000-0000-0000-0000-000000000101', member_id: '00000000-0000-0000-0000-000000000202', response: 'yes', responded_at: new Date('2026-03-18T12:00:00.000Z'), notes: 'Recorded from tokenized RSVP link' }] },
+      { recordset: [{ first_name: 'Pat', email: 'pat@example.com', mobile_phone: '+13035551212', sms_opt_in: true }] },
+    ];
+    const mockRequest = {
+      input: jest.fn().mockReturnThis(),
+      query: jest.fn().mockImplementation(async () => queue.shift() ?? { recordset: [] }),
+    };
+    (getPool as jest.Mock).mockResolvedValue({ request: () => mockRequest });
+
+    const res = await request(app)
+      .get(`/api/events/rsvp/${token}/respond?response=yes&role=PARTICIPANT`);
+
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('RSVP recorded');
+    expect(mockRequest.input).toHaveBeenCalledWith('response_channel', 'NVarChar', 'tokenized_link');
+    expect(mockRequest.input).toHaveBeenCalledWith('response_role', 'NVarChar', 'PARTICIPANT');
+  });
+
   it('POST /api/events/:id/rsvp records a web RSVP response channel', async () => {
     const queue = [
       {

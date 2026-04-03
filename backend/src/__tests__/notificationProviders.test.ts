@@ -92,6 +92,19 @@ describe('ACS notification providers', () => {
     expect(providerId).toBe('sms-provider-id');
   });
 
+  it('AcsSmsService supports SDK array response shape', async () => {
+    smsSendMock.mockResolvedValue([{ successful: true, messageId: 'sms-provider-id-array' }]);
+
+    const service = new AcsSmsService('endpoint=sb://test;', '+13035550000');
+
+    const providerId = await service.sendSms({
+      to: '+13035551111',
+      message: 'Reminder text',
+    });
+
+    expect(providerId).toBe('sms-provider-id-array');
+  });
+
   it('AcsSmsService throws when no recipient result is returned', async () => {
     smsSendMock.mockResolvedValue({ value: [] });
 

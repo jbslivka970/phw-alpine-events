@@ -32,10 +32,35 @@ import apiRouter from './routes';
 
 const app = express();
 const { corsOrigin, port, nodeEnv } = loadServerConfig();
+const allowedOrigins = (corsOrigin ?? '')
+  .split(',')
+  .map((value) => value.trim().replace(/\/$/, ''))
+  .filter((value) => value.length > 0);
+const corsOptions = allowedOrigins.length
+  ? {
+    origin: (
+      requestOrigin: string | undefined,
+      callback: (error: Error | null, allow?: boolean | string) => void,
+    ) => {
+      if (!requestOrigin) {
+        callback(null, false);
+        return;
+      }
+
+      const normalizedOrigin = requestOrigin.replace(/\/$/, '');
+      if (allowedOrigins.includes(normalizedOrigin)) {
+        callback(null, normalizedOrigin);
+        return;
+      }
+
+      callback(new Error(`Not allowed by CORS: ${requestOrigin}`));
+    },
+  }
+  : undefined;
 
 // Middleware
 app.use(helmet());
-app.use(cors(corsOrigin ? { origin: corsOrigin } : undefined));
+app.use(cors(corsOptions));
 app.use(express.json());
 
 // Basic route
