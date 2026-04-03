@@ -4,7 +4,9 @@ import { adminApi } from '../api/admin'
 import { eventsApi } from '../api/events'
 import { groupsApi } from '../api/groups'
 import { membersApi } from '../api/members'
+import LoadingSkeleton from '../components/LoadingSkeleton'
 import type { EventRecord } from '../api/events'
+import { toUserErrorMessage } from '../utils/errorMessage'
 
 type HealthState = 'loading' | 'ok' | 'error' | 'unconfigured'
 
@@ -129,7 +131,7 @@ function AdminPage() {
       })
       setInviteDraft(draft)
     } catch (error) {
-      setInviteError(error instanceof Error ? error.message : 'Failed to generate invite draft.')
+      setInviteError(toUserErrorMessage(error, 'Failed to generate invite draft.'))
     } finally {
       setIsGeneratingInvite(false)
     }
@@ -162,7 +164,7 @@ function AdminPage() {
       })
       setInviteApplySuccess(`Applied to ${response.template_name} (email + sms) at ${new Date(response.applied_at).toLocaleString()}.`)
     } catch (error) {
-      setInviteApplyError(error instanceof Error ? error.message : 'Failed to apply invite draft to templates.')
+      setInviteApplyError(toUserErrorMessage(error, 'Failed to apply invite draft to templates.'))
     } finally {
       setIsApplyingInvite(false)
     }
@@ -190,11 +192,21 @@ function AdminPage() {
         affectedRows: row.affectedRows,
       })))
     } catch (error) {
-      setRetentionPreviewError(error instanceof Error ? error.message : 'Failed to preview retention results.')
+      setRetentionPreviewError(toUserErrorMessage(error, 'Failed to preview retention results.'))
     } finally {
       setRetentionPreviewBusy(false)
     }
   }
+
+  const provider = inviteDraft?.provider ?? null
+  const providerHint =
+    provider === 'azure-openai'
+      ? 'Draft generated with Azure OpenAI.'
+      : provider === 'openai'
+      ? 'Draft generated with OpenAI compatibility mode.'
+      : provider === 'fallback'
+      ? 'AI response unavailable. Deterministic fallback copy was used.'
+      : null
 
   const healthRows: Array<{ label: string; status: HealthState; value: string }> = [
     {
@@ -263,7 +275,11 @@ function AdminPage() {
         <section className="card admin-stats-card">
           <h2 className="admin-section-title">Chapter at a Glance</h2>
           {statsLoading ? (
-            <p className="members-loading">Loading stats…</p>
+            <div className="phw-skeleton-grid">
+              <LoadingSkeleton lines={2} compact />
+              <LoadingSkeleton lines={2} compact />
+              <LoadingSkeleton lines={2} compact />
+            </div>
           ) : (
             <div className="stat-grid" style={{ marginBottom: 0 }}>
               <div className="stat-card">
@@ -356,7 +372,12 @@ function AdminPage() {
           <button className="btn btn--primary btn--sm" disabled={isGeneratingInvite} onClick={() => void handleGenerateInviteDraft()}>
             {isGeneratingInvite ? 'Generating…' : 'Generate Invite Draft'}
           </button>
-          {inviteError && <p className="members-error" style={{ marginTop: 10 }}>{inviteError}</p>}
+          <div className="admin-ai-status">
+            {isGeneratingInvite && <span className="admin-ai-status__text">Generating draft and validating structured response…</span>}
+            {provider && <span className={`provider-chip provider-chip--${provider}`}>{provider}</span>}
+            {providerHint && <span className="admin-ai-status__text">{providerHint}</span>}
+          </div>
+          {inviteError && <p className="ui-notice ui-notice--error">{inviteError}</p>}
           {inviteDraft && (
             <div style={{ marginTop: 12, display: 'grid', gap: 10 }}>
               <div>
@@ -371,7 +392,11 @@ function AdminPage() {
                 <strong>SMS Body</strong>
                 <textarea className="members-input" rows={3} readOnly value={inviteDraft.smsBody} />
               </div>
-              <small style={{ color: 'var(--muted)' }}>Provider: {inviteDraft.provider}</small>
+              {inviteDraft.provider === 'fallback' && (
+                <p className="ui-notice ui-notice--info" style={{ margin: 0 }}>
+                  Fallback content is safe to use, but you can retry now that Azure OpenAI is configured.
+                </p>
+              )}
 
               <div style={{ display: 'grid', gap: 8, marginTop: 6 }}>
                 <input
@@ -395,15 +420,24 @@ function AdminPage() {
                   />
                   I reviewed this draft and approve applying it to active templates.
                 </label>
-                <button
-                  className="btn btn--secondary btn--sm"
-                  disabled={isApplyingInvite || !inviteReviewed}
-                  onClick={() => void handleApplyInviteDraft()}
-                >
-                  {isApplyingInvite ? 'Applying…' : 'Apply Draft To Templates'}
-                </button>
-                {inviteApplyError && <p className="members-error">{inviteApplyError}</p>}
-                {inviteApplySuccess && <p style={{ color: '#1a7f37', margin: 0 }}>{inviteApplySuccess}</p>}
+                <div className="admin-ai-actions">
+                  <button
+                    className="btn btn--secondary btn--sm"
+                    disabled={isApplyingInvite || !inviteReviewed}
+                    onClick={() => void handleApplyInviteDraft()}
+                  >
+                    {isApplyingInvite ? 'Applying…' : 'Apply Draft To Templates'}
+                  </button>
+                  <button
+                    className="btn btn--outline btn--sm"
+                    disabled={isGeneratingInvite}
+                    onClick={() => void handleGenerateInviteDraft()}
+                  >
+                    Retry Draft
+                  </button>
+                </div>
+                {inviteApplyError && <p className="ui-notice ui-notice--error">{inviteApplyError}</p>}
+                {inviteApplySuccess && <p className="ui-notice ui-notice--success">{inviteApplySuccess}</p>}
               </div>
             </div>
           )}
@@ -440,7 +474,7 @@ function AdminPage() {
             {retentionPreviewBusy ? 'Running Preview…' : 'Run Retention Preview'}
           </button>
 
-          {retentionPreviewError && <p className="members-error" style={{ marginTop: 10 }}>{retentionPreviewError}</p>}
+          {retentionPreviewError && <p className="ui-notice ui-notice--error" style={{ marginTop: 10 }}>{retentionPreviewError}</p>}
           {retentionPreviewGeneratedAt && (
             <small style={{ color: 'var(--muted)', display: 'block', marginTop: 10 }}>
               Generated: {new Date(retentionPreviewGeneratedAt).toLocaleString()}

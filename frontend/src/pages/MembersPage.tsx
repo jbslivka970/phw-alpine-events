@@ -1,7 +1,9 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { membersApi } from '../api/members'
 import type { MemberRecord } from '../api/members'
+import LoadingSkeleton from '../components/LoadingSkeleton'
 import { useAuth } from '../hooks/useAuth'
+import { toUserErrorMessage } from '../utils/errorMessage'
 
 interface MemberEditState {
   first_name: string
@@ -81,7 +83,7 @@ function MembersPage() {
     membersApi
       .list({ page: 1, pageSize: 100, search: search || undefined, isActive: true })
       .then((r) => { if (active) setMembers(r.data) })
-      .catch((e: unknown) => { if (active) setError(e instanceof Error ? e.message : 'Failed to load') })
+      .catch((e: unknown) => { if (active) setError(toUserErrorMessage(e, 'Failed to load member records.')) })
       .finally(() => { if (active) setIsLoading(false) })
     return () => { active = false }
   }, [search])
@@ -184,7 +186,7 @@ function MembersPage() {
       setMembers((cur) => cur.map((m) => (m.member_id === updated.member_id ? updated : m)))
       closeEditor()
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Save failed')
+      setError(toUserErrorMessage(err, 'Save failed.'))
     } finally {
       setIsSaving(false)
     }
@@ -203,7 +205,7 @@ function MembersPage() {
         }
       }
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'SMS consent update failed')
+      setError(toUserErrorMessage(err, 'SMS consent update failed.'))
     }
   }
 
@@ -224,11 +226,13 @@ function MembersPage() {
         <span className="members-count">{totalLabel}</span>
       </section>
 
-      {error && <p className="members-error">{error}</p>}
+      {error && <p className="ui-notice ui-notice--error">{error}</p>}
 
       <section className="card members-table-wrap">
         {isLoading ? (
-          <p className="members-loading">Loading members...</p>
+          <div style={{ padding: '1rem' }}>
+            <LoadingSkeleton lines={5} />
+          </div>
         ) : (
           <table className="members-table">
             <thead>

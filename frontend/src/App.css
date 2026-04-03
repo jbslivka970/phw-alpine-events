@@ -126,6 +126,60 @@
 .events-loading { color: var(--muted); font-size: 0.9rem; }
 .events-empty   { color: var(--muted); font-size: 0.9rem; padding: 2rem; text-align: center; }
 
+.ui-notice {
+  margin: 0.7rem 0;
+  border-radius: 10px;
+  padding: 0.65rem 0.85rem;
+  border: 1px solid var(--border);
+  font-size: 0.88rem;
+}
+
+.ui-notice--error {
+  color: #9a2f2f;
+  background: #fdecea;
+  border-color: #f5c4c4;
+}
+
+.ui-notice--success {
+  color: #155724;
+  background: #e6f6ea;
+  border-color: #b9e2c4;
+}
+
+.ui-notice--info {
+  color: #1b3a5c;
+  background: #e8f4fb;
+  border-color: #c7e2f4;
+}
+
+.phw-skeleton {
+  display: grid;
+  gap: 0.55rem;
+  padding: 0.2rem 0;
+}
+
+.phw-skeleton--compact {
+  gap: 0.4rem;
+}
+
+.phw-skeleton__line {
+  height: 12px;
+  width: 100%;
+  border-radius: 999px;
+  background: linear-gradient(110deg, #ece9df 8%, #f6f4ee 18%, #ece9df 33%);
+  background-size: 220% 100%;
+  animation: phw-shimmer 1.25s linear infinite;
+}
+
+.phw-skeleton__line--short {
+  width: 62%;
+}
+
+.phw-skeleton-grid {
+  display: grid;
+  gap: 0.75rem;
+}
+
 .events-list {
   display: flex;
   flex-direction: column;
@@ -1433,3 +1487,59 @@
 .admin-tool-link small  { font-size: 0.78rem; color: var(--muted); }
 
 .admin-tool-icon { font-size: 1.35rem; line-height: 1; width: 28px; text-align: center; }
+
+.admin-ai-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.provider-chip {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  padding: 4px 9px;
+  text-transform: uppercase;
+}
+
+.provider-chip--azure-openai {
+  color: #094067;
+  background: #d7eefb;
+}
+
+.provider-chip--openai {
+  color: #14532d;
+  background: #daf5e4;
+}
+
+.provider-chip--fallback {
+  color: #7d5a17;
+  background: #fff1d6;
+}
+
+.admin-ai-status__text {
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.admin-ai-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+@media (max-width: 760px) {
+  .admin-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-tools-card [style*='grid-template-columns: repeat(2, minmax(0, 1fr))'],
+  .admin-tools-card [style*='grid-template-columns: repeat(3, minmax(0, 1fr))'] {
+    grid-template-columns: 1fr !important;
+  }
+}

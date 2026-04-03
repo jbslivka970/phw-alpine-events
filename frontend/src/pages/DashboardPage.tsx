@@ -7,6 +7,8 @@ import tavfApi, { type TavfPosting } from '../api/tavf';
 import { useAuth } from '../hooks/useAuth';
 import EmptyState from '../components/EmptyState';
 import CapacityBadge from '../components/CapacityBadge';
+import LoadingSkeleton from '../components/LoadingSkeleton';
+import { toUserErrorMessage } from '../utils/errorMessage';
 
 type DashboardRsvp = {
   event_id: string;
@@ -103,6 +105,7 @@ function DashboardPage() {
   const navigate = useNavigate();
   const isAdminUser = isAdmin();
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [upcoming, setUpcoming] = useState<EventRecord[]>([]);
   const [myRsvps, setMyRsvps] = useState<DashboardRsvp[]>([]);
   const [openPostings, setOpenPostings] = useState<TavfPosting[]>([]);
@@ -124,6 +127,7 @@ function DashboardPage() {
 
     async function loadDashboard() {
       try {
+        setLoadError(null);
         const events = await eventsApi.list('published');
         if (!active) return;
 
@@ -193,8 +197,9 @@ function DashboardPage() {
             if (active) setStats((cur) => ({ ...cur, totalMembers: 0 }));
           }
         }
-      } catch {
+      } catch (error) {
         if (active) {
+          setLoadError(toUserErrorMessage(error, 'Unable to load dashboard data right now.'));
           setUpcoming([]);
           setMyRsvps([]);
           setOpenPostings([]);
@@ -237,8 +242,12 @@ function DashboardPage() {
           <Link to="/events" className="phw-section-link">View all &rarr;</Link>
         </div>
 
+        {loadError && <p className="ui-notice ui-notice--error">{loadError}</p>}
+
         {loading ? (
-          <div className="phw-card" style={{ padding: '1.25rem' }}>Loading events...</div>
+          <div className="phw-card" style={{ padding: '1.25rem' }}>
+            <LoadingSkeleton lines={4} />
+          </div>
         ) : upcoming.length === 0 ? (
           <div className="phw-card">
             <EmptyState
@@ -288,7 +297,9 @@ function DashboardPage() {
             <h2 className="phw-section-title">My RSVPs</h2>
           </div>
           <div className="phw-card" style={{ padding: '4px 1rem' }}>
-            {myRsvps.length === 0 ? (
+            {loading ? (
+              <LoadingSkeleton lines={3} compact />
+            ) : myRsvps.length === 0 ? (
               <EmptyState variant="calendar" title="No RSVPs yet" description="RSVP to an event and it will show here." />
             ) : (
               myRsvps.map((row, index) => {
@@ -313,7 +324,9 @@ function DashboardPage() {
             <Link to="/tavf" className="phw-section-link">View all &rarr;</Link>
           </div>
           <div className="phw-card" style={{ padding: '4px 1rem' }}>
-            {openPostings.length === 0 ? (
+            {loading ? (
+              <LoadingSkeleton lines={3} compact />
+            ) : openPostings.length === 0 ? (
               <EmptyState
                 variant="fishing"
                 title="No open postings"

@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { ROLES } from '../authConfig';
 import { useAuth } from '../hooks/useAuth';
@@ -30,6 +31,11 @@ export default function Layout() {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, logout } = useAuth();
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+
+  useEffect(() => {
+    setIsMenuOpen(false);
+  }, [location.pathname]);
 
   async function handleLogout() {
     await logout();
@@ -57,7 +63,20 @@ export default function Layout() {
             </div>
           </Link>
 
-          <div className="phw-layout__links">
+          <button
+            className="phw-layout__menu-toggle"
+            type="button"
+            aria-expanded={isMenuOpen}
+            aria-controls="phw-primary-navigation"
+            onClick={() => setIsMenuOpen((current) => !current)}
+          >
+            Menu
+          </button>
+
+          <div
+            id="phw-primary-navigation"
+            className={`phw-layout__links${isMenuOpen ? ' phw-layout__links--open' : ''}`}
+          >
             {visibleItems.map((item) => (
               <NavLink
                 key={item.to}

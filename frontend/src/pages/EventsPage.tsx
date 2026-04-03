@@ -5,6 +5,8 @@ import type { EventRecord, RsvpRecord } from '../api/events'
 import { groupsApi } from '../api/groups'
 import type { GroupRecord } from '../api/groups'
 import { useAuth } from '../hooks/useAuth'
+import LoadingSkeleton from '../components/LoadingSkeleton'
+import { toUserErrorMessage } from '../utils/errorMessage'
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -336,7 +338,7 @@ function RsvpPanel({ eventId, onClose }: { eventId: string; onClose: () => void 
     setLoading(true)
     rsvpApi.list(eventId)
       .then(setRsvps)
-      .catch((e: Error) => setErr(e.message))
+      .catch((e: unknown) => setErr(toUserErrorMessage(e, 'Unable to load RSVP details.')))
       .finally(() => setLoading(false))
   }, [eventId])
 
@@ -351,7 +353,7 @@ function RsvpPanel({ eventId, onClose }: { eventId: string; onClose: () => void 
         <h3 className="rsvp-panel__title">RSVP Summary</h3>
         <button className="btn btn--ghost btn--sm" onClick={onClose}>✕</button>
       </div>
-      {loading && <p className="rsvp-panel__loading">Loading…</p>}
+      {loading && <LoadingSkeleton lines={3} compact />}
       {err && <p className="rsvp-panel__error">{err}</p>}
       {!loading && !err && (
         <>
@@ -716,7 +718,7 @@ function EventsPage() {
       const data = await eventsApi.list(filter === 'all' ? undefined : filter)
       setEvents(data)
     } catch (e: unknown) {
-      if (e instanceof Error && e.name !== 'AbortError') setErr(e.message)
+      if (e instanceof Error && e.name !== 'AbortError') setErr(toUserErrorMessage(e, 'Unable to load events.'))
     } finally {
       setLoading(false)
     }
@@ -762,7 +764,7 @@ function EventsPage() {
       setEditTarget(null)
       await loadEvents()
     } catch (e: unknown) {
-      setFormError(e instanceof Error ? e.message : 'Save failed.')
+      setFormError(toUserErrorMessage(e, 'Save failed.'))
     } finally {
       setFormSaving(false)
     }
@@ -774,7 +776,7 @@ function EventsPage() {
       await eventsApi.updateStatus(event.event_id, newStatus)
       await loadEvents()
     } catch (e: unknown) {
-      setErr(e instanceof Error ? e.message : 'Status change failed.')
+      setErr(toUserErrorMessage(e, 'Status change failed.'))
     } finally {
       setTransitioning(null)
     }
@@ -811,7 +813,7 @@ function EventsPage() {
       anchor.remove()
       URL.revokeObjectURL(objectUrl)
     } catch (error) {
-      setErr(error instanceof Error ? error.message : 'Failed to download ICS file.')
+      setErr(toUserErrorMessage(error, 'Failed to download ICS file.'))
     }
   }
 
@@ -840,8 +842,14 @@ function EventsPage() {
         ))}
       </div>
 
-      {err && <p className="events-error">{err}</p>}
-      {loading && <p className="events-loading">Loading events…</p>}
+      {err && <p className="ui-notice ui-notice--error">{err}</p>}
+      {loading && (
+        <div className="phw-skeleton-grid">
+          <LoadingSkeleton lines={4} />
+          <LoadingSkeleton lines={4} />
+          <LoadingSkeleton lines={4} />
+        </div>
+      )}
 
       {!loading && events.length === 0 && (
         <p className="events-empty">No events found{filter !== 'all' ? ` with status "${filter}"` : ''}.</p>

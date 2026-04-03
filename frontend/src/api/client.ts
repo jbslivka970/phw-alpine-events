@@ -75,7 +75,26 @@ async function buildHeaders(extra?: HeadersInit): Promise<HeadersInit> {
 
 async function parseResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
-    const message = await response.text().catch(() => response.statusText);
+    let message = response.statusText;
+    try {
+      const contentType = response.headers.get('content-type') ?? '';
+      if (contentType.includes('application/json')) {
+        const payload = (await response.json()) as { error?: unknown; message?: unknown };
+        if (typeof payload.error === 'string' && payload.error.trim().length > 0) {
+          message = payload.error;
+        } else if (typeof payload.message === 'string' && payload.message.trim().length > 0) {
+          message = payload.message;
+        }
+      } else {
+        const text = await response.text();
+        if (text.trim().length > 0) {
+          message = text;
+        }
+      }
+    } catch {
+      // Fall back to status text when parsing fails.
+    }
+
     throw new Error(`API ${response.status}: ${message}`);
   }
 
