@@ -5,6 +5,7 @@ interface EventRecord {
   title: string;
   description: string | null;
   location: string | null;
+  photo_url: string | null;
   event_date: string;
   end_date: string | null;
   mentor_capacity: number | null;
@@ -26,6 +27,7 @@ interface UpdateEventPayload {
   title?: string;
   description?: string | null;
   location?: string | null;
+  photo_url?: string | null;
   event_date?: string;
   end_date?: string | null;
   mentor_capacity?: number | null;
@@ -107,6 +109,7 @@ const eventsApi = {
     event_date: string;
     description?: string | null;
     location?: string | null;
+    photo_url?: string | null;
     end_date?: string | null;
     mentor_capacity?: number | null;
     participant_capacity?: number | null;

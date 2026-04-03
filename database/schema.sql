@@ -74,6 +74,7 @@ CREATE TABLE dbo.event (
     title             NVARCHAR(200)    NOT NULL,
     description       NVARCHAR(MAX)    NULL,
     location          NVARCHAR(300)    NULL,
+    photo_url         NVARCHAR(1024)   NULL,
     event_date        DATETIME         NOT NULL,
     end_date          DATETIME         NULL,
     mentor_capacity   INT              NULL,
@@ -94,6 +95,9 @@ BEGIN
 
     IF COL_LENGTH('dbo.event', 'participant_capacity') IS NULL
         ALTER TABLE dbo.event ADD participant_capacity INT NULL;
+
+    IF COL_LENGTH('dbo.event', 'photo_url') IS NULL
+        ALTER TABLE dbo.event ADD photo_url NVARCHAR(1024) NULL;
 
         EXEC sp_executesql N'
                 UPDATE dbo.event

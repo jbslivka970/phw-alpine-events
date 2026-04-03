@@ -40,6 +40,8 @@ const GALLERY_PHOTOS = [
   '/PHW Photos/IMG_7266.JPG',
 ];
 
+const ONBOARDING_KEY_PREFIX = 'phw-onboarding-dismissed';
+
 function HeroBanner({ userName }: { userName?: string }) {
   return (
     <div className="phw-hero phw-stagger phw-stagger-1">
@@ -115,6 +117,7 @@ function DashboardPage() {
     upcomingEvents: 0,
     totalRsvps: 0,
   });
+  const [showOnboarding, setShowOnboarding] = useState(false);
 
   const now = useMemo(() => new Date(), []);
 
@@ -221,6 +224,26 @@ function DashboardPage() {
     };
   }, [isAdminUser, now, user?.email, user?.id]);
 
+  useEffect(() => {
+    const identity = user?.id ?? user?.email;
+    if (!identity) {
+      setShowOnboarding(false);
+      return;
+    }
+
+    const key = `${ONBOARDING_KEY_PREFIX}:${identity}`;
+    const dismissed = window.localStorage.getItem(key) === '1';
+    setShowOnboarding(!dismissed);
+  }, [user?.email, user?.id]);
+
+  function dismissOnboarding(): void {
+    const identity = user?.id ?? user?.email;
+    if (identity) {
+      window.localStorage.setItem(`${ONBOARDING_KEY_PREFIX}:${identity}`, '1');
+    }
+    setShowOnboarding(false);
+  }
+
   const displayName = user?.name?.split(' ')[0] ?? undefined;
 
   return (
@@ -228,6 +251,21 @@ function DashboardPage() {
       <HeroBanner userName={displayName} />
 
       <PhotoStrip />
+
+      {showOnboarding && (
+        <div className="phw-onboarding-card phw-stagger phw-stagger-3">
+          <div>
+            <h2 className="phw-onboarding-card__title">Quick Start</h2>
+            <p className="phw-onboarding-card__text">Set your communication preferences, RSVP to one event, and check TAVF opportunities.</p>
+            <div className="phw-onboarding-card__actions">
+              <Link to="/preferences" className="btn btn--outline btn--sm">Set Preferences</Link>
+              <Link to="/events" className="btn btn--outline btn--sm">Browse Events</Link>
+              <Link to="/tavf" className="btn btn--outline btn--sm">Open TAVF</Link>
+            </div>
+          </div>
+          <button className="btn btn--ghost btn--sm" onClick={dismissOnboarding}>Dismiss</button>
+        </div>
+      )}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0,1fr))', gap: 14, marginBottom: '1.75rem' }}>
         <StatCard label="Members" value={isAdminUser ? stats.totalMembers : '–'} delay={3} />
@@ -270,6 +308,9 @@ function DashboardPage() {
                   <div className="phw-event-card">
                     <div className="phw-event-card__stripe" style={{ background: stripe }} />
                     <div className="phw-event-card__body">
+                      {event.photo_url && (
+                        <img className="phw-event-card__photo" src={event.photo_url} alt={`${event.title} preview`} loading="lazy" />
+                      )}
                       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginBottom: 6 }}>
                         <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600 }}>{event.title}</h3>
                         {totalSlots > 0 && <CapacityBadge totalSlots={totalSlots} filledSlots={filled} />}

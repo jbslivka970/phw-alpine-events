@@ -98,6 +98,7 @@ interface EventFormPayload {
   event_date: string
   description: string
   location: string
+  photo_url: string
   end_date: string
   mentor_capacity: string
   participant_capacity: string
@@ -107,6 +108,7 @@ interface EventFormPayload {
 
 const EMPTY_FORM: EventFormPayload = {
   title: '', event_date: '', description: '', location: '',
+  photo_url: '',
   end_date: '', mentor_capacity: '', participant_capacity: '', notification_targets: [], update_reason: '',
 }
 
@@ -302,6 +304,7 @@ function payloadFromRecord(e: EventRecord): EventFormPayload {
     event_date: e.event_date ? e.event_date.slice(0, 16) : '',
     description: e.description ?? '',
     location: e.location ?? '',
+    photo_url: e.photo_url ?? '',
     end_date: e.end_date ? e.end_date.slice(0, 16) : '',
     mentor_capacity: e.mentor_capacity != null ? String(e.mentor_capacity) : '',
     participant_capacity: e.participant_capacity != null
@@ -600,6 +603,17 @@ function EventFormModal({ initial, groups, onSave, onCancel, saving, error, isEd
               <input className="form-input" value={form.location} onChange={e => set('location', e.target.value)} />
             </div>
 
+            <div className="form-field form-field--full">
+              <label className="form-label">Event Photo URL</label>
+              <input
+                className="form-input"
+                value={form.photo_url}
+                onChange={e => set('photo_url', e.target.value)}
+                placeholder="https://..."
+              />
+              <p className="form-field-hint">Optional. Use an https image URL to show a photo on event cards.</p>
+            </div>
+
             <div className="form-field">
               <label className="form-label">Mentor Capacity</label>
               <input
@@ -744,6 +758,7 @@ function EventsPage() {
         event_date: form.event_date,
         description: form.description || null,
         location: form.location || null,
+        photo_url: form.photo_url.trim() || null,
         end_date: form.end_date || null,
         mentor_capacity: mentorCapacity,
         participant_capacity: participantCapacity,
@@ -877,6 +892,11 @@ function EventsPage() {
               </div>
 
               <h2 className="event-card__title">{event.title}</h2>
+              {event.photo_url && (
+                <div className="event-card__image-wrap">
+                  <img className="event-card__image" src={event.photo_url} alt={`${event.title} event`} loading="lazy" />
+                </div>
+              )}
               {event.description && (
                 <p className="event-card__desc">{event.description}</p>
               )}

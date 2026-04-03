@@ -7,6 +7,14 @@ const router = Router();
 
 const REQUIRED_DB_ENV_VARS = ['DB_HOST', 'DB_NAME', 'DB_USER', 'DB_PASSWORD'] as const;
 const REQUIRED_AUTH_ENV_VARS = ['AZURE_AD_B2C_TENANT_NAME', 'AZURE_TENANT_ID', 'AZURE_CLIENT_ID'] as const;
+const SENSITIVE_ENV_VARS = [
+  'DB_PASSWORD',
+  'ACS_CONNECTION_STRING',
+  'AZURE_OPENAI_API_KEY',
+  'OPENAI_API_KEY',
+  'TWILIO_AUTH_TOKEN',
+  'TELNYX_API_KEY',
+] as const;
 
 function missingEnvVars(names: readonly string[]): string[] {
   return names.filter((name) => !process.env[name]);
@@ -35,6 +43,24 @@ function missingAuthVars(): string[] {
   }
 
   return missing;
+}
+
+function isKeyVaultReference(value: string | undefined): boolean {
+  if (!value) {
+    return false;
+  }
+
+  return value.trim().startsWith('@Microsoft.KeyVault(');
+}
+
+function nonKeyVaultSensitiveVars(): string[] {
+  return SENSITIVE_ENV_VARS.filter((name) => {
+    const value = process.env[name];
+    if (!value) {
+      return false;
+    }
+    return !isKeyVaultReference(value);
+  });
 }
 
 // Liveness — always 200 if the process is running
@@ -70,11 +96,15 @@ router.get('/startup', (_req: Request, res: Response) => {
   );
   const dbMissing = missingEnvVars(REQUIRED_DB_ENV_VARS);
   const authMissing = missingAuthVars();
+  const nonKeyVaultSecrets = nonKeyVaultSensitiveVars();
+  const keyVaultReferencesConfigured = nonKeyVaultSecrets.length === 0;
+  const requireKeyVaultReferences = (process.env['REQUIRE_KEYVAULT_REFERENCES'] ?? 'false').toLowerCase() === 'true';
   const isProd = process.env['NODE_ENV'] === 'production';
   const strictNotificationFailure = notificationStatus.strictModeEnabled && notificationStatus.mode !== 'real';
+  const keyVaultPolicyFailure = requireKeyVaultReferences && !keyVaultReferencesConfigured;
 
   const summary = {
-    status: dbMissing.length === 0 && !strictNotificationFailure ? 'ok' : 'degraded',
+    status: dbMissing.length === 0 && !strictNotificationFailure && !keyVaultPolicyFailure ? 'ok' : 'degraded',
     timestamp: new Date().toISOString(),
     runtime: {
       nodeEnv: process.env['NODE_ENV'] ?? 'development',
@@ -90,6 +120,8 @@ router.get('/startup', (_req: Request, res: Response) => {
       emailNotificationChannel: notificationStatus.emailServiceMode,
       smsNotificationChannel: notificationStatus.smsServiceMode,
       telemetryConfigured,
+      keyVaultReferencesConfigured,
+      requireKeyVaultReferences,
     },
     missing: {
       db: dbMissing,
@@ -103,10 +135,11 @@ router.get('/startup', (_req: Request, res: Response) => {
         ...(!telemetryConfigured ? ['APPINSIGHTS_INSTRUMENTATIONKEY_OR_APPLICATIONINSIGHTS_CONNECTION_STRING'] : []),
       ],
       notifications: notificationStatus.reasons,
+      keyVault: nonKeyVaultSecrets,
     },
   };
 
-  if (isProd && (dbMissing.length > 0 || strictNotificationFailure)) {
+  if (isProd && (dbMissing.length > 0 || strictNotificationFailure || keyVaultPolicyFailure)) {
     res.status(503).json(summary);
     return;
   }

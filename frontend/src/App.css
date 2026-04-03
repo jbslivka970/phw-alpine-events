@@ -225,6 +225,21 @@
   color: var(--text);
 }
 
+.event-card__image-wrap {
+  margin: 0 0 0.6rem;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  max-height: 220px;
+}
+
+.event-card__image {
+  display: block;
+  width: 100%;
+  height: auto;
+  object-fit: cover;
+}
+
 .event-card__desc {
   margin: 0 0 0.65rem;
   font-size: 0.88rem;

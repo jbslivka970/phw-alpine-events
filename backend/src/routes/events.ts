@@ -10,6 +10,7 @@ import {
   assertEventPublishedNotificationReady,
   assertEventUpdatedNotificationReady,
   sendEventCancelledNotification,
+  sendEventCompletedNotification,
   sendEventPublishedNotification,
   sendEventUpdatedNotification,
 } from '../services/notifications';
@@ -421,6 +422,7 @@ router.post('/', writeLimiter, authenticate, requireEventCreatorOrAdmin, async (
 
     const description = (req.body?.description as string | undefined) ?? null;
     const location = (req.body?.location as string | undefined) ?? null;
+    const photoUrl = parsePhotoUrl(req.body?.photo_url);
     const endDate = (req.body?.end_date as string | undefined) ?? null;
     const mentorCapacity = parseCapacity(req.body?.mentor_capacity);
     const participantCapacity = parseCapacity(req.body?.participant_capacity);
@@ -469,6 +471,7 @@ router.post('/', writeLimiter, authenticate, requireEventCreatorOrAdmin, async (
       .input('title', sql.NVarChar, title)
       .input('description', sql.NVarChar(sql.MAX), description)
       .input('location', sql.NVarChar, location)
+      .input('photo_url', sql.NVarChar(1024), photoUrl)
       .input('event_date', sql.DateTime, parsedEventDate)
       .input('end_date', sql.DateTime, parsedEndDate)
       .input('mentor_capacity', sql.Int, mentorCapacity)
@@ -476,9 +479,9 @@ router.post('/', writeLimiter, authenticate, requireEventCreatorOrAdmin, async (
       .input('capacity', sql.Int, capacity)
       .input('created_by', sql.UniqueIdentifier, createdBy)
       .query(
-        `INSERT INTO event (event_id, title, description, location, event_date, end_date, mentor_capacity, participant_capacity, capacity, status, created_by, created_at, updated_at)
+        `INSERT INTO event (event_id, title, description, location, photo_url, event_date, end_date, mentor_capacity, participant_capacity, capacity, status, created_by, created_at, updated_at)
          OUTPUT INSERTED.*
-         VALUES (NEWID(), @title, @description, @location, @event_date, @end_date, @mentor_capacity, @participant_capacity, @capacity, 'draft', @created_by, GETUTCDATE(), GETUTCDATE())`
+         VALUES (NEWID(), @title, @description, @location, @photo_url, @event_date, @end_date, @mentor_capacity, @participant_capacity, @capacity, 'draft', @created_by, GETUTCDATE(), GETUTCDATE())`
       );
 
     const event = created.recordset[0];
@@ -521,13 +524,14 @@ router.put('/:id', writeLimiter, authenticate, requireEventCreatorOrAdmin, async
         title: string;
         description: string | null;
         location: string | null;
+        photo_url: string | null;
         event_date: Date | string;
         end_date: Date | string | null;
         mentor_capacity: number | null;
         participant_capacity: number | null;
         capacity: number | null;
       }>(
-        'SELECT status, title, description, location, event_date, end_date, mentor_capacity, participant_capacity, capacity FROM event WHERE event_id = @event_id'
+        'SELECT status, title, description, location, photo_url, event_date, end_date, mentor_capacity, participant_capacity, capacity FROM event WHERE event_id = @event_id'
       );
 
     const existing = existingResult.recordset[0];
@@ -545,6 +549,7 @@ router.put('/:id', writeLimiter, authenticate, requireEventCreatorOrAdmin, async
     const proposedTitle = req.body?.title;
     const proposedDescription = req.body?.description;
     const proposedLocation = req.body?.location;
+    const proposedPhotoUrl = req.body?.photo_url;
     const proposedEventDate = req.body?.event_date;
     const proposedEndDate = req.body?.end_date;
     const proposedMentorCapacity = req.body?.mentor_capacity;
@@ -559,6 +564,9 @@ router.put('/:id', writeLimiter, authenticate, requireEventCreatorOrAdmin, async
     }
     if (proposedLocation !== undefined && normalizeString(proposedLocation) !== normalizeString(existing.location)) {
       changedFields.push('location');
+    }
+    if (proposedPhotoUrl !== undefined && normalizeString(proposedPhotoUrl) !== normalizeString(existing.photo_url)) {
+      changedFields.push('photo_url');
     }
     if (proposedEventDate !== undefined && toUtcMillis(proposedEventDate) !== toUtcMillis(existing.event_date)) {
       changedFields.push('event_date');
@@ -590,6 +598,10 @@ router.put('/:id', writeLimiter, authenticate, requireEventCreatorOrAdmin, async
     if (req.body?.location !== undefined) {
       updates.push('location = @location');
       request.input('location', sql.NVarChar, req.body.location);
+    }
+    if (req.body?.photo_url !== undefined) {
+      updates.push('photo_url = @photo_url');
+      request.input('photo_url', sql.NVarChar(1024), parsePhotoUrl(req.body.photo_url));
     }
     if (req.body?.event_date !== undefined) {
       updates.push('event_date = @event_date');
@@ -665,6 +677,7 @@ router.put('/:id', writeLimiter, authenticate, requireEventCreatorOrAdmin, async
         event_date: updated.recordset[0].event_date,
         location: updated.recordset[0].location,
         description: updated.recordset[0].description,
+        photo_url: updated.recordset[0].photo_url,
         changedFields,
         changeSummary,
         updateReason: (req.body?.update_reason as string | undefined) ?? (req.body?.reason as string | undefined) ?? null,
@@ -702,8 +715,9 @@ router.put('/:id/status', writeLimiter, authenticate, requireAnyAuthenticatedRol
         event_date: Date | string;
         location: string | null;
         description: string | null;
+        photo_url: string | null;
       }>(
-        'SELECT event_id, status, title, event_date, location, description FROM event WHERE event_id = @event_id'
+        'SELECT event_id, status, title, event_date, location, description, photo_url FROM event WHERE event_id = @event_id'
       );
 
     const existing = existingResult.recordset[0];
@@ -752,7 +766,18 @@ router.put('/:id/status', writeLimiter, authenticate, requireAnyAuthenticatedRol
         event_date: existing.event_date,
         location: existing.location,
         description: existing.description,
+        photo_url: existing.photo_url,
         updateReason: (req.body?.reason as string | undefined) ?? (req.body?.cancellation_reason as string | undefined) ?? null,
+      });
+    }
+    if (newStatus === 'completed') {
+      await sendEventCompletedNotification({
+        event_id: existing.event_id,
+        title: existing.title,
+        event_date: existing.event_date,
+        location: existing.location,
+        description: existing.description,
+        photo_url: existing.photo_url,
       });
     }
 
@@ -875,6 +900,7 @@ function changedFieldLabel(field: string): string {
     title: 'Title',
     description: 'Description',
     location: 'Location',
+    photo_url: 'Photo URL',
     event_date: 'Event date/time',
     end_date: 'End time',
     mentor_capacity: 'Mentor capacity',
@@ -925,6 +951,27 @@ function parseCapacity(value: unknown): number | null {
   }
 
   return parsed;
+}
+
+function parsePhotoUrl(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.length > 1024) {
+    return null;
+  }
+
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return null;
+    }
+    return trimmed;
+  } catch {
+    return null;
+  }
 }
 
 function toUtcMillis(value: unknown): number | null {

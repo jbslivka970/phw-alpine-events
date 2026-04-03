@@ -202,6 +202,41 @@ body {
   flex: 1;
   padding: 1rem 1.25rem;
 }
+.phw-event-card__photo {
+  width: 100%;
+  max-height: 190px;
+  object-fit: cover;
+  border-radius: 10px;
+  margin: 0 0 0.7rem;
+  border: 1px solid var(--phw-slate-200);
+}
+.phw-onboarding-card {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  border: 1px solid var(--phw-slate-200);
+  border-radius: 14px;
+  padding: 1rem 1.1rem;
+  background: linear-gradient(180deg, #ffffff 0%, #f6f9fb 100%);
+  margin-bottom: 1rem;
+}
+.phw-onboarding-card__title {
+  margin: 0 0 0.35rem;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--phw-slate-950);
+}
+.phw-onboarding-card__text {
+  margin: 0;
+  color: var(--phw-slate-600);
+  font-size: 0.88rem;
+}
+.phw-onboarding-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
 
 /* ========================================================================== */
 /* Wave pattern overlay                                                        */
@@ -856,6 +891,9 @@ textarea:focus-visible {
 
   .phw-photo-strip {
     grid-template-columns: repeat(2, 1fr);
+  }
+  .phw-onboarding-card {
+    flex-direction: column;
   }
 
   .phw-hero__title {

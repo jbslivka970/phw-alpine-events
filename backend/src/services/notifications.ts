@@ -6,6 +6,7 @@ import { loadAcsConfig, loadTelnyxSmsConfig, loadTwilioSmsConfig } from '../conf
 import { renderTemplate } from '../templates/NotificationTemplate';
 import { eventCancellationTemplate } from '../templates/eventCancellation';
 import { eventInviteTemplate } from '../templates/eventInvite';
+import { eventThankYouTemplate } from '../templates/eventThankYou';
 import { eventUpdateTemplate } from '../templates/eventUpdate';
 import { rsvpConfirmationTemplate } from '../templates/rsvpConfirmation';
 import { waitlistPromotionTemplate } from '../templates/waitlistPromotion';
@@ -58,6 +59,7 @@ interface EventNotificationPayload {
   event_date: Date | string;
   location: string | null;
   description: string | null;
+  photo_url?: string | null;
   updateReason?: string | null;
 }
 
@@ -1162,6 +1164,100 @@ async function sendEventUpdatedNotification(payload: EventUpdateNotificationPayl
   }
 }
 
+async function sendEventCompletedNotification(payload: EventNotificationPayload): Promise<void> {
+  const [emailTemplateOverride, smsTemplateOverride] = await Promise.all([
+    getActiveTemplateOverride(eventThankYouTemplate.displayName, 'email'),
+    getActiveTemplateOverride(eventThankYouTemplate.displayName, 'sms'),
+  ]);
+
+  const pool = await getPool();
+  const recipientsResult = await pool
+    .request()
+    .input('event_id', sql.UniqueIdentifier, payload.event_id)
+    .query<{
+      member_id: string;
+      first_name: string | null;
+      email: string;
+      mobile_phone: string | null;
+      sms_opt_in: boolean;
+      email_opt_out: boolean;
+      response_channel: string | null;
+    }>(
+      `WITH ranked_attendees AS (
+          SELECT
+            ea.member_id,
+            ROW_NUMBER() OVER (PARTITION BY ea.member_id ORDER BY ea.assigned_at DESC) AS rn
+          FROM event_assignment ea
+          WHERE ea.event_id = @event_id
+            AND ea.attended = 1
+      )
+      SELECT DISTINCT
+          m.member_id,
+          m.first_name,
+          m.email,
+          m.mobile_phone,
+          m.sms_opt_in,
+          m.email_opt_out,
+          er.response_channel
+      FROM ranked_attendees ra
+      INNER JOIN member m ON m.member_id = ra.member_id
+      LEFT JOIN event_response er ON er.event_id = @event_id AND er.member_id = m.member_id
+      WHERE ra.rn = 1`
+    );
+
+  for (const recipient of recipientsResult.recordset) {
+    const variables = {
+      ...buildEventVariables(payload, recipient.member_id),
+      firstName: recipient.first_name?.trim() || 'friend',
+    };
+    const preferredChannel = pickPreferredChannel(recipient.response_channel);
+    const canEmail = Boolean(!recipient.email_opt_out && recipient.email);
+    const canSms = Boolean(recipient.mobile_phone && recipient.sms_opt_in);
+
+    if (preferredChannel === 'sms' && canSms) {
+      await notificationService.sendSms({
+        to: recipient.mobile_phone as string,
+        message: renderSmsTemplate(smsTemplateOverride, eventThankYouTemplate.smsBodyTemplate ?? '', variables),
+        templateId: eventThankYouTemplate.templateId,
+        memberId: recipient.member_id,
+        eventId: payload.event_id,
+        operationType: 'event_completed',
+      });
+      continue;
+    }
+
+    if (canEmail) {
+      const renderedEmail = renderEmailTemplate(emailTemplateOverride, {
+        subject: eventThankYouTemplate.subjectTemplate ?? '',
+        htmlBody: eventThankYouTemplate.htmlBodyTemplate ?? '',
+        textBody: eventThankYouTemplate.textBodyTemplate ?? '',
+      }, variables);
+      await notificationService.sendEmail({
+        to: recipient.email,
+        subject: renderedEmail.subject,
+        htmlBody: renderedEmail.htmlBody,
+        textBody: renderedEmail.textBody,
+        templateId: eventThankYouTemplate.templateId,
+        memberId: recipient.member_id,
+        eventId: payload.event_id,
+        operationType: 'event_completed',
+      });
+      continue;
+    }
+
+    if (canSms) {
+      await notificationService.sendSms({
+        to: recipient.mobile_phone as string,
+        message: renderSmsTemplate(smsTemplateOverride, eventThankYouTemplate.smsBodyTemplate ?? '', variables),
+        templateId: eventThankYouTemplate.templateId,
+        memberId: recipient.member_id,
+        eventId: payload.event_id,
+        operationType: 'event_completed',
+      });
+    }
+  }
+}
+
 function sendRsvpConfirmation(payload: RsvpNotificationPayload): void {
   void (async () => {
     const variables = {
@@ -1336,6 +1432,7 @@ function buildEventVariables(
     eventDate,
     location: payload.location ?? 'TBD',
     description: payload.description ?? 'No additional details were provided.',
+    eventPhotoUrl: payload.photo_url ?? '',
     rsvpUrl,
     yesUrl,
     noUrl,
@@ -1776,6 +1873,7 @@ export {
   AcsSmsService,
   TwilioSmsService,
   sendEventCancelledNotification,
+  sendEventCompletedNotification,
   sendEventPublishedNotification,
   sendEventUpdatedNotification,
   sendRsvpConfirmation,

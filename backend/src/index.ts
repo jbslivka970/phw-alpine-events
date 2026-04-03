@@ -33,6 +33,7 @@ import apiRouter from './routes';
 const app = express();
 const { corsOrigin, port, nodeEnv } = loadServerConfig();
 app.set('trust proxy', nodeEnv === 'production' ? 1 : false);
+app.disable('x-powered-by');
 const allowedOrigins = (corsOrigin ?? '')
   .split(',')
   .map((value) => value.trim().replace(/\/$/, ''))
@@ -62,7 +63,7 @@ const corsOptions = allowedOrigins.length
 // Middleware
 app.use(helmet());
 app.use(cors(corsOptions));
-app.use(express.json());
+app.use(express.json({ limit: '1mb' }));
 
 // Basic route
 app.get('/', (_req, res) => {
