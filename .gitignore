@@ -36,6 +36,10 @@ backend-latest-*.zip
 frontend-release-*.zip
 frontend-flat-*.zip
 frontend-static-*.zip
+backend/deploy-package/
+backend/release.zip
+frontend/dist-deploy-slim/
+frontend/frontend-release-*.zip
 
 # Azure
 .azure/
