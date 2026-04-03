@@ -29,7 +29,7 @@ interface AzureOpenAiChatResponse {
 
 const OPENAI_TIMEOUT_MS = 12_000;
 const MAX_DESCRIPTION_PROMPT_LENGTH = 1_500;
-const AZURE_OPENAI_API_VERSION = '2024-10-21';
+const AZURE_OPENAI_API_VERSION = '2024-12-01-preview';
 
 function formatEventDate(value: string): string {
   const parsed = new Date(value);
