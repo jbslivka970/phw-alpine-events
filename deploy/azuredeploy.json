@@ -57,7 +57,7 @@
         "[resourceId('Microsoft.Web/sites', parameters('appName'))]"
       ],
       "properties": {
-        "WEBSITE_NODE_DEFAULT_VERSION": "~20",
+        "WEBSITE_NODE_DEFAULT_VERSION": "~22",
         "SCM_DO_BUILD_DURING_DEPLOYMENT": "false"
       }
     },

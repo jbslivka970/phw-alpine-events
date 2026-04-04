@@ -54,7 +54,7 @@ backend/node_modules/
 
 `server.js` is the Node entrypoint used by IISNode and `web.config` contains the rewrite rules that prevent the App Service from returning a 403 at the root. Do not remove or rename those files without updating the deployment model.
 
-Set `WEBSITE_NODE_DEFAULT_VERSION` to `~20` for the Windows App Service. Do not pin it to an exact patch version like `20.20.0`; App Service expects a supported installed runtime selector, and an invalid value can leave the site returning HTTP 500 before the app starts.
+Set `WEBSITE_NODE_DEFAULT_VERSION` to `~22` for the Windows App Service. Do not pin it to an exact patch version; App Service expects a supported installed runtime selector, and an invalid value can leave the site returning HTTP 500 before the app starts.
 
 ## CI/CD
 
@@ -264,7 +264,7 @@ CI trigger strategy for a lighter dev process:
 Backend App Service settings required for full functionality:
 
 - `NODE_ENV=production`
-- `WEBSITE_NODE_DEFAULT_VERSION=~20`
+- `WEBSITE_NODE_DEFAULT_VERSION=~22`
 - `DB_HOST`
 - `DB_PORT`
 - `DB_NAME`
