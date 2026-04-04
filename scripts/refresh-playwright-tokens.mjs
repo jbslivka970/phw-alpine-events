@@ -5,6 +5,7 @@ import { chromium } from 'playwright';
 
 const args = new Set(process.argv.slice(2));
 const softSkip = args.has('--soft-skip');
+const tokenEnvFile = (process.env.PW_TOKEN_ENV_FILE || '').trim();
 
 const appUrl = (process.env.E2E_APP_URL || '').trim().replace(/\/$/, '');
 const authDir = path.resolve(process.cwd(), 'tests/e2e/.auth');
@@ -155,15 +156,33 @@ async function loginAndCapture({ username, password, statePath }) {
 
   try {
     await page.goto(`${appUrl}/login`, { waitUntil: 'domcontentloaded' });
-    const signInButton = page.getByRole('button', { name: /sign in/i });
-    if (!(await signInButton.isVisible().catch(() => false))) {
-      throw new Error('Sign in button not visible on /login.');
-    }
+    let popup = null;
+    let authPage = page;
 
-    const popupPromise = page.waitForEvent('popup', { timeout: 12_000 }).catch(() => null);
-    await signInButton.click();
-    const popup = await popupPromise;
-    const authPage = popup || page;
+    const onIdentityProvider = () => /login\.microsoftonline\.com|b2clogin\.com|ciamlogin\.com/i.test(page.url());
+    const signInButton = page.getByRole('button', { name: /sign in/i });
+
+    if (!onIdentityProvider()) {
+      await signInButton.waitFor({ state: 'visible', timeout: 25_000 }).catch(() => null);
+      if (await signInButton.isVisible().catch(() => false)) {
+        const popupPromise = page.waitForEvent('popup', { timeout: 12_000 }).catch(() => null);
+        await signInButton.click();
+        popup = await popupPromise;
+        authPage = popup || page;
+      } else {
+        // Some environments auto-start the auth flow without rendering the local sign-in button.
+        await clickInAnyScope(page, [
+          'button:has-text("Sign in")',
+          'button:has-text("Continue")',
+          'a:has-text("Sign in")',
+          'a:has-text("Continue")',
+        ]);
+        await page.waitForTimeout(1500);
+        if (onIdentityProvider()) {
+          authPage = page;
+        }
+      }
+    }
 
     await authPage.waitForLoadState('domcontentloaded').catch(() => {});
     const userFilled = await completeUsernameStep(authPage, username);
@@ -233,6 +252,11 @@ function exportToken(name, value) {
   if (process.env.GITHUB_ENV) {
     fs.appendFileSync(process.env.GITHUB_ENV, `${name}=${value}\n`, 'utf8');
   }
+
+  if (tokenEnvFile) {
+    const escapedValue = value.replace(/'/g, "'\\''");
+    fs.appendFileSync(tokenEnvFile, `export ${name}='${escapedValue}'\n`, 'utf8');
+  }
 }
 
 async function main() {
@@ -242,6 +266,9 @@ async function main() {
   }
 
   fs.mkdirSync(authDir, { recursive: true });
+  if (tokenEnvFile) {
+    fs.writeFileSync(tokenEnvFile, '', 'utf8');
+  }
 
   const configuredRoles = roles.filter((role) => role.username && role.password);
   if (configuredRoles.length === 0) {
