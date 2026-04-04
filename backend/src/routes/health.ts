@@ -1,4 +1,5 @@
 import { Request, Response, Router } from 'express';
+import { ManagedIdentityCredential } from '@azure/identity';
 import { getPool } from '../db';
 import { loadAcsConfig, loadAuthConfig, loadTelnyxSmsConfig, loadTwilioSmsConfig } from '../config';
 import { getNotificationRuntimeStatus } from '../services/notifications';
@@ -15,6 +16,16 @@ const SENSITIVE_ENV_VARS = [
   'TWILIO_AUTH_TOKEN',
   'TELNYX_API_KEY',
 ] as const;
+const KEY_VAULT_CHECK_CACHE_MS = 5 * 60 * 1000;
+
+interface KeyVaultReferenceCheckResult {
+  configured: boolean;
+  missing: string[];
+  source: 'arm' | 'runtime';
+  error?: string;
+}
+
+let keyVaultReferenceCache: { expiresAt: number; result: KeyVaultReferenceCheckResult } | null = null;
 
 function missingEnvVars(names: readonly string[]): string[] {
   return names.filter((name) => !process.env[name]);
@@ -63,6 +74,88 @@ function nonKeyVaultSensitiveVars(): string[] {
   });
 }
 
+function runtimeKeyVaultCheck(error?: string): KeyVaultReferenceCheckResult {
+  const missing = nonKeyVaultSensitiveVars();
+  return {
+    configured: missing.length === 0,
+    missing,
+    source: 'runtime',
+    ...(error ? { error } : {}),
+  };
+}
+
+function resolveAzureSiteMetadata(): { subscriptionId: string; resourceGroup: string; siteName: string } | null {
+  const subscriptionId = process.env['AZURE_SUBSCRIPTION_ID']?.trim();
+  const resourceGroup = process.env['AZURE_RESOURCE_GROUP']?.trim();
+  const siteName = (process.env['AZURE_WEBAPP_NAME'] ?? process.env['WEBSITE_SITE_NAME'])?.trim();
+
+  if (!subscriptionId || !resourceGroup || !siteName) {
+    return null;
+  }
+
+  return { subscriptionId, resourceGroup, siteName };
+}
+
+async function loadKeyVaultReferenceCheck(): Promise<KeyVaultReferenceCheckResult> {
+  const cached = keyVaultReferenceCache;
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.result;
+  }
+
+  const metadata = resolveAzureSiteMetadata();
+  if (!metadata) {
+    const result = runtimeKeyVaultCheck('AZURE_SUBSCRIPTION_ID, AZURE_RESOURCE_GROUP, or AZURE_WEBAPP_NAME is missing.');
+    keyVaultReferenceCache = { expiresAt: Date.now() + KEY_VAULT_CHECK_CACHE_MS, result };
+    return result;
+  }
+
+  try {
+    const credential = new ManagedIdentityCredential();
+    const token = await credential.getToken('https://management.azure.com/.default');
+    if (!token?.token) {
+      throw new Error('Managed identity token acquisition failed.');
+    }
+
+    const response = await fetch(
+      `https://management.azure.com/subscriptions/${metadata.subscriptionId}/resourceGroups/${metadata.resourceGroup}/providers/Microsoft.Web/sites/${metadata.siteName}/config/appsettings/list?api-version=2023-12-01`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token.token}`,
+          'Content-Type': 'application/json',
+        },
+      }
+    );
+
+    if (!response.ok) {
+      const responseText = await response.text();
+      throw new Error(`ARM appsettings query failed (${response.status}): ${responseText}`);
+    }
+
+    const payload = await response.json() as { properties?: Record<string, string | undefined> };
+    const properties = payload.properties ?? {};
+    const missing = SENSITIVE_ENV_VARS.filter((name) => {
+      const value = properties[name];
+      if (!value) {
+        return false;
+      }
+      return !isKeyVaultReference(value);
+    });
+
+    const result: KeyVaultReferenceCheckResult = {
+      configured: missing.length === 0,
+      missing,
+      source: 'arm',
+    };
+    keyVaultReferenceCache = { expiresAt: Date.now() + KEY_VAULT_CHECK_CACHE_MS, result };
+    return result;
+  } catch (error) {
+    const result = runtimeKeyVaultCheck(error instanceof Error ? error.message : 'Unknown Key Vault check error.');
+    keyVaultReferenceCache = { expiresAt: Date.now() + KEY_VAULT_CHECK_CACHE_MS, result };
+    return result;
+  }
+}
+
 // Liveness — always 200 if the process is running
 router.get('/', (_req: Request, res: Response) => {
   res.json({
@@ -85,7 +178,7 @@ router.get('/ready', async (_req: Request, res: Response): Promise<void> => {
 });
 
 // Startup diagnostics — reports configuration health without exposing secrets
-router.get('/startup', (_req: Request, res: Response) => {
+router.get('/startup', async (_req: Request, res: Response) => {
   const authConfig = loadAuthConfig();
   const acsConfig = loadAcsConfig();
   const telnyxSmsConfig = loadTelnyxSmsConfig();
@@ -96,11 +189,11 @@ router.get('/startup', (_req: Request, res: Response) => {
   );
   const dbMissing = missingEnvVars(REQUIRED_DB_ENV_VARS);
   const authMissing = missingAuthVars();
-  const nonKeyVaultSecrets = nonKeyVaultSensitiveVars();
-  const keyVaultReferencesConfigured = nonKeyVaultSecrets.length === 0;
   const requireKeyVaultReferences = (process.env['REQUIRE_KEYVAULT_REFERENCES'] ?? 'false').toLowerCase() === 'true';
   const isProd = process.env['NODE_ENV'] === 'production';
   const strictNotificationFailure = notificationStatus.strictModeEnabled && notificationStatus.mode !== 'real';
+  const keyVaultCheck = await loadKeyVaultReferenceCheck();
+  const keyVaultReferencesConfigured = keyVaultCheck.configured;
   const keyVaultPolicyFailure = requireKeyVaultReferences && !keyVaultReferencesConfigured;
 
   const summary = {
@@ -122,6 +215,8 @@ router.get('/startup', (_req: Request, res: Response) => {
       telemetryConfigured,
       keyVaultReferencesConfigured,
       requireKeyVaultReferences,
+      keyVaultReferenceCheckSource: keyVaultCheck.source,
+      keyVaultReferenceCheckError: keyVaultCheck.error ?? null,
     },
     missing: {
       db: dbMissing,
@@ -135,7 +230,7 @@ router.get('/startup', (_req: Request, res: Response) => {
         ...(!telemetryConfigured ? ['APPINSIGHTS_INSTRUMENTATIONKEY_OR_APPLICATIONINSIGHTS_CONNECTION_STRING'] : []),
       ],
       notifications: notificationStatus.reasons,
-      keyVault: nonKeyVaultSecrets,
+      keyVault: keyVaultCheck.missing,
     },
   };
 
