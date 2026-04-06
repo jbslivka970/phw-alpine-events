@@ -35,11 +35,12 @@ async function postJson(path, payload) {
     body: JSON.stringify(payload),
   });
 
+  const raw = await response.text();
   let body;
   try {
-    body = await response.json();
+    body = raw ? JSON.parse(raw) : {};
   } catch {
-    body = { raw: await response.text() };
+    body = { raw };
   }
 
   return { status: response.status, body };
@@ -51,11 +52,12 @@ async function getJson(path, headers = {}) {
     headers,
   });
 
+  const raw = await response.text();
   let body;
   try {
-    body = await response.json();
+    body = raw ? JSON.parse(raw) : {};
   } catch {
-    body = { raw: await response.text() };
+    body = { raw };
   }
 
   return { status: response.status, body };
