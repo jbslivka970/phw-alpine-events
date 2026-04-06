@@ -19,7 +19,7 @@ const accounts: BrowserAccount[] = [
     username: process.env.PW_MEMBER_USER ?? '',
     password: process.env.PW_MEMBER_PASS ?? '',
   },
-].filter((account) => account.username && account.password);
+];
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -198,64 +198,69 @@ async function hasAdminRoleInSession(page: Page): Promise<boolean> {
 
 test.describe('Browser role flows (credential login)', () => {
   test.skip(!appBaseUrl, 'E2E_APP_URL is required.');
-  test.skip(accounts.length === 0, 'PW_EVENT_CREATOR_* and/or PW_MEMBER_* credentials are required.');
 
   for (const account of accounts) {
-    test(`${account.label}: preferences page loads without GUID/500 errors`, async ({ page }) => {
-      const memberDetailIds: string[] = [];
-      const nonUuidMemberDetailIds: string[] = [];
-      const invalidGuidErrors: string[] = [];
+    test.describe(account.label, () => {
+      test.skip(!account.username || !account.password, `${account.label} credentials are required.`);
 
-      const responseListener = async (response: { url(): string; status(): number; text(): Promise<string> }) => {
-        const url = response.url();
-        const match = url.match(/\/api\/v1\/members\/([^/?#]+)/i);
-        if (!match) {
-          return;
-        }
+      test('preferences page loads without GUID/500 errors', async ({ page }) => {
 
-        const memberId = match[1];
-        memberDetailIds.push(memberId);
+        const memberDetailIds: string[] = [];
+        const nonUuidMemberDetailIds: string[] = [];
+        const invalidGuidErrors: string[] = [];
 
-        if (!uuidPattern.test(memberId)) {
-          nonUuidMemberDetailIds.push(memberId);
-        }
-
-        if (response.status() === 400) {
-          const bodyText = (await response.text().catch(() => '')).toLowerCase();
-          if (bodyText.includes('invalid guid')) {
-            invalidGuidErrors.push(bodyText);
+        const responseListener = async (response: { url(): string; status(): number; text(): Promise<string> }) => {
+          const url = response.url();
+          const match = url.match(/\/api\/v1\/members\/([^/?#]+)/i);
+          if (!match) {
+            return;
           }
-        }
-      };
 
-      page.on('response', responseListener);
-      try {
+          const memberId = match[1];
+          memberDetailIds.push(memberId);
+
+          if (!uuidPattern.test(memberId)) {
+            nonUuidMemberDetailIds.push(memberId);
+          }
+
+          if (response.status() === 400) {
+            const bodyText = (await response.text().catch(() => '')).toLowerCase();
+            if (bodyText.includes('invalid guid')) {
+              invalidGuidErrors.push(bodyText);
+            }
+          }
+        };
+
+        page.on('response', responseListener);
+        try {
+          await loginWithCredentials(page, account.username, account.password);
+
+          await page.goto(`${appBaseUrl}/preferences`, { waitUntil: 'domcontentloaded' });
+          await expect(page.getByRole('heading', { name: /notification preferences/i })).toBeVisible({ timeout: 15_000 });
+          await expect(page.getByText(/invalid guid/i)).toHaveCount(0);
+          await expect(page.getByText(/api 500/i)).toHaveCount(0);
+          await page.waitForTimeout(1_200);
+
+          expect(nonUuidMemberDetailIds, 'preferences should only request member detail by UUID').toHaveLength(0);
+          expect(invalidGuidErrors, 'members detail requests should never return Invalid GUID').toHaveLength(0);
+        } finally {
+          page.off('response', responseListener);
+        }
+      });
+
+      test('tavf new route respects non-admin access rule', async ({ page }) => {
+
         await loginWithCredentials(page, account.username, account.password);
 
-        await page.goto(`${appBaseUrl}/preferences`, { waitUntil: 'domcontentloaded' });
-        await expect(page.getByRole('heading', { name: /notification preferences/i })).toBeVisible({ timeout: 15_000 });
-        await expect(page.getByText(/invalid guid/i)).toHaveCount(0);
-        await expect(page.getByText(/api 500/i)).toHaveCount(0);
-        await page.waitForTimeout(1_200);
+        const isAdmin = await hasAdminRoleInSession(page);
+        await page.goto(`${appBaseUrl}/tavf/new`, { waitUntil: 'domcontentloaded' });
 
-        expect(nonUuidMemberDetailIds, 'preferences should only request member detail by UUID').toHaveLength(0);
-        expect(invalidGuidErrors, 'members detail requests should never return Invalid GUID').toHaveLength(0);
-      } finally {
-        page.off('response', responseListener);
-      }
-    });
-
-    test(`${account.label}: tavf new route respects non-admin access rule`, async ({ page }) => {
-      await loginWithCredentials(page, account.username, account.password);
-
-      const isAdmin = await hasAdminRoleInSession(page);
-      await page.goto(`${appBaseUrl}/tavf/new`, { waitUntil: 'domcontentloaded' });
-
-      if (isAdmin) {
-        await expect(page).toHaveURL(/\/dashboard(\?|$)/, { timeout: 15_000 });
-      } else {
-        await expect(page).toHaveURL(/\/tavf\/new(\?|$)/, { timeout: 15_000 });
-      }
+        if (isAdmin) {
+          await expect(page).toHaveURL(/\/dashboard(\?|$)/, { timeout: 15_000 });
+        } else {
+          await expect(page).toHaveURL(/\/tavf\/new(\?|$)/, { timeout: 15_000 });
+        }
+      });
     });
   }
 });
