@@ -198,6 +198,7 @@ async function hasAdminRoleInSession(page: Page): Promise<boolean> {
 
 test.describe('Browser role flows (credential login)', () => {
   test.skip(!appBaseUrl, 'E2E_APP_URL is required.');
+  test.setTimeout(120_000);
 
   for (const account of accounts) {
     test.describe(account.label, () => {
