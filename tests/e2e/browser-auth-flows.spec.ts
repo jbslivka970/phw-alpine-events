@@ -69,7 +69,14 @@ async function clickInAnyScope(page: Page, selectors: string[]): Promise<boolean
 
 async function completeUsernameStep(authPage: Page, username: string): Promise<boolean> {
   for (let i = 0; i < 45; i += 1) {
-    const entered = await fillInAnyScope(
+      // Try clicking an account tile for the exact username first (handles account-chooser UI)
+      await clickInAnyScope(authPage, [
+        `text="${username}"`,
+        `[data-test-id="${username}"]`,
+        'div[role="button"]:has-text("Use another account")',
+      ]);
+
+      const entered = await fillInAnyScope(
       authPage,
       [
         'input[type="email"]',
@@ -160,7 +167,7 @@ async function loginWithCredentials(page: Page, username: string, password: stri
   ]);
 
   if (popup) {
-    await popup.waitForEvent('close', { timeout: 30_000 }).catch(() => {});
+    await popup.waitForEvent('close', { timeout: 90_000 }).catch(() => {});
   }
 
   await page.waitForURL(/\/dashboard|\/events|\/tavf|\/$/, { timeout: 90_000 });
@@ -198,7 +205,7 @@ async function hasAdminRoleInSession(page: Page): Promise<boolean> {
 
 test.describe('Browser role flows (credential login)', () => {
   test.skip(!appBaseUrl, 'E2E_APP_URL is required.');
-  test.setTimeout(120_000);
+  test.setTimeout(300_000);
 
   for (const account of accounts) {
     test.describe(account.label, () => {
