@@ -88,14 +88,27 @@ async function clickInAnyScope(page, selectors) {
 
 async function completeUsernameStep(authPage, username) {
   for (let i = 0; i < 45; i += 1) {
+    await clickInAnyScope(authPage, [
+      `text=${username}`,
+      `[data-test-id="${username}"]`,
+      `[data-test-id="displayName"]`,
+      'div[role="button"]:has-text("Use another account")',
+      'div[role="button"]:has-text("Sign in")',
+    ]);
+
     const entered = await fillInAnyScope(
       authPage,
       [
         'input[type="email"]',
+        'input[type="text"]',
         'input[name="loginfmt"]',
+        'input[name="identifier"]',
         'input#i0116',
         'input[name="signInName"]',
+        'input#username',
         'input[placeholder*="Email"]',
+        'input[placeholder*="email"]',
+        'input[placeholder*="phone"]',
       ],
       username
     );
@@ -276,15 +289,30 @@ async function main() {
     return;
   }
 
+  let refreshedCount = 0;
   for (const role of configuredRoles) {
     console.log(`[refresh-playwright-tokens] logging in ${role.name}...`);
-    const token = await loginAndCapture({
-      username: role.username,
-      password: role.password,
-      statePath: role.statePath,
-    });
-    exportToken(role.tokenEnv, token);
-    console.log(`[refresh-playwright-tokens] refreshed ${role.tokenEnv} and wrote ${path.relative(process.cwd(), role.statePath)}`);
+    try {
+      const token = await loginAndCapture({
+        username: role.username,
+        password: role.password,
+        statePath: role.statePath,
+      });
+      exportToken(role.tokenEnv, token);
+      refreshedCount += 1;
+      console.log(`[refresh-playwright-tokens] refreshed ${role.tokenEnv} and wrote ${path.relative(process.cwd(), role.statePath)}`);
+    } catch (error) {
+      if (!softSkip) {
+        throw error;
+      }
+
+      const reason = error instanceof Error ? error.message : String(error);
+      console.warn(`[refresh-playwright-tokens] skipped ${role.name}: ${reason}`);
+    }
+  }
+
+  if (refreshedCount === 0) {
+    failOrSkip('Could not refresh any Playwright role tokens.');
   }
 }
 
