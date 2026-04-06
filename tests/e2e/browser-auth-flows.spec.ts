@@ -170,7 +170,7 @@ async function loginWithCredentials(page: Page, username: string, password: stri
     await popup.waitForEvent('close', { timeout: 90_000 }).catch(() => {});
   }
 
-  await page.waitForURL(/\/dashboard|\/events|\/tavf|\/$/, { timeout: 90_000 });
+  await expect(page).toHaveURL(/\/dashboard|\/events|\/tavf|\/$/, { timeout: 90_000 });
 }
 
 async function hasAdminRoleInSession(page: Page): Promise<boolean> {
