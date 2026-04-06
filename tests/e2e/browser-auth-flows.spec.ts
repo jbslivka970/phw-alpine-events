@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 
 const appBaseUrl = (process.env.E2E_APP_URL ?? '').trim().replace(/\/$/, '');
@@ -22,6 +24,10 @@ const accounts: BrowserAccount[] = [
 ];
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const authStateByLabel: Record<string, string> = {
+  event_creator: path.resolve(process.cwd(), 'tests/e2e/.auth/event-creator.json'),
+  member: path.resolve(process.cwd(), 'tests/e2e/.auth/member.json'),
+};
 
 function scopes(page: Page) {
   return [page, ...page.frames()];
@@ -203,13 +209,34 @@ async function hasAdminRoleInSession(page: Page): Promise<boolean> {
   });
 }
 
+async function ensureAuthenticatedSession(page: Page, account: BrowserAccount): Promise<void> {
+  const statePath = authStateByLabel[account.label] ?? '';
+  const hasStateFile = Boolean(statePath) && fs.existsSync(statePath);
+
+  if (hasStateFile) {
+    await page.goto(`${appBaseUrl}/dashboard`, { waitUntil: 'domcontentloaded' });
+    if (!/\/login(\?|$)/.test(page.url())) {
+      return;
+    }
+  }
+
+  await loginWithCredentials(page, account.username, account.password);
+}
+
 test.describe('Browser role flows (credential login)', () => {
   test.skip(!appBaseUrl, 'E2E_APP_URL is required.');
   test.setTimeout(300_000);
 
   for (const account of accounts) {
+    const storageStatePath = authStateByLabel[account.label] ?? '';
+    const hasStorageState = Boolean(storageStatePath) && fs.existsSync(storageStatePath);
+
     test.describe(account.label, () => {
-      test.skip(!account.username || !account.password, `${account.label} credentials are required.`);
+      if (hasStorageState) {
+        test.use({ storageState: storageStatePath });
+      }
+
+      test.skip(!hasStorageState && (!account.username || !account.password), `${account.label} credentials are required when storage state is missing.`);
 
       test('preferences page loads without GUID/500 errors', async ({ page }) => {
 
@@ -241,7 +268,7 @@ test.describe('Browser role flows (credential login)', () => {
 
         page.on('response', responseListener);
         try {
-          await loginWithCredentials(page, account.username, account.password);
+          await ensureAuthenticatedSession(page, account);
 
           await page.goto(`${appBaseUrl}/preferences`, { waitUntil: 'domcontentloaded' });
           await expect(page.getByRole('heading', { name: /notification preferences/i })).toBeVisible({ timeout: 15_000 });
@@ -258,7 +285,7 @@ test.describe('Browser role flows (credential login)', () => {
 
       test('tavf new route respects non-admin access rule', async ({ page }) => {
 
-        await loginWithCredentials(page, account.username, account.password);
+        await ensureAuthenticatedSession(page, account);
 
         const isAdmin = await hasAdminRoleInSession(page);
         await page.goto(`${appBaseUrl}/tavf/new`, { waitUntil: 'domcontentloaded' });
