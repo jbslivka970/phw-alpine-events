@@ -6,18 +6,12 @@ import { chromium } from 'playwright';
 const args = new Set(process.argv.slice(2));
 const softSkip = args.has('--soft-skip');
 const tokenEnvFile = (process.env.PW_TOKEN_ENV_FILE || '').trim();
+const perRoleTimeoutMs = Number.parseInt(process.env.PW_REFRESH_ROLE_TIMEOUT_MS || '120000', 10);
 
 const appUrl = (process.env.E2E_APP_URL || '').trim().replace(/\/$/, '');
 const authDir = path.resolve(process.cwd(), 'tests/e2e/.auth');
 
 const roles = [
-  {
-    name: 'admin',
-    username: process.env.PW_ADMIN_USER,
-    password: process.env.PW_ADMIN_PASS,
-    tokenEnv: 'PW_ADMIN_TOKEN',
-    statePath: path.join(authDir, 'admin.json'),
-  },
   {
     name: 'event_creator',
     username: process.env.PW_EVENT_CREATOR_USER,
@@ -32,7 +26,29 @@ const roles = [
     tokenEnv: 'PW_MEMBER_TOKEN',
     statePath: path.join(authDir, 'member.json'),
   },
+  {
+    name: 'admin',
+    username: process.env.PW_ADMIN_USER,
+    password: process.env.PW_ADMIN_PASS,
+    tokenEnv: 'PW_ADMIN_TOKEN',
+    statePath: path.join(authDir, 'admin.json'),
+  },
 ];
+
+async function loginAndCaptureWithTimeout(role) {
+  if (!Number.isFinite(perRoleTimeoutMs) || perRoleTimeoutMs <= 0) {
+    return loginAndCapture(role);
+  }
+
+  return Promise.race([
+    loginAndCapture(role),
+    new Promise((_, reject) => {
+      setTimeout(() => {
+        reject(new Error(`Timed out after ${perRoleTimeoutMs}ms while refreshing ${role.name}.`));
+      }, perRoleTimeoutMs);
+    }),
+  ]);
+}
 
 function failOrSkip(message) {
   if (softSkip) {
@@ -293,9 +309,10 @@ async function main() {
   for (const role of configuredRoles) {
     console.log(`[refresh-playwright-tokens] logging in ${role.name}...`);
     try {
-      const token = await loginAndCapture({
+      const token = await loginAndCaptureWithTimeout({
         username: role.username,
         password: role.password,
+        name: role.name,
         statePath: role.statePath,
       });
       exportToken(role.tokenEnv, token);
