@@ -14,7 +14,7 @@
 
 /* ========== Body & Background ========== */
 body {
-  background: url('/PHW%20Photos/IMG_7955.JPG') center/cover no-repeat fixed,
+  background: url('https://app.phwcoloradoalpine.org/PHW%20Photos/IMG_7955.JPG') center/cover no-repeat fixed,
               linear-gradient(135deg, #2d5a3d 0%, #3d4f5e 50%, #8ba896 100%);
   background-attachment: fixed;
   background-size: cover;
@@ -510,7 +510,7 @@ footer a:hover,
   a[href*="google"]:hover,
   a[href*="microsoft"]:hover,
   a[href*="facebook"]:hover,
-  button[data-provider"]:hover,
+  button[data-provider]:hover,
   .identity-provider-button:hover {
     background: #4b5563 !important;
   }
