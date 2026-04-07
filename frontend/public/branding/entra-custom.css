@@ -1,0 +1,524 @@
+/* PHW Colorado Alpine - Entra External ID Custom CSS */
+
+/* ========== Color Palette ========== */
+:root {
+  --phw-forest: #2d5a3d;
+  --phw-slate: #3d4f5e;
+  --phw-sage: #8ba896;
+  --phw-light: #f5f5f5;
+  --phw-white: #ffffff;
+  --phw-accent: #d97706;
+  --phw-error: #dc2626;
+  --phw-success: #16a34a;
+}
+
+/* ========== Body & Background ========== */
+body {
+  background: url('/PHW%20Photos/IMG_7955.JPG') center/cover no-repeat fixed,
+              linear-gradient(135deg, #2d5a3d 0%, #3d4f5e 50%, #8ba896 100%);
+  background-attachment: fixed;
+  background-size: cover;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
+  margin: 0;
+  padding: 0;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+/* Overlay for better readability */
+body::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+  z-index: -1;
+}
+
+/* ========== Main Container ========== */
+#api,
+.main-container,
+[role="main"],
+.container {
+  background: rgba(255, 255, 255, 0.98);
+  border-radius: 12px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  max-width: 450px;
+  width: 90%;
+  padding: 40px 32px !important;
+  margin: 0 auto;
+}
+
+/* ========== Header & Logo ========== */
+.sign-in-header,
+header,
+.header {
+  text-align: center;
+  margin-bottom: 32px;
+}
+
+.sign-in-header img,
+header img,
+.logo,
+img[alt*="logo"],
+img[alt*="Logo"] {
+  max-width: 180px;
+  height: auto;
+  margin-bottom: 16px;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.1));
+}
+
+h1,
+h2,
+.sign-in-header h1,
+.heading {
+  color: var(--phw-forest);
+  font-size: 24px;
+  font-weight: 600;
+  margin: 16px 0 8px 0;
+  letter-spacing: -0.5px;
+}
+
+.sign-in-header p,
+.subtitle,
+p.intro {
+  color: var(--phw-slate);
+  font-size: 14px;
+  margin: 8px 0 0 0;
+  line-height: 1.5;
+}
+
+/* ========== Form Fields ========== */
+div[role="form"],
+form,
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+input[type="text"],
+input[type="email"],
+input[type="password"],
+input[type="tel"],
+textarea,
+select {
+  width: 100%;
+  padding: 12px 14px;
+  border: 1.5px solid #d1d5db;
+  border-radius: 8px;
+  font-size: 14px;
+  font-family: inherit;
+  transition: all 0.2s ease;
+  background: var(--phw-white);
+  color: var(--phw-slate);
+}
+
+input[type="text"]:focus,
+input[type="email"]:focus,
+input[type="password"]:focus,
+input[type="tel"]:focus,
+textarea:focus,
+select:focus {
+  outline: none;
+  border-color: var(--phw-forest);
+  box-shadow: 0 0 0 3px rgba(45, 90, 61, 0.1);
+  background: var(--phw-white);
+}
+
+input[type="text"]::placeholder,
+input[type="email"]::placeholder,
+input[type="password"]::placeholder,
+input[type="tel"]::placeholder,
+textarea::placeholder {
+  color: #9ca3af;
+}
+
+/* ========== Buttons ========== */
+button,
+input[type="button"],
+input[type="submit"],
+[role="button"],
+.button,
+.btn {
+  background: linear-gradient(135deg, var(--phw-forest) 0%, #1f3a2a 100%);
+  color: var(--phw-white);
+  border: none;
+  padding: 12px 20px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-transform: capitalize;
+  letter-spacing: 0.3px;
+}
+
+button:hover,
+input[type="button"]:hover,
+input[type="submit"]:hover,
+[role="button"]:hover,
+.button:hover,
+.btn:hover {
+  background: linear-gradient(135deg, #1f3a2a 0%, #0f1f1a 100%);
+  box-shadow: 0 8px 16px rgba(45, 90, 61, 0.3);
+  transform: translateY(-2px);
+}
+
+button:active,
+input[type="button"]:active,
+input[type="submit"]:active {
+  transform: translateY(0);
+  box-shadow: 0 4px 8px rgba(45, 90, 61, 0.2);
+}
+
+button:disabled,
+input[type="button"]:disabled,
+input[type="submit"]:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* ========== Secondary Buttons ========== */
+button.secondary,
+a.secondary-button,
+.button-secondary {
+  background: var(--phw-white);
+  color: var(--phw-forest);
+  border: 1.5px solid var(--phw-forest);
+}
+
+button.secondary:hover,
+a.secondary-button:hover,
+.button-secondary:hover {
+  background: rgba(45, 90, 61, 0.05);
+  border-color: var(--phw-forest);
+}
+
+/* ========== Links ========== */
+a,
+.link {
+  color: var(--phw-forest);
+  text-decoration: none;
+  font-weight: 500;
+  transition: all 0.2s ease;
+  border-bottom: 1px solid transparent;
+}
+
+a:hover,
+.link:hover {
+  color: #1f3a2a;
+  border-bottom-color: var(--phw-forest);
+}
+
+/* ========== Error Messages ========== */
+.error-message,
+.error,
+.validation-error,
+[role="alert"] {
+  background: rgba(220, 38, 38, 0.08);
+  border-left: 4px solid var(--phw-error);
+  color: #7f1d1d;
+  padding: 12px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  line-height: 1.5;
+  margin-bottom: 16px;
+}
+
+/* ========== Success Messages ========== */
+.success-message,
+.success {
+  background: rgba(22, 163, 74, 0.08);
+  border-left: 4px solid var(--phw-success);
+  color: #15803d;
+  padding: 12px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  line-height: 1.5;
+  margin-bottom: 16px;
+}
+
+/* ========== Info Messages ========== */
+.info-message,
+.info {
+  background: rgba(59, 130, 246, 0.08);
+  border-left: 4px solid #3b82f6;
+  color: #1e40af;
+  padding: 12px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  line-height: 1.5;
+  margin-bottom: 16px;
+}
+
+/* ========== Checkboxes & Radio Buttons ========== */
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: var(--phw-forest);
+  cursor: pointer;
+}
+
+label {
+  color: var(--phw-slate);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ========== Identity Provider Buttons ========== */
+a[href*="google"],
+a[href*="microsoft"],
+a[href*="facebook"],
+button[data-provider],
+.identity-provider-button {
+  background: var(--phw-white) !important;
+  color: var(--phw-slate) !important;
+  border: 1.5px solid #d1d5db !important;
+  padding: 11px 16px !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  border-radius: 8px !important;
+  transition: all 0.2s ease !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 10px !important;
+  margin-bottom: 8px !important;
+}
+
+a[href*="google"]:hover,
+a[href*="microsoft"]:hover,
+a[href*="facebook"]:hover,
+button[data-provider]:hover,
+.identity-provider-button:hover {
+  background: #f9fafb !important;
+  border-color: var(--phw-forest) !important;
+  box-shadow: 0 2px 8px rgba(45, 90, 61, 0.15) !important;
+}
+
+a[href*="google"] img,
+a[href*="microsoft"] img,
+a[href*="facebook"] img,
+button[data-provider] img,
+.identity-provider-button img {
+  max-width: 18px;
+  height: auto;
+}
+
+/* ========== Dividers ========== */
+hr,
+.divider,
+.separator {
+  border: none;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, #d1d5db 20%, #d1d5db 80%, transparent);
+  margin: 20px 0;
+}
+
+/* ========== Footer ========== */
+footer,
+.footer,
+.sign-in-footer {
+  text-align: center;
+  font-size: 12px;
+  color: #6b7280;
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid #e5e7eb;
+}
+
+footer a,
+.footer a,
+.sign-in-footer a {
+  color: var(--phw-forest);
+  text-decoration: none;
+  margin: 0 8px;
+}
+
+footer a:hover,
+.footer a:hover,
+.sign-in-footer a:hover {
+  text-decoration: underline;
+}
+
+/* ========== Loading States ========== */
+.loading,
+[data-loading="true"],
+.spinner {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.spinner::after {
+  content: '';
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--phw-sage);
+  border-radius: 50%;
+  border-top-color: var(--phw-forest);
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ========== Accessibility ========== */
+:focus-visible {
+  outline: 2px solid var(--phw-forest);
+  outline-offset: 2px;
+}
+
+/* ========== Responsive Design ========== */
+@media (max-width: 640px) {
+  #api,
+  .main-container,
+  [role="main"],
+  .container {
+    max-width: 100%;
+    width: 95%;
+    padding: 32px 24px !important;
+    margin: 16px auto;
+  }
+
+  h1,
+  h2,
+  .sign-in-header h1,
+  .heading {
+    font-size: 20px;
+  }
+
+  input[type="text"],
+  input[type="email"],
+  input[type="password"],
+  input[type="tel"],
+  textarea,
+  select {
+    padding: 10px 12px;
+    font-size: 16px;
+  }
+
+  button,
+  input[type="button"],
+  input[type="submit"],
+  [role="button"],
+  .button,
+  .btn {
+    padding: 11px 18px;
+    font-size: 13px;
+  }
+}
+
+@media (max-width: 480px) {
+  body {
+    padding: 16px;
+  }
+
+  #api,
+  .main-container,
+  [role="main"],
+  .container {
+    border-radius: 8px;
+    padding: 24px 16px !important;
+  }
+
+  h1,
+  h2,
+  .sign-in-header h1,
+  .heading {
+    font-size: 18px;
+  }
+}
+
+/* ========== Dark Mode Support ========== */
+@media (prefers-color-scheme: dark) {
+  body {
+    background: linear-gradient(135deg, #1a3a28 0%, #253640 50%, #556b77 100%);
+  }
+
+  #api,
+  .main-container,
+  [role="main"],
+  .container {
+    background: rgba(30, 41, 45, 0.95);
+    border-color: rgba(255, 255, 255, 0.1);
+  }
+
+  h1,
+  h2,
+  .sign-in-header h1,
+  .heading {
+    color: #d1d5db;
+  }
+
+  .sign-in-header p,
+  .subtitle,
+  p.intro {
+    color: #9ca3af;
+  }
+
+  input[type="text"],
+  input[type="email"],
+  input[type="password"],
+  input[type="tel"],
+  textarea,
+  select {
+    background: #374151;
+    color: #f3f4f6;
+    border-color: #4b5563;
+  }
+
+  input[type="text"]:focus,
+  input[type="email"]:focus,
+  input[type="password"]:focus,
+  input[type="tel"]:focus,
+  textarea:focus,
+  select:focus {
+    border-color: #8ba896;
+    box-shadow: 0 0 0 3px rgba(139, 168, 150, 0.2);
+  }
+
+  label {
+    color: #d1d5db;
+  }
+
+  a[href*="google"],
+  a[href*="microsoft"],
+  a[href*="facebook"],
+  button[data-provider],
+  .identity-provider-button {
+    background: #374151 !important;
+    color: #d1d5db !important;
+    border-color: #4b5563 !important;
+  }
+
+  a[href*="google"]:hover,
+  a[href*="microsoft"]:hover,
+  a[href*="facebook"]:hover,
+  button[data-provider"]:hover,
+  .identity-provider-button:hover {
+    background: #4b5563 !important;
+  }
+
+  footer,
+  .footer,
+  .sign-in-footer {
+    color: #9ca3af;
+    border-top-color: #4b5563;
+  }
+}
