@@ -119,17 +119,10 @@ function useAuth() {
 
     loginRequestRef.current = (async () => {
       try {
-        const response = await instance.loginPopup(loginRequest)
-        if (response.account) {
-          instance.setActiveAccount(response.account)
-        }
+        setLoginError('Redirecting to sign-in...')
+        await instance.loginRedirect(loginRequest)
       } catch (error: unknown) {
         const code = (error as { errorCode?: string })?.errorCode
-        if (code === 'popup_window_error' || code === 'empty_window_error') {
-          setLoginError('Popup blocked. Redirecting to sign-in...')
-          await instance.loginRedirect(loginRequest)
-          return
-        }
         if (code === 'user_cancelled') {
           setLoginError('Sign-in was cancelled.')
           return
