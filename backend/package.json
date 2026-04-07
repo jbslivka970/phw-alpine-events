@@ -37,6 +37,7 @@
     "@azure/functions": "^3.5.1",
     "@azure/identity": "^4.13.1",
     "@types/multer": "^2.1.0",
+    "@types/pdfkit": "^0.17.5",
     "cors": "^2.8.5",
     "csv-parse": "^6.2.0",
     "dotenv": "^17.4.1",
@@ -48,6 +49,7 @@
     "jwks-rsa": "^4.0.1",
     "mssql": "^12.2.1",
     "multer": "^2.1.1",
+    "pdfkit": "^0.18.0",
     "twilio": "^5.10.3"
   },
   "devDependencies": {

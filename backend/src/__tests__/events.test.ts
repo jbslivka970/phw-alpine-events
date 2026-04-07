@@ -4,6 +4,7 @@ import eventsRouter from '../routes/events';
 import { getPool } from '../db';
 import { createRsvpToken } from '../services/rsvpLinkService';
 import { sendEventUpdatedNotification } from '../services/notifications';
+import { generateInviteDraft } from '../services/aiInviteService';
 
 jest.mock('../db', () => ({
   getPool: jest.fn(),
@@ -44,6 +45,13 @@ jest.mock('../services/notifications', () => ({
   sendEventCancelledNotification: jest.fn(),
   sendEventUpdatedNotification: jest.fn(),
   sendRsvpConfirmation: jest.fn(),
+  notificationService: {
+    sendEmail: jest.fn().mockResolvedValue(undefined),
+  },
+}));
+
+jest.mock('../services/aiInviteService', () => ({
+  generateInviteDraft: jest.fn(),
 }));
 
 interface MockRequest {
@@ -438,5 +446,162 @@ describe('events routes', () => {
     expect(res.headers['content-type']).toContain('text/calendar');
     expect(res.text).toContain('BEGIN:VCALENDAR');
     expect(res.text).toContain('SUMMARY:Fly Tying 101');
+  });
+
+  it('GET /api/events/:id/report.csv exports completed event record as CSV', async () => {
+    const queue = [
+      {
+        recordset: [
+          {
+            event_id: '00000000-0000-0000-0000-000000000101',
+            title: 'Fly Tying 101',
+            description: 'Intro event',
+            location: 'Denver',
+            event_date: new Date('2026-04-01T18:00:00.000Z'),
+            end_date: null,
+            status: 'completed',
+            mentor_capacity: 1,
+            participant_capacity: 12,
+            capacity: 13,
+            created_at: new Date('2026-03-01T00:00:00.000Z'),
+            updated_at: new Date('2026-04-01T00:00:00.000Z'),
+          },
+        ],
+      },
+      { recordset: [] },
+      { recordset: [] },
+    ];
+
+    const mockRequest = {
+      input: jest.fn().mockReturnThis(),
+      query: jest.fn().mockImplementation(async () => queue.shift() ?? { recordset: [] }),
+    };
+    (getPool as jest.Mock).mockResolvedValue({ request: () => mockRequest });
+
+    const res = await request(app).get('/api/events/00000000-0000-0000-0000-000000000101/report.csv');
+
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toContain('text/csv');
+    expect(res.text).toContain('Event Summary');
+    expect(res.text).toContain('RSVP Responses');
+  });
+
+  it('GET /api/events/:id/report.pdf exports completed event record as PDF', async () => {
+    const queue = [
+      {
+        recordset: [
+          {
+            event_id: '00000000-0000-0000-0000-000000000101',
+            title: 'Fly Tying 101',
+            description: 'Intro event',
+            location: 'Denver',
+            event_date: new Date('2026-04-01T18:00:00.000Z'),
+            end_date: null,
+            status: 'completed',
+            mentor_capacity: 1,
+            participant_capacity: 12,
+            capacity: 13,
+            created_at: new Date('2026-03-01T00:00:00.000Z'),
+            updated_at: new Date('2026-04-01T00:00:00.000Z'),
+          },
+        ],
+      },
+      { recordset: [] },
+      { recordset: [] },
+    ];
+
+    const mockRequest = {
+      input: jest.fn().mockReturnThis(),
+      query: jest.fn().mockImplementation(async () => queue.shift() ?? { recordset: [] }),
+    };
+    (getPool as jest.Mock).mockResolvedValue({ request: () => mockRequest });
+
+    const res = await request(app).get('/api/events/00000000-0000-0000-0000-000000000101/report.pdf');
+
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toContain('application/pdf');
+    expect(res.headers['content-disposition']).toContain('.pdf');
+  });
+
+  it('POST /api/events/:id/report/email sends completed event record to recipients', async () => {
+    process.env['EVENT_RECORD_EMAIL_TO'] = 'lead1@example.com,lead2@example.com';
+    const notifications = jest.requireMock('../services/notifications') as {
+      notificationService: { sendEmail: jest.Mock };
+    };
+
+    const queue = [
+      {
+        recordset: [
+          {
+            event_id: '00000000-0000-0000-0000-000000000101',
+            title: 'Fly Tying 101',
+            description: 'Intro event',
+            location: 'Denver',
+            event_date: new Date('2026-04-01T18:00:00.000Z'),
+            end_date: null,
+            status: 'completed',
+            mentor_capacity: 1,
+            participant_capacity: 12,
+            capacity: 13,
+            created_at: new Date('2026-03-01T00:00:00.000Z'),
+            updated_at: new Date('2026-04-01T00:00:00.000Z'),
+          },
+        ],
+      },
+      { recordset: [] },
+      { recordset: [] },
+    ];
+
+    const mockRequest = {
+      input: jest.fn().mockReturnThis(),
+      query: jest.fn().mockImplementation(async () => queue.shift() ?? { recordset: [] }),
+    };
+    (getPool as jest.Mock).mockResolvedValue({ request: () => mockRequest });
+
+    const res = await request(app).post('/api/events/00000000-0000-0000-0000-000000000101/report/email').send({});
+
+    expect(res.status).toBe(200);
+    expect(res.body.sent).toBe(2);
+    expect(notifications.notificationService.sendEmail).toHaveBeenCalledTimes(2);
+  });
+
+  it('POST /api/events/:id/ai-draft returns event-scoped AI draft payload', async () => {
+    (generateInviteDraft as jest.Mock).mockResolvedValue({
+      subject: 'Subject',
+      emailBody: 'Email body',
+      smsBody: 'SMS body',
+      provider: 'fallback',
+      mapUrl: 'https://example.com/map',
+      imageSuggestions: ['https://example.com/image'],
+    });
+
+    const queue = [
+      {
+        recordset: [
+          {
+            title: 'Fly Tying 101',
+            event_date: '2026-04-01T18:00:00.000Z',
+            location: 'Denver',
+            description: 'Intro event',
+          },
+        ],
+      },
+    ];
+    const mockRequest = {
+      input: jest.fn().mockReturnThis(),
+      query: jest.fn().mockImplementation(async () => queue.shift() ?? { recordset: [] }),
+    };
+    (getPool as jest.Mock).mockResolvedValue({ request: () => mockRequest });
+
+    const res = await request(app)
+      .post('/api/events/00000000-0000-0000-0000-000000000101/ai-draft')
+      .send({ tone: 'professional' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.subject).toBe('Subject');
+    expect(res.body.tone).toBe('professional');
+    expect(generateInviteDraft).toHaveBeenCalledWith(expect.objectContaining({
+      eventTitle: 'Fly Tying 101',
+    }));
   });
 });

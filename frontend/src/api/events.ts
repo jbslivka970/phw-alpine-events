@@ -36,6 +36,17 @@ interface UpdateEventPayload {
   update_reason?: string | null;
 }
 
+interface EventAiDraftResponse {
+  event_id: string;
+  tone: 'friendly' | 'professional';
+  subject: string;
+  emailBody: string;
+  smsBody: string;
+  provider: 'azure-openai' | 'openai' | 'fallback';
+  mapUrl?: string | null;
+  imageSuggestions?: string[];
+}
+
 interface RsvpRecord {
   response_id: string;
   event_id: string;
@@ -121,6 +132,14 @@ const eventsApi = {
   updateStatus: (id: string, status: EventRecord['status']) =>
     apiPut<EventRecord>(`/events/${id}/status`, { status }),
   downloadIcs: (id: string) => apiGetBlob(`/events/${id}/ics`),
+  downloadReportCsv: (id: string) => apiGetBlob(`/events/${id}/report.csv`),
+  downloadReportPdf: (id: string) => apiGetBlob(`/events/${id}/report.pdf`),
+  downloadReportText: (id: string) => apiGetBlob(`/events/${id}/report.txt`),
+  emailReport: (id: string, recipients?: string[]) => apiPost<{ event_id: string; recipients: string[]; sent: number }>(`/events/${id}/report/email`, {
+    ...(Array.isArray(recipients) && recipients.length > 0 ? { recipients } : {}),
+  }),
+  generateAiDraft: (id: string, tone: 'friendly' | 'professional' = 'friendly') =>
+    apiPost<EventAiDraftResponse>(`/events/${id}/ai-draft`, { tone }),
   remove: (id: string) => apiDelete<void>(`/events/${id}`),
 };
 
@@ -159,4 +178,5 @@ export type {
   AssignmentRecommendationRow,
   PublicRsvpContext,
   UpdateEventPayload,
+  EventAiDraftResponse,
 };

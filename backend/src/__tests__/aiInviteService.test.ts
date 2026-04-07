@@ -31,6 +31,9 @@ describe('aiInviteService', () => {
 
     expect(draft.provider).toBe('fallback');
     expect(draft.subject).toContain('Casting Clinic');
+    expect(draft.mapUrl).toContain('google.com/maps/search');
+    expect(Array.isArray(draft.imageSuggestions)).toBe(true);
+    expect((draft.imageSuggestions ?? []).length).toBeGreaterThan(0);
   });
 
   it('returns parsed Azure OpenAI JSON when Azure deployment is configured', async () => {
@@ -71,12 +74,14 @@ describe('aiInviteService', () => {
         }),
       })
     );
-    expect(draft).toEqual({
+    expect(draft).toMatchObject({
       subject: 'Casting Clinic Invitation',
       emailBody: 'Email body',
       smsBody: 'SMS body',
       provider: 'azure-openai',
     });
+    expect(draft.mapUrl).toContain('google.com/maps/search');
+    expect((draft.imageSuggestions ?? []).length).toBeGreaterThan(0);
   });
 
   it('returns parsed OpenAI JSON when public OpenAI is configured without Azure OpenAI', async () => {
@@ -103,12 +108,14 @@ describe('aiInviteService', () => {
       tone: 'friendly',
     });
 
-    expect(draft).toEqual({
+    expect(draft).toMatchObject({
       subject: 'Casting Clinic Invitation',
       emailBody: 'Email body',
       smsBody: 'SMS body',
       provider: 'openai',
     });
+    expect(draft.mapUrl).toContain('google.com/maps/search');
+    expect((draft.imageSuggestions ?? []).length).toBeGreaterThan(0);
   });
 
   it('prefers Azure OpenAI when both Azure and public OpenAI credentials are configured', async () => {

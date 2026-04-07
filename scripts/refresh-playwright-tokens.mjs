@@ -182,6 +182,18 @@ async function loginAndCapture({ username, password, statePath }) {
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext();
   const page = await context.newPage();
+  let headerToken = null;
+
+  context.on('request', (request) => {
+    const authHeader = request.headers()['authorization'] || request.headers()['Authorization'];
+    if (!authHeader || headerToken) {
+      return;
+    }
+    const match = authHeader.match(/^Bearer\s+(.+)$/i);
+    if (match?.[1]) {
+      headerToken = match[1].trim();
+    }
+  });
 
   try {
     await page.goto(`${appUrl}/login`, { waitUntil: 'domcontentloaded' });
@@ -242,25 +254,36 @@ async function loginAndCapture({ username, password, statePath }) {
     await page.waitForURL(/\/dashboard|\/events|\/tavf|\/$/, { timeout: 90_000 });
     await page.waitForTimeout(1200);
 
-    const token = await page.evaluate(() => {
+    const storageToken = await page.evaluate(() => {
       const sources = [window.sessionStorage, window.localStorage];
       for (const source of sources) {
         for (const key of Object.keys(source)) {
-          if (!key.toLowerCase().includes('accesstoken')) {
-            continue;
-          }
           try {
             const parsed = JSON.parse(source.getItem(key) ?? '{}');
-            if (typeof parsed.secret === 'string' && parsed.secret.length > 20) {
-              return parsed.secret;
+            const possible = [parsed.secret, parsed.accessToken, parsed.access_token, parsed.idToken, parsed.id_token];
+            for (const candidate of possible) {
+              if (typeof candidate === 'string' && candidate.length > 20) {
+                return candidate;
+              }
+            }
+
+            if (typeof parsed.token === 'string' && parsed.token.length > 20) {
+              return parsed.token;
             }
           } catch {
             // Ignore malformed cache entries.
+          }
+
+          const raw = source.getItem(key);
+          if (typeof raw === 'string' && raw.startsWith('eyJ') && raw.length > 20) {
+            return raw;
           }
         }
       }
       return null;
     });
+
+    const token = headerToken ?? storageToken;
 
     if (!token) {
       throw new Error('Could not extract access token from MSAL cache.');

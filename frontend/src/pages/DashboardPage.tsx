@@ -103,11 +103,14 @@ function StatCard({ label, value, color, delay }: { label: string; value: string
 }
 
 function DashboardPage() {
-  const { user, isAdmin } = useAuth();
+  const { user, isAdmin, canCreateEvents } = useAuth();
   const navigate = useNavigate();
   const isAdminUser = isAdmin();
+  const canManageEvents = isAdminUser || canCreateEvents();
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [eventActionError, setEventActionError] = useState<string | null>(null);
+  const [eventEmailingId, setEventEmailingId] = useState<string | null>(null);
   const [upcoming, setUpcoming] = useState<EventRecord[]>([]);
   const [myRsvps, setMyRsvps] = useState<DashboardRsvp[]>([]);
   const [openPostings, setOpenPostings] = useState<TavfPosting[]>([]);
@@ -246,6 +249,69 @@ function DashboardPage() {
 
   const displayName = user?.name?.split(' ')[0] ?? undefined;
 
+  function parseDispositionFilename(headerValue: string | null): string | null {
+    if (!headerValue) {
+      return null;
+    }
+    const utf8Match = /filename\*=UTF-8''([^;]+)/i.exec(headerValue);
+    if (utf8Match?.[1]) {
+      return decodeURIComponent(utf8Match[1]);
+    }
+    const plainMatch = /filename="?([^";]+)"?/i.exec(headerValue);
+    return plainMatch?.[1] ?? null;
+  }
+
+  function downloadBlobFile(blob: Blob, headers: Headers, fallbackFilename: string): void {
+    const objectUrl = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    const fromHeader = parseDispositionFilename(headers.get('content-disposition'));
+    anchor.href = objectUrl;
+    anchor.download = fromHeader ?? fallbackFilename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(objectUrl);
+  }
+
+  async function downloadEventIcs(event: EventRecord): Promise<void> {
+    try {
+      const { blob, headers } = await eventsApi.downloadIcs(event.event_id);
+      downloadBlobFile(blob, headers, `event-${event.event_id}.ics`);
+    } catch {
+      setEventActionError('Unable to download event calendar file right now.');
+    }
+  }
+
+  async function downloadEventReportCsv(event: EventRecord): Promise<void> {
+    try {
+      const { blob, headers } = await eventsApi.downloadReportCsv(event.event_id);
+      downloadBlobFile(blob, headers, `event-report-${event.event_id}.csv`);
+    } catch {
+      setEventActionError('Unable to download event CSV report right now.');
+    }
+  }
+
+  async function downloadEventReportPdf(event: EventRecord): Promise<void> {
+    try {
+      const { blob, headers } = await eventsApi.downloadReportPdf(event.event_id);
+      downloadBlobFile(blob, headers, `event-report-${event.event_id}.pdf`);
+    } catch {
+      setEventActionError('Unable to download event PDF report right now.');
+    }
+  }
+
+  async function emailEventRecord(event: EventRecord): Promise<void> {
+    setEventEmailingId(event.event_id);
+    try {
+      await eventsApi.emailReport(event.event_id);
+      setEventActionError(null);
+    } catch {
+      setEventActionError('Unable to email event record right now.');
+    } finally {
+      setEventEmailingId(null);
+    }
+  }
+
   return (
     <div style={{ maxWidth: 1040, margin: '0 auto' }}>
       <HeroBanner userName={displayName} />
@@ -281,6 +347,7 @@ function DashboardPage() {
         </div>
 
         {loadError && <p className="ui-notice ui-notice--error">{loadError}</p>}
+        {eventActionError && <p className="ui-notice ui-notice--error">{eventActionError}</p>}
 
         {loading ? (
           <div className="phw-card" style={{ padding: '1.25rem' }}>
@@ -304,7 +371,7 @@ function DashboardPage() {
               const stripe = totalSlots > 0 && filled >= totalSlots ? colors.alpine[600] : totalSlots > 0 && totalSlots - filled <= Math.ceil(totalSlots * 0.25) ? colors.golden[600] : colors.forest[600];
 
               return (
-                <Link key={event.event_id} to="/events" style={{ textDecoration: 'none', color: 'inherit' }} className={`phw-stagger phw-stagger-${Math.min(index + 6, 8)}`}>
+                <div key={event.event_id} className={`phw-stagger phw-stagger-${Math.min(index + 6, 8)}`}>
                   <div className="phw-event-card">
                     <div className="phw-event-card__stripe" style={{ background: stripe }} />
                     <div className="phw-event-card__body">
@@ -312,7 +379,9 @@ function DashboardPage() {
                         <img className="phw-event-card__photo" src={event.photo_url} alt={`${event.title} preview`} loading="lazy" />
                       )}
                       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginBottom: 6 }}>
-                        <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600 }}>{event.title}</h3>
+                        <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600 }}>
+                          <Link to="/events" style={{ textDecoration: 'none', color: 'inherit' }}>{event.title}</Link>
+                        </h3>
                         {totalSlots > 0 && <CapacityBadge totalSlots={totalSlots} filledSlots={filled} />}
                       </div>
                       <p style={{ margin: 0, fontSize: 13, color: colors.slate[600] }}>
@@ -323,9 +392,22 @@ function DashboardPage() {
                           {event.description}
                         </p>
                       )}
+                      <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+                        <button className="btn btn--outline btn--sm" onClick={() => navigate('/events')}>Open</button>
+                        <button className="btn btn--outline btn--sm" onClick={() => void downloadEventIcs(event)}>ICS</button>
+                        {canManageEvents && (
+                          <>
+                            <button className="btn btn--outline btn--sm" disabled={event.status !== 'completed'} onClick={() => void downloadEventReportCsv(event)}>CSV</button>
+                            <button className="btn btn--outline btn--sm" disabled={event.status !== 'completed'} onClick={() => void downloadEventReportPdf(event)}>PDF</button>
+                            <button className="btn btn--outline btn--sm" disabled={event.status !== 'completed' || eventEmailingId === event.event_id} onClick={() => void emailEventRecord(event)}>
+                              {eventEmailingId === event.event_id ? 'Emailing…' : 'Email'}
+                            </button>
+                          </>
+                        )}
+                      </div>
                     </div>
                   </div>
-                </Link>
+                </div>
               );
             })}
           </div>

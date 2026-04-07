@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import crypto from 'crypto';
+import PDFDocument from 'pdfkit';
 import { getPool, sql } from '../db';
 import authenticate from '../middleware/auth';
 import { apiLimiter, writeLimiter } from '../middleware/rateLimiter';
@@ -9,6 +10,7 @@ import {
   assertEventCancelledNotificationReady,
   assertEventPublishedNotificationReady,
   assertEventUpdatedNotificationReady,
+  notificationService,
   sendEventCancelledNotification,
   sendEventCompletedNotification,
   sendEventPublishedNotification,
@@ -16,6 +18,7 @@ import {
 } from '../services/notifications';
 import { inferResponseRoleForMember, recordRsvpResponse, RsvpError, VALID_RESPONSES, type RsvpResponse } from '../services/rsvpService';
 import { verifyRsvpToken } from '../services/rsvpLinkService';
+import { generateInviteDraft } from '../services/aiInviteService';
 
 const router = Router();
 
@@ -858,6 +861,434 @@ router.get('/:id/ics', apiLimiter, authenticate, requireAnyAuthenticatedRole, as
     res.send(icsContent);
   } catch (error) {
     console.error('GET /events/:id/ics failed', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+interface EventReportData {
+  event: {
+    event_id: string;
+    title: string;
+    description: string | null;
+    location: string | null;
+    event_date: Date | string;
+    end_date: Date | string | null;
+    status: string;
+    mentor_capacity: number | null;
+    participant_capacity: number | null;
+    capacity: number | null;
+    created_at: Date | string;
+    updated_at: Date | string;
+  };
+  assignments: Array<{
+    assignment_id: string;
+    member_id: string;
+    first_name: string;
+    last_name: string;
+    email: string;
+    role: string;
+    assigned_at: Date | string;
+    attended: boolean | null;
+    attendance_notes: string | null;
+  }>;
+  responses: Array<{
+    response_id: string;
+    member_id: string;
+    first_name: string;
+    last_name: string;
+    email: string;
+    response: string;
+    response_role: string | null;
+    response_channel: string | null;
+    responded_at: Date | string;
+    notes: string | null;
+  }>;
+}
+
+function parseRecipientList(raw: unknown): string[] {
+  if (Array.isArray(raw)) {
+    return raw
+      .map((value) => (typeof value === 'string' ? value.trim().toLowerCase() : ''))
+      .filter((value) => value.length > 0);
+  }
+
+  if (typeof raw !== 'string') {
+    return [];
+  }
+
+  return raw
+    .split(',')
+    .map((value) => value.trim().toLowerCase())
+    .filter((value) => value.length > 0);
+}
+
+function csvCell(value: unknown): string {
+  if (value === null || value === undefined) {
+    return '""';
+  }
+  const text = String(value).replace(/"/g, '""');
+  return `"${text}"`;
+}
+
+function formatReportTimestamp(value: Date | string | null): string {
+  if (!value) {
+    return '';
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return String(value);
+  }
+  return parsed.toISOString();
+}
+
+function buildEventReportCsv(report: EventReportData): string {
+  const lines: string[] = [];
+
+  lines.push('Event Summary');
+  lines.push('field,value');
+  lines.push(`event_id,${csvCell(report.event.event_id)}`);
+  lines.push(`title,${csvCell(report.event.title)}`);
+  lines.push(`status,${csvCell(report.event.status)}`);
+  lines.push(`event_date,${csvCell(formatReportTimestamp(report.event.event_date))}`);
+  lines.push(`end_date,${csvCell(formatReportTimestamp(report.event.end_date))}`);
+  lines.push(`location,${csvCell(report.event.location ?? '')}`);
+  lines.push(`description,${csvCell(report.event.description ?? '')}`);
+  lines.push(`mentor_capacity,${csvCell(report.event.mentor_capacity ?? '')}`);
+  lines.push(`participant_capacity,${csvCell(report.event.participant_capacity ?? '')}`);
+  lines.push(`capacity,${csvCell(report.event.capacity ?? '')}`);
+  lines.push(`created_at,${csvCell(formatReportTimestamp(report.event.created_at))}`);
+  lines.push(`updated_at,${csvCell(formatReportTimestamp(report.event.updated_at))}`);
+  lines.push('');
+
+  lines.push('Assignments');
+  lines.push('assignment_id,member_id,first_name,last_name,email,role,assigned_at,attended,attendance_notes');
+  for (const row of report.assignments) {
+    lines.push([
+      csvCell(row.assignment_id),
+      csvCell(row.member_id),
+      csvCell(row.first_name),
+      csvCell(row.last_name),
+      csvCell(row.email),
+      csvCell(row.role),
+      csvCell(formatReportTimestamp(row.assigned_at)),
+      csvCell(row.attended ?? ''),
+      csvCell(row.attendance_notes ?? ''),
+    ].join(','));
+  }
+  lines.push('');
+
+  lines.push('RSVP Responses');
+  lines.push('response_id,member_id,first_name,last_name,email,response,response_role,response_channel,responded_at,notes');
+  for (const row of report.responses) {
+    lines.push([
+      csvCell(row.response_id),
+      csvCell(row.member_id),
+      csvCell(row.first_name),
+      csvCell(row.last_name),
+      csvCell(row.email),
+      csvCell(row.response),
+      csvCell(row.response_role ?? ''),
+      csvCell(row.response_channel ?? ''),
+      csvCell(formatReportTimestamp(row.responded_at)),
+      csvCell(row.notes ?? ''),
+    ].join(','));
+  }
+
+  return `${lines.join('\n')}\n`;
+}
+
+function buildEventReportText(report: EventReportData): string {
+  const yesCount = report.responses.filter((row) => row.response === 'yes').length;
+  const maybeCount = report.responses.filter((row) => row.response === 'maybe').length;
+  const waitlistCount = report.responses.filter((row) => row.response === 'waitlist').length;
+  const noCount = report.responses.filter((row) => row.response === 'no').length;
+
+  const assignmentLines = report.assignments.length === 0
+    ? ['- none']
+    : report.assignments.map((row) => `- ${row.first_name} ${row.last_name} (${row.role}) attended=${row.attended === null ? 'n/a' : String(Boolean(row.attended))}`);
+
+  const responseLines = report.responses.length === 0
+    ? ['- none']
+    : report.responses.map((row) => `- ${row.first_name} ${row.last_name}: ${row.response}${row.response_role ? ` (${row.response_role})` : ''}`);
+
+  return [
+    `Event Record: ${report.event.title}`,
+    `Event ID: ${report.event.event_id}`,
+    `Status: ${report.event.status}`,
+    `Date: ${formatReportTimestamp(report.event.event_date)}`,
+    `End: ${formatReportTimestamp(report.event.end_date) || 'n/a'}`,
+    `Location: ${report.event.location ?? 'n/a'}`,
+    '',
+    'Participation Snapshot',
+    `- Assignments: ${report.assignments.length}`,
+    `- RSVP Yes: ${yesCount}`,
+    `- RSVP Maybe: ${maybeCount}`,
+    `- RSVP Waitlist: ${waitlistCount}`,
+    `- RSVP No: ${noCount}`,
+    '',
+    'Assignments',
+    ...assignmentLines,
+    '',
+    'RSVP Responses',
+    ...responseLines,
+    '',
+    `Generated at: ${new Date().toISOString()}`,
+  ].join('\n');
+}
+
+async function buildEventReportPdf(report: EventReportData): Promise<Buffer> {
+  const doc = new PDFDocument({ margin: 48, size: 'LETTER' });
+  const chunks: Buffer[] = [];
+
+  doc.on('data', (chunk: Buffer) => chunks.push(chunk));
+
+  doc.fontSize(18).text('PHW Alpine Event Record', { underline: true });
+  doc.moveDown(0.6);
+  doc.fontSize(11);
+  doc.text(`Event: ${report.event.title}`);
+  doc.text(`Event ID: ${report.event.event_id}`);
+  doc.text(`Status: ${report.event.status}`);
+  doc.text(`Date: ${formatReportTimestamp(report.event.event_date)}`);
+  doc.text(`End: ${formatReportTimestamp(report.event.end_date) || 'n/a'}`);
+  doc.text(`Location: ${report.event.location ?? 'n/a'}`);
+  doc.moveDown(0.8);
+
+  doc.fontSize(13).text('Assignments', { underline: true });
+  doc.moveDown(0.3);
+  doc.fontSize(10);
+  if (report.assignments.length === 0) {
+    doc.text('No assignments recorded.');
+  } else {
+    for (const row of report.assignments) {
+      doc.text(`${row.first_name} ${row.last_name} | ${row.role} | attended=${row.attended === null ? 'n/a' : String(Boolean(row.attended))}`);
+    }
+  }
+
+  doc.moveDown(0.8);
+  doc.fontSize(13).text('RSVP Responses', { underline: true });
+  doc.moveDown(0.3);
+  doc.fontSize(10);
+  if (report.responses.length === 0) {
+    doc.text('No RSVP responses recorded.');
+  } else {
+    for (const row of report.responses) {
+      doc.text(`${row.first_name} ${row.last_name} | ${row.response}${row.response_role ? ` (${row.response_role})` : ''}`);
+    }
+  }
+
+  doc.moveDown(0.8);
+  doc.fontSize(9).fillColor('#5b6470').text(`Generated at ${new Date().toISOString()}`);
+  doc.end();
+
+  return await new Promise<Buffer>((resolve, reject) => {
+    doc.on('end', () => resolve(Buffer.concat(chunks)));
+    doc.on('error', reject);
+  });
+}
+
+async function loadEventReportData(eventId: string): Promise<EventReportData | null> {
+  const pool = await getPool();
+
+  const eventResult = await pool
+    .request()
+    .input('event_id', sql.UniqueIdentifier, eventId)
+    .query<EventReportData['event']>(
+      `SELECT event_id, title, description, location, event_date, end_date, status,
+              mentor_capacity, participant_capacity, capacity, created_at, updated_at
+       FROM event
+       WHERE event_id = @event_id`
+    );
+
+  const event = eventResult.recordset[0];
+  if (!event) {
+    return null;
+  }
+
+  const assignmentsResult = await pool
+    .request()
+    .input('event_id', sql.UniqueIdentifier, eventId)
+    .query<EventReportData['assignments'][number]>(
+      `SELECT ea.assignment_id, ea.member_id, m.first_name, m.last_name, m.email,
+              ea.role, ea.assigned_at, ea.attended, ea.attendance_notes
+       FROM event_assignment ea
+       INNER JOIN member m ON m.member_id = ea.member_id
+       WHERE ea.event_id = @event_id
+       ORDER BY ea.assigned_at ASC`
+    );
+
+  const responsesResult = await pool
+    .request()
+    .input('event_id', sql.UniqueIdentifier, eventId)
+    .query<EventReportData['responses'][number]>(
+      `SELECT er.response_id, er.member_id, m.first_name, m.last_name, m.email,
+              er.response, er.response_role, er.response_channel, er.responded_at, er.notes
+       FROM event_response er
+       INNER JOIN member m ON m.member_id = er.member_id
+       WHERE er.event_id = @event_id
+       ORDER BY er.responded_at ASC`
+    );
+
+  return {
+    event,
+    assignments: assignmentsResult.recordset,
+    responses: responsesResult.recordset,
+  };
+}
+
+router.get('/:id/report.csv', apiLimiter, authenticate, requireEventCreatorOrAdmin, async (req, res) => {
+  try {
+    const report = await loadEventReportData(req.params.id);
+    if (!report) {
+      res.status(404).json({ error: 'Event not found' });
+      return;
+    }
+
+    if (report.event.status !== 'completed') {
+      res.status(409).json({ error: 'Event report export is available when event status is completed.' });
+      return;
+    }
+
+    const csv = buildEventReportCsv(report);
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="event-report-${report.event.event_id}.csv"`);
+    res.status(200).send(csv);
+  } catch (error) {
+    console.error('GET /events/:id/report.csv failed', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.get('/:id/report.txt', apiLimiter, authenticate, requireEventCreatorOrAdmin, async (req, res) => {
+  try {
+    const report = await loadEventReportData(req.params.id);
+    if (!report) {
+      res.status(404).json({ error: 'Event not found' });
+      return;
+    }
+
+    if (report.event.status !== 'completed') {
+      res.status(409).json({ error: 'Event report export is available when event status is completed.' });
+      return;
+    }
+
+    const text = buildEventReportText(report);
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="event-report-${report.event.event_id}.txt"`);
+    res.status(200).send(text);
+  } catch (error) {
+    console.error('GET /events/:id/report.txt failed', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.get('/:id/report.pdf', apiLimiter, authenticate, requireEventCreatorOrAdmin, async (req, res) => {
+  try {
+    const report = await loadEventReportData(req.params.id);
+    if (!report) {
+      res.status(404).json({ error: 'Event not found' });
+      return;
+    }
+
+    if (report.event.status !== 'completed') {
+      res.status(409).json({ error: 'Event report export is available when event status is completed.' });
+      return;
+    }
+
+    const pdf = await buildEventReportPdf(report);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="event-report-${report.event.event_id}.pdf"`);
+    res.status(200).send(pdf);
+  } catch (error) {
+    console.error('GET /events/:id/report.pdf failed', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.post('/:id/report/email', writeLimiter, authenticate, requireEventCreatorOrAdmin, async (req, res) => {
+  try {
+    const report = await loadEventReportData(req.params.id);
+    if (!report) {
+      res.status(404).json({ error: 'Event not found' });
+      return;
+    }
+
+    if (report.event.status !== 'completed') {
+      res.status(409).json({ error: 'Event report email is available when event status is completed.' });
+      return;
+    }
+
+    const envRecipients = parseRecipientList(process.env['EVENT_RECORD_EMAIL_TO'] ?? process.env['ACS_EMAIL_TO']);
+    const bodyRecipients = parseRecipientList(req.body?.recipients);
+    const recipients = bodyRecipients.length > 0 ? bodyRecipients : envRecipients;
+
+    if (recipients.length === 0) {
+      res.status(400).json({ error: 'No recipients configured. Provide recipients or set EVENT_RECORD_EMAIL_TO.' });
+      return;
+    }
+
+    const reportText = buildEventReportText(report);
+    const actor = req.user?.email ?? req.user?.sub ?? 'unknown';
+    const subject = `Completed Event Record: ${report.event.title}`;
+    const htmlBody = `<p>Completed event record generated by ${actor}.</p><pre>${reportText
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')}</pre>`;
+
+    for (const recipient of recipients) {
+      await notificationService.sendEmail({
+        to: recipient,
+        subject,
+        htmlBody,
+        textBody: reportText,
+        eventId: report.event.event_id,
+        operationType: 'event_record_email',
+        operationReason: `Sent by ${actor}`,
+      });
+    }
+
+    res.status(200).json({
+      event_id: report.event.event_id,
+      recipients,
+      sent: recipients.length,
+    });
+  } catch (error) {
+    console.error('POST /events/:id/report/email failed', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.post('/:id/ai-draft', writeLimiter, authenticate, requireEventCreatorOrAdmin, async (req, res) => {
+  try {
+    const tone = (req.body?.tone as string | undefined)?.toLowerCase() === 'professional' ? 'professional' : 'friendly';
+    const pool = await getPool();
+    const eventResult = await pool
+      .request()
+      .input('event_id', sql.UniqueIdentifier, req.params.id)
+      .query<{ title: string; event_date: string; location: string | null; description: string | null }>(
+        'SELECT title, event_date, location, description FROM event WHERE event_id = @event_id'
+      );
+
+    const event = eventResult.recordset[0];
+    if (!event) {
+      res.status(404).json({ error: 'Event not found' });
+      return;
+    }
+
+    const draft = await generateInviteDraft({
+      eventTitle: event.title,
+      eventDate: event.event_date,
+      location: event.location,
+      description: event.description,
+      tone,
+    });
+
+    res.json({
+      ...draft,
+      event_id: req.params.id,
+      tone,
+    });
+  } catch (error) {
+    console.error('POST /events/:id/ai-draft failed', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

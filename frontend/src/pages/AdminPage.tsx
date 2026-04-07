@@ -63,6 +63,15 @@ function AdminPage() {
   const [retentionInboundSmsDays, setRetentionInboundSmsDays] = useState('365')
   const [retentionEmailPrefDays, setRetentionEmailPrefDays] = useState('365')
   const [retentionPreviewRows, setRetentionPreviewRows] = useState<Array<{ target: string; retentionDays: number; affectedRows: number }>>([])
+  const [supportRelayLoading, setSupportRelayLoading] = useState(true)
+  const [supportRelaySaving, setSupportRelaySaving] = useState(false)
+  const [supportRelayError, setSupportRelayError] = useState<string | null>(null)
+  const [supportRelaySuccess, setSupportRelaySuccess] = useState<string | null>(null)
+  const [supportInboxEmail, setSupportInboxEmail] = useState('support@phwcoloradoalpine.org')
+  const [supportRelayRecipientsRaw, setSupportRelayRecipientsRaw] = useState('')
+  const [supportRelayEnabled, setSupportRelayEnabled] = useState(false)
+  const [supportRelayUpdatedAt, setSupportRelayUpdatedAt] = useState<string | null>(null)
+  const [supportRelayUpdatedBy, setSupportRelayUpdatedBy] = useState<string | null>(null)
 
   useEffect(() => {
     const rawBase = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? '/api/v1'
@@ -111,6 +120,29 @@ function AdminPage() {
       })
       .catch(() => {})
       .finally(() => { if (active) setStatsLoading(false) })
+    return () => { active = false }
+  }, [])
+
+  useEffect(() => {
+    let active = true
+    setSupportRelayLoading(true)
+    adminApi.getSupportEmailRelayConfig()
+      .then((config) => {
+        if (!active) return
+        setSupportInboxEmail(config.supportInboxEmail)
+        setSupportRelayRecipientsRaw(config.relayRecipients.join(', '))
+        setSupportRelayEnabled(config.enabled)
+        setSupportRelayUpdatedAt(config.updatedAt)
+        setSupportRelayUpdatedBy(config.updatedBy)
+      })
+      .catch((error) => {
+        if (!active) return
+        setSupportRelayError(toUserErrorMessage(error, 'Failed to load support relay configuration.'))
+      })
+      .finally(() => {
+        if (active) setSupportRelayLoading(false)
+      })
+
     return () => { active = false }
   }, [])
 
@@ -195,6 +227,36 @@ function AdminPage() {
       setRetentionPreviewError(toUserErrorMessage(error, 'Failed to preview retention results.'))
     } finally {
       setRetentionPreviewBusy(false)
+    }
+  }
+
+  async function handleSaveSupportRelayConfig() {
+    setSupportRelaySaving(true)
+    setSupportRelayError(null)
+    setSupportRelaySuccess(null)
+
+    try {
+      const relayTo = supportRelayRecipientsRaw
+        .split(',')
+        .map((value) => value.trim())
+        .filter((value, index, list) => value.length > 0 && list.indexOf(value) === index)
+
+      const config = await adminApi.updateSupportEmailRelayConfig({
+        support_inbox_email: supportInboxEmail.trim() || 'support@phwcoloradoalpine.org',
+        relay_to: relayTo,
+        enabled: supportRelayEnabled,
+      })
+
+      setSupportInboxEmail(config.supportInboxEmail)
+      setSupportRelayRecipientsRaw(config.relayRecipients.join(', '))
+      setSupportRelayEnabled(config.enabled)
+      setSupportRelayUpdatedAt(config.updatedAt)
+      setSupportRelayUpdatedBy(config.updatedBy)
+      setSupportRelaySuccess('Support relay configuration saved.')
+    } catch (error) {
+      setSupportRelayError(toUserErrorMessage(error, 'Failed to save support relay configuration.'))
+    } finally {
+      setSupportRelaySaving(false)
     }
   }
 
@@ -440,6 +502,50 @@ function AdminPage() {
                 {inviteApplySuccess && <p className="ui-notice ui-notice--success">{inviteApplySuccess}</p>}
               </div>
             </div>
+          )}
+        </section>
+
+        <section className="card admin-tools-card">
+          <h2 className="admin-section-title">Support Email Relay</h2>
+          <p className="page-subtitle" style={{ marginBottom: '0.9rem' }}>
+            Inbound mail sent to the support inbox is relayed to configured support contacts.
+          </p>
+
+          <div style={{ display: 'grid', gap: 8, marginBottom: 10 }}>
+            <input
+              className="members-input"
+              value={supportInboxEmail}
+              onChange={(e) => setSupportInboxEmail(e.target.value)}
+              placeholder="Support inbox address"
+            />
+            <textarea
+              className="members-input"
+              rows={3}
+              value={supportRelayRecipientsRaw}
+              onChange={(e) => setSupportRelayRecipientsRaw(e.target.value)}
+              placeholder="Relay recipients (comma-separated emails)"
+            />
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <input
+                type="checkbox"
+                checked={supportRelayEnabled}
+                onChange={(e) => setSupportRelayEnabled(e.target.checked)}
+              />
+              Enable support relay forwarding
+            </label>
+          </div>
+
+          <button className="btn btn--primary btn--sm" disabled={supportRelayLoading || supportRelaySaving} onClick={() => void handleSaveSupportRelayConfig()}>
+            {supportRelaySaving ? 'Saving…' : 'Save Support Relay'}
+          </button>
+
+          {supportRelayLoading && <p className="page-subtitle" style={{ marginTop: 10 }}>Loading support relay settings…</p>}
+          {supportRelayError && <p className="ui-notice ui-notice--error" style={{ marginTop: 10 }}>{supportRelayError}</p>}
+          {supportRelaySuccess && <p className="ui-notice ui-notice--success" style={{ marginTop: 10 }}>{supportRelaySuccess}</p>}
+          {(supportRelayUpdatedAt || supportRelayUpdatedBy) && (
+            <small style={{ color: 'var(--muted)', display: 'block', marginTop: 10 }}>
+              Last updated{supportRelayUpdatedBy ? ` by ${supportRelayUpdatedBy}` : ''}{supportRelayUpdatedAt ? ` at ${new Date(supportRelayUpdatedAt).toLocaleString()}` : ''}
+            </small>
           )}
         </section>
 

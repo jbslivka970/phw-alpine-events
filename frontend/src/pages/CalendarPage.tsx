@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { calendarApi } from '../api/calendar';
+import { eventsApi } from '../api/events';
+import { useAuth } from '../hooks/useAuth';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -102,6 +105,18 @@ async function downloadEventIcs(event: CalendarEvent): Promise<void> {
   }
 }
 
+function downloadBlobFile(blob: Blob, headers: Headers, fallbackFilename: string): void {
+  const objectUrl = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  const fromHeader = parseDispositionFilename(headers.get('content-disposition'));
+  anchor.href = objectUrl;
+  anchor.download = fromHeader ?? fallbackFilename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(objectUrl);
+}
+
 // ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
@@ -112,11 +127,20 @@ function CapacityBadge({ event }: { event: CalendarEvent }) {
   return <span className={`capacity-badge ${capacityClass(event)}`}>{label}</span>;
 }
 
-function EventChip({ event }: { event: CalendarEvent }) {
+function EventChip({ event, onOpen }: { event: CalendarEvent; onOpen: (event: CalendarEvent) => void }) {
   return (
     <div
       className={`event-chip status-${event.status}`}
       title={`${event.title} — ${event.location}`}
+      onClick={() => onOpen(event)}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onOpen(event);
+        }
+      }}
     >
       <span className="event-chip-title">{event.title}</span>
       <CapacityBadge event={event} />
@@ -132,10 +156,12 @@ function MonthView({
   year,
   month,
   events,
+  onOpenEvent,
 }: {
   year: number;
   month: number;
   events: CalendarEvent[];
+  onOpenEvent: (event: CalendarEvent) => void;
 }) {
   const firstDay = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
@@ -170,7 +196,7 @@ function MonthView({
               <span className="day-number">{day}</span>
               <div className="day-events">
                 {dayEvents.map((e) => (
-                  <EventChip key={e.event_id} event={e} />
+                  <EventChip key={e.event_id} event={e} onOpen={onOpenEvent} />
                 ))}
               </div>
             </div>
@@ -185,12 +211,57 @@ function MonthView({
 // List View
 // ---------------------------------------------------------------------------
 
-function ListItem({ event }: { event: CalendarEvent }) {
+function ListItem({
+  event,
+  canManage,
+  onOpenEvent,
+  onActionError,
+}: {
+  event: CalendarEvent;
+  canManage: boolean;
+  onOpenEvent: (event: CalendarEvent) => void;
+  onActionError: (message: string) => void;
+}) {
   const start = isoToDate(event.event_date);
   const dateStr = start.toLocaleDateString(undefined, {
     weekday: 'short', month: 'short', day: 'numeric',
   });
   const timeStr = start.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false });
+
+  async function downloadReportCsv(): Promise<void> {
+    try {
+      const { blob, headers } = await eventsApi.downloadReportCsv(event.event_id);
+      downloadBlobFile(blob, headers, `event-report-${event.event_id}.csv`);
+    } catch {
+      onActionError('Unable to download event CSV report right now.');
+    }
+  }
+
+  async function downloadReportPdf(): Promise<void> {
+    try {
+      const { blob, headers } = await eventsApi.downloadReportPdf(event.event_id);
+      downloadBlobFile(blob, headers, `event-report-${event.event_id}.pdf`);
+    } catch {
+      onActionError('Unable to download event PDF report right now.');
+    }
+  }
+
+  async function downloadReportText(): Promise<void> {
+    try {
+      const { blob, headers } = await eventsApi.downloadReportText(event.event_id);
+      downloadBlobFile(blob, headers, `event-report-${event.event_id}.txt`);
+    } catch {
+      onActionError('Unable to download event record summary right now.');
+    }
+  }
+
+  async function emailReport(): Promise<void> {
+    try {
+      await eventsApi.emailReport(event.event_id);
+    } catch {
+      onActionError('Unable to email event record right now.');
+    }
+  }
 
   return (
     <div className={`list-item status-${event.status}`}>
@@ -208,15 +279,44 @@ function ListItem({ event }: { event: CalendarEvent }) {
       <div className="list-item-meta">
         <CapacityBadge event={event} />
         <span className={`status-pill status-pill--${event.status}`}>{event.status}</span>
+        <button className="btn btn--outline btn--sm" onClick={() => onOpenEvent(event)}>
+          Open
+        </button>
         <button className="btn btn--outline btn--sm" onClick={() => void downloadEventIcs(event)}>
           ICS
         </button>
+        {canManage && (
+          <>
+            <button className="btn btn--outline btn--sm" disabled={event.status !== 'completed'} onClick={() => void downloadReportCsv()}>
+              CSV
+            </button>
+            <button className="btn btn--outline btn--sm" disabled={event.status !== 'completed'} onClick={() => void downloadReportPdf()}>
+              PDF
+            </button>
+            <button className="btn btn--outline btn--sm" disabled={event.status !== 'completed'} onClick={() => void downloadReportText()}>
+              Record
+            </button>
+            <button className="btn btn--outline btn--sm" disabled={event.status !== 'completed'} onClick={() => void emailReport()}>
+              Email
+            </button>
+          </>
+        )}
       </div>
     </div>
   );
 }
 
-function ListView({ events }: { events: CalendarEvent[] }) {
+function ListView({
+  events,
+  canManage,
+  onOpenEvent,
+  onActionError,
+}: {
+  events: CalendarEvent[];
+  canManage: boolean;
+  onOpenEvent: (event: CalendarEvent) => void;
+  onActionError: (message: string) => void;
+}) {
   const sorted = [...events].sort(
     (a, b) => new Date(a.event_date).getTime() - new Date(b.event_date).getTime(),
   );
@@ -228,7 +328,7 @@ function ListView({ events }: { events: CalendarEvent[] }) {
   return (
     <div className="list-view">
       {sorted.map((e) => (
-        <ListItem key={e.event_id} event={e} />
+        <ListItem key={e.event_id} event={e} canManage={canManage} onOpenEvent={onOpenEvent} onActionError={onActionError} />
       ))}
     </div>
   );
@@ -239,6 +339,9 @@ function ListView({ events }: { events: CalendarEvent[] }) {
 // ---------------------------------------------------------------------------
 
 function CalendarPage() {
+  const navigate = useNavigate();
+  const { isAdmin, canCreateEvents } = useAuth();
+  const canManage = isAdmin() || canCreateEvents();
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth());
@@ -246,6 +349,10 @@ function CalendarPage() {
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  function openEventInEventsPage(_event: CalendarEvent): void {
+    navigate('/events');
+  }
 
   const monthKey = useMemo(() => `${year}-${String(month + 1).padStart(2, '0')}`, [year, month]);
 
@@ -328,9 +435,14 @@ function CalendarPage() {
       {error && <p className="empty-state">{error}</p>}
 
       {view === 'month' ? (
-        <MonthView year={year} month={month} events={events} />
+        <MonthView year={year} month={month} events={events} onOpenEvent={openEventInEventsPage} />
       ) : (
-        <ListView events={events} />
+        <ListView
+          events={events}
+          canManage={canManage}
+          onOpenEvent={openEventInEventsPage}
+          onActionError={(message) => setError(message)}
+        />
       )}
     </div>
   );

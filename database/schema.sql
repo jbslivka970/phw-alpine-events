@@ -394,6 +394,44 @@ BEGIN
         CREATE INDEX IX_inbound_sms_log_received_at ON dbo.inbound_sms_log (received_at DESC);
 END
 
+IF OBJECT_ID(N'dbo.support_email_relay_config', N'U') IS NULL
+CREATE TABLE dbo.support_email_relay_config (
+    support_relay_config_id UNIQUEIDENTIFIER NOT NULL DEFAULT NEWID(),
+    support_inbox_email     NVARCHAR(255)    NOT NULL,
+    relay_to_csv            NVARCHAR(MAX)    NOT NULL,
+    is_enabled              BIT              NOT NULL DEFAULT 0,
+    created_at              DATETIME         NOT NULL DEFAULT GETUTCDATE(),
+    updated_at              DATETIME         NOT NULL DEFAULT GETUTCDATE(),
+    updated_by              NVARCHAR(255)    NULL,
+    CONSTRAINT PK_support_email_relay_config PRIMARY KEY (support_relay_config_id)
+);
+
+IF OBJECT_ID(N'dbo.support_inbound_email_log', N'U') IS NULL
+CREATE TABLE dbo.support_inbound_email_log (
+    support_inbound_email_log_id UNIQUEIDENTIFIER NOT NULL DEFAULT NEWID(),
+    source                       NVARCHAR(40)     NOT NULL,
+    from_email                   NVARCHAR(255)    NOT NULL,
+    to_email                     NVARCHAR(255)    NOT NULL,
+    subject                      NVARCHAR(500)    NOT NULL,
+    processing_status            NVARCHAR(60)     NOT NULL,
+    relay_recipients_csv         NVARCHAR(MAX)    NULL,
+    provider_message_id          NVARCHAR(255)    NULL,
+    error_detail                 NVARCHAR(2000)   NULL,
+    received_at                  DATETIME         NOT NULL DEFAULT GETUTCDATE(),
+    CONSTRAINT PK_support_inbound_email_log PRIMARY KEY (support_inbound_email_log_id)
+);
+
+IF OBJECT_ID(N'dbo.support_inbound_email_log', N'U') IS NOT NULL
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM sys.indexes
+        WHERE object_id = OBJECT_ID(N'dbo.support_inbound_email_log')
+          AND name = N'IX_support_inbound_email_log_received_at'
+    )
+        CREATE INDEX IX_support_inbound_email_log_received_at ON dbo.support_inbound_email_log (received_at DESC);
+END
+
 IF OBJECT_ID(N'dbo.email_preference_log', N'U') IS NULL
 CREATE TABLE dbo.email_preference_log (
     email_preference_log_id UNIQUEIDENTIFIER NOT NULL DEFAULT NEWID(),

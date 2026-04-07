@@ -27,6 +27,7 @@ type Role = keyof typeof tokensByRole;
 type RoleCapabilities = {
   isAdmin: boolean;
   isEventCreator: boolean;
+  canPostEvents: boolean;
 };
 type ContractCase = {
   name: string;
@@ -68,6 +69,32 @@ const contracts: ContractCase[] = [
       status: 'draft',
       capacity: 10,
     },
+    expectedByRole: ({ isAdmin, canPostEvents }) => (isAdmin || canPostEvents ? 'allow' : 'deny'),
+  },
+  {
+    name: 'Event AI draft generation is limited to admin/event creator roles',
+    method: 'POST',
+    path: `/events/${eventId}/ai-draft`,
+    payload: { tone: 'professional' },
+    expectedByRole: ({ isAdmin, isEventCreator }) => (isAdmin || isEventCreator ? 'allow' : 'deny'),
+  },
+  {
+    name: 'Event report CSV export is limited to admin/event creator roles',
+    method: 'GET',
+    path: `/events/${eventId}/report.csv`,
+    expectedByRole: ({ isAdmin, isEventCreator }) => (isAdmin || isEventCreator ? 'allow' : 'deny'),
+  },
+  {
+    name: 'Event report PDF export is limited to admin/event creator roles',
+    method: 'GET',
+    path: `/events/${eventId}/report.pdf`,
+    expectedByRole: ({ isAdmin, isEventCreator }) => (isAdmin || isEventCreator ? 'allow' : 'deny'),
+  },
+  {
+    name: 'Event report email is limited to admin/event creator roles',
+    method: 'POST',
+    path: `/events/${eventId}/report/email`,
+    payload: {},
     expectedByRole: ({ isAdmin, isEventCreator }) => (isAdmin || isEventCreator ? 'allow' : 'deny'),
   },
   {
@@ -148,6 +175,7 @@ function decodeCapabilities(token: string): RoleCapabilities {
     return {
       isAdmin: false,
       isEventCreator: false,
+      canPostEvents: false,
     };
   }
 }
@@ -165,15 +193,23 @@ async function inferCapabilities(request: APIRequestContext, token: string): Pro
   const adminStatus = adminProbe.status();
   const hasAdminAccess = ![401, 403].includes(adminStatus);
 
-  const creatorProbe = await invokeContract(request, 'POST', '/events', token, {
-    title: '',
+  const creatorProbe = await invokeContract(request, 'POST', `/events/${randomUUID()}/ai-draft`, token, {
+    tone: 'friendly',
   });
   const creatorStatus = creatorProbe.status();
   const hasCreateAccess = ![401, 403].includes(creatorStatus);
 
+  const eventCreateProbe = await invokeContract(request, 'POST', '/events', token, {
+    title: 'Contract Probe',
+    event_date: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+  });
+  const eventCreateStatus = eventCreateProbe.status();
+  const canPostEvents = ![401, 403].includes(eventCreateStatus);
+
   const inferred: RoleCapabilities = {
     isAdmin: claimed.isAdmin || hasAdminAccess,
     isEventCreator: claimed.isEventCreator || hasCreateAccess || hasAdminAccess,
+    canPostEvents,
   };
 
   capabilityCache.set(token, inferred);

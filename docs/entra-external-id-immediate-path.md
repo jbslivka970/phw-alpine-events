@@ -26,6 +26,67 @@ Notes:
 - If you want strict pre-approval only, keep sign-up disabled and use app-driven invitations.
 - If sign-up is disabled, unknown users will continue seeing account-not-found errors until invited/provisioned.
 
+### Focused Google OAuth setup (copy/paste runbook)
+
+Use this exact sequence and do not skip steps.
+
+1. In Google Cloud Console, create or select your project.
+2. Configure OAuth consent screen as External.
+3. Create OAuth client credentials as Web application.
+4. Add this Authorized redirect URI exactly:
+
+```text
+https://phwalpine.ciamlogin.com/d65d23ea-9a90-4080-b5ab-f427665cbfcf/federation/oidc/google
+```
+
+5. Save the Google values:
+   - Google Client ID
+   - Google Client Secret
+
+6. In a terminal, set values and run the setup script:
+
+```bash
+export TENANT_ID="d65d23ea-9a90-4080-b5ab-f427665cbfcf"
+export GOOGLE_CLIENT_ID="<paste-google-client-id>"
+export GOOGLE_CLIENT_SECRET="<paste-google-client-secret>"
+export PROVISIONING_CLIENT_ID="<entra-provisioning-app-client-id>"
+export PROVISIONING_CLIENT_SECRET="<entra-provisioning-app-client-secret>"
+export USER_FLOW_ID="<your-user-flow-id>"
+
+./scripts/configure-external-id-google.sh \
+  --tenant-id "$TENANT_ID" \
+  --google-client-id "$GOOGLE_CLIENT_ID" \
+  --google-client-secret "$GOOGLE_CLIENT_SECRET" \
+  --provisioning-client-id "$PROVISIONING_CLIENT_ID" \
+  --provisioning-client-secret "$PROVISIONING_CLIENT_SECRET" \
+  --user-flow-id "$USER_FLOW_ID" \
+  --create-user-flow-if-missing
+```
+
+7. If you do not know USER_FLOW_ID yet, first run:
+
+```bash
+./scripts/configure-external-id-google.sh \
+  --tenant-id "$TENANT_ID" \
+  --google-client-id "$GOOGLE_CLIENT_ID" \
+  --google-client-secret "$GOOGLE_CLIENT_SECRET"
+```
+
+This prints available user flows, then exits without attaching.
+
+8. Re-run the full command with USER_FLOW_ID set.
+
+Notes:
+- If provisioning client values are omitted, script falls back to Azure CLI login identity and that identity must have Graph delegated permissions for identity provider and user flow management.
+- The script is idempotent: it updates existing Google provider credentials if provider already exists.
+
+### Fast verification after script runs
+
+1. Entra admin center -> External Identities -> User flows -> your flow -> Identity providers:
+   - Confirm Google is listed.
+2. Open app sign-in and verify Google appears as an option.
+3. Complete one test sign-in and verify member identity status transitions from Invited to Linked.
+
 ## 2) Configure Backend Invitation Credentials
 
 Set these backend environment variables:
@@ -64,3 +125,18 @@ From Members page:
 3. Member signs in with Google or Microsoft.
 4. Identity status transitions to Linked.
 5. Linked member receives USER access without manual role assignment.
+
+## 6) Quick verification commands
+
+```bash
+# Backend health
+curl -sS https://phwalpineeventsjb873a.azurewebsites.net/api/v1/health
+
+# Invite one member
+TOKEN=$(cat /tmp/phw_token.txt)
+curl -sS -X POST \
+   -H "Authorization: Bearer ${TOKEN}" \
+   -H "Content-Type: application/json" \
+   -d '{"member_id":"9682793C-60AC-4ED0-9FB3-29FF0DE33166"}' \
+   https://phwalpineeventsjb873a.azurewebsites.net/api/v1/admin/identity/invite
+```

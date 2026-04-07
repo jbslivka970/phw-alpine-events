@@ -1,4 +1,4 @@
-import { apiGet, apiPost } from './client';
+import { apiGet, apiPost, apiPut } from './client';
 
 interface InviteDraftRequest {
   event_id?: string;
@@ -93,6 +93,14 @@ interface BulkInviteIdentityResponse {
   }>;
 }
 
+interface SupportEmailRelayConfig {
+  supportInboxEmail: string;
+  relayRecipients: string[];
+  enabled: boolean;
+  updatedAt: string | null;
+  updatedBy: string | null;
+}
+
 const adminApi = {
   generateInviteDraft: (payload: InviteDraftRequest) =>
     apiPost<InviteDraftResponse>('/admin/ai/invite-draft', payload),
@@ -122,6 +130,13 @@ const adminApi = {
     issuer_assigned_id?: string;
     identity_provider?: string;
   }) => apiPost<IdentityStatus>('/admin/identity/relink', payload),
+  getSupportEmailRelayConfig: () =>
+    apiGet<SupportEmailRelayConfig>('/support/relay-config'),
+  updateSupportEmailRelayConfig: (payload: {
+    support_inbox_email: string;
+    relay_to: string[];
+    enabled: boolean;
+  }) => apiPut<SupportEmailRelayConfig>('/support/relay-config', payload),
 };
 
 export { adminApi };
@@ -136,4 +151,5 @@ export type {
   BulkIdentityStatusResponse,
   InviteIdentityResponse,
   BulkInviteIdentityResponse,
+  SupportEmailRelayConfig,
 };

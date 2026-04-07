@@ -10,6 +10,7 @@ import preferencesRouter from './preferences';
 import publicRsvpRouter from './publicRsvp';
 import reportsRouter from './reports';
 import smsRouter from './sms';
+import supportRouter from './support';
 import tavfRouter from './tavf';
 import templatesRouter from './templates';
 
@@ -23,6 +24,7 @@ router.use('/rsvp', publicRsvpRouter);
 router.use('/members', membersRouter);
 router.use('/preferences', preferencesRouter);
 router.use('/sms', smsRouter);
+router.use('/support', supportRouter);
 router.use('/groups', groupsRouter);
 router.use('/import', importRouter);
 router.use('/reports', reportsRouter);

@@ -11,6 +11,8 @@ interface InviteDraftOutput {
   emailBody: string;
   smsBody: string;
   provider: 'azure-openai' | 'openai' | 'fallback';
+  mapUrl?: string | null;
+  imageSuggestions?: string[];
 }
 
 interface OpenAiDraftResponse {
@@ -54,10 +56,34 @@ function buildFallbackDraft(input: InviteDraftInput): InviteDraftOutput {
 
   return {
     subject: `You're invited: ${input.eventTitle}`,
-    emailBody: `Hello PHW Alpine members,\n\nYou're invited to ${input.eventTitle} on ${dateLabel} at ${locationLabel}. Please RSVP to help us plan staffing and equipment.${descriptionLine}\n\nTight lines,\nPHW Alpine Team`,
+    emailBody: `Hello PHW Alpine members and veterans,\n\nYou're invited to ${input.eventTitle} on ${dateLabel} at ${locationLabel}. Please RSVP to help us plan staffing and equipment.${descriptionLine}\n\nWe are honored to serve military veterans through each event and appreciate your support.\n\nTight lines,\nPHW Alpine Team`,
     smsBody: `PHW Alpine: ${input.eventTitle} on ${dateLabel} at ${locationLabel}. Please RSVP in the app. Reply STOP to opt out.`,
     provider: 'fallback',
+    mapUrl: buildMapUrl(input.location),
+    imageSuggestions: buildImageSuggestions(input),
   };
+}
+
+function buildMapUrl(location?: string | null): string | null {
+  const normalized = location?.trim();
+  if (!normalized) {
+    return null;
+  }
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(normalized)}`;
+}
+
+function buildImageSuggestions(input: InviteDraftInput): string[] {
+  const location = input.location?.trim();
+  const terms = [
+    'fly fishing mountain river',
+    'veterans outdoors fly fishing',
+  ];
+
+  if (location) {
+    terms.unshift(`fly fishing ${location}`);
+  }
+
+  return terms.slice(0, 3).map((term) => `https://www.pexels.com/search/${encodeURIComponent(term)}/`);
 }
 
 function parseOpenAiTextPayload(payload: unknown): string {
@@ -154,7 +180,7 @@ function buildPrompt(input: InviteDraftInput): { system: string; user: string } 
     : 'n/a';
 
   return {
-    system: 'You generate concise event invite copy for nonprofit chapter communications. Return only JSON with keys: subject, email_body, sms_body.',
+    system: 'You generate concise event invite copy for nonprofit chapter communications. Keep wording warm, professional, and inclusive of military veterans. Return only JSON with keys: subject, email_body, sms_body.',
     user: [
       `Tone: ${tone}`,
       `Event title: ${input.eventTitle}`,
@@ -164,8 +190,17 @@ function buildPrompt(input: InviteDraftInput): { system: string; user: string } 
       'Constraints:',
       '- subject <= 90 characters',
       '- sms_body <= 280 characters and include RSVP call-to-action',
+      '- include one sentence that reflects support for military veterans',
       '- no markdown formatting',
     ].join('\n'),
+  };
+}
+
+function withEnhancements(input: InviteDraftInput, draft: InviteDraftOutput): InviteDraftOutput {
+  return {
+    ...draft,
+    mapUrl: buildMapUrl(input.location),
+    imageSuggestions: buildImageSuggestions(input),
   };
 }
 
@@ -288,22 +323,22 @@ async function generateInviteDraft(input: InviteDraftInput): Promise<InviteDraft
   try {
     const azureDraft = await generateWithAzureOpenAi(input);
     if (azureDraft) {
-      return azureDraft;
+      return withEnhancements(input, azureDraft);
     }
 
     const publicDraft = await generateWithPublicOpenAi(input);
     if (publicDraft) {
-      return publicDraft;
+      return withEnhancements(input, publicDraft);
     }
 
-    return buildFallbackDraft(input);
+    return withEnhancements(input, buildFallbackDraft(input));
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') {
       console.warn('[aiInviteService] AI invite generation timed out. Falling back to deterministic invite draft.');
-      return buildFallbackDraft(input);
+      return withEnhancements(input, buildFallbackDraft(input));
     }
     console.warn('[aiInviteService] Falling back to deterministic invite draft.', error);
-    return buildFallbackDraft(input);
+    return withEnhancements(input, buildFallbackDraft(input));
   }
 }
 

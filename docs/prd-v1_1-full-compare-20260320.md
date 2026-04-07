@@ -146,3 +146,79 @@ Gaps:
 - Reports summary/export/participation: `backend/src/routes/reports.ts`, `frontend/src/pages/ReportsPage.tsx`
 - SMS preference UI: `frontend/src/pages/NotificationPreferencesPage.tsx`
 - Group/member/import admin pages: `frontend/src/pages/GroupsPage.tsx`, `frontend/src/pages/MembersPage.tsx`, `frontend/src/pages/ImportPage.tsx`
+
+## 7) Product Addendum (2026-04-07)
+
+This addendum appends three tracked feature threads requested for the next delivery wave.
+
+### 7.1 Auth and Identity Expansion (Admin Invite + Social Sign-In)
+
+Goal:
+- Support Microsoft and Google sign-in paths for members.
+- Allow admins to invite members into Entra External ID directly from member workflows.
+- Persist identity lifecycle status per member (Pending, Invited, Linked, Disabled).
+
+Requirements:
+- Member-facing sign-in supports approved providers configured in External ID user flow.
+- Admin can send single-member and bulk-member identity invitations.
+- Members page shows identity status and supports relink action for remediation.
+- First successful sign-in links identity record to the member profile and enables standard USER access.
+
+Acceptance criteria:
+- Invite action returns success and stores invited timestamp for selected member(s).
+- Identity status transitions from Pending -> Invited -> Linked after first successful auth.
+- Google provider can be enabled without backend code changes once tenant/provider credentials are configured.
+- Admin can re-run invite/relink safely for recoverable identity mismatches.
+
+### 7.2 Event Atomic Operations and Record Accessibility
+
+Goal:
+- Make any visible event directly actionable for admins and event creators from all reasonable entry points.
+- Improve post-event record extraction and archival sharing.
+
+Requirements:
+- From event views (calendar cards, event list/cards, event detail, and related admin views), authorized users can:
+   - open the event,
+   - edit event details,
+   - update event state,
+   - manually add/remove attendees and waitlist participants.
+- Completed events can be exported in human-readable formats:
+   - CSV/XLS-compatible export,
+   - PDF-style summary artifact.
+- Authorized users can send the single-event record to assistant program leads via email for archive/compliance.
+
+Acceptance criteria:
+- Event edit and participant-manual-management actions are reachable from all supported event surfaces.
+- Export output includes event metadata, participant list, roles, statuses, and timestamps.
+- Email-send action supports one-click event record delivery to configured leadership recipients.
+- Audit trail logs who exported or emailed event records and when.
+
+### 7.3 AI-Assisted Event Messaging (Creator Workflow)
+
+Goal:
+- Give event creators a stronger AI drafting workflow directly in event context.
+
+Requirements:
+- From event screen, creator can generate a draft outbound message with tone guidance:
+   - professional,
+   - warm/friendly,
+   - always respectful and inclusive of military veteran audience context.
+- AI draft should use event context (title, date/time, location, audience intent).
+- System should support optional enrichment package:
+   - mini map or map link snippet based on event location,
+   - suggested outdoor/fly-fishing imagery references from public sources,
+   - creator review/approve before publish.
+
+Acceptance criteria:
+- Creator can generate, edit, and apply AI draft from event workflow without leaving event context.
+- Draft payload includes event-specific details and audience-aware phrasing.
+- Location enrichment can be inserted as map link/snippet when location is valid.
+- Image suggestions are reviewable and removable before send.
+- Final outbound message remains subject to existing template approval and notification safeguards.
+
+### 7.4 Priority and Sequencing Recommendation
+
+1. Finish Auth and Identity Expansion production hardening and Google provider activation.
+2. Deliver Event Atomic Operations and export/email record workflow.
+3. Extend AI-Assisted Event Messaging with location and imagery enrichment after event atomic controls are stable.
+

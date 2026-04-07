@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { eventsApi, rsvpApi } from '../api/events'
-import type { EventRecord, RsvpRecord } from '../api/events'
+import type { EventAiDraftResponse, EventRecord, RsvpRecord } from '../api/events'
 import { groupsApi } from '../api/groups'
 import type { GroupRecord } from '../api/groups'
 import { useAuth } from '../hooks/useAuth'
@@ -52,6 +52,18 @@ function parseDispositionFilename(headerValue: string | null): string | null {
 
   const plainMatch = /filename="?([^";]+)"?/i.exec(headerValue)
   return plainMatch?.[1] ?? null
+}
+
+function downloadBlobFile(blob: Blob, headers: Headers, fallbackFilename: string) {
+  const objectUrl = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  const fromHeader = parseDispositionFilename(headers.get('content-disposition'))
+  anchor.href = objectUrl
+  anchor.download = fromHeader ?? fallbackFilename
+  document.body.appendChild(anchor)
+  anchor.click()
+  anchor.remove()
+  URL.revokeObjectURL(objectUrl)
 }
 
 // ── Status badge ──────────────────────────────────────────────────────────────
@@ -405,6 +417,85 @@ interface EventFormModalProps {
   isEdit: boolean
 }
 
+function EventAiDraftModal({
+  draft,
+  loading,
+  error,
+  tone,
+  onToneChange,
+  onGenerate,
+  onClose,
+}: {
+  draft: EventAiDraftResponse | null
+  loading: boolean
+  error: string | null
+  tone: 'friendly' | 'professional'
+  onToneChange: (tone: 'friendly' | 'professional') => void
+  onGenerate: () => void
+  onClose: () => void
+}) {
+  return (
+    <div className="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="event-ai-modal-title">
+      <div className="modal">
+        <div className="modal__header">
+          <h2 id="event-ai-modal-title" className="modal__title">AI Event Draft</h2>
+          <button className="btn btn--ghost btn--sm" type="button" aria-label="Close AI draft" onClick={onClose}>✕</button>
+        </div>
+        <div className="modal__body">
+          <div className="form-field form-field--full">
+            <label className="form-label">Tone</label>
+            <select className="form-input" value={tone} onChange={(e) => onToneChange(e.target.value as 'friendly' | 'professional')}>
+              <option value="friendly">Friendly</option>
+              <option value="professional">Professional</option>
+            </select>
+          </div>
+
+          <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+            <button className="btn btn--primary btn--sm" type="button" onClick={onGenerate} disabled={loading}>
+              {loading ? 'Generating…' : 'Generate Draft'}
+            </button>
+          </div>
+
+          {error && <p className="ui-notice ui-notice--error">{error}</p>}
+
+          {draft && (
+            <div className="form-grid">
+              <div className="form-field form-field--full">
+                <label className="form-label">Subject</label>
+                <textarea className="form-textarea" rows={2} readOnly value={draft.subject} />
+              </div>
+              <div className="form-field form-field--full">
+                <label className="form-label">Email Draft</label>
+                <textarea className="form-textarea" rows={10} readOnly value={draft.emailBody} />
+              </div>
+              <div className="form-field form-field--full">
+                <label className="form-label">SMS Draft</label>
+                <textarea className="form-textarea" rows={3} readOnly value={draft.smsBody} />
+              </div>
+              {draft.mapUrl && (
+                <div className="form-field form-field--full">
+                  <label className="form-label">Map Link</label>
+                  <a href={draft.mapUrl} target="_blank" rel="noreferrer">{draft.mapUrl}</a>
+                </div>
+              )}
+              {Array.isArray(draft.imageSuggestions) && draft.imageSuggestions.length > 0 && (
+                <div className="form-field form-field--full">
+                  <label className="form-label">Outdoor Image Suggestions</label>
+                  <ul>
+                    {draft.imageSuggestions.map((url) => (
+                      <li key={url}><a href={url} target="_blank" rel="noreferrer">{url}</a></li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 interface FormFieldErrors {
   title?: string
   event_date?: string
@@ -720,6 +811,12 @@ function EventsPage() {
 
   // status transition in-flight
   const [transitioning, setTransitioning] = useState<string | null>(null)
+  const [reportEmailingEventId, setReportEmailingEventId] = useState<string | null>(null)
+  const [aiDraftEvent, setAiDraftEvent] = useState<EventRecord | null>(null)
+  const [aiDraftTone, setAiDraftTone] = useState<'friendly' | 'professional'>('friendly')
+  const [aiDraftLoading, setAiDraftLoading] = useState(false)
+  const [aiDraftError, setAiDraftError] = useState<string | null>(null)
+  const [aiDraftResult, setAiDraftResult] = useState<EventAiDraftResponse | null>(null)
 
   const abortRef = useRef<AbortController | null>(null)
 
@@ -818,17 +915,71 @@ function EventsPage() {
   async function downloadIcs(event: EventRecord) {
     try {
       const { blob, headers } = await eventsApi.downloadIcs(event.event_id)
-      const objectUrl = URL.createObjectURL(blob)
-      const anchor = document.createElement('a')
-      const fromHeader = parseDispositionFilename(headers.get('content-disposition'))
-      anchor.href = objectUrl
-      anchor.download = fromHeader ?? suggestedIcsFilename(event)
-      document.body.appendChild(anchor)
-      anchor.click()
-      anchor.remove()
-      URL.revokeObjectURL(objectUrl)
+      downloadBlobFile(blob, headers, suggestedIcsFilename(event))
     } catch (error) {
       setErr(toUserErrorMessage(error, 'Failed to download ICS file.'))
+    }
+  }
+
+  async function downloadReportCsv(event: EventRecord) {
+    try {
+      const { blob, headers } = await eventsApi.downloadReportCsv(event.event_id)
+      downloadBlobFile(blob, headers, `event-report-${event.event_id}.csv`)
+    } catch (error) {
+      setErr(toUserErrorMessage(error, 'Failed to download event CSV report.'))
+    }
+  }
+
+  async function downloadReportText(event: EventRecord) {
+    try {
+      const { blob, headers } = await eventsApi.downloadReportText(event.event_id)
+      downloadBlobFile(blob, headers, `event-report-${event.event_id}.txt`)
+    } catch (error) {
+      setErr(toUserErrorMessage(error, 'Failed to download event record summary.'))
+    }
+  }
+
+  async function downloadReportPdf(event: EventRecord) {
+    try {
+      const { blob, headers } = await eventsApi.downloadReportPdf(event.event_id)
+      downloadBlobFile(blob, headers, `event-report-${event.event_id}.pdf`)
+    } catch (error) {
+      setErr(toUserErrorMessage(error, 'Failed to download event PDF report.'))
+    }
+  }
+
+  async function emailEventRecord(event: EventRecord) {
+    setReportEmailingEventId(event.event_id)
+    try {
+      await eventsApi.emailReport(event.event_id)
+      setErr(null)
+    } catch (error) {
+      setErr(toUserErrorMessage(error, 'Failed to email event record.'))
+    } finally {
+      setReportEmailingEventId(null)
+    }
+  }
+
+  function openAiDraft(event: EventRecord) {
+    setAiDraftEvent(event)
+    setAiDraftError(null)
+    setAiDraftResult(null)
+    setAiDraftTone('friendly')
+  }
+
+  async function generateAiDraft() {
+    if (!aiDraftEvent) {
+      return
+    }
+    setAiDraftLoading(true)
+    setAiDraftError(null)
+    try {
+      const draft = await eventsApi.generateAiDraft(aiDraftEvent.event_id, aiDraftTone)
+      setAiDraftResult(draft)
+    } catch (error) {
+      setAiDraftError(toUserErrorMessage(error, 'Failed to generate AI draft.'))
+    } finally {
+      setAiDraftLoading(false)
     }
   }
 
@@ -914,6 +1065,39 @@ function EventsPage() {
                     ICS
                   </button>
 
+                  <button
+                    className="btn btn--outline btn--sm"
+                    onClick={() => void downloadReportCsv(event)}
+                    disabled={event.status !== 'completed'}
+                    title={event.status !== 'completed' ? 'Available when event is completed' : undefined}
+                  >
+                    CSV
+                  </button>
+
+                  <button
+                    className="btn btn--outline btn--sm"
+                    onClick={() => void downloadReportPdf(event)}
+                    disabled={event.status !== 'completed'}
+                    title={event.status !== 'completed' ? 'Available when event is completed' : undefined}
+                  >
+                    PDF
+                  </button>
+
+                  <button
+                    className="btn btn--outline btn--sm"
+                    onClick={() => void downloadReportText(event)}
+                    disabled={event.status !== 'completed'}
+                    title={event.status !== 'completed' ? 'Available when event is completed' : undefined}
+                  >
+                    Record
+                  </button>
+
+                  {canEdit && (
+                    <button className="btn btn--outline btn--sm" onClick={() => openAiDraft(event)}>
+                      AI Draft
+                    </button>
+                  )}
+
                   {canEdit && (
                     <button className="btn btn--outline btn--sm" onClick={() => openEdit(event)}>
                       Edit
@@ -923,6 +1107,17 @@ function EventsPage() {
                   {isAdmin() && (
                     <button className="btn btn--outline btn--sm" onClick={() => navigate(`/events/${event.event_id}/assign`)}>
                       Assign
+                    </button>
+                  )}
+
+                  {canEdit && (
+                    <button
+                      className="btn btn--outline btn--sm"
+                      onClick={() => void emailEventRecord(event)}
+                      disabled={event.status !== 'completed' || reportEmailingEventId === event.event_id}
+                      title={event.status !== 'completed' ? 'Available when event is completed' : undefined}
+                    >
+                      {reportEmailingEventId === event.event_id ? 'Emailing…' : 'Email Record'}
                     </button>
                   )}
 
@@ -961,6 +1156,18 @@ function EventsPage() {
           saving={formSaving}
           error={formError}
           isEdit={editTarget !== null}
+        />
+      )}
+
+      {aiDraftEvent && (
+        <EventAiDraftModal
+          draft={aiDraftResult}
+          loading={aiDraftLoading}
+          error={aiDraftError}
+          tone={aiDraftTone}
+          onToneChange={setAiDraftTone}
+          onGenerate={() => void generateAiDraft()}
+          onClose={() => setAiDraftEvent(null)}
         />
       )}
     </div>
