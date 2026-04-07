@@ -457,7 +457,7 @@ router.get('/identity/status/:memberId', async (req, res) => {
   }
 });
 
-router.post('/identity/status/bulk', writeLimiter, async (req, res) => {
+router.post('/identity/status/bulk', apiLimiter, async (req, res) => {
   try {
     const memberIdsRaw = req.body?.member_ids;
     if (!Array.isArray(memberIdsRaw)) {

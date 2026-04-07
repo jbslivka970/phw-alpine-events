@@ -54,8 +54,13 @@ function toEditState(m: MemberRecord): MemberEditState {
 
 function MembersPage() {
   const { isAdmin } = useAuth()
+  const isAdminUser = isAdmin()
   const modalRef = useRef<HTMLElement | null>(null)
   const previouslyFocusedRef = useRef<HTMLElement | null>(null)
+  const identityBulkInFlightRef = useRef(false)
+  const identityBulkLastKeyRef = useRef('')
+  const identityBulkLastRequestedAtRef = useRef(0)
+  const identityBulkCooldownUntilRef = useRef(0)
   const [search, setSearch] = useState('')
   const [members, setMembers] = useState<MemberRecord[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -94,13 +99,34 @@ function MembersPage() {
   }, [search])
 
   useEffect(() => {
-    if (!isAdmin() || members.length === 0) {
+    if (!isAdminUser || members.length === 0) {
       setIdentityByMemberId({})
       return
     }
 
     let cancelled = false
     const memberIds = members.map((member) => member.member_id)
+    const memberIdsKey = memberIds.join(',')
+    const now = Date.now()
+
+    // Prevent storms: do not send duplicate requests for the same list in quick succession
+    // and back off briefly after rate-limit responses.
+    if (identityBulkInFlightRef.current) {
+      return
+    }
+    if (now < identityBulkCooldownUntilRef.current) {
+      return
+    }
+    if (
+      identityBulkLastKeyRef.current === memberIdsKey
+      && (now - identityBulkLastRequestedAtRef.current) < 15_000
+    ) {
+      return
+    }
+
+    identityBulkInFlightRef.current = true
+    identityBulkLastKeyRef.current = memberIdsKey
+    identityBulkLastRequestedAtRef.current = now
 
     adminApi.identityStatusBulk(memberIds)
       .then((result) => {
@@ -113,19 +139,24 @@ function MembersPage() {
       })
       .catch(() => {
         if (!cancelled) {
-          setIdentityByMemberId({})
+          // Hold previous data and cool down if backend is rate limiting.
+          identityBulkCooldownUntilRef.current = Date.now() + 30_000
         }
+      })
+      .finally(() => {
+        identityBulkInFlightRef.current = false
       })
 
     return () => {
       cancelled = true
+      identityBulkInFlightRef.current = false
     }
-  }, [members, isAdmin])
+  }, [members, isAdminUser])
 
   function startEdit(m: MemberRecord) {
     setSelected(m)
     setEdit(toEditState(m))
-    if (isAdmin()) {
+    if (isAdminUser) {
       membersApi.consentLog(m.member_id)
         .then(setConsentLog)
         .catch(() => setConsentLog([]))
@@ -257,7 +288,7 @@ function MembersPage() {
       if (selected?.member_id === memberId) {
         setSelected(updated)
         setEdit(toEditState(updated))
-        if (isAdmin()) {
+        if (isAdminUser) {
           const logs = await membersApi.consentLog(memberId)
           setConsentLog(logs)
         }
@@ -336,12 +367,12 @@ function MembersPage() {
           onChange={(e) => setSearch(e.target.value)}
         />
         <span className="members-count">{totalLabel}</span>
-        {isAdmin() && (
+        {isAdminUser && (
           <button className="btn btn--primary btn--sm" type="button" onClick={startCreate}>
             Add member
           </button>
         )}
-        {isAdmin() && (
+        {isAdminUser && (
           <button className="btn btn--outline btn--sm" type="button" disabled={isBulkInviting} onClick={handleInviteAllFiltered}>
             {isBulkInviting ? 'Inviting…' : 'Invite all filtered'}
           </button>
@@ -374,7 +405,7 @@ function MembersPage() {
                   <td>
                     <div className="members-row-actions">
                       <button className="btn btn--primary btn--sm" onClick={() => startEdit(m)}>Edit</button>
-                      {isAdmin() && (
+                      {isAdminUser && (
                         <button
                           className="btn btn--outline btn--sm"
                           type="button"
@@ -384,7 +415,7 @@ function MembersPage() {
                           {inviteInFlightByMemberId[m.member_id] ? 'Inviting…' : 'Invite'}
                         </button>
                       )}
-                      {isAdmin() && (
+                      {isAdminUser && (
                         <button className="btn btn--outline btn--sm" type="button" onClick={() => handleRelink(m)}>
                           Relink
                         </button>
@@ -459,7 +490,7 @@ function MembersPage() {
                 </div>
               </form>
 
-              {isAdmin() && selected && (
+              {isAdminUser && selected && (
                 <div style={{ marginTop: 16 }}>
                   <h3>SMS Consent Audit Log</h3>
                   <table className="members-table">
