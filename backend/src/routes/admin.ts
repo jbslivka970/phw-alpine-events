@@ -4,6 +4,7 @@ import authenticate from '../middleware/auth';
 import { apiLimiter, writeLimiter } from '../middleware/rateLimiter';
 import { requireAdmin } from '../middleware/rbac';
 import { generateInviteDraft } from '../services/aiInviteService';
+import { isProvisioningEnabled, sendEntraInvitation } from '../services/identityProvisioningService';
 import { runRetentionJob } from '../jobs/retentionJob';
 
 const router = Router();
@@ -24,6 +25,20 @@ interface RetentionPreviewRequestBody {
   inbound_sms_log_days?: number;
   email_preference_log_days?: number;
   format?: 'json' | 'csv';
+}
+
+interface IdentityStatusRow {
+  member_id: string;
+  status: 'pending' | 'invited' | 'linked' | 'disabled';
+  identity_provider: string | null;
+  entra_object_id: string | null;
+  issuer: string | null;
+  issuer_assigned_id: string | null;
+  invited_at: Date | null;
+  invite_email_sent_at: Date | null;
+  linked_at: Date | null;
+  last_sign_in_at: Date | null;
+  updated_at: Date;
 }
 
 const MAX_INVITE_TITLE_LENGTH = 160;
@@ -418,6 +433,277 @@ router.post('/retention/preview', async (req, res) => {
   }
 });
 
+router.get('/identity/status/:memberId', async (req, res) => {
+  try {
+    const memberId = req.params.memberId;
+    const status = await getIdentityStatusByMemberId(memberId);
+
+    if (!status) {
+      res.status(200).json({
+        member_id: memberId,
+        status: 'pending',
+        identity_provider: null,
+        invited_at: null,
+        linked_at: null,
+        last_sign_in_at: null,
+      });
+      return;
+    }
+
+    res.status(200).json(status);
+  } catch (error) {
+    console.error('GET /admin/identity/status/:memberId failed', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.post('/identity/status/bulk', writeLimiter, async (req, res) => {
+  try {
+    const memberIdsRaw = req.body?.member_ids;
+    if (!Array.isArray(memberIdsRaw)) {
+      res.status(400).json({ error: 'member_ids array is required.' });
+      return;
+    }
+
+    const memberIds = memberIdsRaw
+      .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+      .map((value) => value.trim());
+
+    if (memberIds.length === 0) {
+      res.status(200).json({ data: [] });
+      return;
+    }
+
+    if (memberIds.length > 500) {
+      res.status(400).json({ error: 'member_ids may not contain more than 500 records per request.' });
+      return;
+    }
+
+    const pool = await getPool();
+    const query = memberIds.map((_, index) => `@member_id_${index}`).join(', ');
+    const request = pool.request();
+    memberIds.forEach((memberId, index) => {
+      request.input(`member_id_${index}`, sql.UniqueIdentifier, memberId);
+    });
+
+    const result = await request.query<IdentityStatusRow>(
+      `SELECT member_id, status, identity_provider, entra_object_id, issuer, issuer_assigned_id,
+              invited_at, invite_email_sent_at, linked_at, last_sign_in_at, updated_at
+       FROM member_identity_link
+       WHERE member_id IN (${query})`
+    );
+
+    const found = new Map(result.recordset.map((row) => [row.member_id.toLowerCase(), row]));
+    const data = memberIds.map((memberId) => {
+      const row = found.get(memberId.toLowerCase());
+      if (row) {
+        return row;
+      }
+      return {
+        member_id: memberId,
+        status: 'pending',
+        identity_provider: null,
+        entra_object_id: null,
+        issuer: null,
+        issuer_assigned_id: null,
+        invited_at: null,
+        invite_email_sent_at: null,
+        linked_at: null,
+        last_sign_in_at: null,
+        updated_at: null,
+      };
+    });
+
+    res.status(200).json({ data });
+  } catch (error) {
+    console.error('POST /admin/identity/status/bulk failed', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.post('/identity/invite', writeLimiter, async (req, res) => {
+  try {
+    if (!isProvisioningEnabled()) {
+      res.status(503).json({ error: 'Entra provisioning is not configured for this environment.' });
+      return;
+    }
+
+    const memberId = (req.body?.member_id as string | undefined)?.trim();
+    const redirectUrl = (req.body?.redirect_url as string | undefined)?.trim();
+    if (!memberId) {
+      res.status(400).json({ error: 'member_id is required.' });
+      return;
+    }
+
+    const member = await getMemberIdentityTarget(memberId);
+    if (!member) {
+      res.status(404).json({ error: 'Member not found.' });
+      return;
+    }
+    if (!member.is_active) {
+      res.status(400).json({ error: 'Cannot invite an inactive member.' });
+      return;
+    }
+    if (!member.email) {
+      res.status(400).json({ error: 'Member email is required before provisioning identity.' });
+      return;
+    }
+
+    const invitation = await sendEntraInvitation({
+      email: member.email,
+      displayName: `${member.first_name} ${member.last_name}`.trim() || member.email,
+      redirectUrl,
+    });
+
+    const currentUser = req.user?.email ?? req.user?.sub ?? 'unknown';
+    await upsertMemberIdentityInvite(member.member_id, member.email, currentUser);
+
+    res.status(200).json({
+      member_id: member.member_id,
+      email: member.email,
+      status: 'invited',
+      invited_user_id: invitation.invitedUser?.id ?? null,
+      invite_redeem_url: invitation.inviteRedeemUrl ?? null,
+    });
+  } catch (error) {
+    console.error('POST /admin/identity/invite failed', error);
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Internal server error' });
+  }
+});
+
+router.post('/identity/invite/bulk', writeLimiter, async (req, res) => {
+  try {
+    if (!isProvisioningEnabled()) {
+      res.status(503).json({ error: 'Entra provisioning is not configured for this environment.' });
+      return;
+    }
+
+    const memberIdsRaw = req.body?.member_ids;
+    const redirectUrl = (req.body?.redirect_url as string | undefined)?.trim();
+    if (!Array.isArray(memberIdsRaw)) {
+      res.status(400).json({ error: 'member_ids array is required.' });
+      return;
+    }
+
+    const memberIds = memberIdsRaw
+      .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+      .map((value) => value.trim());
+
+    if (memberIds.length === 0) {
+      res.status(200).json({ results: [] });
+      return;
+    }
+    if (memberIds.length > 100) {
+      res.status(400).json({ error: 'member_ids may not contain more than 100 records per request.' });
+      return;
+    }
+
+    const currentUser = req.user?.email ?? req.user?.sub ?? 'unknown';
+    const results: Array<{ member_id: string; status: 'invited' | 'skipped' | 'failed'; reason?: string }> = [];
+
+    for (const memberId of memberIds) {
+      try {
+        const member = await getMemberIdentityTarget(memberId);
+        if (!member) {
+          results.push({ member_id: memberId, status: 'skipped', reason: 'member_not_found' });
+          continue;
+        }
+        if (!member.is_active) {
+          results.push({ member_id: memberId, status: 'skipped', reason: 'member_inactive' });
+          continue;
+        }
+        if (!member.email) {
+          results.push({ member_id: memberId, status: 'skipped', reason: 'missing_email' });
+          continue;
+        }
+
+        await sendEntraInvitation({
+          email: member.email,
+          displayName: `${member.first_name} ${member.last_name}`.trim() || member.email,
+          redirectUrl,
+        });
+        await upsertMemberIdentityInvite(member.member_id, member.email, currentUser);
+        results.push({ member_id: member.member_id, status: 'invited' });
+      } catch (memberError) {
+        results.push({
+          member_id: memberId,
+          status: 'failed',
+          reason: memberError instanceof Error ? memberError.message : 'invite_failed',
+        });
+      }
+    }
+
+    res.status(200).json({ results });
+  } catch (error) {
+    console.error('POST /admin/identity/invite/bulk failed', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.post('/identity/relink', writeLimiter, async (req, res) => {
+  try {
+    const memberId = (req.body?.member_id as string | undefined)?.trim();
+    const email = (req.body?.email as string | undefined)?.trim().toLowerCase();
+    const entraObjectId = (req.body?.entra_object_id as string | undefined)?.trim();
+    const issuer = (req.body?.issuer as string | undefined)?.trim();
+    const issuerAssignedId = (req.body?.issuer_assigned_id as string | undefined)?.trim();
+    const provider = (req.body?.identity_provider as string | undefined)?.trim();
+
+    if (!memberId) {
+      res.status(400).json({ error: 'member_id is required.' });
+      return;
+    }
+
+    const normalizedEmail = email || null;
+    const currentUser = req.user?.email ?? req.user?.sub ?? 'unknown';
+
+    const pool = await getPool();
+    await pool
+      .request()
+      .input('member_id', sql.UniqueIdentifier, memberId)
+      .input('entra_object_id', sql.NVarChar(255), entraObjectId ?? null)
+      .input('issuer', sql.NVarChar(255), issuer ?? null)
+      .input('issuer_assigned_id', sql.NVarChar(255), issuerAssignedId ?? null)
+      .input('identity_provider', sql.NVarChar(100), provider ?? null)
+      .input('email', sql.NVarChar(255), normalizedEmail)
+      .input('invited_by', sql.NVarChar(255), currentUser)
+      .query(
+        `MERGE member_identity_link AS target
+         USING (SELECT @member_id AS member_id) AS source
+         ON target.member_id = source.member_id
+         WHEN MATCHED THEN
+           UPDATE SET
+             entra_object_id = COALESCE(@entra_object_id, target.entra_object_id),
+             issuer = COALESCE(@issuer, target.issuer),
+             issuer_assigned_id = COALESCE(@issuer_assigned_id, target.issuer_assigned_id),
+             identity_provider = COALESCE(@identity_provider, target.identity_provider),
+             last_seen_email = COALESCE(@email, target.last_seen_email),
+             status = 'linked',
+             linked_at = COALESCE(target.linked_at, GETUTCDATE()),
+             last_sign_in_at = GETUTCDATE(),
+             updated_at = GETUTCDATE(),
+             invited_by = @invited_by
+         WHEN NOT MATCHED THEN
+           INSERT (
+             link_id, member_id, entra_object_id, issuer, issuer_assigned_id, identity_provider,
+             status, invited_at, invite_email_sent_at, linked_at, last_sign_in_at, last_seen_email,
+             invited_by, created_at, updated_at
+           )
+           VALUES (
+             NEWID(), @member_id, @entra_object_id, @issuer, @issuer_assigned_id, @identity_provider,
+             'linked', NULL, NULL, GETUTCDATE(), GETUTCDATE(), @email,
+             @invited_by, GETUTCDATE(), GETUTCDATE()
+           );`
+      );
+
+    const updated = await getIdentityStatusByMemberId(memberId);
+    res.status(200).json(updated);
+  } catch (error) {
+    console.error('POST /admin/identity/relink failed', error);
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Internal server error' });
+  }
+});
+
 async function resolveInviteDraftRequest(body: InviteDraftRequestBody): Promise<{
   draft: Awaited<ReturnType<typeof generateInviteDraft>>;
   source: 'event' | 'ad_hoc';
@@ -551,6 +837,77 @@ function parseOptionalPositiveInt(value: unknown): number | undefined {
   }
   const normalized = Math.floor(value);
   return normalized > 0 ? normalized : undefined;
+}
+
+async function getIdentityStatusByMemberId(memberId: string): Promise<IdentityStatusRow | null> {
+  const pool = await getPool();
+  const result = await pool
+    .request()
+    .input('member_id', sql.UniqueIdentifier, memberId)
+    .query<IdentityStatusRow>(
+      `SELECT TOP 1 member_id, status, identity_provider, entra_object_id, issuer, issuer_assigned_id,
+              invited_at, invite_email_sent_at, linked_at, last_sign_in_at, updated_at
+       FROM member_identity_link
+       WHERE member_id = @member_id`
+    );
+
+  return result.recordset[0] ?? null;
+}
+
+async function getMemberIdentityTarget(memberId: string): Promise<{
+  member_id: string;
+  first_name: string;
+  last_name: string;
+  email: string;
+  is_active: boolean;
+} | null> {
+  const pool = await getPool();
+  const result = await pool
+    .request()
+    .input('member_id', sql.UniqueIdentifier, memberId)
+    .query<{
+      member_id: string;
+      first_name: string;
+      last_name: string;
+      email: string;
+      is_active: boolean;
+    }>(
+      `SELECT member_id, first_name, last_name, email, is_active
+       FROM member
+       WHERE member_id = @member_id`
+    );
+  return result.recordset[0] ?? null;
+}
+
+async function upsertMemberIdentityInvite(memberId: string, email: string, invitedBy: string): Promise<void> {
+  const pool = await getPool();
+  await pool
+    .request()
+    .input('member_id', sql.UniqueIdentifier, memberId)
+    .input('email', sql.NVarChar(255), email)
+    .input('invited_by', sql.NVarChar(255), invitedBy)
+    .query(
+      `MERGE member_identity_link AS target
+       USING (SELECT @member_id AS member_id) AS source
+       ON target.member_id = source.member_id
+       WHEN MATCHED THEN
+         UPDATE SET
+           status = CASE WHEN target.status = 'linked' THEN target.status ELSE 'invited' END,
+           invited_at = COALESCE(target.invited_at, GETUTCDATE()),
+           invite_email_sent_at = GETUTCDATE(),
+           last_seen_email = COALESCE(target.last_seen_email, @email),
+           invited_by = @invited_by,
+           updated_at = GETUTCDATE()
+       WHEN NOT MATCHED THEN
+         INSERT (
+           link_id, member_id, status, invited_at, invite_email_sent_at, last_seen_email,
+           invited_by, created_at, updated_at
+         )
+         VALUES (
+           NEWID(), @member_id, 'invited', GETUTCDATE(), GETUTCDATE(), @email,
+           @invited_by, GETUTCDATE(), GETUTCDATE()
+         );`
+    );
 }
 
 export default router;

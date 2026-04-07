@@ -65,7 +65,8 @@ function verifyRsvpToken(token: string): VerifiedRsvpToken {
     throw new Error('RSVP links are not configured.');
   }
 
-  const payload = jwt.verify(token, config.tokenSecret, { algorithms: ['HS256'] }) as JwtPayload;
+  const normalizedToken = normalizeIncomingToken(token);
+  const payload = jwt.verify(normalizedToken, config.tokenSecret, { algorithms: ['HS256'] }) as JwtPayload;
   if (payload['type'] !== 'event-rsvp') {
     throw new Error('Invalid RSVP token.');
   }
@@ -83,6 +84,30 @@ function verifyRsvpToken(token: string): VerifiedRsvpToken {
     groupContextId,
     expiresAt: typeof payload['exp'] === 'number' ? new Date(payload['exp'] * 1000).toISOString() : undefined,
   };
+}
+
+function normalizeIncomingToken(rawToken: string): string {
+  let token = String(rawToken ?? '').trim();
+
+  // Some SMS/email clients include link wrappers or punctuation when copied/opened.
+  token = token
+    .replace(/^['"“”`(\[]+/, '')
+    .replace(/[\s'"“”`)\].,;!?]+$/g, '');
+
+  // Decode percent-encoded variants safely (at most twice to avoid over-decoding).
+  for (let i = 0; i < 2; i += 1) {
+    try {
+      const decoded = decodeURIComponent(token);
+      if (decoded === token) {
+        break;
+      }
+      token = decoded;
+    } catch {
+      break;
+    }
+  }
+
+  return token;
 }
 
 function buildMemberRsvpUrls(

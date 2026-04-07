@@ -486,6 +486,69 @@ ALTER TABLE dbo.import_log
         FOREIGN KEY (imported_by) REFERENCES dbo.[user] (user_id);
 
 -- ---------------------------------------------------------------------------
+-- 14. MemberIdentityLink  (maps member records to Entra/IdP identities)
+-- ---------------------------------------------------------------------------
+IF OBJECT_ID(N'dbo.member_identity_link', N'U') IS NULL
+CREATE TABLE dbo.member_identity_link (
+    link_id             UNIQUEIDENTIFIER NOT NULL DEFAULT NEWID(),
+    member_id           UNIQUEIDENTIFIER NOT NULL,
+    entra_object_id     NVARCHAR(255)    NULL,
+    issuer              NVARCHAR(255)    NULL,
+    issuer_assigned_id  NVARCHAR(255)    NULL,
+    identity_provider   NVARCHAR(100)    NULL,
+    status              NVARCHAR(20)     NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending', 'invited', 'linked', 'disabled')),
+    invited_at          DATETIME         NULL,
+    invite_email_sent_at DATETIME       NULL,
+    linked_at           DATETIME         NULL,
+    last_sign_in_at     DATETIME         NULL,
+    last_seen_email     NVARCHAR(255)    NULL,
+    invited_by          NVARCHAR(255)    NULL,
+    created_at          DATETIME         NOT NULL DEFAULT GETUTCDATE(),
+    updated_at          DATETIME         NOT NULL DEFAULT GETUTCDATE(),
+    CONSTRAINT PK_member_identity_link PRIMARY KEY (link_id),
+    CONSTRAINT UQ_member_identity_link_member UNIQUE (member_id),
+    CONSTRAINT FK_member_identity_link_member FOREIGN KEY (member_id)
+        REFERENCES dbo.member (member_id) ON DELETE CASCADE
+);
+
+IF OBJECT_ID(N'dbo.member_identity_link', N'U') IS NOT NULL
+BEGIN
+    IF COL_LENGTH('dbo.member_identity_link', 'entra_object_id') IS NULL
+        ALTER TABLE dbo.member_identity_link ADD entra_object_id NVARCHAR(255) NULL;
+
+    IF COL_LENGTH('dbo.member_identity_link', 'issuer') IS NULL
+        ALTER TABLE dbo.member_identity_link ADD issuer NVARCHAR(255) NULL;
+
+    IF COL_LENGTH('dbo.member_identity_link', 'issuer_assigned_id') IS NULL
+        ALTER TABLE dbo.member_identity_link ADD issuer_assigned_id NVARCHAR(255) NULL;
+
+    IF COL_LENGTH('dbo.member_identity_link', 'identity_provider') IS NULL
+        ALTER TABLE dbo.member_identity_link ADD identity_provider NVARCHAR(100) NULL;
+
+    IF COL_LENGTH('dbo.member_identity_link', 'status') IS NULL
+        ALTER TABLE dbo.member_identity_link ADD status NVARCHAR(20) NOT NULL DEFAULT 'pending';
+
+    IF COL_LENGTH('dbo.member_identity_link', 'invited_at') IS NULL
+        ALTER TABLE dbo.member_identity_link ADD invited_at DATETIME NULL;
+
+    IF COL_LENGTH('dbo.member_identity_link', 'invite_email_sent_at') IS NULL
+        ALTER TABLE dbo.member_identity_link ADD invite_email_sent_at DATETIME NULL;
+
+    IF COL_LENGTH('dbo.member_identity_link', 'linked_at') IS NULL
+        ALTER TABLE dbo.member_identity_link ADD linked_at DATETIME NULL;
+
+    IF COL_LENGTH('dbo.member_identity_link', 'last_sign_in_at') IS NULL
+        ALTER TABLE dbo.member_identity_link ADD last_sign_in_at DATETIME NULL;
+
+    IF COL_LENGTH('dbo.member_identity_link', 'last_seen_email') IS NULL
+        ALTER TABLE dbo.member_identity_link ADD last_seen_email NVARCHAR(255) NULL;
+
+    IF COL_LENGTH('dbo.member_identity_link', 'invited_by') IS NULL
+        ALTER TABLE dbo.member_identity_link ADD invited_by NVARCHAR(255) NULL;
+END
+
+-- ---------------------------------------------------------------------------
 -- 14. TakeAVetPosting  (Take-A-Vet program listings)
 -- ---------------------------------------------------------------------------
 IF OBJECT_ID(N'dbo.take_a_vet_posting', N'U') IS NULL
@@ -614,6 +677,16 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_member_group_member_i
 
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_member_group_group_id' AND object_id = OBJECT_ID('dbo.member_group'))
     CREATE INDEX idx_member_group_group_id  ON dbo.member_group (group_id);
+
+-- member_identity_link
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_member_identity_link_member' AND object_id = OBJECT_ID('dbo.member_identity_link'))
+    CREATE INDEX idx_member_identity_link_member ON dbo.member_identity_link (member_id);
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_member_identity_link_entra_oid' AND object_id = OBJECT_ID('dbo.member_identity_link'))
+    CREATE INDEX idx_member_identity_link_entra_oid ON dbo.member_identity_link (entra_object_id);
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_member_identity_link_issuer_subject' AND object_id = OBJECT_ID('dbo.member_identity_link'))
+    CREATE INDEX idx_member_identity_link_issuer_subject ON dbo.member_identity_link (issuer, issuer_assigned_id);
 
 -- ===========================================================================
 -- Seed: System groups

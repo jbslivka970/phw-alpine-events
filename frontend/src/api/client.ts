@@ -12,9 +12,44 @@ const BASE_URL = resolvedBase.endsWith('/') ? resolvedBase.slice(0, -1) : resolv
 
 let getToken: TokenGetter = async () => null;
 const AUTH_RETRY_DELAY_MS = 250;
+const TOKEN_CACHE_TTL_MS = 30_000;
+let cachedToken: string | null | undefined;
+let cachedTokenAtMs = 0;
+let tokenRequestInFlight: Promise<string | null> | null = null;
+
+function clearTokenCache(): void {
+  cachedToken = undefined;
+  cachedTokenAtMs = 0;
+  tokenRequestInFlight = null;
+}
 
 function setTokenGetter(fn: TokenGetter): void {
   getToken = fn;
+  clearTokenCache();
+}
+
+async function getCachedToken(): Promise<string | null> {
+  const now = Date.now();
+  if (cachedToken !== undefined && (now - cachedTokenAtMs) < TOKEN_CACHE_TTL_MS) {
+    return cachedToken;
+  }
+
+  if (tokenRequestInFlight) {
+    return tokenRequestInFlight;
+  }
+
+  tokenRequestInFlight = (async () => {
+    const token = await getToken();
+    cachedToken = token;
+    cachedTokenAtMs = Date.now();
+    return token;
+  })();
+
+  try {
+    return await tokenRequestInFlight;
+  } finally {
+    tokenRequestInFlight = null;
+  }
 }
 
 function hasAuthorizationHeader(headers?: HeadersInit): boolean {
@@ -43,6 +78,9 @@ async function fetchWithAuthRetry(
     return response;
   }
 
+  // Force a fresh token read before retrying after auth failures.
+  clearTokenCache();
+
   const initialHadAuth = hasAuthorizationHeader(initialInit.headers);
   if (!initialHadAuth) {
     await delay(AUTH_RETRY_DELAY_MS);
@@ -60,7 +98,7 @@ async function fetchWithAuthRetry(
 }
 
 async function buildHeaders(extra?: HeadersInit): Promise<HeadersInit> {
-  const token = await getToken();
+  const token = await getCachedToken();
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(extra as Record<string, string> | undefined),
@@ -124,7 +162,7 @@ async function apiPost<T>(path: string, body?: unknown): Promise<T> {
 
 async function apiPostForm<T>(path: string, formData: FormData): Promise<T> {
   const response = await fetchWithAuthRetry(path, async () => {
-    const token = await getToken();
+    const token = await getCachedToken();
     const headers: Record<string, string> = {};
 
     if (token) {

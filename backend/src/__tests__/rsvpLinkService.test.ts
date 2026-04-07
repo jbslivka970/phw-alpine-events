@@ -1,4 +1,4 @@
-import { buildMemberRsvpUrls } from '../services/rsvpLinkService';
+import { buildMemberRsvpUrls, createRsvpToken, verifyRsvpToken } from '../services/rsvpLinkService';
 
 describe('rsvpLinkService', () => {
   beforeEach(() => {
@@ -29,5 +29,27 @@ describe('rsvpLinkService', () => {
     expect(urls.noUrl).toContain('?response=no&role=MENTOR');
     expect(urls.maybeUrl).toContain('?response=maybe&role=MENTOR');
     expect(urls.waitlistUrl).toContain('?response=waitlist&role=MENTOR');
+  });
+
+  it('verifies tokens with trailing punctuation from copied links', () => {
+    const token = createRsvpToken(
+      '00000000-0000-0000-0000-000000000101',
+      '00000000-0000-0000-0000-000000000202'
+    );
+
+    const verified = verifyRsvpToken(`${token}.`);
+    expect(verified.eventId).toBe('00000000-0000-0000-0000-000000000101');
+    expect(verified.memberId).toBe('00000000-0000-0000-0000-000000000202');
+  });
+
+  it('verifies percent-encoded tokens from path-based links', () => {
+    const token = createRsvpToken(
+      '00000000-0000-0000-0000-000000000101',
+      '00000000-0000-0000-0000-000000000202'
+    );
+
+    const verified = verifyRsvpToken(encodeURIComponent(token));
+    expect(verified.eventId).toBe('00000000-0000-0000-0000-000000000101');
+    expect(verified.memberId).toBe('00000000-0000-0000-0000-000000000202');
   });
 });

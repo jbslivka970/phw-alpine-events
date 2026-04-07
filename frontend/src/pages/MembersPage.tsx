@@ -1,6 +1,8 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { adminApi } from '../api/admin'
 import { membersApi } from '../api/members'
 import type { MemberRecord } from '../api/members'
+import type { IdentityStatus } from '../api/admin'
 import LoadingSkeleton from '../components/LoadingSkeleton'
 import { useAuth } from '../hooks/useAuth'
 import { toUserErrorMessage } from '../utils/errorMessage'
@@ -61,6 +63,9 @@ function MembersPage() {
   const [selected, setSelected] = useState<MemberRecord | null>(null)
   const [edit, setEdit] = useState<MemberEditState | null>(null)
   const [isSaving, setIsSaving] = useState(false)
+  const [isBulkInviting, setIsBulkInviting] = useState(false)
+  const [identityByMemberId, setIdentityByMemberId] = useState<Record<string, IdentityStatus>>({})
+  const [inviteInFlightByMemberId, setInviteInFlightByMemberId] = useState<Record<string, boolean>>({})
   const [consentLog, setConsentLog] = useState<Array<{
     consent_log_id: string
     action: string
@@ -74,7 +79,7 @@ function MembersPage() {
     [members.length],
   )
 
-  const isEditorOpen = Boolean(selected && edit)
+  const isEditorOpen = Boolean(edit)
 
   useEffect(() => {
     let active = true
@@ -88,6 +93,35 @@ function MembersPage() {
     return () => { active = false }
   }, [search])
 
+  useEffect(() => {
+    if (!isAdmin() || members.length === 0) {
+      setIdentityByMemberId({})
+      return
+    }
+
+    let cancelled = false
+    const memberIds = members.map((member) => member.member_id)
+
+    adminApi.identityStatusBulk(memberIds)
+      .then((result) => {
+        if (cancelled) return
+        const map: Record<string, IdentityStatus> = {}
+        for (const row of result.data) {
+          map[row.member_id] = row
+        }
+        setIdentityByMemberId(map)
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setIdentityByMemberId({})
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [members, isAdmin])
+
   function startEdit(m: MemberRecord) {
     setSelected(m)
     setEdit(toEditState(m))
@@ -98,6 +132,22 @@ function MembersPage() {
     } else {
       setConsentLog([])
     }
+  }
+
+  function startCreate() {
+    setSelected(null)
+    setEdit({
+      first_name: '',
+      last_name: '',
+      email: '',
+      mobile_phone: '',
+      channel_preference: 'email_only',
+      sms_opt_in: false,
+      email_opt_out: false,
+      is_active: true,
+    })
+    setConsentLog([])
+    setError(null)
   }
 
   const closeEditor = useCallback(() => {
@@ -174,16 +224,24 @@ function MembersPage() {
 
   async function handleSave(e: FormEvent) {
     e.preventDefault()
-    if (!selected || !edit) return
+    if (!edit) return
     setIsSaving(true)
     setError(null)
     try {
-      const updated = await membersApi.update(selected.member_id, {
+      const payload = {
         ...edit,
         ...applyChannelPreference(edit.channel_preference),
         mobile_phone: edit.mobile_phone || null,
-      })
-      setMembers((cur) => cur.map((m) => (m.member_id === updated.member_id ? updated : m)))
+      }
+
+      if (selected) {
+        const updated = await membersApi.update(selected.member_id, payload)
+        setMembers((cur) => cur.map((m) => (m.member_id === updated.member_id ? updated : m)))
+      } else {
+        const created = await membersApi.create(payload)
+        setMembers((cur) => [created, ...cur])
+      }
+
       closeEditor()
     } catch (err: unknown) {
       setError(toUserErrorMessage(err, 'Save failed.'))
@@ -209,6 +267,60 @@ function MembersPage() {
     }
   }
 
+  async function handleInvite(memberId: string) {
+    setInviteInFlightByMemberId((current) => ({ ...current, [memberId]: true }))
+    setError(null)
+    try {
+      await adminApi.inviteIdentity(memberId)
+      const status = await adminApi.identityStatus(memberId)
+      setIdentityByMemberId((current) => ({ ...current, [memberId]: status }))
+    } catch (err: unknown) {
+      setError(toUserErrorMessage(err, 'Identity invite failed.'))
+    } finally {
+      setInviteInFlightByMemberId((current) => ({ ...current, [memberId]: false }))
+    }
+  }
+
+  async function handleRelink(member: MemberRecord) {
+    setError(null)
+    try {
+      const status = await adminApi.relinkIdentity({
+        member_id: member.member_id,
+        email: member.email,
+      })
+      setIdentityByMemberId((current) => ({ ...current, [member.member_id]: status }))
+    } catch (err: unknown) {
+      setError(toUserErrorMessage(err, 'Identity relink failed.'))
+    }
+  }
+
+  async function handleInviteAllFiltered() {
+    setIsBulkInviting(true)
+    setError(null)
+    try {
+      const memberIds = members.map((member) => member.member_id)
+      await adminApi.inviteIdentityBulk(memberIds)
+      const refreshed = await adminApi.identityStatusBulk(memberIds)
+      const map: Record<string, IdentityStatus> = {}
+      for (const row of refreshed.data) {
+        map[row.member_id] = row
+      }
+      setIdentityByMemberId(map)
+    } catch (err: unknown) {
+      setError(toUserErrorMessage(err, 'Bulk identity invite failed.'))
+    } finally {
+      setIsBulkInviting(false)
+    }
+  }
+
+  function describeIdentityStatus(memberId: string): string {
+    const status = identityByMemberId[memberId]?.status
+    if (!status) {
+      return 'Pending'
+    }
+    return `${status.charAt(0).toUpperCase()}${status.slice(1)}`
+  }
+
   return (
     <div className="page">
       <h1 className="page__title">Members</h1>
@@ -224,6 +336,16 @@ function MembersPage() {
           onChange={(e) => setSearch(e.target.value)}
         />
         <span className="members-count">{totalLabel}</span>
+        {isAdmin() && (
+          <button className="btn btn--primary btn--sm" type="button" onClick={startCreate}>
+            Add member
+          </button>
+        )}
+        {isAdmin() && (
+          <button className="btn btn--outline btn--sm" type="button" disabled={isBulkInviting} onClick={handleInviteAllFiltered}>
+            {isBulkInviting ? 'Inviting…' : 'Invite all filtered'}
+          </button>
+        )}
       </section>
 
       {error && <p className="ui-notice ui-notice--error">{error}</p>}
@@ -237,7 +359,7 @@ function MembersPage() {
           <table className="members-table">
             <thead>
               <tr>
-                <th>Name</th><th>Email</th><th>Phone</th><th>Channels</th><th>Status</th><th>Actions</th>
+                <th>Name</th><th>Email</th><th>Phone</th><th>Channels</th><th>Status</th><th>Identity</th><th>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -248,7 +370,27 @@ function MembersPage() {
                   <td>{m.mobile_phone ?? '-'}</td>
                   <td>{deriveChannelPreference(m.sms_opt_in, m.email_opt_out).replace('_', ' ')}</td>
                   <td>{m.is_active ? 'Active' : 'Inactive'}</td>
-                  <td><button className="btn btn--primary btn--sm" onClick={() => startEdit(m)}>Edit</button></td>
+                  <td>{describeIdentityStatus(m.member_id)}</td>
+                  <td>
+                    <div className="members-row-actions">
+                      <button className="btn btn--primary btn--sm" onClick={() => startEdit(m)}>Edit</button>
+                      {isAdmin() && (
+                        <button
+                          className="btn btn--outline btn--sm"
+                          type="button"
+                          disabled={Boolean(inviteInFlightByMemberId[m.member_id])}
+                          onClick={() => handleInvite(m.member_id)}
+                        >
+                          {inviteInFlightByMemberId[m.member_id] ? 'Inviting…' : 'Invite'}
+                        </button>
+                      )}
+                      {isAdmin() && (
+                        <button className="btn btn--outline btn--sm" type="button" onClick={() => handleRelink(m)}>
+                          Relink
+                        </button>
+                      )}
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -256,7 +398,7 @@ function MembersPage() {
         )}
       </section>
 
-      {selected && edit && (
+      {edit && (
         <div className="modal-overlay" role="presentation" onClick={closeEditor}>
           <section
             ref={modalRef}
@@ -268,7 +410,7 @@ function MembersPage() {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="modal__header">
-              <h2 className="modal__title">Edit member</h2>
+              <h2 className="modal__title">{selected ? 'Edit member' : 'Add member'}</h2>
               <button className="btn btn--outline btn--sm" type="button" onClick={closeEditor}>Close</button>
             </div>
             <div className="modal__body">
@@ -298,7 +440,7 @@ function MembersPage() {
                       email_opt_out: nextFlags.email_opt_out,
                     })
 
-                    if (didSmsChange) {
+                    if (didSmsChange && selected) {
                       void handleSmsToggle(selected.member_id, nextFlags.sms_opt_in)
                     }
                   }}
@@ -317,7 +459,7 @@ function MembersPage() {
                 </div>
               </form>
 
-              {isAdmin() && (
+              {isAdmin() && selected && (
                 <div style={{ marginTop: 16 }}>
                   <h3>SMS Consent Audit Log</h3>
                   <table className="members-table">

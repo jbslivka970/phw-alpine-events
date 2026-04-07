@@ -2,6 +2,7 @@ import { NextFunction, Request, Response } from 'express';
 import jwt, { JwtPayload, VerifyErrors } from 'jsonwebtoken';
 import jwksRsa, { JwksClient } from 'jwks-rsa';
 import { loadAuthConfig } from '../config';
+import { getPool, sql } from '../db';
 
 type AppRole = 'ADMIN' | 'EVENT_CREATOR' | 'USER';
 
@@ -118,6 +119,185 @@ function extractRoles(claims: JwtPayload): AppRole[] {
   return normalizedRoles;
 }
 
+function extractEmail(claims: JwtPayload): string | undefined {
+  const directClaims = ['email', 'preferred_username', 'upn'] as const;
+  for (const claimName of directClaims) {
+    const value = claims[claimName];
+    if (typeof value === 'string' && value.trim().length > 0) {
+      return value.trim();
+    }
+  }
+
+  const emailsClaim = claims['emails'];
+  if (Array.isArray(emailsClaim)) {
+    const first = emailsClaim.find((value): value is string => typeof value === 'string' && value.trim().length > 0);
+    if (first) {
+      return first.trim();
+    }
+  }
+
+  return undefined;
+}
+
+async function shouldGrantUserRoleByMemberEmail(email: string | undefined): Promise<boolean> {
+  if (!email) {
+    return false;
+  }
+
+  try {
+    const pool = await getPool();
+    const result = await pool
+      .request()
+      .input('email', sql.NVarChar, email.toLowerCase())
+      .query<{ member_id: string }>(
+        `SELECT TOP 1 member_id
+         FROM member
+         WHERE LOWER(email) = @email
+           AND is_active = 1`
+      );
+
+    return result.recordset.length > 0;
+  } catch (error) {
+    // Do not block auth on lookup failures; request falls back to claim-only roles.
+    console.warn('[auth] member email fallback lookup failed', error);
+    return false;
+  }
+}
+
+function getStringClaim(claims: JwtPayload, key: string): string | undefined {
+  const value = claims[key];
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+function inferIdentityProvider(claims: JwtPayload): string {
+  const idp = getStringClaim(claims, 'idp');
+  if (idp) {
+    return idp;
+  }
+
+  const issuer = getStringClaim(claims, 'iss')?.toLowerCase() ?? '';
+  if (issuer.includes('google')) {
+    return 'google';
+  }
+  if (issuer.includes('microsoft') || issuer.includes('ciamlogin') || issuer.includes('b2clogin')) {
+    return 'microsoft';
+  }
+
+  return 'unknown';
+}
+
+async function upsertMemberIdentityLink(claims: JwtPayload, email: string | undefined): Promise<string | null> {
+  const entraObjectId = getStringClaim(claims, 'oid') ?? getStringClaim(claims, 'sub');
+  const issuer = getStringClaim(claims, 'iss');
+  const issuerAssignedId = getStringClaim(claims, 'sub') ?? (email ? email.toLowerCase() : undefined);
+  const identityProvider = inferIdentityProvider(claims);
+  const normalizedEmail = email?.toLowerCase();
+
+  if (!entraObjectId && !(issuer && issuerAssignedId) && !normalizedEmail) {
+    return null;
+  }
+
+  const pool = await getPool();
+
+  const existingLink = await pool
+    .request()
+    .input('entra_object_id', sql.NVarChar(255), entraObjectId ?? null)
+    .input('issuer', sql.NVarChar(255), issuer ?? null)
+    .input('issuer_assigned_id', sql.NVarChar(255), issuerAssignedId ?? null)
+    .query<{ member_id: string }>(
+      `SELECT TOP 1 member_id
+       FROM member_identity_link
+       WHERE (@entra_object_id IS NOT NULL AND entra_object_id = @entra_object_id)
+          OR (@issuer IS NOT NULL AND @issuer_assigned_id IS NOT NULL AND issuer = @issuer AND issuer_assigned_id = @issuer_assigned_id)`
+    );
+
+  const linkedMemberId = existingLink.recordset[0]?.member_id;
+  if (linkedMemberId) {
+    await pool
+      .request()
+      .input('member_id', sql.UniqueIdentifier, linkedMemberId)
+      .input('entra_object_id', sql.NVarChar(255), entraObjectId ?? null)
+      .input('issuer', sql.NVarChar(255), issuer ?? null)
+      .input('issuer_assigned_id', sql.NVarChar(255), issuerAssignedId ?? null)
+      .input('identity_provider', sql.NVarChar(100), identityProvider)
+      .input('last_seen_email', sql.NVarChar(255), normalizedEmail ?? null)
+      .query(
+        `UPDATE member_identity_link
+         SET status = 'linked',
+             linked_at = COALESCE(linked_at, GETUTCDATE()),
+             last_sign_in_at = GETUTCDATE(),
+             entra_object_id = COALESCE(@entra_object_id, entra_object_id),
+             issuer = COALESCE(@issuer, issuer),
+             issuer_assigned_id = COALESCE(@issuer_assigned_id, issuer_assigned_id),
+             identity_provider = COALESCE(@identity_provider, identity_provider),
+             last_seen_email = COALESCE(@last_seen_email, last_seen_email),
+             updated_at = GETUTCDATE()
+         WHERE member_id = @member_id`
+      );
+
+    return linkedMemberId;
+  }
+
+  if (!normalizedEmail) {
+    return null;
+  }
+
+  const memberResult = await pool
+    .request()
+    .input('email', sql.NVarChar(255), normalizedEmail)
+    .query<{ member_id: string }>(
+      `SELECT TOP 1 member_id
+       FROM member
+       WHERE LOWER(email) = @email
+         AND is_active = 1`
+    );
+
+  const matchedMemberId = memberResult.recordset[0]?.member_id;
+  if (!matchedMemberId) {
+    return null;
+  }
+
+  await pool
+    .request()
+    .input('member_id', sql.UniqueIdentifier, matchedMemberId)
+    .input('entra_object_id', sql.NVarChar(255), entraObjectId ?? null)
+    .input('issuer', sql.NVarChar(255), issuer ?? null)
+    .input('issuer_assigned_id', sql.NVarChar(255), issuerAssignedId ?? null)
+    .input('identity_provider', sql.NVarChar(100), identityProvider)
+    .input('last_seen_email', sql.NVarChar(255), normalizedEmail)
+    .query(
+      `MERGE member_identity_link AS target
+       USING (SELECT @member_id AS member_id) AS source
+       ON target.member_id = source.member_id
+       WHEN MATCHED THEN
+         UPDATE SET
+           status = 'linked',
+           linked_at = COALESCE(target.linked_at, GETUTCDATE()),
+           last_sign_in_at = GETUTCDATE(),
+           entra_object_id = COALESCE(@entra_object_id, target.entra_object_id),
+           issuer = COALESCE(@issuer, target.issuer),
+           issuer_assigned_id = COALESCE(@issuer_assigned_id, target.issuer_assigned_id),
+           identity_provider = COALESCE(@identity_provider, target.identity_provider),
+           last_seen_email = @last_seen_email,
+           updated_at = GETUTCDATE()
+       WHEN NOT MATCHED THEN
+         INSERT (
+           link_id, member_id, entra_object_id, issuer, issuer_assigned_id, identity_provider,
+           status, linked_at, last_sign_in_at, last_seen_email, created_at, updated_at
+         )
+         VALUES (
+           NEWID(), @member_id, @entra_object_id, @issuer, @issuer_assigned_id, @identity_provider,
+           'linked', GETUTCDATE(), GETUTCDATE(), @last_seen_email, GETUTCDATE(), GETUTCDATE()
+         );`
+    );
+
+  return matchedMemberId;
+}
+
 function authenticate(req: Request, res: Response, next: NextFunction): void {
   const authConfig = loadAuthConfig();
 
@@ -155,27 +335,33 @@ function authenticate(req: Request, res: Response, next: NextFunction): void {
       audience: authConfig.clientId,
       issuer: authConfig.issuer,
     },
-    (error: VerifyErrors | null, decoded) => {
+    async (error: VerifyErrors | null, decoded) => {
       if (error || !decoded) {
         res.status(401).json({ error: 'Invalid or expired token' });
         return;
       }
 
       const claims = decoded as JwtPayload;
-      const emailClaim =
-        typeof claims['email'] === 'string'
-          ? claims['email']
-          : typeof claims['preferred_username'] === 'string'
-            ? claims['preferred_username']
-            : typeof claims['upn'] === 'string'
-              ? claims['upn']
-              : undefined;
+      const emailClaim = extractEmail(claims);
+      const roles = extractRoles(claims);
+
+      let linkedMemberId: string | null = null;
+      try {
+        linkedMemberId = await upsertMemberIdentityLink(claims, emailClaim);
+      } catch (linkError) {
+        // Keep auth resilient if identity link table is not yet deployed or temporarily unavailable.
+        console.warn('[auth] member identity link lookup failed', linkError);
+      }
+
+      if (roles.length === 0 && (linkedMemberId || (await shouldGrantUserRoleByMemberEmail(emailClaim)))) {
+        roles.push('USER');
+      }
 
       req.user = {
         sub: String(claims['oid'] ?? claims['sub'] ?? ''),
         email: emailClaim,
         name: typeof claims['name'] === 'string' ? claims['name'] : undefined,
-        roles: extractRoles(claims),
+        roles,
         rawClaims: claims,
       };
 

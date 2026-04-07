@@ -55,6 +55,15 @@ interface RsvpLinkConfig {
   tokenExpiryHours: number;
 }
 
+interface EntraProvisioningConfig {
+  isConfigured: boolean;
+  tenantId: string;
+  clientId: string;
+  clientSecret: string;
+  redirectUrl?: string;
+  sendInvitationMessage: boolean;
+}
+
 /**
  * Reads a required environment variable.  Throws in non-test environments if
  * the variable is missing so misconfigured deployments fail at startup instead
@@ -210,5 +219,47 @@ function loadTelnyxSmsConfig(): TelnyxSmsConfig {
   };
 }
 
-export { loadAcsConfig, loadAuthConfig, loadDbConfig, loadRsvpLinkConfig, loadServerConfig, loadTwilioSmsConfig, loadTelnyxSmsConfig };
-export type { AcsConfig, AuthConfig, DbConfig, RsvpLinkConfig, ServerConfig, TwilioSmsConfig, TelnyxSmsConfig };
+function loadEntraProvisioningConfig(): EntraProvisioningConfig {
+  const tenantId = optionalEnv('ENTRA_PROVISIONING_TENANT_ID')
+    ?? optionalEnv('AZURE_EXTERNAL_TENANT_ID')
+    ?? optionalEnv('AZURE_TENANT_ID')
+    ?? '';
+  const clientId = optionalEnv('ENTRA_PROVISIONING_CLIENT_ID') ?? '';
+  const clientSecret = optionalEnv('ENTRA_PROVISIONING_CLIENT_SECRET') ?? '';
+  const redirectUrl = optionalEnv('ENTRA_INVITE_REDIRECT_URL')
+    ?? optionalEnv('FRONTEND_APP_URL')
+    ?? optionalEnv('PUBLIC_APP_URL')
+    ?? optionalEnv('CORS_ORIGIN');
+  const sendInvitationMessageRaw = (optionalEnv('ENTRA_SEND_INVITATION_MESSAGE', 'true') ?? 'true').toLowerCase();
+  const sendInvitationMessage = sendInvitationMessageRaw !== 'false' && sendInvitationMessageRaw !== '0';
+
+  return {
+    isConfigured: Boolean(tenantId && clientId && clientSecret),
+    tenantId,
+    clientId,
+    clientSecret,
+    redirectUrl,
+    sendInvitationMessage,
+  };
+}
+
+export {
+  loadAcsConfig,
+  loadAuthConfig,
+  loadDbConfig,
+  loadEntraProvisioningConfig,
+  loadRsvpLinkConfig,
+  loadServerConfig,
+  loadTwilioSmsConfig,
+  loadTelnyxSmsConfig,
+};
+export type {
+  AcsConfig,
+  AuthConfig,
+  DbConfig,
+  EntraProvisioningConfig,
+  RsvpLinkConfig,
+  ServerConfig,
+  TwilioSmsConfig,
+  TelnyxSmsConfig,
+};
