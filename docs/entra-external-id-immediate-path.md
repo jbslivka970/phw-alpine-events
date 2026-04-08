@@ -33,10 +33,11 @@ Use this exact sequence and do not skip steps.
 1. In Google Cloud Console, create or select your project.
 2. Configure OAuth consent screen as External.
 3. Create OAuth client credentials as Web application.
-4. Add this Authorized redirect URI exactly:
+4. Add these Authorized redirect URIs exactly:
 
 ```text
 https://phwalpine.ciamlogin.com/d65d23ea-9a90-4080-b5ab-f427665cbfcf/federation/oidc/google
+https://phwalpine.ciamlogin.com/d65d23ea-9a90-4080-b5ab-f427665cbfcf/federation/oauth2
 ```
 
 5. Save the Google values:
@@ -95,9 +96,17 @@ Set these backend environment variables:
 - ENTRA_PROVISIONING_CLIENT_SECRET
 - ENTRA_INVITE_REDIRECT_URL
 - ENTRA_SEND_INVITATION_MESSAGE
+- AUTH_ENFORCE_MEMBER_PASSWORDLESS
+- AUTH_LOCAL_PASSWORD_ALLOWLIST
 
 Required Graph permission on the provisioning app registration:
 - User.Invite.All (Application) with admin consent granted.
+
+Recommended values for passwordless member policy:
+- AUTH_ENFORCE_MEMBER_PASSWORDLESS=true
+- AUTH_LOCAL_PASSWORD_ALLOWLIST contains only admin and smoke-test emails.
+
+This policy blocks local password sign-in for non-allowlisted accounts and keeps member login on social providers and email OTP.
 
 ## 3) Apply Database Schema
 

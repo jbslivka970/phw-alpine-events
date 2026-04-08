@@ -183,6 +183,54 @@ function getStringClaim(claims: JwtPayload, key: string): string | undefined {
   return normalized.length > 0 ? normalized : undefined;
 }
 
+function parseEmailAllowlist(raw: string | undefined): Set<string> {
+  if (!raw) {
+    return new Set<string>();
+  }
+
+  return new Set(
+    raw
+      .split(',')
+      .map((value) => value.trim().toLowerCase())
+      .filter(Boolean)
+  );
+}
+
+function isEnabled(raw: string | undefined, defaultValue: boolean): boolean {
+  if (!raw) {
+    return defaultValue;
+  }
+
+  const normalized = raw.trim().toLowerCase();
+  return normalized !== 'false' && normalized !== '0' && normalized !== 'no' && normalized !== 'off';
+}
+
+function isLocalPasswordSignIn(claims: JwtPayload): boolean {
+  const amrClaim = claims['amr'];
+  const amrValues = (Array.isArray(amrClaim) ? amrClaim : [amrClaim])
+    .filter((value): value is string => typeof value === 'string')
+    .map((value) => value.trim().toLowerCase());
+
+  if (amrValues.includes('pwd')) {
+    return true;
+  }
+
+  const idp = getStringClaim(claims, 'idp')?.toLowerCase();
+  if (!idp) {
+    return false;
+  }
+
+  if (idp.includes('google') || idp.includes('facebook') || idp.includes('microsoft')) {
+    return false;
+  }
+
+  if (idp.includes('otp') || idp.includes('one-time') || idp.includes('email')) {
+    return false;
+  }
+
+  return idp.includes('local') || idp.includes('account') || idp.includes('username');
+}
+
 function inferIdentityProvider(claims: JwtPayload): string {
   const idp = getStringClaim(claims, 'idp');
   if (idp) {
@@ -355,6 +403,19 @@ function authenticate(req: Request, res: Response, next: NextFunction): void {
       const claims = decoded as JwtPayload;
       const emailClaim = extractEmail(claims);
       const roles = extractRoles(claims);
+      const normalizedEmail = emailClaim?.toLowerCase();
+
+      const enforceMemberPasswordless = isEnabled(process.env['AUTH_ENFORCE_MEMBER_PASSWORDLESS'], true);
+      const localPasswordAllowlist = parseEmailAllowlist(process.env['AUTH_LOCAL_PASSWORD_ALLOWLIST']);
+      if (enforceMemberPasswordless && isLocalPasswordSignIn(claims)) {
+        const isAllowlisted = normalizedEmail ? localPasswordAllowlist.has(normalizedEmail) : false;
+        if (!isAllowlisted) {
+          res.status(403).json({
+            error: 'Local password sign-in is disabled for members. Use Google, Microsoft, Meta, or email OTP.',
+          });
+          return;
+        }
+      }
 
       let linkedMemberId: string | null = null;
       try {

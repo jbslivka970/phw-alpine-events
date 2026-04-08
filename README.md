@@ -136,6 +136,8 @@ Key backend variables:
 - `AZURE_TENANT_ID`
 - `AZURE_CLIENT_ID`
 - `AZURE_AD_B2C_POLICY_NAME`
+- `AUTH_ENFORCE_MEMBER_PASSWORDLESS` (recommended: `true`)
+- `AUTH_LOCAL_PASSWORD_ALLOWLIST` (comma-separated emails allowed for local password, admin/smoke only)
 - `CORS_ORIGIN`
 - `NODE_ENV`
 - `PORT`
