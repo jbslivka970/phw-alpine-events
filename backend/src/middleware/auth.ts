@@ -136,6 +136,51 @@ function extractEmail(claims: JwtPayload): string | undefined {
     }
   }
 
+  // External ID can emit usernames like local_domain.com#EXT#@tenant.onmicrosoft.com
+  // instead of a plain email claim. Recover the source email using the last underscore
+  // before #EXT# as the original @ separator.
+  const recoverFromExtFormat = (value: string | undefined): string | undefined => {
+    if (!value) {
+      return undefined;
+    }
+
+    const normalized = value.trim();
+    const extIndex = normalized.toLowerCase().indexOf('#ext#@');
+    if (extIndex <= 0) {
+      return undefined;
+    }
+
+    const localAndDomain = normalized.slice(0, extIndex);
+    const separatorIndex = localAndDomain.lastIndexOf('_');
+    if (separatorIndex <= 0 || separatorIndex >= localAndDomain.length - 1) {
+      return undefined;
+    }
+
+    const localPart = localAndDomain.slice(0, separatorIndex);
+    const domainPart = localAndDomain.slice(separatorIndex + 1);
+    if (!localPart || !domainPart) {
+      return undefined;
+    }
+
+    return `${localPart}@${domainPart}`.toLowerCase();
+  };
+
+  const preferredUsername = claims['preferred_username'];
+  if (typeof preferredUsername === 'string') {
+    const recovered = recoverFromExtFormat(preferredUsername);
+    if (recovered) {
+      return recovered;
+    }
+  }
+
+  const upnClaim = claims['upn'];
+  if (typeof upnClaim === 'string') {
+    const recovered = recoverFromExtFormat(upnClaim);
+    if (recovered) {
+      return recovered;
+    }
+  }
+
   return undefined;
 }
 
