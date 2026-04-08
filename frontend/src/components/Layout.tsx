@@ -136,9 +136,7 @@ export default function Layout() {
             <a href="https://projecthealingwaters.org" target="_blank" rel="noreferrer" className="phw-footer__link phw-footer__link--accent">
               PHW National
             </a>
-            <a href="https://projecthealingwaters.org/privacy-policy/" target="_blank" rel="noreferrer" className="phw-footer__link">
-              Privacy Policy
-            </a>
+            <Link to="/privacy" className="phw-footer__link">Privacy Policy</Link>
             <Link to="/terms" className="phw-footer__link">Terms</Link>
           </div>
         </div>

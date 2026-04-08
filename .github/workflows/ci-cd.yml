@@ -106,6 +106,9 @@ jobs:
     - name: Build backend
       run: cd backend && npm run build
 
+    - name: Prune backend dev dependencies
+      run: cd backend && npm prune --omit=dev
+
     - name: Prepare deployment package
       run: |
         rm -rf deploy-package
