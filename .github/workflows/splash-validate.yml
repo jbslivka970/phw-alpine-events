@@ -1,0 +1,36 @@
+name: Splash Validation
+
+on:
+  pull_request:
+    paths:
+      - 'splash/**'
+      - '.github/workflows/splash-validate.yml'
+  push:
+    branches: [ main ]
+    paths:
+      - 'splash/**'
+      - '.github/workflows/splash-validate.yml'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Ensure splash entrypoint exists
+        run: test -f splash/index.html
+
+      - name: Basic HTML sanity checks
+        run: |
+          grep -q '<!DOCTYPE html>' splash/index.html
+          grep -q '<title>' splash/index.html
+          grep -q 'https://app.phwcoloradoalpine.org' splash/index.html
+
+      - name: Serve and smoke test splash site
+        run: |
+          python3 -m http.server 4173 --directory splash &
+          SERVER_PID=$!
+          trap "kill $SERVER_PID" EXIT
+          sleep 2
+          curl -fsS http://127.0.0.1:4173/ | grep -q 'PHW Colorado Alpine Chapter'

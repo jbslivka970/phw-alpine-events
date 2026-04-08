@@ -65,6 +65,7 @@ function MembersPage() {
   const [members, setMembers] = useState<MemberRecord[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [inviteSuccess, setInviteSuccess] = useState<{ email: string; redeemUrl: string | null } | null>(null)
   const [selected, setSelected] = useState<MemberRecord | null>(null)
   const [edit, setEdit] = useState<MemberEditState | null>(null)
   const [isSaving, setIsSaving] = useState(false)
@@ -301,8 +302,13 @@ function MembersPage() {
   async function handleInvite(memberId: string) {
     setInviteInFlightByMemberId((current) => ({ ...current, [memberId]: true }))
     setError(null)
+    setInviteSuccess(null)
     try {
-      await adminApi.inviteIdentity(memberId)
+      const invite = await adminApi.inviteIdentity(memberId)
+      setInviteSuccess({
+        email: invite.email,
+        redeemUrl: invite.invite_redeem_url,
+      })
       const status = await adminApi.identityStatus(memberId)
       setIdentityByMemberId((current) => ({ ...current, [memberId]: status }))
     } catch (err: unknown) {
@@ -328,6 +334,7 @@ function MembersPage() {
   async function handleInviteAllFiltered() {
     setIsBulkInviting(true)
     setError(null)
+    setInviteSuccess(null)
     try {
       const memberIds = members.map((member) => member.member_id)
       await adminApi.inviteIdentityBulk(memberIds)
@@ -380,6 +387,15 @@ function MembersPage() {
       </section>
 
       {error && <p className="ui-notice ui-notice--error">{error}</p>}
+      {inviteSuccess && (
+        <p className="ui-notice ui-notice--success">
+          Invite recorded for {inviteSuccess.email}.
+          {' '}
+          {inviteSuccess.redeemUrl
+            ? <a href={inviteSuccess.redeemUrl} target="_blank" rel="noreferrer">Open redeem link</a>
+            : 'No redeem URL was returned. Check Entra invitation settings and delivery logs.'}
+        </p>
+      )}
 
       <section className="card members-table-wrap">
         {isLoading ? (

@@ -84,6 +84,17 @@ If `AZURE_WEBAPP_NAME` is not configured, the backend deploy job is skipped.
 If `AZURE_FRONTEND_WEBAPP_NAME` or the required `VITE_*` variables are not configured, the frontend deploy job is skipped.
 In both cases, the workflow still runs build and test validation.
 
+## Standalone Splash Site
+
+The repository also contains a standalone marketing splash site in `splash/` for `www.phwcoloradoalpine.org`.
+
+- Source and host configs: `splash/`
+- Splash validation workflow: `.github/workflows/splash-validate.yml`
+- Azure deploy workflow: `.github/workflows/splash-deploy-azure-webapp.yml`
+- GitHub Pages deploy workflow: `.github/workflows/splash-deploy-pages.yml`
+
+See `splash/README.md` for DNS records and go-live steps.
+
 ## Local Development
 
 ### Prerequisites

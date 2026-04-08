@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { randomUUID } from 'crypto';
 import { getPool, sql } from '../db';
 import authenticate from '../middleware/auth';
 import { apiLimiter, writeLimiter } from '../middleware/rateLimiter';
@@ -41,9 +42,55 @@ interface IdentityStatusRow {
   updated_at: Date;
 }
 
+interface IdentityInviteTraceRow {
+  trace_id: string;
+  occurred_at: Date;
+  mode: 'single' | 'bulk';
+  member_id: string;
+  email: string;
+  invited_by: string;
+  graph_invitation_id: string | null;
+  invited_user_id: string | null;
+  has_redeem_url: boolean;
+  redirect_url_override: string | null;
+  status: 'invited' | 'failed';
+  error: string | null;
+}
+
 const MAX_INVITE_TITLE_LENGTH = 160;
 const MAX_INVITE_LOCATION_LENGTH = 200;
 const MAX_INVITE_DESCRIPTION_LENGTH = 2000;
+
+function logIdentityInviteTrace(payload: {
+  mode: 'single' | 'bulk';
+  memberId: string;
+  email: string;
+  invitedBy: string;
+  graphInvitationId: string | null;
+  invitedUserId: string | null;
+  hasRedeemUrl: boolean;
+  redirectUrlOverride: string | null;
+  status: 'invited' | 'failed';
+  error?: string;
+}): void {
+  console.info('identity_invite_trace', {
+    event: 'identity_invite_trace',
+    timestamp: new Date().toISOString(),
+    ...payload,
+  });
+
+  // Non-blocking persistence keeps invite delivery resilient if DB write fails.
+  void persistIdentityInviteTrace(payload).catch((error) => {
+    console.warn('identity_invite_trace_persist_failed', {
+      event: 'identity_invite_trace_persist_failed',
+      timestamp: new Date().toISOString(),
+      memberId: payload.memberId,
+      mode: payload.mode,
+      status: payload.status,
+      error: error instanceof Error ? error.message : 'unknown_error',
+    });
+  });
+}
 
 router.use(apiLimiter, authenticate, requireAdmin);
 
@@ -521,6 +568,24 @@ router.post('/identity/status/bulk', apiLimiter, async (req, res) => {
   }
 });
 
+router.get('/identity/invite-trace/:memberId', async (req, res) => {
+  try {
+    const memberId = (req.params.memberId as string | undefined)?.trim();
+    if (!memberId) {
+      res.status(400).json({ error: 'memberId is required.' });
+      return;
+    }
+
+    const limitRaw = parsePositiveInt(req.query.limit as string | undefined, 20);
+    const limit = Math.min(limitRaw, 100);
+    const traces = await getInviteTraceByMemberId(memberId, limit);
+    res.status(200).json({ data: traces });
+  } catch (error) {
+    console.error('GET /admin/identity/invite-trace/:memberId failed', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 router.post('/identity/invite', writeLimiter, async (req, res) => {
   try {
     if (!isProvisioningEnabled()) {
@@ -557,11 +622,23 @@ router.post('/identity/invite', writeLimiter, async (req, res) => {
 
     const currentUser = req.user?.email ?? req.user?.sub ?? 'unknown';
     await upsertMemberIdentityInvite(member.member_id, member.email, currentUser);
+    logIdentityInviteTrace({
+      mode: 'single',
+      memberId: member.member_id,
+      email: member.email,
+      invitedBy: currentUser,
+      graphInvitationId: invitation.id ?? null,
+      invitedUserId: invitation.invitedUser?.id ?? null,
+      hasRedeemUrl: Boolean(invitation.inviteRedeemUrl),
+      redirectUrlOverride: redirectUrl ?? null,
+      status: 'invited',
+    });
 
     res.status(200).json({
       member_id: member.member_id,
       email: member.email,
       status: 'invited',
+      invitation_id: invitation.id ?? null,
       invited_user_id: invitation.invitedUser?.id ?? null,
       invite_redeem_url: invitation.inviteRedeemUrl ?? null,
     });
@@ -617,14 +694,37 @@ router.post('/identity/invite/bulk', writeLimiter, async (req, res) => {
           continue;
         }
 
-        await sendEntraInvitation({
+        const invitation = await sendEntraInvitation({
           email: member.email,
           displayName: `${member.first_name} ${member.last_name}`.trim() || member.email,
           redirectUrl,
         });
         await upsertMemberIdentityInvite(member.member_id, member.email, currentUser);
+        logIdentityInviteTrace({
+          mode: 'bulk',
+          memberId: member.member_id,
+          email: member.email,
+          invitedBy: currentUser,
+          graphInvitationId: invitation.id ?? null,
+          invitedUserId: invitation.invitedUser?.id ?? null,
+          hasRedeemUrl: Boolean(invitation.inviteRedeemUrl),
+          redirectUrlOverride: redirectUrl ?? null,
+          status: 'invited',
+        });
         results.push({ member_id: member.member_id, status: 'invited' });
       } catch (memberError) {
+        logIdentityInviteTrace({
+          mode: 'bulk',
+          memberId,
+          email: '',
+          invitedBy: currentUser,
+          graphInvitationId: null,
+          invitedUserId: null,
+          hasRedeemUrl: false,
+          redirectUrlOverride: redirectUrl ?? null,
+          status: 'failed',
+          error: memberError instanceof Error ? memberError.message : 'invite_failed',
+        });
         results.push({
           member_id: memberId,
           status: 'failed',
@@ -908,6 +1008,116 @@ async function upsertMemberIdentityInvite(memberId: string, email: string, invit
            @invited_by, GETUTCDATE(), GETUTCDATE()
          );`
     );
+}
+
+async function persistIdentityInviteTrace(payload: {
+  mode: 'single' | 'bulk';
+  memberId: string;
+  email: string;
+  invitedBy: string;
+  graphInvitationId: string | null;
+  invitedUserId: string | null;
+  hasRedeemUrl: boolean;
+  redirectUrlOverride: string | null;
+  status: 'invited' | 'failed';
+  error?: string;
+}): Promise<void> {
+  const pool = await getPool();
+  await pool
+    .request()
+    .query(
+      `IF OBJECT_ID('identity_invite_trace', 'U') IS NULL
+       BEGIN
+         CREATE TABLE identity_invite_trace (
+           trace_id UNIQUEIDENTIFIER NOT NULL PRIMARY KEY,
+           occurred_at DATETIME2(3) NOT NULL DEFAULT SYSUTCDATETIME(),
+           mode NVARCHAR(10) NOT NULL,
+           member_id NVARCHAR(64) NOT NULL,
+           email NVARCHAR(255) NOT NULL,
+           invited_by NVARCHAR(255) NOT NULL,
+           graph_invitation_id NVARCHAR(128) NULL,
+           invited_user_id NVARCHAR(128) NULL,
+           has_redeem_url BIT NOT NULL,
+           redirect_url_override NVARCHAR(500) NULL,
+           status NVARCHAR(20) NOT NULL,
+           error NVARCHAR(MAX) NULL
+         );
+
+         CREATE INDEX IX_identity_invite_trace_member_occurred_at
+           ON identity_invite_trace(member_id, occurred_at DESC);
+       END`
+    );
+
+  await pool
+    .request()
+    .input('trace_id', sql.UniqueIdentifier, randomUUID())
+    .input('mode', sql.NVarChar(10), payload.mode)
+    .input('member_id', sql.NVarChar(64), payload.memberId)
+    .input('email', sql.NVarChar(255), payload.email)
+    .input('invited_by', sql.NVarChar(255), payload.invitedBy)
+    .input('graph_invitation_id', sql.NVarChar(128), payload.graphInvitationId)
+    .input('invited_user_id', sql.NVarChar(128), payload.invitedUserId)
+    .input('has_redeem_url', sql.Bit, payload.hasRedeemUrl ? 1 : 0)
+    .input('redirect_url_override', sql.NVarChar(500), payload.redirectUrlOverride)
+    .input('status', sql.NVarChar(20), payload.status)
+    .input('error', sql.NVarChar(sql.MAX), payload.error ?? null)
+    .query(
+      `INSERT INTO identity_invite_trace (
+         trace_id, mode, member_id, email, invited_by, graph_invitation_id,
+         invited_user_id, has_redeem_url, redirect_url_override, status, error
+       )
+       VALUES (
+         @trace_id, @mode, @member_id, @email, @invited_by, @graph_invitation_id,
+         @invited_user_id, @has_redeem_url, @redirect_url_override, @status, @error
+       )`
+    );
+}
+
+async function getInviteTraceByMemberId(memberId: string, limit: number): Promise<IdentityInviteTraceRow[]> {
+  const pool = await getPool();
+  const result = await pool
+    .request()
+    .input('member_id', sql.NVarChar(64), memberId)
+    .input('limit', sql.Int, limit)
+    .query<IdentityInviteTraceRow>(
+      `IF OBJECT_ID('identity_invite_trace', 'U') IS NULL
+       BEGIN
+         SELECT TOP 0
+           CAST(NULL AS UNIQUEIDENTIFIER) AS trace_id,
+           CAST(NULL AS DATETIME2(3)) AS occurred_at,
+           CAST(NULL AS NVARCHAR(10)) AS mode,
+           CAST(NULL AS NVARCHAR(64)) AS member_id,
+           CAST(NULL AS NVARCHAR(255)) AS email,
+           CAST(NULL AS NVARCHAR(255)) AS invited_by,
+           CAST(NULL AS NVARCHAR(128)) AS graph_invitation_id,
+           CAST(NULL AS NVARCHAR(128)) AS invited_user_id,
+           CAST(NULL AS BIT) AS has_redeem_url,
+           CAST(NULL AS NVARCHAR(500)) AS redirect_url_override,
+           CAST(NULL AS NVARCHAR(20)) AS status,
+           CAST(NULL AS NVARCHAR(MAX)) AS error;
+       END
+       ELSE
+       BEGIN
+         SELECT TOP (@limit)
+           trace_id,
+           occurred_at,
+           mode,
+           member_id,
+           email,
+           invited_by,
+           graph_invitation_id,
+           invited_user_id,
+           has_redeem_url,
+           redirect_url_override,
+           status,
+           error
+         FROM identity_invite_trace
+         WHERE member_id = @member_id
+         ORDER BY occurred_at DESC;
+       END`
+    );
+
+  return result.recordset;
 }
 
 export default router;

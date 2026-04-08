@@ -81,6 +81,7 @@ interface InviteIdentityResponse {
   member_id: string;
   email: string;
   status: 'invited';
+  invitation_id: string | null;
   invited_user_id: string | null;
   invite_redeem_url: string | null;
 }

@@ -1,0 +1,37 @@
+name: Deploy Splash To Azure Web App
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - 'splash/**'
+      - '.github/workflows/splash-deploy-azure-webapp.yml'
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    if: ${{ vars.AZURE_SPLASH_WEBAPP_NAME != '' }}
+    concurrency:
+      group: splash-azure-webapp-${{ github.ref_name }}
+      cancel-in-progress: true
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Package splash site
+        run: |
+          rm -f splash-release.zip
+          cd splash
+          zip -r ../splash-release.zip .
+
+      - name: Deploy splash to Azure Web App
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ vars.AZURE_SPLASH_WEBAPP_NAME }}
+          slot-name: 'production'
+          publish-profile: ${{ secrets.AZURE_SPLASH_PUBLISH_PROFILE }}
+          package: splash-release.zip

@@ -121,6 +121,7 @@ describe('MembersPage identity workflow', () => {
       member_id: 'm-1',
       email: 'mike@example.com',
       status: 'invited',
+      invitation_id: 'inv-1',
       invited_user_id: 'user-1',
       invite_redeem_url: 'https://example.com/redeem',
     });
@@ -160,6 +161,7 @@ describe('MembersPage identity workflow', () => {
     });
 
     expect(screen.getByText('Invited')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Open redeem link' })).toHaveAttribute('href', 'https://example.com/redeem');
   });
 
   it('bulk invites filtered members and refreshes statuses', async () => {

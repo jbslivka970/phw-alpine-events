@@ -7,6 +7,7 @@ interface EntraInvitationRequest {
 }
 
 interface EntraInvitationResult {
+  id?: string;
   invitedUserEmailAddress: string;
   invitedUserDisplayName?: string;
   invitedUser?: {
