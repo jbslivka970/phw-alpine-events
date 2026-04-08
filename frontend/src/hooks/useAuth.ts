@@ -200,6 +200,20 @@ function useAuth() {
           setLoginError('Another sign-in dialog is already in progress. Close it and try again.')
           return
         }
+        if (code === 'timed_out' || message.toLowerCase().includes('timed_out')) {
+          const recoveredAccount = instance.getActiveAccount() ?? instance.getAllAccounts()[0]
+          if (recoveredAccount) {
+            instance.setActiveAccount(recoveredAccount)
+            setLoginError(null)
+            authDebugWarn('login:popup:timed-out-but-recovered', {
+              username: recoveredAccount.username,
+            })
+            return
+          }
+
+          setLoginError('Sign-in took too long. Please try again.')
+          return
+        }
         if (code === 'popup_window_error' || code === 'popup_window_timeout' || message.toLowerCase().includes('popup')) {
           setLoginError('Your browser blocked the sign-in popup. Please allow popups for this site and try again.')
           return
