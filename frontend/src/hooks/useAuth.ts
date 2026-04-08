@@ -8,6 +8,8 @@ import { authDebugLog, authDebugWarn } from '../utils/authDebug'
 
 const LOGIN_POPUP_TIMEOUT_MS = 90_000
 const TOKEN_EXPIRY_SAFETY_WINDOW_MS = 60_000
+const TOKEN_BUSY_RETRY_MS = 400
+const TOKEN_BUSY_RETRY_ATTEMPTS = 5
 
 interface CachedAccessToken {
   token: string
@@ -283,6 +285,37 @@ function useAuth() {
 
           if (interactionBusy || loginRequestRef.current) {
             authDebugWarn('token:popup:skipped:interaction-busy')
+
+            // During initial sign-in, API requests can race token readiness.
+            // Wait briefly and retry silent acquisition before giving up.
+            for (let attempt = 0; attempt < TOKEN_BUSY_RETRY_ATTEMPTS; attempt += 1) {
+              await wait(TOKEN_BUSY_RETRY_MS)
+              try {
+                const retryToken = await instance.acquireTokenSilent({
+                  ...loginRequest,
+                  account,
+                })
+
+                if (retryToken.expiresOn) {
+                  tokenCacheRef.current = {
+                    token: retryToken.accessToken,
+                    expiresAtMs: retryToken.expiresOn.getTime(),
+                  }
+                }
+
+                authDebugLog('token:silent:retry-after-busy:success', {
+                  account: account.username,
+                  attempt: attempt + 1,
+                })
+                return retryToken.accessToken
+              } catch {
+                // Keep retrying until attempts are exhausted.
+              }
+            }
+
+            authDebugWarn('token:silent:retry-after-busy:exhausted', {
+              account: account.username,
+            })
             return null
           }
 
@@ -383,6 +416,12 @@ function isInteractionRequired(error: unknown): boolean {
     || code.includes('consent_required')
     || code.includes('login_required')
     || code.includes('no_tokens_found')
+}
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms)
+  })
 }
 
 function extractRoleValues(claims: Record<string, unknown> | undefined): string[] {
