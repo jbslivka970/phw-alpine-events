@@ -58,6 +58,7 @@ interface RsvpLinkConfig {
 interface EntraProvisioningConfig {
   isConfigured: boolean;
   tenantId: string;
+  tenantName: string;
   clientId: string;
   clientSecret: string;
   redirectUrl?: string;
@@ -230,12 +231,14 @@ function loadEntraProvisioningConfig(): EntraProvisioningConfig {
     ?? optionalEnv('FRONTEND_APP_URL')
     ?? optionalEnv('PUBLIC_APP_URL')
     ?? optionalEnv('CORS_ORIGIN');
+  const tenantName = optionalEnv('AZURE_EXTERNAL_TENANT_NAME') ?? optionalEnv('AZURE_AD_B2C_TENANT_NAME') ?? '';
   const sendInvitationMessageRaw = (optionalEnv('ENTRA_SEND_INVITATION_MESSAGE', 'true') ?? 'true').toLowerCase();
   const sendInvitationMessage = sendInvitationMessageRaw !== 'false' && sendInvitationMessageRaw !== '0';
 
   return {
     isConfigured: Boolean(tenantId && clientId && clientSecret),
     tenantId,
+    tenantName,
     clientId,
     clientSecret,
     redirectUrl,

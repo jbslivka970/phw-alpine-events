@@ -1,3 +1,4 @@
+import { randomBytes } from 'crypto';
 import { loadEntraProvisioningConfig } from '../config';
 
 interface EntraInvitationRequest {
@@ -64,20 +65,37 @@ async function sendEntraInvitation(input: EntraInvitationRequest): Promise<Entra
   }
 
   const graphToken = await issueGraphAccessToken();
-  const redirectUrl = input.redirectUrl?.trim() || cfg.redirectUrl;
+  const redirectUrl = input.redirectUrl?.trim() || cfg.redirectUrl || '';
 
-  if (!redirectUrl) {
-    throw new Error('invite redirect URL is required (configure ENTRA_INVITE_REDIRECT_URL).');
-  }
+  // Derive the onmicrosoft.com issuer domain from the tenant name.
+  // This is required for CIAM local emailAddress identities.
+  const tenantDomain = cfg.tenantName ? `${cfg.tenantName}.onmicrosoft.com` : '';
 
-  const requestBody = {
-    invitedUserEmailAddress: input.email,
-    invitedUserDisplayName: input.displayName ?? undefined,
-    inviteRedirectUrl: redirectUrl,
-    sendInvitationMessage: cfg.sendInvitationMessage,
+  // Graph API requires a passwordProfile even for social-only users.
+  // The user will sign in via Google or Email OTP, not this password.
+  const tempPassword = `${randomBytes(10).toString('base64url')}Aa1!`;
+
+  const requestBody: Record<string, unknown> = {
+    accountEnabled: true,
+    displayName: input.displayName ?? input.email,
+    passwordProfile: {
+      password: tempPassword,
+      forceChangePasswordNextSignIn: false,
+    },
+    passwordPolicies: 'DisablePasswordExpiration',
   };
 
-  const response = await fetch('https://graph.microsoft.com/v1.0/invitations', {
+  if (tenantDomain) {
+    requestBody['identities'] = [
+      {
+        signInType: 'emailAddress',
+        issuer: tenantDomain,
+        issuerAssignedId: input.email.toLowerCase(),
+      },
+    ];
+  }
+
+  const response = await fetch('https://graph.microsoft.com/v1.0/users', {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${graphToken}`,
@@ -86,12 +104,33 @@ async function sendEntraInvitation(input: EntraInvitationRequest): Promise<Entra
     body: JSON.stringify(requestBody),
   });
 
-  if (!response.ok) {
-    const detail = await response.text().catch(() => response.statusText);
-    throw new Error(`Graph invitation request failed: ${response.status} ${detail}`);
+  // 409 means this email is already provisioned in CIAM — treat as success.
+  if (response.status === 409) {
+    return {
+      id: undefined,
+      invitedUserEmailAddress: input.email,
+      invitedUserDisplayName: input.displayName ?? undefined,
+      invitedUser: { id: undefined },
+      inviteRedeemUrl: redirectUrl || undefined,
+      status: 'already_provisioned',
+    };
   }
 
-  return (await response.json()) as EntraInvitationResult;
+  if (!response.ok) {
+    const detail = await response.text().catch(() => response.statusText);
+    throw new Error(`CIAM user provisioning failed: ${response.status} ${detail}`);
+  }
+
+  const user = (await response.json()) as { id?: string };
+  return {
+    id: user.id,
+    invitedUserEmailAddress: input.email,
+    invitedUserDisplayName: input.displayName ?? undefined,
+    invitedUser: { id: user.id },
+    // Return the app sign-in URL so admins can share it directly with the member.
+    inviteRedeemUrl: redirectUrl || undefined,
+    status: 'provisioned',
+  };
 }
 
 export { isProvisioningEnabled, sendEntraInvitation };
