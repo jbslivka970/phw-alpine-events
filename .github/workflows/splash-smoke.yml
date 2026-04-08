@@ -1,0 +1,28 @@
+name: Splash Smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: "Base URL to smoke test"
+        required: false
+        default: "https://www.phwcoloradoalpine.org"
+  schedule:
+    - cron: '17 14 * * *'
+  push:
+    branches: [ main ]
+    paths:
+      - 'splash/**'
+      - 'scripts/splash-smoke.sh'
+      - '.github/workflows/splash-smoke.yml'
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Run splash smoke checks
+        env:
+          SPLASH_BASE_URL: ${{ github.event.inputs.base_url || 'https://www.phwcoloradoalpine.org' }}
+        run: ./scripts/splash-smoke.sh

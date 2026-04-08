@@ -91,6 +91,7 @@ The repository also contains a standalone marketing splash site in `splash/` for
 - Source and host configs: `splash/`
 - Splash validation workflow: `.github/workflows/splash-validate.yml`
 - Azure deploy workflow: `.github/workflows/splash-deploy-azure-webapp.yml`
+- Splash smoke workflow: `.github/workflows/splash-smoke.yml`
 - GitHub Pages deploy workflow: `.github/workflows/splash-deploy-pages.yml`
 
 See `splash/README.md` for DNS records and go-live steps.

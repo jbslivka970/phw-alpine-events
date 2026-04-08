@@ -15,6 +15,7 @@ Standalone marketing splash site for `www.phwcoloradoalpine.org`.
 - `.github/workflows/splash-validate.yml`: validates and smoke-tests splash page changes
 - `.github/workflows/splash-deploy-azure-webapp.yml`: deploys folder zip to Azure Web App
 - `.github/workflows/splash-deploy-pages.yml`: deploys folder to GitHub Pages
+- `.github/workflows/splash-smoke.yml`: scheduled/manual runtime smoke checks against live URL
 
 ## Azure App Service (recommended)
 
@@ -61,6 +62,22 @@ python3 -m http.server 4173 --directory splash
 ```
 
 Then open `http://127.0.0.1:4173`.
+
+## Functional smoke test
+
+Run on demand from repo root:
+
+```bash
+./scripts/splash-smoke.sh https://www.phwcoloradoalpine.org
+```
+
+Or omit the URL and set `SPLASH_BASE_URL`.
+
+CI smoke job:
+
+- Workflow: `.github/workflows/splash-smoke.yml`
+- Triggers: manual dispatch, daily schedule, and splash-related pushes
+- Manual URL override: workflow dispatch input `base_url`
 
 ## Future extension pattern
 
