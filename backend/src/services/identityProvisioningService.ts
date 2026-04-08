@@ -116,6 +116,24 @@ async function sendEntraInvitation(input: EntraInvitationRequest): Promise<Entra
     };
   }
 
+  // Graph can also return 400/ObjectConflict when the derived userPrincipalName already exists.
+  // Treat this as idempotent success for invite retries on existing CIAM users.
+  if (response.status === 400) {
+    const detail = await response.text().catch(() => response.statusText);
+    if (detail.includes('ObjectConflict') || detail.includes('userPrincipalName already exists')) {
+      return {
+        id: undefined,
+        invitedUserEmailAddress: input.email,
+        invitedUserDisplayName: input.displayName ?? undefined,
+        invitedUser: { id: undefined },
+        inviteRedeemUrl: redirectUrl || undefined,
+        status: 'already_provisioned',
+      };
+    }
+
+    throw new Error(`CIAM user provisioning failed: ${response.status} ${detail}`);
+  }
+
   if (!response.ok) {
     const detail = await response.text().catch(() => response.statusText);
     throw new Error(`CIAM user provisioning failed: ${response.status} ${detail}`);

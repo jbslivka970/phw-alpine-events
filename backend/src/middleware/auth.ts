@@ -139,9 +139,9 @@ function extractEmail(claims: JwtPayload): string | undefined {
   return undefined;
 }
 
-async function shouldGrantUserRoleByMemberEmail(email: string | undefined): Promise<boolean> {
+async function resolveUniqueActiveMemberByEmail(email: string | undefined): Promise<{ memberId: string | null; matchCount: number }> {
   if (!email) {
-    return false;
+    return { memberId: null, matchCount: 0 };
   }
 
   try {
@@ -150,17 +150,27 @@ async function shouldGrantUserRoleByMemberEmail(email: string | undefined): Prom
       .request()
       .input('email', sql.NVarChar, email.toLowerCase())
       .query<{ member_id: string }>(
-        `SELECT TOP 1 member_id
+        `SELECT TOP 2 member_id
          FROM member
          WHERE LOWER(email) = @email
            AND is_active = 1`
       );
 
-    return result.recordset.length > 0;
+    if (result.recordset.length !== 1) {
+      return {
+        memberId: null,
+        matchCount: result.recordset.length,
+      };
+    }
+
+    return {
+      memberId: result.recordset[0]?.member_id ?? null,
+      matchCount: 1,
+    };
   } catch (error) {
     // Do not block auth on lookup failures; request falls back to claim-only roles.
     console.warn('[auth] member email fallback lookup failed', error);
-    return false;
+    return { memberId: null, matchCount: 0 };
   }
 }
 
@@ -210,9 +220,13 @@ async function upsertMemberIdentityLink(claims: JwtPayload, email: string | unde
     .input('issuer_assigned_id', sql.NVarChar(255), issuerAssignedId ?? null)
     .query<{ member_id: string }>(
       `SELECT TOP 1 member_id
-       FROM member_identity_link
-       WHERE (@entra_object_id IS NOT NULL AND entra_object_id = @entra_object_id)
-          OR (@issuer IS NOT NULL AND @issuer_assigned_id IS NOT NULL AND issuer = @issuer AND issuer_assigned_id = @issuer_assigned_id)`
+       FROM member_identity_link mil
+       INNER JOIN member m ON m.member_id = mil.member_id
+        WHERE (
+            (@entra_object_id IS NOT NULL AND entra_object_id = @entra_object_id)
+            OR (@issuer IS NOT NULL AND @issuer_assigned_id IS NOT NULL AND issuer = @issuer AND issuer_assigned_id = @issuer_assigned_id)
+           )
+          AND m.is_active = 1`
     );
 
   const linkedMemberId = existingLink.recordset[0]?.member_id;
@@ -246,17 +260,14 @@ async function upsertMemberIdentityLink(claims: JwtPayload, email: string | unde
     return null;
   }
 
-  const memberResult = await pool
-    .request()
-    .input('email', sql.NVarChar(255), normalizedEmail)
-    .query<{ member_id: string }>(
-      `SELECT TOP 1 member_id
-       FROM member
-       WHERE LOWER(email) = @email
-         AND is_active = 1`
-    );
+  const { memberId: matchedMemberId, matchCount } = await resolveUniqueActiveMemberByEmail(normalizedEmail);
+  if (matchCount > 1) {
+    console.warn('[auth] duplicate active member email detected; refusing auto-link', {
+      email: normalizedEmail,
+      matchCount,
+    });
+  }
 
-  const matchedMemberId = memberResult.recordset[0]?.member_id;
   if (!matchedMemberId) {
     return null;
   }
@@ -353,7 +364,15 @@ function authenticate(req: Request, res: Response, next: NextFunction): void {
         console.warn('[auth] member identity link lookup failed', linkError);
       }
 
-      if (roles.length === 0 && (linkedMemberId || (await shouldGrantUserRoleByMemberEmail(emailClaim)))) {
+      const { memberId: uniqueMemberByEmail, matchCount } = await resolveUniqueActiveMemberByEmail(emailClaim);
+      if (matchCount > 1) {
+        console.warn('[auth] duplicate active member email detected; suppressing implicit USER role', {
+          email: emailClaim,
+          matchCount,
+        });
+      }
+
+      if (roles.length === 0 && (linkedMemberId || uniqueMemberByEmail)) {
         roles.push('USER');
       }
 
