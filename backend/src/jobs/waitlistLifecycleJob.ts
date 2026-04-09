@@ -5,7 +5,7 @@ interface WaitlistEventRow {
   event_id: string;
 }
 
-async function runWaitlistLifecycleJob(): Promise<void> {
+export async function runWaitlistLifecycleJob(): Promise<void> {
   const startedAt = Date.now();
   const pool = await getPool();
 
