@@ -61,8 +61,11 @@ Set `WEBSITE_NODE_DEFAULT_VERSION` to `~22` for the Windows App Service. Do not 
 The pipeline lives in `.github/workflows/ci-cd.yml`.
 
 - `build` installs and compiles the frontend and backend
+- `build` runs frontend lint, backend typecheck, backend compile, test-suite sanity checks, and backend tests
 - `deploy` assembles the backend deployment package and pushes it to Azure App Service on pushes to `main`
 - `deploy_frontend` builds the frontend and deploys `frontend/dist` to the frontend Azure App Service on pushes to `main`
+- `deploy` runs core post-deploy compliance smokes (`email` + `rsvp`) as required gates
+- `deploy` runs SMS post-deploy smoke only when enabled via variables
 
 ### Required GitHub Variables
 
@@ -74,11 +77,14 @@ The pipeline lives in `.github/workflows/ci-cd.yml`.
 - `VITE_EXTERNAL_TENANT_NAME`
 - `VITE_API_SCOPE`
 - `VITE_API_BASE_URL`
+- `SMS_SMOKE_ENABLED` (optional, set to `1` to run SMS smoke in non-blocking mode)
+- `SMS_COMPLIANCE_REQUIRED` (optional, set to `1` to make SMS smoke a blocking deploy gate)
 
 ### Required GitHub Secrets
 
 - `AZUREAPPSERVICE_PUBLISHPROFILE`
 - `AZURE_FRONTEND_DEPLOY_CREDENTIALS`
+- `COMPLIANCE_ALERT_WEBHOOK_URL` (optional; receives a webhook when required compliance gates fail)
 
 If `AZURE_WEBAPP_NAME` is not configured, the backend deploy job is skipped.
 If `AZURE_FRONTEND_WEBAPP_NAME` or the required `VITE_*` variables are not configured, the frontend deploy job is skipped.

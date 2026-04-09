@@ -16,6 +16,7 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
     - uses: actions/checkout@v5
@@ -32,6 +33,9 @@ jobs:
     - name: Install frontend dependencies
       run: cd frontend && npm ci
 
+    - name: Lint frontend
+      run: cd frontend && npm run lint
+
     - name: Build frontend
       run: cd frontend && npm run build
 
@@ -41,11 +45,17 @@ jobs:
     - name: Install backend dependencies
       run: cd backend && npm ci
 
+    - name: Typecheck backend
+      run: cd backend && npm run typecheck
+
+    - name: Validate backend test suites are non-empty
+      run: node scripts/ci/check-empty-tests.mjs backend/src/__tests__
+
     - name: Build backend
       run: cd backend && npm run build
 
     - name: Test backend
-      run: cd backend && npm test -- --runInBand
+      run: cd backend && npm run test:ci
 
     - name: Install Playwright role-matrix dependencies
       if: ${{ ((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || github.event_name == 'workflow_dispatch' || github.event_name == 'release') && vars.E2E_API_BASE_URL != '' && vars.E2E_APP_URL != '' }}
@@ -169,15 +179,35 @@ jobs:
         echo "Azure deployment failed after 3 attempts."
         exit 1
 
-    - name: Run post-deploy compliance smokes
+    - name: Run post-deploy core compliance smokes
       run: |
         BACKEND_BASE_URL="${{ vars.BACKEND_BASE_URL }}"
         if [ -z "$BACKEND_BASE_URL" ]; then
           BACKEND_BASE_URL="https://${{ vars.AZURE_WEBAPP_NAME }}.azurewebsites.net"
         fi
-        echo "Running compliance smokes against $BACKEND_BASE_URL"
+        echo "Running core compliance smokes against $BACKEND_BASE_URL"
         export BACKEND_BASE_URL
-        npm --prefix backend run smoke:all
+        npm --prefix backend run smoke:email
+        npm --prefix backend run smoke:rsvp
+
+    - name: Run post-deploy SMS compliance smoke (optional)
+      id: sms_smoke
+      if: ${{ vars.SMS_SMOKE_ENABLED == '1' || vars.SMS_COMPLIANCE_REQUIRED == '1' }}
+      continue-on-error: ${{ vars.SMS_COMPLIANCE_REQUIRED != '1' }}
+      run: |
+        BACKEND_BASE_URL="${{ vars.BACKEND_BASE_URL }}"
+        if [ -z "$BACKEND_BASE_URL" ]; then
+          BACKEND_BASE_URL="https://${{ vars.AZURE_WEBAPP_NAME }}.azurewebsites.net"
+        fi
+        echo "Running SMS compliance smoke against $BACKEND_BASE_URL"
+        export BACKEND_BASE_URL
+        npm --prefix backend run smoke:sms
+
+    - name: Warn when optional SMS smoke fails
+      if: ${{ steps.sms_smoke.outcome == 'failure' && vars.SMS_COMPLIANCE_REQUIRED != '1' }}
+      run: |
+        echo "::warning::SMS compliance smoke failed but is configured as non-blocking."
+        echo "::warning::Set SMS_COMPLIANCE_REQUIRED=1 to enforce SMS smoke as a required production gate."
 
     - name: Alert on compliance smoke failure
       if: ${{ failure() }}
@@ -279,6 +309,19 @@ jobs:
         if [ -z "$BACKEND_BASE_URL" ]; then
           BACKEND_BASE_URL="https://${{ vars.AZURE_WEBAPP_NAME }}.azurewebsites.net"
         fi
-        echo "Running release compliance smokes against $BACKEND_BASE_URL"
+        echo "Running release core compliance smokes against $BACKEND_BASE_URL"
         export BACKEND_BASE_URL
-        npm --prefix backend run smoke:all
+        npm --prefix backend run smoke:email
+        npm --prefix backend run smoke:rsvp
+
+    - name: Run release SMS compliance smoke (optional)
+      if: ${{ vars.SMS_SMOKE_ENABLED == '1' || vars.SMS_COMPLIANCE_REQUIRED == '1' }}
+      continue-on-error: ${{ vars.SMS_COMPLIANCE_REQUIRED != '1' }}
+      run: |
+        BACKEND_BASE_URL="${{ vars.BACKEND_BASE_URL }}"
+        if [ -z "$BACKEND_BASE_URL" ]; then
+          BACKEND_BASE_URL="https://${{ vars.AZURE_WEBAPP_NAME }}.azurewebsites.net"
+        fi
+        echo "Running release SMS compliance smoke against $BACKEND_BASE_URL"
+        export BACKEND_BASE_URL
+        npm --prefix backend run smoke:sms

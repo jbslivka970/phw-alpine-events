@@ -7,11 +7,13 @@
     "node": ">=22 <23"
   },
   "scripts": {
+    "typecheck": "tsc --noEmit",
     "build": "tsc",
     "start": "node server.js",
     "dev": "ts-node src/index.ts",
     "deploy-schema": "ts-node src/deploy-schema.ts",
     "test": "jest",
+    "test:ci": "jest --runInBand --detectOpenHandles",
     "smoke:sms": "node ../scripts/sms-compliance-smoke.js",
     "smoke:email": "node ../scripts/email-unsubscribe-smoke.js",
     "smoke:rsvp": "node ../scripts/tokenized-rsvp-smoke.js",

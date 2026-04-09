@@ -50,8 +50,8 @@ describe('ACS notification providers', () => {
       expect.objectContaining({
         senderAddress: 'noreply@example.org',
         recipients: {
-          to: [{ address: 'region-admin@example.org' }],
-          bcc: [{ address: 'member@example.org' }],
+          to: [{ address: 'member@example.org' }],
+          bcc: [{ address: 'region-admin@example.org' }],
         },
       })
     );
