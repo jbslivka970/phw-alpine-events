@@ -7,6 +7,9 @@ const args = new Set(process.argv.slice(2));
 const softSkip = args.has('--soft-skip');
 const tokenEnvFile = (process.env.PW_TOKEN_ENV_FILE || '').trim();
 const perRoleTimeoutMs = Number.parseInt(process.env.PW_REFRESH_ROLE_TIMEOUT_MS || '120000', 10);
+const postLoginTimeoutMs = Number.isFinite(perRoleTimeoutMs) && perRoleTimeoutMs > 0
+  ? Math.max(90_000, perRoleTimeoutMs - 10_000)
+  : 90_000;
 
 const appUrl = (process.env.E2E_APP_URL || '').trim().replace(/\/$/, '');
 const authDir = path.resolve(process.cwd(), 'tests/e2e/.auth');
@@ -100,6 +103,52 @@ async function clickInAnyScope(page, selectors) {
     }
   }
   return false;
+}
+
+async function waitForPostLoginReady(page, timeoutMs) {
+  const loginUrlPattern = /\/dashboard|\/events|\/tavf|\/$/;
+
+  await Promise.race([
+    page.waitForURL(loginUrlPattern, { timeout: timeoutMs }),
+    page.waitForFunction(() => {
+      const pathname = window.location.pathname || '/';
+      if (/\/dashboard|\/events|\/tavf|\/$/.test(pathname)) {
+        return true;
+      }
+
+      const sources = [window.sessionStorage, window.localStorage];
+      for (const source of sources) {
+        for (const key of Object.keys(source)) {
+          const raw = source.getItem(key);
+          if (!raw) {
+            continue;
+          }
+
+          if (raw.startsWith('eyJ') && raw.length > 20) {
+            return true;
+          }
+
+          try {
+            const parsed = JSON.parse(raw);
+            const possible = [
+              parsed.secret,
+              parsed.accessToken,
+              parsed.access_token,
+              parsed.idToken,
+              parsed.id_token,
+              parsed.token,
+            ];
+            if (possible.some((candidate) => typeof candidate === 'string' && candidate.length > 20)) {
+              return true;
+            }
+          } catch {
+            // Ignore malformed cache entries.
+          }
+        }
+      }
+      return false;
+    }, undefined, { timeout: timeoutMs }),
+  ]);
 }
 
 async function completeUsernameStep(authPage, username) {
@@ -251,7 +300,7 @@ async function loginAndCapture({ username, password, statePath }) {
       await popup.waitForEvent('close', { timeout: 30_000 }).catch(() => {});
     }
 
-    await page.waitForURL(/\/dashboard|\/events|\/tavf|\/$/, { timeout: 90_000 });
+    await waitForPostLoginReady(page, postLoginTimeoutMs);
     await page.waitForTimeout(1200);
 
     const storageToken = await page.evaluate(() => {
