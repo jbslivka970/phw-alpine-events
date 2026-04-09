@@ -91,7 +91,7 @@ jobs:
 
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 25
     needs: build
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.AZURE_WEBAPP_NAME != ''
     concurrency:
@@ -131,13 +131,145 @@ jobs:
         cd deploy-package
         zip -r ../release.zip .
 
-    - name: Deploy to Azure
-      uses: azure/webapps-deploy@v2
-      with:
-        app-name: ${{ vars.AZURE_WEBAPP_NAME }}
-        slot-name: 'production'
-        publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE }}
-        package: release.zip
+    - name: Deploy to Azure via Kudu zipdeploy
+      env:
+        AZURE_WEBAPP_NAME: ${{ vars.AZURE_WEBAPP_NAME }}
+        AZUREAPPSERVICE_PUBLISHPROFILE: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE }}
+      run: |
+        if [ -z "$AZUREAPPSERVICE_PUBLISHPROFILE" ]; then
+          echo "AZUREAPPSERVICE_PUBLISHPROFILE is required"
+          exit 1
+        fi
+
+        mapfile -t PROFILE_PARTS < <(python - <<'PY'
+        import os
+        import sys
+        import xml.etree.ElementTree as ET
+
+        raw = os.environ.get('AZUREAPPSERVICE_PUBLISHPROFILE', '').strip()
+        if not raw:
+          raise SystemExit('Missing AZUREAPPSERVICE_PUBLISHPROFILE')
+
+        root = ET.fromstring(raw)
+        profiles = root.findall('.//publishProfile')
+        if not profiles:
+          raise SystemExit('No publishProfile entries found')
+
+        chosen = None
+        for profile in profiles:
+          if (profile.attrib.get('publishMethod') or '').lower() == 'msdeploy':
+            chosen = profile
+            break
+        if chosen is None:
+          chosen = profiles[0]
+
+        publish_url = (chosen.attrib.get('publishUrl') or '').split(',')[0].strip()
+        if publish_url.startswith('http://') or publish_url.startswith('https://'):
+          scm_url = publish_url
+        else:
+          scm_url = f'https://{publish_url}'
+
+        if ':' in scm_url.split('//', 1)[-1]:
+          host = scm_url.split('//', 1)[-1].split(':', 1)[0]
+          scm_url = f'https://{host}'
+
+        username = chosen.attrib.get('userName', '').strip()
+        password = chosen.attrib.get('userPWD', '').strip()
+        if not username or not password or not scm_url:
+          raise SystemExit('Publish profile is missing required credentials or URL')
+
+        print(scm_url)
+        print(username)
+        print(password)
+        PY
+        )
+
+        SCM_URL="${PROFILE_PARTS[0]}"
+        KUDU_USER="${PROFILE_PARTS[1]}"
+        KUDU_PASS="${PROFILE_PARTS[2]}"
+
+        if [ -z "$SCM_URL" ] || [ -z "$KUDU_USER" ] || [ -z "$KUDU_PASS" ]; then
+          echo "Failed to parse publish profile credentials"
+          exit 1
+        fi
+
+        echo "Deploying release.zip to $AZURE_WEBAPP_NAME via $SCM_URL"
+
+        # If a deployment is already in progress, wait briefly instead of colliding with 409.
+        for attempt in $(seq 1 20); do
+            DEPLOY_STATUS=$(curl -fsS -u "$KUDU_USER:$KUDU_PASS" "$SCM_URL/api/deployments/latest" 2>/dev/null | python - <<'PY'
+            import json
+            import sys
+
+            try:
+              data = json.load(sys.stdin)
+            except Exception:
+              print('unknown')
+              raise SystemExit(0)
+
+            status = data.get('status')
+            if status is None:
+              print('none')
+            else:
+              print(str(status))
+            PY
+            )
+
+          if [ "$DEPLOY_STATUS" = "0" ] || [ "$DEPLOY_STATUS" = "1" ]; then
+            echo "Existing deployment in progress (status=$DEPLOY_STATUS), waiting... ($attempt/20)"
+            sleep 10
+            continue
+          fi
+          break
+        done
+
+        RESPONSE_HEADERS=$(mktemp)
+        curl -fsS -u "$KUDU_USER:$KUDU_PASS" \
+          -X POST "$SCM_URL/api/zipdeploy?isAsync=true" \
+          --data-binary @release.zip \
+          -D "$RESPONSE_HEADERS" \
+          -o /dev/null
+
+        STATUS_URL=$(awk 'BEGIN{IGNORECASE=1} /^Location:/ {gsub("\r","",$2); print $2}' "$RESPONSE_HEADERS" | tail -n 1)
+        rm -f "$RESPONSE_HEADERS"
+
+        if [ -z "$STATUS_URL" ]; then
+          STATUS_URL="$SCM_URL/api/deployments/latest"
+        fi
+
+        echo "Polling deployment status from: $STATUS_URL"
+
+        for poll in $(seq 1 90); do
+          STATUS_AND_MESSAGE=$(curl -fsS -u "$KUDU_USER:$KUDU_PASS" "$STATUS_URL" | python - <<'PY'
+          import json
+          import sys
+
+          data = json.load(sys.stdin)
+          status = data.get('status')
+          msg = (data.get('status_text') or data.get('message') or '').replace('\n', ' ').strip()
+          print(f"{status if status is not None else 'none'}\t{msg}")
+          PY
+          )
+
+          DEPLOY_STATE=$(printf "%s" "$STATUS_AND_MESSAGE" | cut -f1)
+          DEPLOY_MSG=$(printf "%s" "$STATUS_AND_MESSAGE" | cut -f2-)
+          echo "Deploy state=$DEPLOY_STATE message=$DEPLOY_MSG"
+
+          if [ "$DEPLOY_STATE" = "4" ]; then
+            echo "Deployment succeeded"
+            exit 0
+          fi
+
+          if [ "$DEPLOY_STATE" = "3" ]; then
+            echo "Deployment failed"
+            exit 1
+          fi
+
+          sleep 10
+        done
+
+        echo "Deployment status polling timed out"
+        exit 1
 
   deploy_frontend:
     runs-on: ubuntu-latest
@@ -182,10 +314,44 @@ jobs:
     - name: Package frontend artifact
       run: cd frontend/dist && zip -r ../../frontend-release.zip .
 
-    - name: Azure login (frontend deploy)
-      uses: azure/login@v2
-      with:
-        creds: ${{ secrets.AZURE_FRONTEND_DEPLOY_CREDENTIALS }}
+    - name: Azure CLI login (frontend deploy)
+      env:
+        AZURE_FRONTEND_DEPLOY_CREDENTIALS: ${{ secrets.AZURE_FRONTEND_DEPLOY_CREDENTIALS }}
+      run: |
+        if [ -z "$AZURE_FRONTEND_DEPLOY_CREDENTIALS" ]; then
+          echo "AZURE_FRONTEND_DEPLOY_CREDENTIALS is required"
+          exit 1
+        fi
+
+        mapfile -t AZ_PARTS < <(python - <<'PY'
+        import json
+        import os
+
+        creds = json.loads(os.environ['AZURE_FRONTEND_DEPLOY_CREDENTIALS'])
+        print(creds.get('clientId', ''))
+        print(creds.get('clientSecret', ''))
+        print(creds.get('tenantId', ''))
+        print(creds.get('subscriptionId', ''))
+        PY
+        )
+
+        AZ_CLIENT_ID="${AZ_PARTS[0]}"
+        AZ_CLIENT_SECRET="${AZ_PARTS[1]}"
+        AZ_TENANT_ID="${AZ_PARTS[2]}"
+        AZ_SUBSCRIPTION_ID="${AZ_PARTS[3]}"
+
+        if [ -z "$AZ_CLIENT_ID" ] || [ -z "$AZ_CLIENT_SECRET" ] || [ -z "$AZ_TENANT_ID" ] || [ -z "$AZ_SUBSCRIPTION_ID" ]; then
+          echo "AZURE_FRONTEND_DEPLOY_CREDENTIALS is missing required fields"
+          exit 1
+        fi
+
+        az login --service-principal \
+          --username "$AZ_CLIENT_ID" \
+          --password "$AZ_CLIENT_SECRET" \
+          --tenant "$AZ_TENANT_ID" \
+          --output none
+
+        az account set --subscription "$AZ_SUBSCRIPTION_ID"
 
     - name: Deploy frontend to Azure
       run: |
