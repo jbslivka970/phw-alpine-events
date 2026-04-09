@@ -1257,6 +1257,8 @@ function EventsPage() {
 
                   <div className="event-rsvp-inline" role="group" aria-label={`RSVP controls for ${event.title}`}>
                     <select
+                      id={`rsvp-response-${event.event_id}`}
+                      name={`rsvp-response-${event.event_id}`}
                       className="form-input event-rsvp-inline__response"
                       value={getRsvpDraft(event.event_id).response}
                       onChange={(e) => setRsvpDraft(event.event_id, { response: e.target.value as RsvpDraft['response'] })}
@@ -1269,6 +1271,8 @@ function EventsPage() {
                     </select>
 
                     <select
+                      id={`rsvp-role-${event.event_id}`}
+                      name={`rsvp-role-${event.event_id}`}
                       className="form-input event-rsvp-inline__role"
                       value={getRsvpDraft(event.event_id).role}
                       onChange={(e) => setRsvpDraft(event.event_id, { role: e.target.value as RsvpDraft['role'] })}

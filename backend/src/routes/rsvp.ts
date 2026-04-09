@@ -1,7 +1,7 @@
 import { Response, Router } from 'express';
 import authenticate from '../middleware/auth';
 import { apiLimiter, writeLimiter } from '../middleware/rateLimiter';
-import { requireAnyAuthenticatedRole, requireEventCreatorOrAdmin } from '../middleware/rbac';
+import { requireEventCreatorOrAdmin } from '../middleware/rbac';
 import { getPool, sql } from '../db';
 import { inferResponseRoleForMember, recordRsvpResponse, triggerWaitlistAutoPromotion, VALID_RESPONSES, RsvpError, type RsvpResponse } from '../services/rsvpService';
 
@@ -101,7 +101,7 @@ router.get('/', apiLimiter, authenticate, requireEventCreatorOrAdmin, async (req
   }
 });
 
-router.post('/', writeLimiter, authenticate, requireAnyAuthenticatedRole, async (req, res: Response) => {
+router.post('/', writeLimiter, authenticate, async (req, res: Response) => {
   try {
     const eventId = req.params.eventId;
     const requestedMemberId = req.body?.member_id as string | undefined;

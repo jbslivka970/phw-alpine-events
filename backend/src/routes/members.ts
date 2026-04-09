@@ -53,7 +53,7 @@ router.get('/:id/groups', apiLimiter, authenticate, requireAnyAuthenticatedRole,
   }
 });
 
-router.patch('/:id/sms-consent', writeLimiter, authenticate, requireAnyAuthenticatedRole, async (req, res, next) => {
+router.patch('/:id/sms-consent', writeLimiter, authenticate, async (req, res, next) => {
   try {
     const memberId = req.params.id;
     const smsOptIn = req.body?.sms_opt_in;
@@ -123,7 +123,7 @@ router.patch('/:id/sms-consent', writeLimiter, authenticate, requireAnyAuthentic
   }
 });
 
-router.patch('/:id/channel-preference', writeLimiter, authenticate, requireAnyAuthenticatedRole, async (req, res, next) => {
+router.patch('/:id/channel-preference', writeLimiter, authenticate, async (req, res, next) => {
   try {
     const memberId = req.params.id;
     const preference = req.body?.channel_preference as string | undefined;
@@ -230,17 +230,32 @@ router.get('/:id/sms-consent-log', apiLimiter, authenticate, requireAdmin, async
   }
 });
 
-router.get('/:id/participation', apiLimiter, authenticate, requireAnyAuthenticatedRole, async (req, res, next) => {
+router.get('/:id/participation', apiLimiter, authenticate, async (req, res, next) => {
   try {
     const memberId = req.params.id;
-    if (!isAdmin(req) && req.user?.sub !== memberId) {
+    const pool = await getPool();
+    const memberResult = await pool
+      .request()
+      .input('member_id', sql.UniqueIdentifier, memberId)
+      .query<{ member_id: string; email: string | null }>(
+        `SELECT member_id, email
+         FROM member
+         WHERE member_id = @member_id`
+      );
+
+    const memberRecord = memberResult.recordset[0];
+    if (!memberRecord) {
+      res.status(404).json({ error: 'Member not found.' });
+      return;
+    }
+
+    if (!isAdmin(req) && !isSelfMember(req, memberId, memberRecord.email)) {
       res.status(403).json({ error: 'Insufficient permissions.' });
       return;
     }
 
     const currentYear = new Date().getFullYear();
     const priorYear = currentYear - 1;
-    const pool = await getPool();
     const result = await pool
       .request()
       .input('member_id', sql.UniqueIdentifier, memberId)
@@ -282,15 +297,30 @@ router.get('/:id/participation', apiLimiter, authenticate, requireAnyAuthenticat
   }
 });
 
-router.get('/:id/rsvps', apiLimiter, authenticate, requireAnyAuthenticatedRole, async (req, res, next) => {
+router.get('/:id/rsvps', apiLimiter, authenticate, async (req, res, next) => {
   try {
     const memberId = req.params.id;
-    if (!isAdmin(req) && req.user?.sub !== memberId) {
+    const pool = await getPool();
+    const memberResult = await pool
+      .request()
+      .input('member_id', sql.UniqueIdentifier, memberId)
+      .query<{ member_id: string; email: string | null }>(
+        `SELECT member_id, email
+         FROM member
+         WHERE member_id = @member_id`
+      );
+
+    const memberRecord = memberResult.recordset[0];
+    if (!memberRecord) {
+      res.status(404).json({ error: 'Member not found.' });
+      return;
+    }
+
+    if (!isAdmin(req) && !isSelfMember(req, memberId, memberRecord.email)) {
       res.status(403).json({ error: 'Insufficient permissions.' });
       return;
     }
 
-    const pool = await getPool();
     const result = await pool
       .request()
       .input('member_id', sql.UniqueIdentifier, memberId)

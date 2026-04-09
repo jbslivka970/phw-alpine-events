@@ -49,6 +49,7 @@ function PostingCard({ posting }: { posting: TavfPosting }) {
 
 function TavfListPage() {
   const { user, canCreateEvents, canCreateTavfPostings } = useAuth();
+  const canEditEvents = canCreateEvents();
   const [postings, setPostings] = useState<TavfPosting[]>([]);
   const [statusFilter, setStatusFilter] = useState<PostingStatus | ''>('open');
   const [loading, setLoading] = useState(true);
@@ -72,7 +73,7 @@ function TavfListPage() {
   }, [statusFilter]);
 
   useEffect(() => {
-    if (!user || canCreateEvents()) {
+    if (!user?.email || canEditEvents) {
       return;
     }
 
@@ -101,7 +102,7 @@ function TavfListPage() {
     return () => {
       cancelled = true;
     };
-  }, [canCreateEvents, user]);
+  }, [canEditEvents, user?.email]);
 
   async function toggleSubscription(next: boolean): Promise<void> {
     setSavingSubscription(true);
@@ -132,11 +133,12 @@ function TavfListPage() {
         )}
       </div>
 
-      {user && !canCreateEvents() && (
+      {user && !canEditEvents && (
         <div className="tavf-notify-pref">
           <label className="tavf-notify-pref__toggle" htmlFor="tavf-notify-toggle">
             <input
               id="tavf-notify-toggle"
+              name="tavf-notify-toggle"
               type="checkbox"
               checked={subscribed}
               disabled={savingSubscription}
