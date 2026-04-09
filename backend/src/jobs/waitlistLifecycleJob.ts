@@ -58,4 +58,3 @@ export async function runWaitlistLifecycleJob(): Promise<void> {
   );
 }
 
-export { runWaitlistLifecycleJob };
