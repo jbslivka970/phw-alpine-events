@@ -6,6 +6,67 @@ import { getPool, sql } from '../db';
 import { inferResponseRoleForMember, recordRsvpResponse, triggerWaitlistAutoPromotion, VALID_RESPONSES, RsvpError, type RsvpResponse } from '../services/rsvpService';
 
 const router = Router({ mergeParams: true });
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function splitDisplayName(name: string | undefined, fallbackEmail: string): { firstName: string; lastName: string } {
+  const base = (name ?? '').trim();
+  if (!base) {
+    const localPart = fallbackEmail.split('@')[0] ?? 'member';
+    return { firstName: localPart.slice(0, 80), lastName: 'Member' };
+  }
+
+  const pieces = base.split(/\s+/).filter(Boolean);
+  if (pieces.length === 1) {
+    return { firstName: pieces[0]!.slice(0, 80), lastName: 'Member' };
+  }
+
+  return {
+    firstName: (pieces.shift() ?? 'Member').slice(0, 80),
+    lastName: pieces.join(' ').slice(0, 80) || 'Member',
+  };
+}
+
+async function resolveCurrentMemberId(user: Response['locals']['user'] | undefined): Promise<string | null> {
+  const email = user?.email?.trim().toLowerCase();
+  if (!email) {
+    return null;
+  }
+
+  const pool = await getPool();
+  const existing = await pool
+    .request()
+    .input('email', sql.NVarChar, email)
+    .query<{ member_id: string }>('SELECT TOP 1 member_id FROM member WHERE LOWER(email) = @email ORDER BY is_active DESC, updated_at DESC');
+
+  if (existing.recordset[0]?.member_id) {
+    return existing.recordset[0].member_id;
+  }
+
+  const { firstName, lastName } = splitDisplayName(user?.name, email);
+
+  try {
+    const created = await pool
+      .request()
+      .input('first_name', sql.NVarChar, firstName)
+      .input('last_name', sql.NVarChar, lastName)
+      .input('email', sql.NVarChar, email)
+      .query<{ member_id: string }>(
+        `INSERT INTO member
+           (first_name, last_name, email, mobile_phone, sms_opt_in, email_opt_out, source)
+         OUTPUT INSERTED.member_id
+         VALUES
+           (@first_name, @last_name, @email, NULL, 0, 0, 'manual')`
+      );
+
+    return created.recordset[0]?.member_id ?? null;
+  } catch {
+    const raced = await pool
+      .request()
+      .input('email', sql.NVarChar, email)
+      .query<{ member_id: string }>('SELECT TOP 1 member_id FROM member WHERE LOWER(email) = @email ORDER BY is_active DESC, updated_at DESC');
+    return raced.recordset[0]?.member_id ?? null;
+  }
+}
 
 function requiresExplicitRole(response: RsvpResponse): boolean {
   return response === 'yes' || response === 'maybe' || response === 'waitlist';
@@ -43,13 +104,16 @@ router.get('/', apiLimiter, authenticate, requireAnyAuthenticatedRole, async (re
 router.post('/', writeLimiter, authenticate, requireAnyAuthenticatedRole, async (req, res: Response) => {
   try {
     const eventId = req.params.eventId;
-    const memberId = req.body?.member_id as string | undefined;
+    const requestedMemberId = req.body?.member_id as string | undefined;
     const response = (req.body?.response as string | undefined)?.toLowerCase() as RsvpResponse | undefined;
     const parsedResponseRole = (req.body?.response_role as string | undefined)?.toUpperCase();
     const notes = typeof req.body?.notes === 'string' ? req.body.notes : null;
+    const memberId = (typeof requestedMemberId === 'string' && UUID_PATTERN.test(requestedMemberId))
+      ? requestedMemberId
+      : await resolveCurrentMemberId(req.user);
 
     if (!memberId) {
-      res.status(400).json({ error: 'member_id is required' });
+      res.status(400).json({ error: 'member_id is required and could not be inferred from the authenticated profile' });
       return;
     }
 

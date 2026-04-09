@@ -9,6 +9,54 @@ import './index.css'
 import './styles/phw-alpine.css'
 
 const msalInstance = new PublicClientApplication(msalConfig)
+const CHUNK_RELOAD_KEY = 'phw:chunk-reload-attempted'
+
+function isChunkLoadErrorMessage(value: unknown): boolean {
+  if (typeof value !== 'string') {
+    return false
+  }
+
+  const normalized = value.toLowerCase()
+  return normalized.includes('failed to fetch dynamically imported module')
+    || normalized.includes('valid javascript mime type')
+    || normalized.includes('importing a module script failed')
+}
+
+function recoverFromChunkLoad(reason: string, details?: unknown): void {
+  const alreadyReloaded = window.sessionStorage.getItem(CHUNK_RELOAD_KEY) === '1'
+  if (alreadyReloaded) {
+    authDebugWarn('chunk-recovery:already-attempted', { reason, details })
+    return
+  }
+
+  window.sessionStorage.setItem(CHUNK_RELOAD_KEY, '1')
+  authDebugWarn('chunk-recovery:reload', { reason, details })
+  window.location.reload()
+}
+
+window.addEventListener('vite:preloadError', (event: Event) => {
+  event.preventDefault()
+  recoverFromChunkLoad('vite:preloadError')
+})
+
+window.addEventListener('error', (event: Event) => {
+  const target = event.target as HTMLScriptElement | null
+  if (!target || target.tagName !== 'SCRIPT') {
+    return
+  }
+
+  if (typeof target.src === 'string' && target.src.includes('/assets/')) {
+    recoverFromChunkLoad('script-load-error', { src: target.src })
+  }
+}, true)
+
+window.addEventListener('unhandledrejection', (event: PromiseRejectionEvent) => {
+  const reason = event.reason as { message?: string } | string | undefined
+  const message = typeof reason === 'string' ? reason : reason?.message
+  if (isChunkLoadErrorMessage(message)) {
+    recoverFromChunkLoad('unhandledrejection', { message })
+  }
+})
 
 function isNoTokenRequestCacheError(error: unknown): boolean {
   const errorLike = error as { errorCode?: string; message?: string } | null
@@ -99,6 +147,8 @@ async function bootstrap() {
       </MsalProvider>
     </React.StrictMode>,
   )
+
+  window.sessionStorage.removeItem(CHUNK_RELOAD_KEY)
 }
 
 void bootstrap()

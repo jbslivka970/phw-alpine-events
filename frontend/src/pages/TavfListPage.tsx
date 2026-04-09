@@ -135,17 +135,21 @@ function TavfListPage() {
 
       {user && !canCreateEvents() && (
         <div className="tavf-notify-pref">
-          <label className="tavf-notify-pref__toggle">
+          <label className="tavf-notify-pref__toggle" htmlFor="tavf-notify-toggle">
             <input
+              id="tavf-notify-toggle"
               type="checkbox"
               checked={subscribed}
-              disabled={loadingSubscription || savingSubscription}
+              disabled={savingSubscription}
               onChange={(event) => {
                 void toggleSubscription(event.target.checked);
               }}
             />
-            <span>Notify me when new TAVF opportunities are posted</span>
+            <span>{savingSubscription ? 'Saving preference…' : 'Notify me when new TAVF opportunities are posted'}</span>
           </label>
+          {loadingSubscription && (
+            <p className="tavf-notify-pref__hint">Loading your current preference…</p>
+          )}
           <p className="tavf-notify-pref__hint">
             {subscribed
               ? 'You are subscribed. We will notify you when guides post new opportunities.'

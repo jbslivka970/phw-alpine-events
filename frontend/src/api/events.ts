@@ -155,7 +155,7 @@ const eventsApi = {
 const rsvpApi = {
   list: (eventId: string, response?: string) =>
     apiGet<RsvpRecord[]>(response ? `/events/${eventId}/rsvp?response=${encodeURIComponent(response)}` : `/events/${eventId}/rsvp`),
-  upsert: (eventId: string, payload: { member_id: string; response: RsvpRecord['response']; response_role?: 'MENTOR' | 'PARTICIPANT'; notes?: string | null }) =>
+  upsert: (eventId: string, payload: { member_id?: string; response: RsvpRecord['response']; response_role?: 'MENTOR' | 'PARTICIPANT'; notes?: string | null }) =>
     apiPost<RsvpRecord>(`/events/${eventId}/rsvp`, payload),
   remove: (eventId: string, memberId: string) => apiDelete<void>(`/events/${eventId}/rsvp/${memberId}`),
 };

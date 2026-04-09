@@ -119,6 +119,16 @@ interface EventFormPayload {
   update_reason: string
 }
 
+type RsvpDraft = {
+  response: 'yes' | 'maybe' | 'no'
+  role: 'MENTOR' | 'PARTICIPANT'
+}
+
+const DEFAULT_RSVP_DRAFT: RsvpDraft = {
+  response: 'yes',
+  role: 'PARTICIPANT',
+}
+
 type CommonLocation = {
   query: string
   label: string
@@ -943,7 +953,7 @@ function EventsPage() {
   const [reportEmailingEventId, setReportEmailingEventId] = useState<string | null>(null)
   const [memberId, setMemberId] = useState<string | null>(null)
   const [rsvpBusyEventId, setRsvpBusyEventId] = useState<string | null>(null)
-  const [rsvpRole, setRsvpRole] = useState<'MENTOR' | 'PARTICIPANT'>('PARTICIPANT')
+  const [rsvpDraftByEvent, setRsvpDraftByEvent] = useState<Record<string, RsvpDraft>>({})
 
   const abortRef = useRef<AbortController | null>(null)
 
@@ -1122,23 +1132,34 @@ function EventsPage() {
     }
   }
 
-  async function submitRsvp(event: EventRecord, response: RsvpRecord['response']) {
-    if (!memberId) {
-      setErr('Unable to resolve your member profile for RSVP. Please refresh and try again.')
-      return
-    }
+  function getRsvpDraft(eventId: string): RsvpDraft {
+    return rsvpDraftByEvent[eventId] ?? DEFAULT_RSVP_DRAFT
+  }
 
+  function setRsvpDraft(eventId: string, next: Partial<RsvpDraft>) {
+    setRsvpDraftByEvent((prev) => ({
+      ...prev,
+      [eventId]: {
+        ...(prev[eventId] ?? DEFAULT_RSVP_DRAFT),
+        ...next,
+      },
+    }))
+  }
+
+  async function submitRsvp(event: EventRecord) {
     if (event.status !== 'published') {
       setErr('RSVP updates are only available for published events.')
       return
     }
 
+    const draft = getRsvpDraft(event.event_id)
+
     setRsvpBusyEventId(event.event_id)
     try {
       await rsvpApi.upsert(event.event_id, {
-        member_id: memberId,
-        response,
-        response_role: response === 'yes' || response === 'maybe' || response === 'waitlist' ? rsvpRole : undefined,
+        member_id: memberId ?? undefined,
+        response: draft.response,
+        response_role: draft.response === 'yes' || draft.response === 'maybe' ? draft.role : undefined,
       })
       setErr(null)
       await loadEvents()
@@ -1234,43 +1255,39 @@ function EventsPage() {
                     RSVP List ({event.yes_count ?? 0})
                   </button>
 
-                  <select
-                    className="form-input event-card__role-select"
-                    value={rsvpRole}
-                    onChange={(e) => setRsvpRole(e.target.value as 'MENTOR' | 'PARTICIPANT')}
-                    disabled={rsvpBusyEventId === event.event_id}
-                    title="RSVP role"
-                  >
-                    <option value="PARTICIPANT">Participant</option>
-                    <option value="MENTOR">Mentor</option>
-                  </select>
+                  <div className="event-rsvp-inline" role="group" aria-label={`RSVP controls for ${event.title}`}>
+                    <select
+                      className="form-input event-rsvp-inline__response"
+                      value={getRsvpDraft(event.event_id).response}
+                      onChange={(e) => setRsvpDraft(event.event_id, { response: e.target.value as RsvpDraft['response'] })}
+                      disabled={rsvpBusyEventId === event.event_id}
+                      title="RSVP response"
+                    >
+                      <option value="yes">Attending</option>
+                      <option value="maybe">Maybe</option>
+                      <option value="no">Cannot Attend</option>
+                    </select>
 
-                  <button
-                    className="btn btn--outline btn--sm"
-                    onClick={() => void submitRsvp(event, 'yes')}
-                    disabled={event.status !== 'published' || !memberId || rsvpBusyEventId === event.event_id}
-                    title={event.status !== 'published' ? 'Available when event is published' : undefined}
-                  >
-                    {rsvpBusyEventId === event.event_id ? 'Saving…' : 'RSVP Yes'}
-                  </button>
+                    <select
+                      className="form-input event-rsvp-inline__role"
+                      value={getRsvpDraft(event.event_id).role}
+                      onChange={(e) => setRsvpDraft(event.event_id, { role: e.target.value as RsvpDraft['role'] })}
+                      disabled={rsvpBusyEventId === event.event_id || getRsvpDraft(event.event_id).response === 'no'}
+                      title="RSVP role"
+                    >
+                      <option value="PARTICIPANT">as Participant</option>
+                      <option value="MENTOR">as Mentor</option>
+                    </select>
 
-                  <button
-                    className="btn btn--outline btn--sm"
-                    onClick={() => void submitRsvp(event, 'maybe')}
-                    disabled={event.status !== 'published' || !memberId || rsvpBusyEventId === event.event_id}
-                    title={event.status !== 'published' ? 'Available when event is published' : undefined}
-                  >
-                    Maybe
-                  </button>
-
-                  <button
-                    className="btn btn--outline btn--sm"
-                    onClick={() => void submitRsvp(event, 'no')}
-                    disabled={event.status !== 'published' || !memberId || rsvpBusyEventId === event.event_id}
-                    title={event.status !== 'published' ? 'Available when event is published' : undefined}
-                  >
-                    No
-                  </button>
+                    <button
+                      className="btn btn--outline btn--sm"
+                      onClick={() => void submitRsvp(event)}
+                      disabled={event.status !== 'published' || rsvpBusyEventId === event.event_id}
+                      title={event.status !== 'published' ? 'Available when event is published' : undefined}
+                    >
+                      {rsvpBusyEventId === event.event_id ? 'Saving…' : 'Save RSVP'}
+                    </button>
+                  </div>
 
                   <button className="btn btn--outline btn--sm" onClick={() => void downloadIcs(event)}>
                     ICS
