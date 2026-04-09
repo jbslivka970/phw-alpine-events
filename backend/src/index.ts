@@ -38,27 +38,34 @@ const allowedOrigins = (corsOrigin ?? '')
   .split(',')
   .map((value) => value.trim().replace(/\/$/, ''))
   .filter((value) => value.length > 0);
-const corsOptions = allowedOrigins.length
-  ? {
-    origin: (
-      requestOrigin: string | undefined,
-      callback: (error: Error | null, allow?: boolean | string) => void,
-    ) => {
-      if (!requestOrigin) {
-        callback(null, false);
-        return;
-      }
+const corsOptions = {
+  origin: (
+    requestOrigin: string | undefined,
+    callback: (error: Error | null, allow?: boolean | string) => void,
+  ) => {
+    if (!requestOrigin) {
+      callback(null, false);
+      return;
+    }
 
-      const normalizedOrigin = requestOrigin.replace(/\/$/, '');
-      if (allowedOrigins.includes(normalizedOrigin)) {
-        callback(null, normalizedOrigin);
-        return;
-      }
+    if (allowedOrigins.length === 0) {
+      callback(new Error('CORS_ORIGIN is not configured; cross-origin requests are blocked.'));
+      return;
+    }
 
-      callback(new Error(`Not allowed by CORS: ${requestOrigin}`));
-    },
-  }
-  : undefined;
+    const normalizedOrigin = requestOrigin.replace(/\/$/, '');
+    if (allowedOrigins.includes(normalizedOrigin)) {
+      callback(null, normalizedOrigin);
+      return;
+    }
+
+    callback(new Error(`Not allowed by CORS: ${requestOrigin}`));
+  },
+};
+
+if (allowedOrigins.length === 0) {
+  console.warn('[startup] CORS_ORIGIN is empty; only same-origin/non-browser requests are allowed.');
+}
 
 // Middleware
 app.use(helmet());

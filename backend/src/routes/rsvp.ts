@@ -72,7 +72,7 @@ function requiresExplicitRole(response: RsvpResponse): boolean {
   return response === 'yes' || response === 'maybe' || response === 'waitlist';
 }
 
-router.get('/', apiLimiter, authenticate, requireAnyAuthenticatedRole, async (req, res) => {
+router.get('/', apiLimiter, authenticate, requireEventCreatorOrAdmin, async (req, res) => {
   try {
     const pool = await getPool();
     const eventId = req.params.eventId;

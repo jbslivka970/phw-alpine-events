@@ -167,9 +167,12 @@ function decodeCapabilities(token: string): RoleCapabilities {
     }
 
     const normalized = new Set(values.map((role) => role.trim().toUpperCase().replace(/[\s-]+/g, '_')));
+    const isAdmin = normalized.has('ADMIN');
+    const isEventCreator = normalized.has('EVENT_CREATOR');
     return {
-      isAdmin: normalized.has('ADMIN'),
-      isEventCreator: normalized.has('EVENT_CREATOR'),
+      isAdmin,
+      isEventCreator,
+      canPostEvents: isAdmin || isEventCreator,
     };
   } catch {
     return {

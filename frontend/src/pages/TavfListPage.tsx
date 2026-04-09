@@ -48,8 +48,7 @@ function PostingCard({ posting }: { posting: TavfPosting }) {
 }
 
 function TavfListPage() {
-  const canCreateTavfPostings = true;
-  const { user, canCreateEvents } = useAuth();
+  const { user, canCreateEvents, canCreateTavfPostings } = useAuth();
   const [postings, setPostings] = useState<TavfPosting[]>([]);
   const [statusFilter, setStatusFilter] = useState<PostingStatus | ''>('open');
   const [loading, setLoading] = useState(true);
@@ -126,7 +125,7 @@ function TavfListPage() {
             Guide members post outings; veterans apply to join.
           </p>
         </div>
-        {canCreateTavfPostings && (
+        {canCreateTavfPostings() && (
           <Link to="/tavf/new" className="btn btn--primary">
             + New Posting
           </Link>
@@ -178,7 +177,7 @@ function TavfListPage() {
       {!loading && !error && postings.length === 0 && (
         <div className="empty-state">
           <p>No postings found.</p>
-          {canCreateTavfPostings && (
+          {canCreateTavfPostings() && (
             <Link to="/tavf/new" className="btn btn--primary btn--sm">
               Create the first posting
             </Link>

@@ -87,6 +87,10 @@ async function resolveCurrentMemberId(user: Request['user']): Promise<string | n
   return resolveGuideMemberId(user);
 }
 
+function hasElevatedTavfAccess(user: Request['user']): boolean {
+  return Boolean(user?.roles.includes('ADMIN') || user?.roles.includes('EVENT_CREATOR'));
+}
+
 // All TAVF routes require authentication
 router.use(authenticate);
 
@@ -201,7 +205,7 @@ router.patch('/postings/:id', writeLimiter, requireEventCreatorOrAdmin, async (r
 /**
  * DELETE /api/tavf/postings/:id
  */
-router.delete('/postings/:id', async (req: Request, res: Response): Promise<void> => {
+router.delete('/postings/:id', requireEventCreatorOrAdmin, async (req: Request, res: Response): Promise<void> => {
   try {
     const deleted = await tavf.deletePosting(req.params['id']!);
     if (!deleted) {
@@ -225,7 +229,18 @@ router.delete('/postings/:id', async (req: Request, res: Response): Promise<void
 router.get('/postings/:id/applications', async (req: Request, res: Response): Promise<void> => {
   try {
     const applications = await tavf.listApplicationsForPosting(req.params['id']!);
-    res.json(applications);
+    if (hasElevatedTavfAccess(req.user)) {
+      res.json(applications);
+      return;
+    }
+
+    const memberId = await resolveCurrentMemberId(req.user);
+    if (!memberId) {
+      res.json([]);
+      return;
+    }
+
+    res.json(applications.filter((application) => application.vet_member_id === memberId));
   } catch (err) {
     console.error('[tavf] listApplications error', err);
     res.status(500).json({ error: 'Internal server error' });
@@ -238,15 +253,33 @@ router.get('/postings/:id/applications', async (req: Request, res: Response): Pr
  */
 router.post('/postings/:id/applications', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { vet_member_id, notes } = req.body as { vet_member_id: string; notes?: string };
-    if (!vet_member_id) {
+    const { vet_member_id: requestedVetMemberId, notes } = req.body as { vet_member_id?: string; notes?: string };
+    const elevatedAccess = hasElevatedTavfAccess(req.user);
+
+    let vetMemberId = requestedVetMemberId;
+    if (!elevatedAccess) {
+      const currentMemberId = await resolveCurrentMemberId(req.user);
+      if (!currentMemberId) {
+        res.status(400).json({ error: 'Unable to resolve a member profile for this authenticated user.' });
+        return;
+      }
+
+      if (requestedVetMemberId && requestedVetMemberId !== currentMemberId) {
+        res.status(403).json({ error: 'You can only create an application for your own member profile.' });
+        return;
+      }
+
+      vetMemberId = currentMemberId;
+    }
+
+    if (!vetMemberId) {
       res.status(400).json({ error: 'vet_member_id is required' });
       return;
     }
 
     const application = await tavf.createApplication({
       posting_id: req.params['id']!,
-      vet_member_id,
+      vet_member_id: vetMemberId,
       notes,
     });
     res.status(201).json(application);
@@ -259,7 +292,7 @@ router.post('/postings/:id/applications', async (req: Request, res: Response): P
 /**
  * GET /api/tavf/applications/:id
  */
-router.get('/applications/:id', async (req: Request, res: Response): Promise<void> => {
+router.get('/applications/:id', requireEventCreatorOrAdmin, async (req: Request, res: Response): Promise<void> => {
   try {
     const application = await tavf.getApplication(req.params['id']!);
     if (!application) {
@@ -277,7 +310,7 @@ router.get('/applications/:id', async (req: Request, res: Response): Promise<voi
  * PATCH /api/tavf/applications/:id/status
  * Body: { status: ApplicationStatus }
  */
-router.patch('/applications/:id/status', async (req: Request, res: Response): Promise<void> => {
+router.patch('/applications/:id/status', requireEventCreatorOrAdmin, async (req: Request, res: Response): Promise<void> => {
   try {
     const { status } = req.body as { status: tavf.ApplicationStatus };
     if (!status) {
@@ -318,7 +351,7 @@ router.get('/matches', apiLimiter, requireEventCreatorOrAdmin, async (_req: Requ
 /**
  * GET /api/tavf/postings/:id/matches
  */
-router.get('/postings/:id/matches', async (req: Request, res: Response): Promise<void> => {
+router.get('/postings/:id/matches', requireEventCreatorOrAdmin, async (req: Request, res: Response): Promise<void> => {
   try {
     const matches = await tavf.listMatchesForPosting(req.params['id']!);
     res.json(matches);
@@ -332,7 +365,7 @@ router.get('/postings/:id/matches', async (req: Request, res: Response): Promise
  * POST /api/tavf/matches
  * Body: CreateMatchInput
  */
-router.post('/matches', async (req: Request, res: Response): Promise<void> => {
+router.post('/matches', requireEventCreatorOrAdmin, async (req: Request, res: Response): Promise<void> => {
   try {
     const { posting_id, application_id, matched_by, notes } = req.body as tavf.CreateMatchInput;
     if (!posting_id || !application_id) {
@@ -350,7 +383,7 @@ router.post('/matches', async (req: Request, res: Response): Promise<void> => {
 /**
  * GET /api/tavf/matches/:id
  */
-router.get('/matches/:id', async (req: Request, res: Response): Promise<void> => {
+router.get('/matches/:id', requireEventCreatorOrAdmin, async (req: Request, res: Response): Promise<void> => {
   try {
     const match = await tavf.getMatch(req.params['id']!);
     if (!match) {
@@ -368,7 +401,7 @@ router.get('/matches/:id', async (req: Request, res: Response): Promise<void> =>
  * DELETE /api/tavf/matches/:id
  * Cancels the match (does not hard-delete)
  */
-router.delete('/matches/:id', async (req: Request, res: Response): Promise<void> => {
+router.delete('/matches/:id', requireEventCreatorOrAdmin, async (req: Request, res: Response): Promise<void> => {
   try {
     const updated = await tavf.cancelMatch(req.params['id']!);
     if (!updated) {

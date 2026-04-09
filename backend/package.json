@@ -67,5 +67,8 @@
     "ts-jest": "^29.4.9",
     "ts-node": "^10.9.1",
     "typescript": "^6.0.2"
+  },
+  "overrides": {
+    "axios": "^1.15.0"
   }
 }
