@@ -238,6 +238,26 @@ body {
   margin-top: 0.75rem;
 }
 
+.phw-action-pill,
+.phw-event-action-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.phw-action-pill__icon,
+.phw-event-action-pill__icon {
+  display: none;
+}
+
+.phw-dashboard__stats-grid {
+  align-items: stretch;
+}
+
+.phw-dashboard__lower-grid {
+  align-items: start;
+}
+
 /* ========================================================================== */
 /* Wave pattern overlay                                                        */
 /* ========================================================================== */
@@ -863,12 +883,24 @@ textarea:focus-visible {
   .phw-layout__nav-inner {
     grid-template-columns: 1fr;
     height: auto;
-    padding: 0.75rem 1rem;
-    gap: 0.65rem;
+    padding: 0.6rem 0.9rem;
+    gap: 0.5rem;
   }
 
   .phw-layout__brand {
     justify-content: space-between;
+  }
+
+  .phw-layout__brand-logo {
+    height: 30px;
+  }
+
+  .phw-layout__brand-title {
+    font-size: 14px;
+  }
+
+  .phw-layout__brand-subtitle {
+    font-size: 9px;
   }
 
   .phw-layout__menu-toggle {
@@ -876,6 +908,9 @@ textarea:focus-visible {
     align-items: center;
     justify-content: center;
     justify-self: start;
+    min-height: 36px;
+    padding: 6px 11px;
+    font-size: 12px;
   }
 
   .phw-layout__links {
@@ -894,18 +929,26 @@ textarea:focus-visible {
   }
 
   .phw-layout__link {
-    min-height: 40px;
+    min-height: 36px;
     display: inline-flex;
     align-items: center;
-    padding: 9px 12px;
+    padding: 7px 10px;
+    font-size: 12px;
   }
 
   .phw-layout__user {
     justify-content: flex-start;
+    gap: 8px;
   }
 
   .phw-layout__main {
-    padding: 1.25rem 1rem;
+    padding: 1.1rem 0.9rem;
+  }
+
+  .phw-layout__nav .btn--outline {
+    padding: 4px 10px;
+    min-height: 32px;
+    font-size: 11px;
   }
 
   .login-page {
@@ -922,7 +965,44 @@ textarea:focus-visible {
 
   .phw-photo-strip {
     grid-template-columns: repeat(2, 1fr);
+    margin-bottom: 1rem;
   }
+
+  .phw-dashboard__stats-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 10px !important;
+    margin-bottom: 1rem !important;
+  }
+
+  .phw-dashboard__lower-grid {
+    grid-template-columns: 1fr !important;
+    gap: 14px !important;
+  }
+
+  .phw-stat-card {
+    padding: 0.85rem 0.95rem;
+    border-radius: 12px;
+  }
+
+  .phw-event-card__body {
+    padding: 0.8rem 0.9rem;
+  }
+
+  .phw-event-card__photo {
+    max-height: 148px;
+    margin-bottom: 0.55rem;
+  }
+
+  .phw-onboarding-card {
+    padding: 0.8rem 0.9rem;
+    margin-bottom: 0.85rem;
+  }
+
+  .phw-onboarding-card__actions {
+    gap: 0.35rem;
+    margin-top: 0.55rem;
+  }
+
   .phw-onboarding-card {
     flex-direction: column;
   }
@@ -943,12 +1023,13 @@ textarea:focus-visible {
 
 @media (max-width: 600px) {
   .phw-layout__main {
-    padding: 1rem 0.8rem;
+    padding: 0.85rem 0.7rem;
   }
 
   .phw-layout__user {
     width: 100%;
     justify-content: space-between;
+    align-items: center;
   }
 
   .phw-layout__username {
@@ -968,13 +1049,158 @@ textarea:focus-visible {
   }
 
   .phw-hero {
-    min-height: 180px;
+    min-height: 150px;
     border-radius: 14px;
+    margin-bottom: 0.85rem;
+  }
+
+  .phw-hero__content {
+    padding: 1.1rem 0.9rem 0.85rem;
+  }
+
+  .phw-hero__eyebrow {
+    font-size: 9px;
+    letter-spacing: 1.8px;
+    margin-bottom: 6px;
+    gap: 6px;
+  }
+
+  .phw-hero__eyebrow::before {
+    width: 12px;
+  }
+
+  .phw-hero__title {
+    font-size: 20px;
+    margin-bottom: 4px;
+  }
+
+  .phw-hero__subtitle {
+    font-size: 13px;
   }
 
   .phw-photo-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 5px;
+    margin-bottom: 0.75rem;
+  }
+
+  .phw-photo-strip__item {
+    border-radius: 8px;
+  }
+
+  .phw-onboarding-card {
+    border-radius: 12px;
+  }
+
+  .phw-onboarding-card__title {
+    font-size: 0.95rem;
+    margin-bottom: 0.2rem;
+  }
+
+  .phw-onboarding-card__text {
+    font-size: 0.82rem;
+    line-height: 1.35;
+  }
+
+  .phw-onboarding-card__actions {
+    display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 6px;
+    width: 100%;
+  }
+
+  .phw-onboarding-card__actions .phw-action-pill:last-child {
+    grid-column: 1 / -1;
+  }
+
+  .phw-onboarding-card__actions .btn {
+    min-height: 34px;
+    padding: 6px 8px;
+    font-size: 11px;
+  }
+
+  .phw-action-pill,
+  .phw-event-action-pill {
+    border-radius: 999px;
+    padding: 5px 8px;
+    gap: 0.35rem;
+  }
+
+  .phw-action-pill__icon,
+  .phw-event-action-pill__icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 22px;
+    height: 22px;
+    border-radius: 999px;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    border: 1px solid var(--phw-slate-300);
+    background: #fff;
+    color: var(--phw-slate-700);
+    line-height: 1;
+  }
+
+  .phw-action-pill__label,
+  .phw-event-action-pill__label {
+    font-size: 11px;
+    line-height: 1;
+    white-space: nowrap;
+  }
+
+  .phw-section-header {
+    margin-bottom: 9px;
+  }
+
+  .phw-section-title {
+    font-size: 15px;
+  }
+
+  .phw-section-link {
+    font-size: 11px;
+  }
+
+  .phw-stat-card {
+    padding: 0.75rem 0.8rem;
+  }
+
+  .phw-event-card {
+    border-radius: 12px;
+  }
+
+  .phw-event-card__body {
+    padding: 0.72rem 0.75rem;
+  }
+
+  .phw-event-card__photo {
+    max-height: 120px;
+    border-radius: 8px;
+    margin-bottom: 0.45rem;
+  }
+
+  .phw-event-actions {
+    gap: 6px !important;
+    margin-top: 8px !important;
+  }
+
+  .phw-event-actions .phw-event-action-pill {
+    min-height: 32px;
+  }
+
+  .phw-dashboard__lower-grid .phw-card {
+    border-radius: 12px;
+  }
+
+  .phw-dashboard__lower-grid .phw-card,
+  .phw-dashboard__lower-grid .phw-card a,
+  .phw-dashboard__lower-grid .phw-card p,
+  .phw-dashboard__lower-grid .phw-badge {
+    font-size: 12px;
+  }
+
+  .phw-footer__accessibility {
+    font-size: 11px;
   }
 }
 

@@ -1539,16 +1539,41 @@ async function notifyNewPosting(postingId: string): Promise<void> {
   }
 
   const recipients = await pool
-    .request()
-    .query<{ email: string; member_id: string; mobile_phone: string | null; sms_opt_in: boolean; email_opt_out: boolean }>(
+    .request();
+
+  let recipientRows: Array<{
+    email: string;
+    member_id: string;
+    mobile_phone: string | null;
+    sms_opt_in: boolean;
+    email_opt_out: boolean;
+  }> = [];
+
+  try {
+    const subscribedRecipients = await recipients.query<{ email: string; member_id: string; mobile_phone: string | null; sms_opt_in: boolean; email_opt_out: boolean }>(
       `SELECT DISTINCT m.email, m.member_id, m.mobile_phone, m.sms_opt_in, m.email_opt_out
        FROM member m
-       INNER JOIN member_group mg ON mg.member_id = m.member_id
-       INNER JOIN [group] g ON g.group_id = mg.group_id
-       WHERE g.group_name = 'ALL'
-         AND m.is_active = 1
+       INNER JOIN tavf_notification_subscription tns ON tns.member_id = m.member_id
+       WHERE m.is_active = 1
+         AND tns.is_subscribed = 1
          AND ((m.email_opt_out = 0 OR m.email_opt_out IS NULL) OR (m.sms_opt_in = 1 AND m.mobile_phone IS NOT NULL))`
     );
+    recipientRows = subscribedRecipients.recordset;
+  } catch (subscriptionError) {
+    console.warn('[NotificationService] tavf_notification_subscription not available, using ALL-group fallback.', subscriptionError);
+    const fallbackRecipients = await pool
+      .request()
+      .query<{ email: string; member_id: string; mobile_phone: string | null; sms_opt_in: boolean; email_opt_out: boolean }>(
+        `SELECT DISTINCT m.email, m.member_id, m.mobile_phone, m.sms_opt_in, m.email_opt_out
+         FROM member m
+         INNER JOIN member_group mg ON mg.member_id = m.member_id
+         INNER JOIN [group] g ON g.group_id = mg.group_id
+         WHERE g.group_name = 'ALL'
+           AND m.is_active = 1
+           AND ((m.email_opt_out = 0 OR m.email_opt_out IS NULL) OR (m.sms_opt_in = 1 AND m.mobile_phone IS NOT NULL))`
+      );
+    recipientRows = fallbackRecipients.recordset;
+  }
 
   const eventDate = posting.event_date.toLocaleDateString();
   const variables = {
@@ -1567,7 +1592,7 @@ async function notifyNewPosting(postingId: string): Promise<void> {
     variables
   );
 
-  for (const recipient of recipients.recordset) {
+  for (const recipient of recipientRows) {
     if (recipient.email && !recipient.email_opt_out) {
       await notificationService.sendEmail({
         to: recipient.email,

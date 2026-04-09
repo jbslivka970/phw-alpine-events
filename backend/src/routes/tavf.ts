@@ -83,6 +83,10 @@ async function resolveGuideMemberId(
   }
 }
 
+async function resolveCurrentMemberId(user: Request['user']): Promise<string | null> {
+  return resolveGuideMemberId(user);
+}
+
 // All TAVF routes require authentication
 router.use(authenticate);
 
@@ -239,6 +243,7 @@ router.post('/postings/:id/applications', async (req: Request, res: Response): P
       res.status(400).json({ error: 'vet_member_id is required' });
       return;
     }
+
     const application = await tavf.createApplication({
       posting_id: req.params['id']!,
       vet_member_id,
@@ -373,6 +378,48 @@ router.delete('/matches/:id', async (req: Request, res: Response): Promise<void>
     res.json(updated);
   } catch (err) {
     console.error('[tavf] cancelMatch error', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.get('/subscription/me', apiLimiter, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const memberId = await resolveCurrentMemberId(req.user);
+    if (!memberId) {
+      res.status(404).json({ error: 'No member profile found for authenticated account.' });
+      return;
+    }
+
+    const subscription = await tavf.getNotificationSubscription(memberId);
+    res.json(subscription);
+  } catch (err) {
+    console.error('[tavf] getSubscription error', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.put('/subscription/me', writeLimiter, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const memberId = await resolveCurrentMemberId(req.user);
+    if (!memberId) {
+      res.status(404).json({ error: 'No member profile found for authenticated account.' });
+      return;
+    }
+
+    const isSubscribed = req.body?.is_subscribed;
+    if (typeof isSubscribed !== 'boolean') {
+      res.status(400).json({ error: 'is_subscribed must be a boolean.' });
+      return;
+    }
+
+    const source = typeof req.body?.source === 'string' && req.body.source.trim().length > 0
+      ? req.body.source.trim().slice(0, 30)
+      : 'preferences';
+
+    const subscription = await tavf.upsertNotificationSubscription(memberId, isSubscribed, source);
+    res.json(subscription);
+  } catch (err) {
+    console.error('[tavf] updateSubscription error', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

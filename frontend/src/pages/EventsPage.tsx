@@ -5,6 +5,7 @@ import type { EventAiDraftResponse, EventRecord, RsvpRecord } from '../api/event
 import { groupsApi } from '../api/groups'
 import type { GroupRecord } from '../api/groups'
 import { useAuth } from '../hooks/useAuth'
+import { membersApi } from '../api/members'
 import LoadingSkeleton from '../components/LoadingSkeleton'
 import { toUserErrorMessage } from '../utils/errorMessage'
 
@@ -116,6 +117,39 @@ interface EventFormPayload {
   participant_capacity: string
   notification_targets: string[]
   update_reason: string
+}
+
+type CommonLocation = {
+  query: string
+  label: string
+  count: number
+  lastUsedAt: string
+}
+
+const COMMON_LOCATIONS_KEY = 'phw-common-locations'
+
+function loadCommonLocations(): CommonLocation[] {
+  try {
+    const raw = window.localStorage.getItem(COMMON_LOCATIONS_KEY)
+    if (!raw) {
+      return []
+    }
+    const parsed = JSON.parse(raw) as CommonLocation[]
+    if (!Array.isArray(parsed)) {
+      return []
+    }
+    return parsed.filter((row) => typeof row?.query === 'string' && row.query.trim().length > 0)
+  } catch {
+    return []
+  }
+}
+
+function saveCommonLocations(rows: CommonLocation[]): void {
+  try {
+    window.localStorage.setItem(COMMON_LOCATIONS_KEY, JSON.stringify(rows.slice(0, 20)))
+  } catch {
+    // Ignore storage failures in restricted/private browser contexts.
+  }
 }
 
 const EMPTY_FORM: EventFormPayload = {
@@ -411,89 +445,14 @@ interface EventFormModalProps {
   initial: EventFormPayload
   groups: GroupRecord[]
   onSave: (data: EventFormPayload) => Promise<void>
+  onGenerateAiDraftPreview: (
+    payload: { title: string; event_date: string; location?: string | null; description?: string | null },
+    tone: 'friendly' | 'professional'
+  ) => Promise<EventAiDraftResponse>
   onCancel: () => void
   saving: boolean
   error: string | null
   isEdit: boolean
-}
-
-function EventAiDraftModal({
-  draft,
-  loading,
-  error,
-  tone,
-  onToneChange,
-  onGenerate,
-  onClose,
-}: {
-  draft: EventAiDraftResponse | null
-  loading: boolean
-  error: string | null
-  tone: 'friendly' | 'professional'
-  onToneChange: (tone: 'friendly' | 'professional') => void
-  onGenerate: () => void
-  onClose: () => void
-}) {
-  return (
-    <div className="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="event-ai-modal-title">
-      <div className="modal">
-        <div className="modal__header">
-          <h2 id="event-ai-modal-title" className="modal__title">AI Event Draft</h2>
-          <button className="btn btn--ghost btn--sm" type="button" aria-label="Close AI draft" onClick={onClose}>✕</button>
-        </div>
-        <div className="modal__body">
-          <div className="form-field form-field--full">
-            <label className="form-label">Tone</label>
-            <select className="form-input" value={tone} onChange={(e) => onToneChange(e.target.value as 'friendly' | 'professional')}>
-              <option value="friendly">Friendly</option>
-              <option value="professional">Professional</option>
-            </select>
-          </div>
-
-          <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-            <button className="btn btn--primary btn--sm" type="button" onClick={onGenerate} disabled={loading}>
-              {loading ? 'Generating…' : 'Generate Draft'}
-            </button>
-          </div>
-
-          {error && <p className="ui-notice ui-notice--error">{error}</p>}
-
-          {draft && (
-            <div className="form-grid">
-              <div className="form-field form-field--full">
-                <label className="form-label">Subject</label>
-                <textarea className="form-textarea" rows={2} readOnly value={draft.subject} />
-              </div>
-              <div className="form-field form-field--full">
-                <label className="form-label">Email Draft</label>
-                <textarea className="form-textarea" rows={10} readOnly value={draft.emailBody} />
-              </div>
-              <div className="form-field form-field--full">
-                <label className="form-label">SMS Draft</label>
-                <textarea className="form-textarea" rows={3} readOnly value={draft.smsBody} />
-              </div>
-              {draft.mapUrl && (
-                <div className="form-field form-field--full">
-                  <label className="form-label">Map Link</label>
-                  <a href={draft.mapUrl} target="_blank" rel="noreferrer">{draft.mapUrl}</a>
-                </div>
-              )}
-              {Array.isArray(draft.imageSuggestions) && draft.imageSuggestions.length > 0 && (
-                <div className="form-field form-field--full">
-                  <label className="form-label">Outdoor Image Suggestions</label>
-                  <ul>
-                    {draft.imageSuggestions.map((url) => (
-                      <li key={url}><a href={url} target="_blank" rel="noreferrer">{url}</a></li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  )
 }
 
 interface FormFieldErrors {
@@ -506,15 +465,111 @@ interface FormFieldErrors {
   participant_capacity?: string
 }
 
-function EventFormModal({ initial, groups, onSave, onCancel, saving, error, isEdit }: EventFormModalProps) {
+function EventFormModal({ initial, groups, onSave, onGenerateAiDraftPreview, onCancel, saving, error, isEdit }: EventFormModalProps) {
   const [form, setForm] = useState<EventFormPayload>(initial)
   const [fieldErrors, setFieldErrors] = useState<FormFieldErrors>({})
+  const [aiTone, setAiTone] = useState<'friendly' | 'professional'>('friendly')
+  const [aiDraftLoading, setAiDraftLoading] = useState(false)
+  const [aiDraftError, setAiDraftError] = useState<string | null>(null)
+  const [aiDraftResult, setAiDraftResult] = useState<EventAiDraftResponse | null>(null)
+  const [commonLocations, setCommonLocations] = useState<CommonLocation[]>(() => loadCommonLocations())
+  const [locationValidation, setLocationValidation] = useState<string | null>(null)
+  const [locationValidationError, setLocationValidationError] = useState<string | null>(null)
+  const [validatingLocation, setValidatingLocation] = useState(false)
   const eventDateParts = splitDateTime(form.event_date)
   const endDateParts = splitDateTime(form.end_date)
 
   function set(field: keyof EventFormPayload, value: string) {
     setForm(f => ({ ...f, [field]: value }))
     setFieldErrors(prev => ({ ...prev, [field]: undefined }))
+  }
+
+  async function validateLocation(): Promise<void> {
+    const query = form.location.trim()
+    if (!query) {
+      setLocationValidation(null)
+      setLocationValidationError('Enter a location before validating.')
+      return
+    }
+
+    setValidatingLocation(true)
+    setLocationValidation(null)
+    setLocationValidationError(null)
+
+    try {
+      const params = new URLSearchParams({ format: 'json', q: query, limit: '1' })
+      const response = await fetch(`https://nominatim.openstreetmap.org/search?${params.toString()}`)
+      if (!response.ok) {
+        throw new Error(`Validation request failed (${response.status})`)
+      }
+      const payload = (await response.json()) as Array<{ display_name?: string; lat?: string; lon?: string }>
+      const first = payload[0]
+      if (!first?.display_name) {
+        setLocationValidationError('No geocoding match found. Try a more specific address.')
+        return
+      }
+      setLocationValidation(`Validated: ${first.display_name}${first.lat && first.lon ? ` (lat ${first.lat}, lon ${first.lon})` : ''}`)
+    } catch (err) {
+      setLocationValidationError(err instanceof Error ? err.message : 'Unable to validate location right now.')
+    } finally {
+      setValidatingLocation(false)
+    }
+  }
+
+  function saveCurrentAsCommonLocation(): void {
+    const query = form.location.trim()
+    if (!query) {
+      setLocationValidationError('Enter a location before saving it as common.')
+      return
+    }
+
+    const next = [...commonLocations]
+    const existingIndex = next.findIndex((row) => row.query.toLowerCase() === query.toLowerCase())
+    if (existingIndex >= 0) {
+      next[existingIndex] = {
+        ...next[existingIndex],
+        label: query,
+        count: (next[existingIndex]?.count ?? 0) + 1,
+        lastUsedAt: new Date().toISOString(),
+      }
+    } else {
+      next.push({
+        query,
+        label: query,
+        count: 1,
+        lastUsedAt: new Date().toISOString(),
+      })
+    }
+
+    next.sort((a, b) => (b.count - a.count) || b.lastUsedAt.localeCompare(a.lastUsedAt))
+    saveCommonLocations(next)
+    setCommonLocations(next)
+    setLocationValidation('Saved to common locations.')
+    setLocationValidationError(null)
+  }
+
+  async function handleGenerateAiPreview(): Promise<void> {
+    const normalizedDate = normalizeDateTimeValue(form.event_date)
+    if (!form.title.trim() || !isValid24HourDateTime(normalizedDate)) {
+      setAiDraftError('Add a title and valid event date/time before generating an AI draft.')
+      return
+    }
+
+    setAiDraftLoading(true)
+    setAiDraftError(null)
+    try {
+      const draft = await onGenerateAiDraftPreview({
+        title: form.title.trim(),
+        event_date: normalizedDate,
+        location: form.location.trim() || null,
+        description: form.description.trim() || null,
+      }, aiTone)
+      setAiDraftResult(draft)
+    } catch (err) {
+      setAiDraftError(err instanceof Error ? err.message : 'Unable to generate AI draft preview.')
+    } finally {
+      setAiDraftLoading(false)
+    }
   }
 
   function toggleGroup(id: string) {
@@ -692,6 +747,42 @@ function EventFormModal({ initial, groups, onSave, onCancel, saving, error, isEd
             <div className="form-field form-field--full">
               <label className="form-label">Location</label>
               <input className="form-input" value={form.location} onChange={e => set('location', e.target.value)} />
+              {commonLocations.length > 0 && (
+                <select
+                  className="form-input"
+                  value=""
+                  onChange={(event) => {
+                    if (event.target.value) {
+                      set('location', event.target.value)
+                    }
+                  }}
+                >
+                  <option value="">Use common location</option>
+                  {commonLocations.slice(0, 10).map((row) => (
+                    <option key={row.query} value={row.query}>{row.label}</option>
+                  ))}
+                </select>
+              )}
+              <div className="location-tools">
+                <button className="btn btn--outline btn--sm" type="button" onClick={() => void validateLocation()} disabled={validatingLocation || saving}>
+                  {validatingLocation ? 'Validating…' : 'Validate Address'}
+                </button>
+                <button className="btn btn--outline btn--sm" type="button" onClick={saveCurrentAsCommonLocation} disabled={saving}>
+                  Save as Common
+                </button>
+                {form.location.trim() && (
+                  <a
+                    className="btn btn--outline btn--sm"
+                    href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(form.location.trim())}`}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Open in Maps
+                  </a>
+                )}
+              </div>
+              {locationValidation && <p className="success-text">{locationValidation}</p>}
+              {locationValidationError && <p className="form-field-error">{locationValidationError}</p>}
             </div>
 
             <div className="form-field form-field--full">
@@ -735,6 +826,44 @@ function EventFormModal({ initial, groups, onSave, onCancel, saving, error, isEd
             <div className="form-field form-field--full">
               <label className="form-label">Description</label>
               <textarea className="form-textarea" rows={3} value={form.description} onChange={e => set('description', e.target.value)} />
+            </div>
+
+            <div className="form-field form-field--full">
+              <label className="form-label">AI Invite Preview</label>
+              <div className="event-ai-inline__toolbar">
+                <select className="form-input event-ai-inline__tone" value={aiTone} onChange={(e) => setAiTone(e.target.value as 'friendly' | 'professional')}>
+                  <option value="friendly">Friendly</option>
+                  <option value="professional">Professional</option>
+                </select>
+                <button className="btn btn--outline btn--sm" type="button" onClick={() => void handleGenerateAiPreview()} disabled={aiDraftLoading || saving}>
+                  {aiDraftLoading ? 'Generating…' : 'Generate from Form'}
+                </button>
+              </div>
+              {aiDraftError && <p className="form-field-error">{aiDraftError}</p>}
+              {aiDraftResult && (
+                <div className="event-ai-inline">
+                  <label className="form-label">Subject</label>
+                  <textarea className="form-textarea" rows={2} readOnly value={aiDraftResult.subject} />
+                  <label className="form-label">Email Draft</label>
+                  <textarea className="form-textarea" rows={6} readOnly value={aiDraftResult.emailBody} />
+                  <label className="form-label">SMS Draft</label>
+                  <textarea className="form-textarea" rows={3} readOnly value={aiDraftResult.smsBody} />
+                  <div className="event-ai-inline__toolbar">
+                    <button
+                      type="button"
+                      className="btn btn--outline btn--sm"
+                      onClick={() => set('description', aiDraftResult.emailBody)}
+                    >
+                      Use Email Draft as Description
+                    </button>
+                    {aiDraftResult.mapUrl && (
+                      <a className="btn btn--outline btn--sm" href={aiDraftResult.mapUrl} target="_blank" rel="noreferrer">
+                        Open Map Link
+                      </a>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
 
             {isEdit && (
@@ -791,7 +920,7 @@ function EventFormModal({ initial, groups, onSave, onCancel, saving, error, isEd
 
 function EventsPage() {
   const navigate = useNavigate()
-  const { isAdmin, canCreateEvents } = useAuth()
+  const { isAdmin, canCreateEvents, user } = useAuth()
   const canEdit = isAdmin() || canCreateEvents()
 
   const [events, setEvents] = useState<EventRecord[]>([])
@@ -812,13 +941,15 @@ function EventsPage() {
   // status transition in-flight
   const [transitioning, setTransitioning] = useState<string | null>(null)
   const [reportEmailingEventId, setReportEmailingEventId] = useState<string | null>(null)
-  const [aiDraftEvent, setAiDraftEvent] = useState<EventRecord | null>(null)
-  const [aiDraftTone, setAiDraftTone] = useState<'friendly' | 'professional'>('friendly')
-  const [aiDraftLoading, setAiDraftLoading] = useState(false)
-  const [aiDraftError, setAiDraftError] = useState<string | null>(null)
-  const [aiDraftResult, setAiDraftResult] = useState<EventAiDraftResponse | null>(null)
+  const [memberId, setMemberId] = useState<string | null>(null)
+  const [rsvpBusyEventId, setRsvpBusyEventId] = useState<string | null>(null)
+  const [rsvpRole, setRsvpRole] = useState<'MENTOR' | 'PARTICIPANT'>('PARTICIPANT')
 
   const abortRef = useRef<AbortController | null>(null)
+
+  function isUuid(value: string): boolean {
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+  }
 
   const loadEvents = useCallback(async () => {
     abortRef.current?.abort()
@@ -841,6 +972,37 @@ function EventsPage() {
       groupsApi.list().then(setGroups).catch(() => setGroups([]))
     }
   }, [loadEvents, canEdit])
+
+  useEffect(() => {
+    let active = true
+
+    async function resolveMemberId() {
+      if (!user?.email) {
+        if (active) {
+          setMemberId(user?.id && isUuid(user.id) ? user.id : null)
+        }
+        return
+      }
+
+      try {
+        const list = await membersApi.list({ page: 1, pageSize: 10, search: user.email })
+        const normalizedEmail = user.email.trim().toLowerCase()
+        const found = list.data.find((candidate) => candidate.email.trim().toLowerCase() === normalizedEmail)?.member_id ?? null
+        if (active) {
+          setMemberId(found ?? (user?.id && isUuid(user.id) ? user.id : null))
+        }
+      } catch {
+        if (active) {
+          setMemberId(user?.id && isUuid(user.id) ? user.id : null)
+        }
+      }
+    }
+
+    void resolveMemberId()
+    return () => {
+      active = false
+    }
+  }, [user?.email, user?.id])
 
   async function handleSave(form: EventFormPayload) {
     setFormSaving(true)
@@ -960,27 +1122,38 @@ function EventsPage() {
     }
   }
 
-  function openAiDraft(event: EventRecord) {
-    setAiDraftEvent(event)
-    setAiDraftError(null)
-    setAiDraftResult(null)
-    setAiDraftTone('friendly')
-  }
-
-  async function generateAiDraft() {
-    if (!aiDraftEvent) {
+  async function submitRsvp(event: EventRecord, response: RsvpRecord['response']) {
+    if (!memberId) {
+      setErr('Unable to resolve your member profile for RSVP. Please refresh and try again.')
       return
     }
-    setAiDraftLoading(true)
-    setAiDraftError(null)
-    try {
-      const draft = await eventsApi.generateAiDraft(aiDraftEvent.event_id, aiDraftTone)
-      setAiDraftResult(draft)
-    } catch (error) {
-      setAiDraftError(toUserErrorMessage(error, 'Failed to generate AI draft.'))
-    } finally {
-      setAiDraftLoading(false)
+
+    if (event.status !== 'published') {
+      setErr('RSVP updates are only available for published events.')
+      return
     }
+
+    setRsvpBusyEventId(event.event_id)
+    try {
+      await rsvpApi.upsert(event.event_id, {
+        member_id: memberId,
+        response,
+        response_role: response === 'yes' || response === 'maybe' || response === 'waitlist' ? rsvpRole : undefined,
+      })
+      setErr(null)
+      await loadEvents()
+    } catch (error) {
+      setErr(toUserErrorMessage(error, 'Unable to update RSVP from the Events page.'))
+    } finally {
+      setRsvpBusyEventId(null)
+    }
+  }
+
+  async function generateAiDraftPreview(
+    payload: { title: string; event_date: string; location?: string | null; description?: string | null },
+    tone: 'friendly' | 'professional'
+  ) {
+    return eventsApi.generateAiDraftPreview(payload, tone)
   }
 
   return (
@@ -1061,41 +1234,77 @@ function EventsPage() {
                     RSVP List ({event.yes_count ?? 0})
                   </button>
 
+                  <select
+                    className="form-input event-card__role-select"
+                    value={rsvpRole}
+                    onChange={(e) => setRsvpRole(e.target.value as 'MENTOR' | 'PARTICIPANT')}
+                    disabled={rsvpBusyEventId === event.event_id}
+                    title="RSVP role"
+                  >
+                    <option value="PARTICIPANT">Participant</option>
+                    <option value="MENTOR">Mentor</option>
+                  </select>
+
+                  <button
+                    className="btn btn--outline btn--sm"
+                    onClick={() => void submitRsvp(event, 'yes')}
+                    disabled={event.status !== 'published' || !memberId || rsvpBusyEventId === event.event_id}
+                    title={event.status !== 'published' ? 'Available when event is published' : undefined}
+                  >
+                    {rsvpBusyEventId === event.event_id ? 'Saving…' : 'RSVP Yes'}
+                  </button>
+
+                  <button
+                    className="btn btn--outline btn--sm"
+                    onClick={() => void submitRsvp(event, 'maybe')}
+                    disabled={event.status !== 'published' || !memberId || rsvpBusyEventId === event.event_id}
+                    title={event.status !== 'published' ? 'Available when event is published' : undefined}
+                  >
+                    Maybe
+                  </button>
+
+                  <button
+                    className="btn btn--outline btn--sm"
+                    onClick={() => void submitRsvp(event, 'no')}
+                    disabled={event.status !== 'published' || !memberId || rsvpBusyEventId === event.event_id}
+                    title={event.status !== 'published' ? 'Available when event is published' : undefined}
+                  >
+                    No
+                  </button>
+
                   <button className="btn btn--outline btn--sm" onClick={() => void downloadIcs(event)}>
                     ICS
                   </button>
 
-                  <button
-                    className="btn btn--outline btn--sm"
-                    onClick={() => void downloadReportCsv(event)}
-                    disabled={event.status !== 'completed'}
-                    title={event.status !== 'completed' ? 'Available when event is completed' : undefined}
-                  >
-                    CSV
-                  </button>
-
-                  <button
-                    className="btn btn--outline btn--sm"
-                    onClick={() => void downloadReportPdf(event)}
-                    disabled={event.status !== 'completed'}
-                    title={event.status !== 'completed' ? 'Available when event is completed' : undefined}
-                  >
-                    PDF
-                  </button>
-
-                  <button
-                    className="btn btn--outline btn--sm"
-                    onClick={() => void downloadReportText(event)}
-                    disabled={event.status !== 'completed'}
-                    title={event.status !== 'completed' ? 'Available when event is completed' : undefined}
-                  >
-                    Record
-                  </button>
-
                   {canEdit && (
-                    <button className="btn btn--outline btn--sm" onClick={() => openAiDraft(event)}>
-                      AI Draft
-                    </button>
+                    <>
+                      <button
+                        className="btn btn--outline btn--sm"
+                        onClick={() => void downloadReportCsv(event)}
+                        disabled={event.status !== 'completed'}
+                        title={event.status !== 'completed' ? 'Available when event is completed' : undefined}
+                      >
+                        CSV
+                      </button>
+
+                      <button
+                        className="btn btn--outline btn--sm"
+                        onClick={() => void downloadReportPdf(event)}
+                        disabled={event.status !== 'completed'}
+                        title={event.status !== 'completed' ? 'Available when event is completed' : undefined}
+                      >
+                        PDF
+                      </button>
+
+                      <button
+                        className="btn btn--outline btn--sm"
+                        onClick={() => void downloadReportText(event)}
+                        disabled={event.status !== 'completed'}
+                        title={event.status !== 'completed' ? 'Available when event is completed' : undefined}
+                      >
+                        Record
+                      </button>
+                    </>
                   )}
 
                   {canEdit && (
@@ -1152,22 +1361,11 @@ function EventsPage() {
           initial={editTarget ? payloadFromRecord(editTarget) : EMPTY_FORM}
           groups={groups}
           onSave={handleSave}
+          onGenerateAiDraftPreview={generateAiDraftPreview}
           onCancel={closeForm}
           saving={formSaving}
           error={formError}
           isEdit={editTarget !== null}
-        />
-      )}
-
-      {aiDraftEvent && (
-        <EventAiDraftModal
-          draft={aiDraftResult}
-          loading={aiDraftLoading}
-          error={aiDraftError}
-          tone={aiDraftTone}
-          onToneChange={setAiDraftTone}
-          onGenerate={() => void generateAiDraft()}
-          onClose={() => setAiDraftEvent(null)}
         />
       )}
     </div>

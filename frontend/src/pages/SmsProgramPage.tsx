@@ -56,7 +56,7 @@ function SmsProgramPage() {
               </label>
 
               <label className="consent-demo__checkbox">
-                <input type="checkbox" checked readOnly />
+                <input type="checkbox" checked={false} readOnly aria-label="Consent checkbox example (not preselected)" />
                 <span>
                   I agree to receive SMS messages from Project Healing Waters Colorado Alpine
                   Chapter related to event invitations, RSVP reminders, and program updates.
@@ -64,6 +64,10 @@ function SmsProgramPage() {
                   opt out and HELP for help.
                 </span>
               </label>
+
+              <p className="consent-demo__note">
+                Demonstration only: consent must be actively selected by the member and is not preselected.
+              </p>
 
               <p className="consent-demo__links">
                 See our <Link to="/privacy">Privacy Policy</Link> and{' '}

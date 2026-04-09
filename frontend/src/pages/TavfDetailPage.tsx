@@ -8,6 +8,7 @@ import tavfApi, {
   TavfPosting,
 } from '../api/tavf';
 import { useAuth } from '../hooks/useAuth';
+import { membersApi } from '../api/members';
 
 const POSTING_STATUS_LABELS: Record<PostingStatus, string> = {
   open: 'Open',
@@ -119,6 +120,43 @@ function TavfDetailPage() {
   const [applyNotes, setApplyNotes] = useState('');
   const [applying, setApplying] = useState(false);
   const [applyError, setApplyError] = useState<string | null>(null);
+  const [viewerMemberId, setViewerMemberId] = useState<string | null>(null);
+
+  function isUuid(value: string): boolean {
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+  }
+
+  useEffect(() => {
+    let active = true;
+
+    async function resolveViewerMemberId() {
+      if (!user?.email) {
+        if (active) {
+          setViewerMemberId(user?.id && isUuid(user.id) ? user.id : null);
+        }
+        return;
+      }
+
+      try {
+        const list = await membersApi.list({ page: 1, pageSize: 10, search: user.email });
+        const normalizedEmail = user.email.trim().toLowerCase();
+        const matched = list.data.find((candidate) => candidate.email.trim().toLowerCase() === normalizedEmail)?.member_id ?? null;
+        if (active) {
+          setViewerMemberId(matched ?? (user?.id && isUuid(user.id) ? user.id : null));
+        }
+      } catch {
+        if (active) {
+          setViewerMemberId(user?.id && isUuid(user.id) ? user.id : null);
+        }
+      }
+    }
+
+    void resolveViewerMemberId();
+
+    return () => {
+      active = false;
+    };
+  }, [user?.email, user?.id]);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -144,12 +182,15 @@ function TavfDetailPage() {
 
   async function handleApply(e: React.FormEvent) {
     e.preventDefault();
-    if (!id || !user?.id) return;
+    if (!id || !viewerMemberId) {
+      setApplyError('Unable to resolve your member profile for this application.');
+      return;
+    }
     setApplying(true);
     setApplyError(null);
     try {
       await tavfApi.applyToPosting(id, {
-        vet_member_id: user.id,
+        vet_member_id: viewerMemberId,
         notes: applyNotes || undefined,
       });
       setApplyNotes('');
@@ -216,8 +257,8 @@ function TavfDetailPage() {
     year: 'numeric', month: 'long', day: 'numeric',
   });
 
-  const alreadyApplied = applications.some(a => a.vet_member_id === user?.id);
-  const canApply = posting.status === 'open' && !alreadyApplied && !canCreateEvents();
+  const alreadyApplied = Boolean(viewerMemberId) && applications.some(a => a.vet_member_id === viewerMemberId);
+  const canApply = posting.status === 'open' && !alreadyApplied && !canCreateEvents() && Boolean(viewerMemberId);
 
   return (
     <div className="page-container">
@@ -289,7 +330,7 @@ function TavfDetailPage() {
               />
             </div>
             <button type="submit" className="btn btn--primary" disabled={applying}>
-              {applying ? 'Submitting…' : 'Submit Application'}
+              {applying ? 'Confirming…' : 'Confirm Interest'}
             </button>
           </form>
         </section>

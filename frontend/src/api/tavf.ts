@@ -1,4 +1,4 @@
-import { apiDelete, apiGet, apiPatch, apiPost } from './client';
+import { apiDelete, apiGet, apiPatch, apiPost, apiPut } from './client';
 
 export type PostingStatus = 'open' | 'filled' | 'cancelled';
 export type ApplicationStatus = 'pending' | 'matched' | 'waitlisted' | 'withdrawn';
@@ -35,6 +35,13 @@ export interface TavfMatch {
   matched_at: string;
   status: MatchStatus;
   notes?: string | null;
+}
+
+export interface TavfNotificationSubscription {
+  member_id: string;
+  is_subscribed: boolean;
+  source: string;
+  updated_at: string;
 }
 
 const tavfApi = {
@@ -91,6 +98,14 @@ const tavfApi = {
 
   deleteMatch: (id: string) =>
     apiDelete<void>(`/tavf/matches/${id}`),
+
+  getMySubscription: () => apiGet<TavfNotificationSubscription>('/tavf/subscription/me'),
+
+  updateMySubscription: (isSubscribed: boolean, source = 'preferences') =>
+    apiPut<TavfNotificationSubscription>('/tavf/subscription/me', {
+      is_subscribed: isSubscribed,
+      source,
+    }),
 };
 
 export default tavfApi;

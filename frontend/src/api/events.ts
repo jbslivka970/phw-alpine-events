@@ -37,7 +37,7 @@ interface UpdateEventPayload {
 }
 
 interface EventAiDraftResponse {
-  event_id: string;
+  event_id: string | null;
   tone: 'friendly' | 'professional';
   subject: string;
   emailBody: string;
@@ -140,6 +140,15 @@ const eventsApi = {
   }),
   generateAiDraft: (id: string, tone: 'friendly' | 'professional' = 'friendly') =>
     apiPost<EventAiDraftResponse>(`/events/${id}/ai-draft`, { tone }),
+  generateAiDraftPreview: (
+    payload: {
+      title: string;
+      event_date: string;
+      location?: string | null;
+      description?: string | null;
+    },
+    tone: 'friendly' | 'professional' = 'friendly'
+  ) => apiPost<EventAiDraftResponse>('/events/ai-draft-preview', { ...payload, tone }),
   remove: (id: string) => apiDelete<void>(`/events/${id}`),
 };
 

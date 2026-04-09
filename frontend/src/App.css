@@ -1120,6 +1120,13 @@
   color: var(--muted);
 }
 
+.consent-demo__note {
+  margin: 0;
+  font-size: 0.82rem;
+  color: #475569;
+  font-style: italic;
+}
+
 .consent-demo__links a {
   color: var(--accent-strong);
 }

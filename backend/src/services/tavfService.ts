@@ -65,6 +65,16 @@ async function ensureTavfSchema(): Promise<void> {
           CREATE INDEX idx_tavf_match_posting     ON dbo.tavf_match(posting_id);
           CREATE INDEX idx_tavf_match_application ON dbo.tavf_match(application_id);
       END;
+
+          IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'tavf_notification_subscription')
+          BEGIN
+            CREATE TABLE dbo.tavf_notification_subscription (
+              member_id       UNIQUEIDENTIFIER NOT NULL PRIMARY KEY REFERENCES dbo.member(member_id),
+              is_subscribed   BIT              NOT NULL DEFAULT 0,
+              source          NVARCHAR(30)     NOT NULL DEFAULT 'preferences',
+              updated_at      DATETIME         NOT NULL DEFAULT GETDATE()
+            );
+          END;
     `);
   })().catch((error) => {
     tavfSchemaEnsurePromise = null;
@@ -144,6 +154,13 @@ export interface CreateMatchInput {
   application_id: string;
   matched_by?: string;
   notes?: string;
+}
+
+export interface TavfNotificationSubscription {
+  member_id: string;
+  is_subscribed: boolean;
+  source: string;
+  updated_at: string;
 }
 
 function isUuid(value: string): boolean {
@@ -519,4 +536,57 @@ export async function cancelMatch(matchId: string): Promise<TavfMatch | null> {
   await notifications.notifyMatchCancelled(matchId);
 
   return updated;
+}
+
+export async function getNotificationSubscription(memberId: string): Promise<TavfNotificationSubscription> {
+  await ensureTavfSchema();
+  const pool = await getPool();
+  const result = await pool
+    .request()
+    .input('member_id', sql.UniqueIdentifier, memberId)
+    .query<TavfNotificationSubscription>(
+      `SELECT member_id, is_subscribed, source, updated_at
+       FROM tavf_notification_subscription
+       WHERE member_id = @member_id`
+    );
+
+  const row = result.recordset[0];
+  if (row) {
+    return row;
+  }
+
+  return {
+    member_id: memberId,
+    is_subscribed: false,
+    source: 'preferences',
+    updated_at: new Date(0).toISOString(),
+  };
+}
+
+export async function upsertNotificationSubscription(
+  memberId: string,
+  isSubscribed: boolean,
+  source = 'preferences'
+): Promise<TavfNotificationSubscription> {
+  await ensureTavfSchema();
+  const pool = await getPool();
+
+  const result = await pool
+    .request()
+    .input('member_id', sql.UniqueIdentifier, memberId)
+    .input('is_subscribed', sql.Bit, isSubscribed ? 1 : 0)
+    .input('source', sql.NVarChar(30), source)
+    .query<TavfNotificationSubscription>(
+      `MERGE tavf_notification_subscription AS target
+       USING (SELECT @member_id AS member_id) AS source
+       ON target.member_id = source.member_id
+       WHEN MATCHED THEN
+         UPDATE SET is_subscribed = @is_subscribed, source = @source, updated_at = GETDATE()
+       WHEN NOT MATCHED THEN
+         INSERT (member_id, is_subscribed, source, updated_at)
+         VALUES (@member_id, @is_subscribed, @source, GETDATE())
+       OUTPUT INSERTED.member_id, INSERTED.is_subscribed, INSERTED.source, INSERTED.updated_at;`
+    );
+
+  return result.recordset[0] as TavfNotificationSubscription;
 }

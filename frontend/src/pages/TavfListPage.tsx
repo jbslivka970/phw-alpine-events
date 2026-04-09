@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import tavfApi, { PostingStatus, TavfPosting } from '../api/tavf';
+import { useAuth } from '../hooks/useAuth';
 
 const STATUS_LABELS: Record<PostingStatus, string> = {
   open: 'Open',
@@ -48,10 +49,15 @@ function PostingCard({ posting }: { posting: TavfPosting }) {
 
 function TavfListPage() {
   const canCreateTavfPostings = true;
+  const { user, canCreateEvents } = useAuth();
   const [postings, setPostings] = useState<TavfPosting[]>([]);
   const [statusFilter, setStatusFilter] = useState<PostingStatus | ''>('open');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [subscribed, setSubscribed] = useState(false);
+  const [loadingSubscription, setLoadingSubscription] = useState(false);
+  const [savingSubscription, setSavingSubscription] = useState(false);
+  const [subscriptionError, setSubscriptionError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -65,6 +71,51 @@ function TavfListPage() {
 
     return () => { cancelled = true; };
   }, [statusFilter]);
+
+  useEffect(() => {
+    if (!user || canCreateEvents()) {
+      return;
+    }
+
+    let cancelled = false;
+    setLoadingSubscription(true);
+    setSubscriptionError(null);
+
+    tavfApi
+      .getMySubscription()
+      .then((result) => {
+        if (!cancelled) {
+          setSubscribed(Boolean(result.is_subscribed));
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setSubscriptionError((err as Error).message || 'Unable to load TAVF notification preference.');
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoadingSubscription(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [canCreateEvents, user]);
+
+  async function toggleSubscription(next: boolean): Promise<void> {
+    setSavingSubscription(true);
+    setSubscriptionError(null);
+    try {
+      const result = await tavfApi.updateMySubscription(next, 'tavf_list_page');
+      setSubscribed(Boolean(result.is_subscribed));
+    } catch (err) {
+      setSubscriptionError((err as Error).message || 'Unable to update TAVF notification preference.');
+    } finally {
+      setSavingSubscription(false);
+    }
+  }
 
   return (
     <div className="page-container">
@@ -81,6 +132,28 @@ function TavfListPage() {
           </Link>
         )}
       </div>
+
+      {user && !canCreateEvents() && (
+        <div className="tavf-notify-pref">
+          <label className="tavf-notify-pref__toggle">
+            <input
+              type="checkbox"
+              checked={subscribed}
+              disabled={loadingSubscription || savingSubscription}
+              onChange={(event) => {
+                void toggleSubscription(event.target.checked);
+              }}
+            />
+            <span>Notify me when new TAVF opportunities are posted</span>
+          </label>
+          <p className="tavf-notify-pref__hint">
+            {subscribed
+              ? 'You are subscribed. We will notify you when guides post new opportunities.'
+              : 'Turn this on to receive new TAVF posting alerts by your enabled channels.'}
+          </p>
+          {subscriptionError && <p className="error-text">{subscriptionError}</p>}
+        </div>
+      )}
 
       <div className="tavf-filters">
         <label className="tavf-filters__label">Show:</label>

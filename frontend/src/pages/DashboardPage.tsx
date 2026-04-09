@@ -322,7 +322,7 @@ function DashboardPage() {
   }
 
   return (
-    <div style={{ maxWidth: 1040, margin: '0 auto' }}>
+    <div className="phw-dashboard" style={{ maxWidth: 1040, margin: '0 auto' }}>
       <HeroBanner userName={displayName} />
 
       <PhotoStrip />
@@ -333,16 +333,25 @@ function DashboardPage() {
             <h2 className="phw-onboarding-card__title">Quick Start</h2>
             <p className="phw-onboarding-card__text">Set your communication preferences, RSVP to one event, and check TAVF opportunities.</p>
             <div className="phw-onboarding-card__actions">
-              <Link to="/preferences" className="btn btn--outline btn--sm">Set Preferences</Link>
-              <Link to="/events" className="btn btn--outline btn--sm">Browse Events</Link>
-              <Link to="/tavf" className="btn btn--outline btn--sm">Open TAVF</Link>
+              <Link to="/preferences" className="btn btn--outline btn--sm phw-action-pill">
+                <span className="phw-action-pill__icon" aria-hidden="true">PF</span>
+                <span className="phw-action-pill__label">Set Preferences</span>
+              </Link>
+              <Link to="/events" className="btn btn--outline btn--sm phw-action-pill">
+                <span className="phw-action-pill__icon" aria-hidden="true">EV</span>
+                <span className="phw-action-pill__label">Browse Events</span>
+              </Link>
+              <Link to="/tavf" className="btn btn--outline btn--sm phw-action-pill">
+                <span className="phw-action-pill__icon" aria-hidden="true">TV</span>
+                <span className="phw-action-pill__label">Open TAVF</span>
+              </Link>
             </div>
           </div>
           <button className="btn btn--ghost btn--sm" onClick={dismissOnboarding}>Dismiss</button>
         </div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0,1fr))', gap: 14, marginBottom: '1.75rem' }}>
+      <div className="phw-dashboard__stats-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0,1fr))', gap: 14, marginBottom: '1.75rem' }}>
         <StatCard label="Members" value={isAdminUser ? stats.totalMembers : '–'} delay={3} />
         <StatCard label="Events YTD" value={stats.totalEventsThisYear} delay={4} />
         <StatCard label="Upcoming" value={stats.upcomingEvents} color={colors.forest[600]} delay={5} />
@@ -401,15 +410,28 @@ function DashboardPage() {
                           {event.description}
                         </p>
                       )}
-                      <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
-                        <button className="btn btn--outline btn--sm" onClick={() => navigate('/events')}>Open</button>
-                        <button className="btn btn--outline btn--sm" onClick={() => void downloadEventIcs(event)}>ICS</button>
+                      <div className="phw-event-actions" style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+                        <button className="btn btn--outline btn--sm phw-event-action-pill" onClick={() => navigate('/events')}>
+                          <span className="phw-event-action-pill__icon" aria-hidden="true">GO</span>
+                          <span className="phw-event-action-pill__label">Open</span>
+                        </button>
+                        <button className="btn btn--outline btn--sm phw-event-action-pill" onClick={() => void downloadEventIcs(event)}>
+                          <span className="phw-event-action-pill__icon" aria-hidden="true">IC</span>
+                          <span className="phw-event-action-pill__label">ICS</span>
+                        </button>
                         {canManageEvents && (
                           <>
-                            <button className="btn btn--outline btn--sm" disabled={event.status !== 'completed'} onClick={() => void downloadEventReportCsv(event)}>CSV</button>
-                            <button className="btn btn--outline btn--sm" disabled={event.status !== 'completed'} onClick={() => void downloadEventReportPdf(event)}>PDF</button>
-                            <button className="btn btn--outline btn--sm" disabled={event.status !== 'completed' || eventEmailingId === event.event_id} onClick={() => void emailEventRecord(event)}>
-                              {eventEmailingId === event.event_id ? 'Emailing…' : 'Email'}
+                            <button className="btn btn--outline btn--sm phw-event-action-pill" disabled={event.status !== 'completed'} onClick={() => void downloadEventReportCsv(event)}>
+                              <span className="phw-event-action-pill__icon" aria-hidden="true">CV</span>
+                              <span className="phw-event-action-pill__label">CSV</span>
+                            </button>
+                            <button className="btn btn--outline btn--sm phw-event-action-pill" disabled={event.status !== 'completed'} onClick={() => void downloadEventReportPdf(event)}>
+                              <span className="phw-event-action-pill__icon" aria-hidden="true">PF</span>
+                              <span className="phw-event-action-pill__label">PDF</span>
+                            </button>
+                            <button className="btn btn--outline btn--sm phw-event-action-pill" disabled={event.status !== 'completed' || eventEmailingId === event.event_id} onClick={() => void emailEventRecord(event)}>
+                              <span className="phw-event-action-pill__icon" aria-hidden="true">EM</span>
+                              <span className="phw-event-action-pill__label">{eventEmailingId === event.event_id ? 'Emailing...' : 'Email'}</span>
                             </button>
                           </>
                         )}
@@ -423,7 +445,7 @@ function DashboardPage() {
         )}
       </div>
 
-      <div className="phw-stagger phw-stagger-8" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0,1fr))', gap: 20 }}>
+      <div className="phw-dashboard__lower-grid phw-stagger phw-stagger-8" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0,1fr))', gap: 20 }}>
         <div>
           <div className="phw-section-header">
             <h2 className="phw-section-title">My RSVPs</h2>

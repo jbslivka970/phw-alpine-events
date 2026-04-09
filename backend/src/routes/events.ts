@@ -383,6 +383,44 @@ router.get('/', apiLimiter, authenticate, requireAnyAuthenticatedRole, async (re
   }
 });
 
+router.post('/ai-draft-preview', writeLimiter, authenticate, requireEventCreatorOrAdmin, async (req, res) => {
+  try {
+    const tone = (req.body?.tone as string | undefined)?.toLowerCase() === 'professional' ? 'professional' : 'friendly';
+    const title = typeof req.body?.title === 'string' ? req.body.title.trim() : '';
+    const eventDate = typeof req.body?.event_date === 'string' ? req.body.event_date.trim() : '';
+    const location = typeof req.body?.location === 'string' ? req.body.location.trim() : null;
+    const description = typeof req.body?.description === 'string' ? req.body.description.trim() : null;
+
+    if (!title || !eventDate) {
+      res.status(400).json({ error: 'title and event_date are required' });
+      return;
+    }
+
+    const parsedEventDate = new Date(eventDate);
+    if (Number.isNaN(parsedEventDate.getTime())) {
+      res.status(400).json({ error: 'event_date must be a valid ISO datetime string' });
+      return;
+    }
+
+    const draft = await generateInviteDraft({
+      eventTitle: title,
+      eventDate,
+      location,
+      description,
+      tone,
+    });
+
+    res.json({
+      ...draft,
+      event_id: null,
+      tone,
+    });
+  } catch (error) {
+    console.error('POST /events/ai-draft-preview failed', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 router.get('/:id', apiLimiter, authenticate, requireAnyAuthenticatedRole, async (req, res) => {
   try {
     const pool = await getPool();
