@@ -433,6 +433,16 @@ describe('events routes', () => {
     expect(mockRequest.input).toHaveBeenCalledWith('response_channel', 'NVarChar', 'web');
   });
 
+  it('POST /api/events/:id/rsvp does not reject empty-role authenticated users before request validation', async () => {
+    const res = await request(app)
+      .post('/api/events/00000000-0000-0000-0000-000000000101/rsvp')
+      .set('x-test-roles', '')
+      .send({ member_id: '00000000-0000-0000-0000-000000000202', response: 'invalid' });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain('response must be one of');
+  });
+
   it('GET /api/events/:id/ics downloads a calendar file', async () => {
     const mockRequest = createRequest(async () => ({
       recordset: [

@@ -169,6 +169,94 @@ describe('members routes', () => {
     expect(res.status).toBe(200);
   });
 
+  it('GET /api/members/:id/rsvps allows same-email self-service when sub differs', async () => {
+    const queue = [
+      { recordset: [{ member_id: 'member-2', email: 'member@example.com' }] },
+      {
+        recordset: [
+          {
+            response_id: 'response-1',
+            response: 'yes',
+            responded_at: new Date('2026-04-01T10:00:00.000Z'),
+            event_id: 'event-1',
+            title: 'Spring Event',
+            event_date: new Date('2026-04-05T18:00:00.000Z'),
+            location: 'Denver',
+            status: 'published',
+          },
+        ],
+      },
+    ];
+
+    const mockRequest = {
+      input: jest.fn().mockReturnThis(),
+      query: jest.fn().mockImplementation(async () => queue.shift() ?? { recordset: [] }),
+    };
+    (getPool as jest.Mock).mockResolvedValue({ request: () => mockRequest });
+
+    const res = await request(app)
+      .get('/api/members/member-2/rsvps')
+      .set('x-test-roles', 'USER')
+      .set('x-test-sub', 'auth-subject-not-member-id')
+      .set('x-test-email', 'member@example.com');
+
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body)).toBe(true);
+    expect(res.body).toHaveLength(1);
+  });
+
+  it('GET /api/members/:id/rsvps blocks non-admin non-self access', async () => {
+    const mockRequest = {
+      input: jest.fn().mockReturnThis(),
+      query: jest
+        .fn()
+        .mockResolvedValueOnce({ recordset: [{ member_id: 'member-2', email: 'different@example.com' }] }),
+    };
+    (getPool as jest.Mock).mockResolvedValue({ request: () => mockRequest });
+
+    const res = await request(app)
+      .get('/api/members/member-2/rsvps')
+      .set('x-test-roles', 'USER')
+      .set('x-test-sub', 'member-1')
+      .set('x-test-email', 'member@example.com');
+
+    expect(res.status).toBe(403);
+  });
+
+  it('GET /api/members/:id/participation allows same-email self-service when sub differs', async () => {
+    const queue = [
+      { recordset: [{ member_id: 'member-2', email: 'member@example.com' }] },
+      {
+        recordset: [
+          {
+            events_attended: 2,
+            events_attended_prior_year: 1,
+            mentor_attended: 1,
+            mentor_attended_prior_year: 0,
+            participant_attended: 1,
+            participant_attended_prior_year: 1,
+          },
+        ],
+      },
+    ];
+
+    const mockRequest = {
+      input: jest.fn().mockReturnThis(),
+      query: jest.fn().mockImplementation(async () => queue.shift() ?? { recordset: [] }),
+    };
+    (getPool as jest.Mock).mockResolvedValue({ request: () => mockRequest });
+
+    const res = await request(app)
+      .get('/api/members/member-2/participation')
+      .set('x-test-roles', 'USER')
+      .set('x-test-sub', 'auth-subject-not-member-id')
+      .set('x-test-email', 'member@example.com');
+
+    expect(res.status).toBe(200);
+    expect(res.body.member_id).toBe('member-2');
+    expect(res.body.events_attended).toBe(2);
+  });
+
   it('POST /api/members maps duplicate member error to 409', async () => {
     const conflictError = Object.assign(new Error('duplicate'), { statusCode: 409 });
     (memberService.createMember as jest.Mock).mockRejectedValue(conflictError);
