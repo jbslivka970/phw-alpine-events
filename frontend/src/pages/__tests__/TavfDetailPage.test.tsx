@@ -145,21 +145,22 @@ describe('TavfDetailPage flow pattern', () => {
   });
 
   it('allows member application flow for non-admin users', async () => {
+    const memberId = '11111111-1111-4111-8111-111111111111';
     mockedUseAuth.mockReturnValue({
       isAdmin: () => false,
       canCreateEvents: () => false,
-      user: { id: 'member-1' },
+      user: { id: memberId },
     });
     mockedApi.listApplications.mockResolvedValue([]);
 
     renderPage();
 
-    const submitButton = await screen.findByRole('button', { name: /Submit Application/i });
+    const submitButton = await screen.findByRole('button', { name: /Confirm Interest/i });
     await userEvent.click(submitButton);
 
     await waitFor(() => {
       expect(mockedApi.applyToPosting).toHaveBeenCalledWith('p-1111', {
-        vet_member_id: 'member-1',
+        vet_member_id: memberId,
         notes: undefined,
       });
     });
