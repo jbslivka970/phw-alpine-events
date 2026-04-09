@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useIsAuthenticated } from '@azure/msal-react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 
 const LOGIN_HERO_PHOTOS = [
@@ -14,14 +14,21 @@ const LOGIN_HERO_PHOTOS = [
 function LoginPage() {
   const isAuthenticated = useIsAuthenticated()
   const navigate = useNavigate()
+  const location = useLocation()
   const { login, isLoggingIn, loginError } = useAuth()
   const [heroIndex] = useState(() => Math.floor(Math.random() * LOGIN_HERO_PHOTOS.length))
 
+  const destination = (() => {
+    const state = location.state as { from?: { pathname?: string } } | null
+    const fromPath = state?.from?.pathname
+    return fromPath && fromPath !== '/login' ? fromPath : '/dashboard'
+  })()
+
   useEffect(() => {
     if (isAuthenticated) {
-      navigate('/dashboard', { replace: true })
+      navigate(destination, { replace: true })
     }
-  }, [isAuthenticated, navigate])
+  }, [destination, isAuthenticated, navigate])
 
   return (
     <div className="login-page">
@@ -55,9 +62,22 @@ function LoginPage() {
           <p className="login-card__desc">
             Sign in with your chapter identity provider to manage events, RSVPs, and the Take a Vet Fishing program.
           </p>
+          <div className="login-card__auth-help" role="note" aria-label="First-time sign-in help">
+            <p className="login-card__auth-help-title">First-time sign-in steps</p>
+            <ol className="login-card__auth-help-list">
+              <li>Click Sign in.</li>
+              <li>If using Google, choose Sign in with Google.</li>
+              <li>If using email OTP for the first time, choose Create one, verify your code, then continue.</li>
+            </ol>
+          </div>
           <button className="btn btn--primary btn--lg" onClick={login} disabled={isLoggingIn}>
             {isLoggingIn ? 'Signing in...' : 'Sign in'}
           </button>
+          {isLoggingIn && (
+            <p className="login-card__desc" style={{ marginTop: 12 }}>
+              A sign-in window should be open. Please complete the steps there, then return to this page.
+            </p>
+          )}
           {loginError && <p className="events-error" role="alert">{loginError}</p>}
           <div className="login-card__links">
             <Link to="/privacy">Privacy Policy</Link>

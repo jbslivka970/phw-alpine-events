@@ -6,7 +6,9 @@ import type { AppRole } from '../authConfig'
 import { setTokenGetter } from '../api/client'
 import { authDebugLog, authDebugWarn } from '../utils/authDebug'
 
-const LOGIN_POPUP_TIMEOUT_MS = 90_000
+const LOGIN_POPUP_TIMEOUT_MS = 240_000
+const LOGIN_ACCOUNT_RECOVERY_TIMEOUT_MS = 45_000
+const LOGIN_ACCOUNT_RECOVERY_POLL_MS = 500
 const TOKEN_EXPIRY_SAFETY_WINDOW_MS = 60_000
 const TOKEN_BUSY_RETRY_MS = 400
 const TOKEN_BUSY_RETRY_ATTEMPTS = 5
@@ -200,8 +202,12 @@ function useAuth() {
           setLoginError('Another sign-in dialog is already in progress. Close it and try again.')
           return
         }
-        if (code === 'timed_out' || message.toLowerCase().includes('timed_out')) {
-          const recoveredAccount = instance.getActiveAccount() ?? instance.getAllAccounts()[0]
+        if (
+          code === 'timed_out'
+          || message.toLowerCase().includes('timed_out')
+          || code === 'popup_window_timeout'
+        ) {
+          const recoveredAccount = await waitForSignedInAccount(instance, LOGIN_ACCOUNT_RECOVERY_TIMEOUT_MS)
           if (recoveredAccount) {
             instance.setActiveAccount(recoveredAccount)
             setLoginError(null)
@@ -211,11 +217,11 @@ function useAuth() {
             return
           }
 
-          setLoginError('Sign-in took too long. Please try again.')
+          setLoginError('Sign-in is still in progress. If you completed the popup, wait a few seconds and tap Sign in once more.')
           return
         }
-        if (code === 'popup_window_error' || code === 'popup_window_timeout' || message.toLowerCase().includes('popup')) {
-          setLoginError('Your browser blocked the sign-in popup. Please allow popups for this site and try again.')
+        if (code === 'popup_window_error' || message.toLowerCase().includes('popup')) {
+          setLoginError('Your browser blocked the sign-in window. Please allow popups and cross-site cookies for this site, then try again.')
           return
         }
         setLoginError('Sign-in failed. Please try again.')
@@ -422,6 +428,23 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T
       clearTimeout(timeoutId)
     }
   }
+}
+
+async function waitForSignedInAccount(
+  instance: ReturnType<typeof useMsal>['instance'],
+  timeoutMs: number,
+): Promise<ReturnType<typeof instance.getAllAccounts>[number] | null> {
+  const startedAt = Date.now()
+
+  while (Date.now() - startedAt < timeoutMs) {
+    const found = instance.getActiveAccount() ?? instance.getAllAccounts()[0] ?? null
+    if (found) {
+      return found
+    }
+    await wait(LOGIN_ACCOUNT_RECOVERY_POLL_MS)
+  }
+
+  return null
 }
 
 function isInteractionRequired(error: unknown): boolean {

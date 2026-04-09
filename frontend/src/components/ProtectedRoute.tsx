@@ -53,7 +53,15 @@ function ProtectedRoute({ children, requiredRole, requiredRoles, disallowedRoles
       path: location.pathname,
       inProgress,
     })
-    return null
+    return (
+      <div className="page" style={{ padding: '2rem 1rem', maxWidth: 760, margin: '0 auto' }}>
+        <h2 style={{ margin: '0 0 0.5rem' }}>Signing you in...</h2>
+        <p style={{ margin: 0, color: '#475569' }}>
+          Please wait while we complete authentication.
+          If this screen does not move in a few seconds, <a href="/login">open the sign-in page</a>.
+        </p>
+      </div>
+    )
   }
 
   if (!isAuthenticated && !hasKnownAccount) {

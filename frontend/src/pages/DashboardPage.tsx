@@ -235,14 +235,23 @@ function DashboardPage() {
     }
 
     const key = `${ONBOARDING_KEY_PREFIX}:${identity}`;
-    const dismissed = window.localStorage.getItem(key) === '1';
-    setShowOnboarding(!dismissed);
+    try {
+      const dismissed = window.localStorage.getItem(key) === '1';
+      setShowOnboarding(!dismissed);
+    } catch {
+      // Some mobile Safari privacy modes can throw on storage access.
+      setShowOnboarding(true);
+    }
   }, [user?.email, user?.id]);
 
   function dismissOnboarding(): void {
     const identity = user?.id ?? user?.email;
     if (identity) {
-      window.localStorage.setItem(`${ONBOARDING_KEY_PREFIX}:${identity}`, '1');
+      try {
+        window.localStorage.setItem(`${ONBOARDING_KEY_PREFIX}:${identity}`, '1');
+      } catch {
+        // Ignore storage failures and still dismiss for the current session.
+      }
     }
     setShowOnboarding(false);
   }

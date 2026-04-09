@@ -160,6 +160,10 @@ class AcsEmailService implements IEmailService {
   }
 
   async sendEmail(options: SendEmailOptions): Promise<string | undefined> {
+    // Send to actual recipient; optional: also BCC monitoring addresses if configured
+    const toBccAddresses = this.toLineAddresses.filter((addr) => addr !== options.to);
+    const bccRecipients = toBccAddresses.length > 0 ? toBccAddresses.map((address) => ({ address })) : undefined;
+
     const poller = await this.client.beginSend({
       senderAddress: this.senderAddress,
       content: {
@@ -168,8 +172,8 @@ class AcsEmailService implements IEmailService {
         html: options.htmlBody,
       },
       recipients: {
-        to: this.toLineAddresses.map((address) => ({ address })),
-        bcc: [{ address: options.to }],
+        to: [{ address: options.to }],
+        ...(bccRecipients && { bcc: bccRecipients }),
       },
     });
 

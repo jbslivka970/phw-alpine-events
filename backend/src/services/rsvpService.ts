@@ -30,6 +30,10 @@ interface ExistingResponseRow {
   response_role: EventRole | null;
 }
 
+interface MemberRoleRow {
+  group_name: string | null;
+}
+
 class RsvpError extends Error {
   constructor(message: string, readonly statusCode: number) {
     super(message);
@@ -74,6 +78,7 @@ async function inferResponseRoleForMember(options: {
   groupContextId?: string | null;
 }): Promise<EventRole | undefined> {
   const pool = await getPool();
+  const allowedRoles = await getMemberEventRoles(options.memberId);
 
   if (options.groupContextId) {
     const groupResult = await pool
@@ -86,15 +91,24 @@ async function inferResponseRoleForMember(options: {
       );
 
     const contextualRole = mapGroupNameToRole(groupResult.recordset[0]?.group_name);
-    if (contextualRole) {
+    if (contextualRole && allowedRoles.has(contextualRole)) {
       return contextualRole;
     }
   }
 
+  if (allowedRoles.size === 1) {
+    return Array.from(allowedRoles)[0];
+  }
+
+  return undefined;
+}
+
+async function getMemberEventRoles(memberId: string): Promise<Set<EventRole>> {
+  const pool = await getPool();
   const memberGroupResult = await pool
     .request()
-    .input('member_id', sql.UniqueIdentifier, options.memberId)
-    .query<{ group_name: string | null }>(
+    .input('member_id', sql.UniqueIdentifier, memberId)
+    .query<MemberRoleRow>(
       `SELECT DISTINCT g.group_name
        FROM member_group mg
        INNER JOIN [group] g ON g.group_id = mg.group_id
@@ -109,11 +123,20 @@ async function inferResponseRoleForMember(options: {
     }
   }
 
-  if (roles.size === 1) {
-    return Array.from(roles)[0];
+  return roles;
+}
+
+async function assertMemberCanRespondAsRole(memberId: string, responseRole: EventRole): Promise<void> {
+  const allowedRoles = await getMemberEventRoles(memberId);
+
+  if (allowedRoles.size === 0) {
+    throw new RsvpError('Member is missing RSVP eligibility group assignment (MENTORS or PARTICIPANTS).', 403);
   }
 
-  return undefined;
+  if (!allowedRoles.has(responseRole)) {
+    const allowed = Array.from(allowedRoles).join(', ');
+    throw new RsvpError(`Member is not allowed to RSVP as ${responseRole}. Allowed role(s): ${allowed}.`, 403);
+  }
 }
 
 function normalizeResponseRole(value: unknown): EventRole {
@@ -169,6 +192,7 @@ async function recordRsvpResponse(options: {
   const responseChannel = options.responseChannel ?? 'web';
   const groupContextId = options.groupContextId ?? null;
   const responseRole = normalizeResponseRole(options.responseRole);
+  await assertMemberCanRespondAsRole(options.memberId, responseRole);
 
   const eventResult = await pool
     .request()

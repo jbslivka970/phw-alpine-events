@@ -6,6 +6,7 @@ import { apiLimiter, writeLimiter } from '../middleware/rateLimiter';
 import { requireAdmin } from '../middleware/rbac';
 import { generateInviteDraft } from '../services/aiInviteService';
 import { isProvisioningEnabled, sendEntraInvitation } from '../services/identityProvisioningService';
+import { notificationService } from '../services/notifications';
 import { runRetentionJob } from '../jobs/retentionJob';
 
 const router = Router();
@@ -60,6 +61,41 @@ interface IdentityInviteTraceRow {
 const MAX_INVITE_TITLE_LENGTH = 160;
 const MAX_INVITE_LOCATION_LENGTH = 200;
 const MAX_INVITE_DESCRIPTION_LENGTH = 2000;
+
+async function sendIdentityAccessEmail(input: {
+  to: string;
+  firstName: string;
+  signInUrl: string;
+}): Promise<void> {
+  const safeName = input.firstName?.trim() || 'there';
+  const safeUrl = input.signInUrl?.trim() || 'https://app.phwcoloradoalpine.org';
+
+  await notificationService.sendEmail({
+    to: input.to,
+    subject: 'Welcome to PHW Alpine Events - Sign-in Instructions',
+    htmlBody: `<p>Hi ${safeName},</p>
+<p>Welcome to PHW Alpine Events. We are glad you are here.</p>
+<p><strong>To sign in, click this link:</strong><br/>
+<a href="${safeUrl}">${safeUrl}</a></p>
+<p><strong>Sign-in steps:</strong></p>
+<ol>
+  <li>Open the link above.</li>
+  <li>Choose one of the two sign-in options on the page.</li>
+</ol>
+<p><strong>If you sign in with Google:</strong><br/>
+Select <strong>Sign in with Google</strong> and continue.</p>
+<p><strong>If you sign in with email (one-time code):</strong></p>
+<ol>
+  <li>Select <strong>Create one</strong> the first time.</li>
+  <li>Check your email for the code and enter it.</li>
+  <li>After setup, use the same email sign-in option going forward.</li>
+</ol>
+<p>If you have trouble signing in, reply to this email and we will help.</p>
+<p>Thank you,<br/>Project Healing Waters Colorado Alpine</p>`,
+    textBody: `Hi ${safeName},\n\nWelcome to PHW Alpine Events. We are glad you are here.\n\nTo sign in, use this link:\n${safeUrl}\n\nSign-in steps:\n1) Open the link above.\n2) Choose one of the two sign-in options on the page.\n\nIf you sign in with Google:\n- Select Sign in with Google and continue.\n\nIf you sign in with email (one-time code):\n1) Select Create one the first time.\n2) Check your email for the code and enter it.\n3) After setup, use the same email sign-in option going forward.\n\nIf you have trouble signing in, reply to this email and we will help.\n\nThank you,\nProject Healing Waters Colorado Alpine`,
+    operationType: 'identity_access_invite',
+  });
+}
 
 function logIdentityInviteTrace(payload: {
   mode: 'single' | 'bulk';
@@ -622,6 +658,20 @@ router.post('/identity/invite', writeLimiter, async (req, res) => {
 
     const currentUser = req.user?.email ?? req.user?.sub ?? 'unknown';
     await upsertMemberIdentityInvite(member.member_id, member.email, currentUser);
+    const signInUrl = invitation.inviteRedeemUrl ?? 'https://app.phwcoloradoalpine.org';
+    try {
+      await sendIdentityAccessEmail({
+        to: member.email,
+        firstName: member.first_name,
+        signInUrl,
+      });
+    } catch (emailError) {
+      console.warn('Identity invite email send failed', {
+        memberId: member.member_id,
+        email: member.email,
+        error: emailError instanceof Error ? emailError.message : String(emailError),
+      });
+    }
     logIdentityInviteTrace({
       mode: 'single',
       memberId: member.member_id,
@@ -700,6 +750,20 @@ router.post('/identity/invite/bulk', writeLimiter, async (req, res) => {
           redirectUrl,
         });
         await upsertMemberIdentityInvite(member.member_id, member.email, currentUser);
+        const signInUrl = invitation.inviteRedeemUrl ?? 'https://app.phwcoloradoalpine.org';
+        try {
+          await sendIdentityAccessEmail({
+            to: member.email,
+            firstName: member.first_name,
+            signInUrl,
+          });
+        } catch (emailError) {
+          console.warn('Identity invite email send failed', {
+            memberId: member.member_id,
+            email: member.email,
+            error: emailError instanceof Error ? emailError.message : String(emailError),
+          });
+        }
         logIdentityInviteTrace({
           mode: 'bulk',
           memberId: member.member_id,

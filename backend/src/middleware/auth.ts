@@ -23,6 +23,86 @@ declare global {
 }
 
 let jwksClient: JwksClient | null = null;
+let authDiagnosticEventsEmitted = 0;
+
+function authDiagnosticsEnabled(): boolean {
+  return /^(1|true|yes|on)$/i.test(process.env['AUTH_DIAGNOSTICS_ENABLED'] ?? '');
+}
+
+function authDiagnosticsMaxEvents(): number {
+  const raw = process.env['AUTH_DIAGNOSTICS_MAX_EVENTS'];
+  const parsed = raw ? Number.parseInt(raw, 10) : NaN;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+}
+
+function buildClaimSnapshot(claims: JwtPayload): Record<string, unknown> {
+  const stringOrStringArray = (value: unknown): string | string[] | undefined => {
+    if (typeof value === 'string') {
+      return value;
+    }
+    if (Array.isArray(value)) {
+      return value.filter((item): item is string => typeof item === 'string');
+    }
+    return undefined;
+  };
+
+  return {
+    oid: stringOrStringArray(claims['oid']),
+    sub: stringOrStringArray(claims['sub']),
+    iss: stringOrStringArray(claims['iss']),
+    aud: stringOrStringArray(claims['aud']),
+    idp: stringOrStringArray(claims['idp']),
+    email: stringOrStringArray(claims['email']),
+    preferred_username: stringOrStringArray(claims['preferred_username']),
+    upn: stringOrStringArray(claims['upn']),
+    emails: stringOrStringArray(claims['emails']),
+    otherMails: stringOrStringArray(claims['otherMails']),
+    amr: stringOrStringArray(claims['amr']),
+    roles: stringOrStringArray(claims['roles']),
+    role: stringOrStringArray(claims['role']),
+    extension_roles: stringOrStringArray(claims['extension_roles']),
+    extension_role: stringOrStringArray(claims['extension_role']),
+  };
+}
+
+function maybeEmitAuthDiagnostic(payload: {
+  reason: string;
+  email?: string;
+  roles: AppRole[];
+  linkedMemberId: string | null;
+  uniqueMemberByEmail: string | null;
+  matchCount: number;
+  localPasswordBlocked: boolean;
+  claims: JwtPayload;
+}): void {
+  if (!authDiagnosticsEnabled()) {
+    return;
+  }
+
+  if (authDiagnosticEventsEmitted >= authDiagnosticsMaxEvents()) {
+    return;
+  }
+
+  const targetEmail = (process.env['AUTH_DIAGNOSTICS_EMAIL'] ?? '').trim().toLowerCase();
+  if (targetEmail && payload.email?.toLowerCase() !== targetEmail) {
+    return;
+  }
+
+  authDiagnosticEventsEmitted += 1;
+  console.warn('[auth][diagnostic]', {
+    emittedAt: new Date().toISOString(),
+    reason: payload.reason,
+    email: payload.email,
+    roles: payload.roles,
+    linkedMemberId: payload.linkedMemberId,
+    uniqueMemberByEmail: payload.uniqueMemberByEmail,
+    matchCount: payload.matchCount,
+    localPasswordBlocked: payload.localPasswordBlocked,
+    claims: buildClaimSnapshot(payload.claims),
+    emittedCount: authDiagnosticEventsEmitted,
+    maxEvents: authDiagnosticsMaxEvents(),
+  });
+}
 
 function getJwksClient(): JwksClient {
   const authConfig = loadAuthConfig();
@@ -136,6 +216,14 @@ function extractEmail(claims: JwtPayload): string | undefined {
     }
   }
 
+  const otherMailsClaim = claims['otherMails'];
+  if (Array.isArray(otherMailsClaim)) {
+    const first = otherMailsClaim.find((value): value is string => typeof value === 'string' && value.trim().length > 0);
+    if (first) {
+      return first.trim();
+    }
+  }
+
   // External ID can emit usernames like local_domain.com#EXT#@tenant.onmicrosoft.com
   // instead of a plain email claim. Recover the source email using the last underscore
   // before #EXT# as the original @ separator.
@@ -178,6 +266,30 @@ function extractEmail(claims: JwtPayload): string | undefined {
     const recovered = recoverFromExtFormat(upnClaim);
     if (recovered) {
       return recovered;
+    }
+  }
+
+  // CIAM/social providers can emit non-standard claim names that include
+  // email values (e.g. signInNames.emailAddress). Use a conservative fallback
+  // by scanning string/array claims whose key names include "email".
+  for (const [key, rawValue] of Object.entries(claims)) {
+    if (!key.toLowerCase().includes('email')) {
+      continue;
+    }
+
+    if (typeof rawValue === 'string') {
+      const value = rawValue.trim();
+      if (value.includes('@')) {
+        return value.toLowerCase();
+      }
+      continue;
+    }
+
+    if (Array.isArray(rawValue)) {
+      const first = rawValue.find((value): value is string => typeof value === 'string' && value.includes('@'));
+      if (first) {
+        return first.trim().toLowerCase();
+      }
     }
   }
 
@@ -455,6 +567,16 @@ function authenticate(req: Request, res: Response, next: NextFunction): void {
       if (enforceMemberPasswordless && isLocalPasswordSignIn(claims)) {
         const isAllowlisted = normalizedEmail ? localPasswordAllowlist.has(normalizedEmail) : false;
         if (!isAllowlisted) {
+          maybeEmitAuthDiagnostic({
+            reason: 'local_password_blocked',
+            email: emailClaim,
+            roles,
+            linkedMemberId: null,
+            uniqueMemberByEmail: null,
+            matchCount: 0,
+            localPasswordBlocked: true,
+            claims,
+          });
           res.status(403).json({
             error: 'Local password sign-in is disabled for members. Use Google, Microsoft, Meta, or email OTP.',
           });
@@ -480,6 +602,19 @@ function authenticate(req: Request, res: Response, next: NextFunction): void {
 
       if (roles.length === 0 && (linkedMemberId || uniqueMemberByEmail)) {
         roles.push('USER');
+      }
+
+      if (roles.length === 0) {
+        maybeEmitAuthDiagnostic({
+          reason: 'no_roles_after_member_resolution',
+          email: emailClaim,
+          roles,
+          linkedMemberId,
+          uniqueMemberByEmail,
+          matchCount,
+          localPasswordBlocked: false,
+          claims,
+        });
       }
 
       req.user = {

@@ -784,6 +784,37 @@ textarea:focus-visible {
   line-height: 1.55;
 }
 
+.login-card__auth-help {
+  text-align: left;
+  margin: -0.5rem 0 1.35rem;
+  padding: 0.8rem 0.9rem 0.75rem;
+  border: 1px solid var(--phw-slate-200);
+  border-left: 3px solid var(--phw-brand-orange);
+  border-radius: 10px;
+  background: rgba(255, 249, 243, 0.9);
+}
+
+.login-card__auth-help-title {
+  margin: 0 0 0.35rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--phw-slate-800);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.login-card__auth-help-list {
+  margin: 0;
+  padding-left: 1rem;
+  color: var(--phw-slate-700);
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+
+.login-card__auth-help-list li + li {
+  margin-top: 0.18rem;
+}
+
 .login-card__links {
   margin-top: 2rem;
   display: flex;

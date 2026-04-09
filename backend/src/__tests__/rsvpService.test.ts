@@ -25,6 +25,7 @@ describe('rsvpService waitlist auto-promotion', () => {
   it('creates a waitlist promotion offer when a yes response frees capacity', async () => {
     const queryCalls: string[] = [];
     const queue: Array<{ recordset?: unknown[]; rowsAffected?: number[] }> = [
+      { recordset: [{ group_name: 'PARTICIPANTS' }] },
       { recordset: [{ event_id: 'event-1', title: 'River Day', status: 'published', mentor_capacity: null, participant_capacity: 2, capacity: 2, event_date: new Date('2026-06-01T18:00:00Z') }] },
       { recordset: [] },
       { recordset: [{ response_id: 'r1', event_id: 'event-1', member_id: 'member-yes', response: 'no', responded_at: new Date('2026-05-01T00:00:00Z'), notes: null }] },
@@ -65,6 +66,7 @@ describe('rsvpService waitlist auto-promotion', () => {
   it('marks active offers accepted when offered member responds yes', async () => {
     const queryCalls: string[] = [];
     const queue: Array<{ recordset?: unknown[]; rowsAffected?: number[] }> = [
+      { recordset: [{ group_name: 'PARTICIPANTS' }] },
       { recordset: [{ event_id: 'event-2', title: 'Casting Clinic', status: 'published', mentor_capacity: null, participant_capacity: 3, capacity: 3, event_date: new Date('2026-06-02T18:00:00Z') }] },
       { recordset: [{ response: 'no', response_role: 'PARTICIPANT' }] },
       { recordset: [{ yes_count: 2 }] },
@@ -99,6 +101,7 @@ describe('rsvpService waitlist auto-promotion', () => {
 
   it('does not send duplicate RSVP confirmation for identical repeated response', async () => {
     const queue: Array<{ recordset?: unknown[]; rowsAffected?: number[] }> = [
+      { recordset: [{ group_name: 'PARTICIPANTS' }] },
       { recordset: [{ event_id: 'event-3', title: 'River Day', status: 'published', mentor_capacity: null, participant_capacity: 5, capacity: 5, event_date: new Date('2026-06-03T18:00:00Z') }] },
       { recordset: [{ response: 'yes', response_role: 'PARTICIPANT' }] },
       { recordset: [{ response_id: 'r3', event_id: 'event-3', member_id: 'member-repeat', response: 'yes', responded_at: new Date('2026-05-01T00:00:00Z'), notes: null }] },
@@ -124,6 +127,36 @@ describe('rsvpService waitlist auto-promotion', () => {
       response: 'yes',
       responseChannel: 'tokenized_link',
       responseRole: 'PARTICIPANT',
+    });
+
+    expect(sendRsvpConfirmation).not.toHaveBeenCalled();
+  });
+
+  it('rejects RSVP when requested role is outside member eligibility', async () => {
+    const queue: Array<{ recordset?: unknown[]; rowsAffected?: number[] }> = [
+      { recordset: [{ group_name: 'PARTICIPANTS' }] },
+    ];
+
+    const mockRequest = {
+      input: jest.fn().mockReturnThis(),
+      query: jest.fn().mockImplementation(async () => {
+        return queue.shift() ?? { recordset: [] };
+      }),
+    };
+
+    (getPool as jest.Mock).mockResolvedValue({ request: () => mockRequest });
+
+    await expect(
+      recordRsvpResponse({
+        eventId: 'event-4',
+        memberId: 'member-role-mismatch',
+        response: 'yes',
+        responseChannel: 'web',
+        responseRole: 'MENTOR',
+      })
+    ).rejects.toMatchObject({
+      name: 'RsvpError',
+      statusCode: 403,
     });
 
     expect(sendRsvpConfirmation).not.toHaveBeenCalled();
