@@ -69,30 +69,40 @@ async function sendIdentityAccessEmail(input: {
 }): Promise<void> {
   const safeName = input.firstName?.trim() || 'there';
   const safeUrl = input.signInUrl?.trim() || 'https://app.phwcoloradoalpine.org';
+  let signInGuideUrl = 'https://app.phwcoloradoalpine.org/onboarding/sign-in-options.png';
+  try {
+    signInGuideUrl = `${new URL(safeUrl).origin}/onboarding/sign-in-options.png`;
+  } catch {
+    // Keep default image URL when safeUrl is not a valid absolute URL.
+  }
 
   await notificationService.sendEmail({
     to: input.to,
     subject: 'Welcome to PHW Alpine Events - Sign-in Instructions',
     htmlBody: `<p>Hi ${safeName},</p>
-<p>Welcome to PHW Alpine Events. We are glad you are here.</p>
-<p><strong>To sign in, click this link:</strong><br/>
+<p>Welcome to PHW Alpine Events. We are very glad you are here.</p>
+<p><strong>Sign in here:</strong><br/>
 <a href="${safeUrl}">${safeUrl}</a></p>
-<p><strong>Sign-in steps:</strong></p>
+<p><strong>Where to click:</strong><br/>
+Use this quick screenshot guide on the sign-in page.</p>
+<p><a href="${signInGuideUrl}"><img src="${signInGuideUrl}" alt="PHW Alpine sign-in page showing Google and email sign-in choices" style="max-width:100%;border:1px solid #d0d7de;border-radius:8px;" /></a></p>
+<p><strong>Step-by-step:</strong></p>
 <ol>
-  <li>Open the link above.</li>
-  <li>Choose one of the two sign-in options on the page.</li>
+  <li>Open the sign-in link above.</li>
+  <li>Choose one sign-in method:</li>
 </ol>
-<p><strong>If you sign in with Google:</strong><br/>
-Select <strong>Sign in with Google</strong> and continue.</p>
-<p><strong>If you sign in with email (one-time code):</strong></p>
+<p><strong>Option A: Google sign-in</strong><br/>
+Click <strong>Sign in with Google</strong>, then follow the Google prompts.</p>
+<p><strong>Option B: Email one-time code (OTP)</strong></p>
 <ol>
-  <li>Select <strong>Create one</strong> the first time.</li>
-  <li>Check your email for the code and enter it.</li>
-  <li>After setup, use the same email sign-in option going forward.</li>
+  <li>Choose the email sign-in option and enter your email address.</li>
+  <li>On your first sign-in, choose <strong>Create one</strong> when prompted.</li>
+  <li>Check your email for the code, enter it, and continue.</li>
+  <li>After setup, use the same email sign-in option each time.</li>
 </ol>
-<p>If you have trouble signing in, reply to this email and we will help.</p>
+<p>If anything looks confusing, simply reply to this email and we will help right away.</p>
 <p>Thank you,<br/>Project Healing Waters Colorado Alpine</p>`,
-    textBody: `Hi ${safeName},\n\nWelcome to PHW Alpine Events. We are glad you are here.\n\nTo sign in, use this link:\n${safeUrl}\n\nSign-in steps:\n1) Open the link above.\n2) Choose one of the two sign-in options on the page.\n\nIf you sign in with Google:\n- Select Sign in with Google and continue.\n\nIf you sign in with email (one-time code):\n1) Select Create one the first time.\n2) Check your email for the code and enter it.\n3) After setup, use the same email sign-in option going forward.\n\nIf you have trouble signing in, reply to this email and we will help.\n\nThank you,\nProject Healing Waters Colorado Alpine`,
+    textBody: `Hi ${safeName},\n\nWelcome to PHW Alpine Events. We are very glad you are here.\n\nSign in here:\n${safeUrl}\n\nScreenshot guide (where to click):\n${signInGuideUrl}\n\nStep-by-step:\n1) Open the sign-in link above.\n2) Choose one sign-in method.\n\nOption A: Google sign-in\n- Select Sign in with Google and continue.\n\nOption B: Email one-time code (OTP)\n1) Choose the email sign-in option and enter your email.\n2) First time only: choose Create one when prompted.\n3) Check your email for the code and enter it.\n4) After setup, use the same email sign-in option each time.\n\nIf anything is confusing, reply to this email and we will help right away.\n\nThank you,\nProject Healing Waters Colorado Alpine`,
     operationType: 'identity_access_invite',
   });
 }
