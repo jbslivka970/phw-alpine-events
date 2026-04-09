@@ -141,52 +141,9 @@ jobs:
           exit 1
         fi
 
-        mapfile -t PROFILE_PARTS < <(python - <<'PY'
-        import os
-        import sys
-        import xml.etree.ElementTree as ET
+        PROFILE_LINE=$(python -c "import os,xml.etree.ElementTree as ET; raw=os.environ.get('AZUREAPPSERVICE_PUBLISHPROFILE','').strip(); root=ET.fromstring(raw) if raw else (_ for _ in ()).throw(SystemExit('Missing AZUREAPPSERVICE_PUBLISHPROFILE')); profiles=root.findall('.//publishProfile'); profiles or (_ for _ in ()).throw(SystemExit('No publishProfile entries found')); chosen=next((p for p in profiles if (p.attrib.get('publishMethod') or '').lower()=='msdeploy'), profiles[0]); publish_url=(chosen.attrib.get('publishUrl') or '').split(',')[0].strip(); scm_url=publish_url if publish_url.startswith('http://') or publish_url.startswith('https://') else 'https://' + publish_url; host=scm_url.split('//',1)[-1].split(':',1)[0]; scm_url='https://' + host; username=(chosen.attrib.get('userName') or '').strip(); password=(chosen.attrib.get('userPWD') or '').strip(); (username and password and scm_url) or (_ for _ in ()).throw(SystemExit('Publish profile is missing required credentials or URL')); print('\t'.join([scm_url, username, password]))")
 
-        raw = os.environ.get('AZUREAPPSERVICE_PUBLISHPROFILE', '').strip()
-        if not raw:
-          raise SystemExit('Missing AZUREAPPSERVICE_PUBLISHPROFILE')
-
-        root = ET.fromstring(raw)
-        profiles = root.findall('.//publishProfile')
-        if not profiles:
-          raise SystemExit('No publishProfile entries found')
-
-        chosen = None
-        for profile in profiles:
-          if (profile.attrib.get('publishMethod') or '').lower() == 'msdeploy':
-            chosen = profile
-            break
-        if chosen is None:
-          chosen = profiles[0]
-
-        publish_url = (chosen.attrib.get('publishUrl') or '').split(',')[0].strip()
-        if publish_url.startswith('http://') or publish_url.startswith('https://'):
-          scm_url = publish_url
-        else:
-          scm_url = f'https://{publish_url}'
-
-        if ':' in scm_url.split('//', 1)[-1]:
-          host = scm_url.split('//', 1)[-1].split(':', 1)[0]
-          scm_url = f'https://{host}'
-
-        username = chosen.attrib.get('userName', '').strip()
-        password = chosen.attrib.get('userPWD', '').strip()
-        if not username or not password or not scm_url:
-          raise SystemExit('Publish profile is missing required credentials or URL')
-
-        print(scm_url)
-        print(username)
-        print(password)
-        PY
-        )
-
-        SCM_URL="${PROFILE_PARTS[0]}"
-        KUDU_USER="${PROFILE_PARTS[1]}"
-        KUDU_PASS="${PROFILE_PARTS[2]}"
+        IFS=$'\t' read -r SCM_URL KUDU_USER KUDU_PASS <<< "$PROFILE_LINE"
 
         if [ -z "$SCM_URL" ] || [ -z "$KUDU_USER" ] || [ -z "$KUDU_PASS" ]; then
           echo "Failed to parse publish profile credentials"
@@ -197,23 +154,11 @@ jobs:
 
         # If a deployment is already in progress, wait briefly instead of colliding with 409.
         for attempt in $(seq 1 20); do
-            DEPLOY_STATUS=$(curl -fsS -u "$KUDU_USER:$KUDU_PASS" "$SCM_URL/api/deployments/latest" 2>/dev/null | python - <<'PY'
-            import json
-            import sys
-
-            try:
-              data = json.load(sys.stdin)
-            except Exception:
-              print('unknown')
-              raise SystemExit(0)
-
-            status = data.get('status')
-            if status is None:
-              print('none')
-            else:
-              print(str(status))
-            PY
-            )
+                DEPLOY_STATUS=$(curl -fsS -u "$KUDU_USER:$KUDU_PASS" "$SCM_URL/api/deployments/latest" 2>/dev/null | python -c "import json,sys; txt=sys.stdin.read().strip();
+          print('unknown') if not txt else None;
+          data=(json.loads(txt) if txt else {});
+          status=data.get('status') if isinstance(data, dict) else None;
+          print('none' if txt and status is None else (str(status) if txt else 'unknown'))" 2>/dev/null || printf "unknown")
 
           if [ "$DEPLOY_STATUS" = "0" ] || [ "$DEPLOY_STATUS" = "1" ]; then
             echo "Existing deployment in progress (status=$DEPLOY_STATUS), waiting... ($attempt/20)"
@@ -240,16 +185,7 @@ jobs:
         echo "Polling deployment status from: $STATUS_URL"
 
         for poll in $(seq 1 90); do
-          STATUS_AND_MESSAGE=$(curl -fsS -u "$KUDU_USER:$KUDU_PASS" "$STATUS_URL" | python - <<'PY'
-          import json
-          import sys
-
-          data = json.load(sys.stdin)
-          status = data.get('status')
-          msg = (data.get('status_text') or data.get('message') or '').replace('\n', ' ').strip()
-          print(f"{status if status is not None else 'none'}\t{msg}")
-          PY
-          )
+          STATUS_AND_MESSAGE=$(curl -fsS -u "$KUDU_USER:$KUDU_PASS" "$STATUS_URL" | python -c "import json,sys; data=json.load(sys.stdin); status=data.get('status'); msg=(data.get('status_text') or data.get('message') or '').replace('\\n',' ').strip(); print('{}\\t{}'.format('none' if status is None else status, msg))")
 
           DEPLOY_STATE=$(printf "%s" "$STATUS_AND_MESSAGE" | cut -f1)
           DEPLOY_MSG=$(printf "%s" "$STATUS_AND_MESSAGE" | cut -f2-)
@@ -323,22 +259,9 @@ jobs:
           exit 1
         fi
 
-        mapfile -t AZ_PARTS < <(python - <<'PY'
-        import json
-        import os
+        AZ_LINE=$(python -c "import json,os; creds=json.loads(os.environ['AZURE_FRONTEND_DEPLOY_CREDENTIALS']); print('\\t'.join([creds.get('clientId',''), creds.get('clientSecret',''), creds.get('tenantId',''), creds.get('subscriptionId','')]))")
 
-        creds = json.loads(os.environ['AZURE_FRONTEND_DEPLOY_CREDENTIALS'])
-        print(creds.get('clientId', ''))
-        print(creds.get('clientSecret', ''))
-        print(creds.get('tenantId', ''))
-        print(creds.get('subscriptionId', ''))
-        PY
-        )
-
-        AZ_CLIENT_ID="${AZ_PARTS[0]}"
-        AZ_CLIENT_SECRET="${AZ_PARTS[1]}"
-        AZ_TENANT_ID="${AZ_PARTS[2]}"
-        AZ_SUBSCRIPTION_ID="${AZ_PARTS[3]}"
+        IFS=$'\t' read -r AZ_CLIENT_ID AZ_CLIENT_SECRET AZ_TENANT_ID AZ_SUBSCRIPTION_ID <<< "$AZ_LINE"
 
         if [ -z "$AZ_CLIENT_ID" ] || [ -z "$AZ_CLIENT_SECRET" ] || [ -z "$AZ_TENANT_ID" ] || [ -z "$AZ_SUBSCRIPTION_ID" ]; then
           echo "AZURE_FRONTEND_DEPLOY_CREDENTIALS is missing required fields"
