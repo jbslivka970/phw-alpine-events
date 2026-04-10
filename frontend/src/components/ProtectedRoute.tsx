@@ -17,7 +17,7 @@ interface ProtectedRouteProps {
 function ProtectedRoute({ children, requiredRole, requiredRoles, disallowedRoles }: ProtectedRouteProps) {
   const { accounts, inProgress } = useMsal()
   const isAuthenticated = useIsAuthenticated()
-  const { hasRole } = useAuth()
+  const { hasRole, rolesReady } = useAuth()
   const location = useLocation()
   const lastDecisionRef = useRef<string | null>(null)
   const authReady = inProgress === InteractionStatus.None
@@ -71,6 +71,24 @@ function ProtectedRoute({ children, requiredRole, requiredRoles, disallowedRoles
       hasKnownAccount,
     })
     return <Navigate to="/login" state={{ from: location }} replace />
+  }
+
+  const needsRoleEvaluation = Boolean(requiredRole) || Boolean(requiredRoles?.length) || Boolean(disallowedRoles?.length)
+  if (needsRoleEvaluation && !rolesReady) {
+    authDebugLog('ProtectedRoute:decision:wait-roles-ready', {
+      path: location.pathname,
+      requiredRole,
+      requiredRoles,
+      disallowedRoles,
+    })
+    return (
+      <div className="page" style={{ padding: '2rem 1rem', maxWidth: 760, margin: '0 auto' }}>
+        <h2 style={{ margin: '0 0 0.5rem' }}>Loading your access...</h2>
+        <p style={{ margin: 0, color: '#475569' }}>
+          Please wait while we verify your role claims.
+        </p>
+      </div>
+    )
   }
 
   if (requiredRole && !hasRole(requiredRole)) {

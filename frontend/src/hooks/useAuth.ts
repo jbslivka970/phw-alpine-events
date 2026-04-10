@@ -36,12 +36,28 @@ function useAuth() {
 
   const accountClaims = account?.idTokenClaims as Record<string, unknown> | undefined
   const [resolvedRoles, setResolvedRoles] = useState<AppRole[]>(() => mapRoles(accountClaims))
+  const [rolesReady, setRolesReady] = useState(() => {
+    if (!account) {
+      return true
+    }
+    return mapRoles(accountClaims).length > 0
+  })
   const [isLoggingIn, setIsLoggingIn] = useState(false)
   const [loginError, setLoginError] = useState<string | null>(null)
 
   useEffect(() => {
     setResolvedRoles(mapRoles(accountClaims))
   }, [accountClaims])
+
+  useEffect(() => {
+    if (!account) {
+      setRolesReady(true)
+      return
+    }
+
+    const initialRoles = mapRoles(accountClaims)
+    setRolesReady(initialRoles.length > 0)
+  }, [account, accountClaims])
 
   useEffect(() => {
     if (account) {
@@ -78,9 +94,14 @@ function useAuth() {
             mapRoles(refreshedClaims),
             mapRoles(decodeJwtPayload(tokenResponse.accessToken)),
           ))
+          setRolesReady(true)
         }
       } catch {
         // Keep previously derived roles if forced refresh is unavailable.
+      } finally {
+        if (!cancelled) {
+          setRolesReady(true)
+        }
       }
     }
 
@@ -290,6 +311,7 @@ function useAuth() {
             current,
             mapRoles(decodeJwtPayload(tokenResponse.accessToken)),
           ))
+          setRolesReady(true)
 
           return tokenResponse.accessToken
         } catch (error: unknown) {
@@ -371,6 +393,7 @@ function useAuth() {
                 current,
                 mapRoles(decodeJwtPayload(tokenResponse.accessToken)),
               ))
+                setRolesReady(true)
 
               tokenInteractiveInFlightRef.current = false
               return tokenResponse.accessToken
@@ -421,6 +444,7 @@ function useAuth() {
     interactionBusy,
     isLoggingIn,
     loginError,
+    rolesReady,
   }
 }
 
