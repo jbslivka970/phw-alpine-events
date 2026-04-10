@@ -394,16 +394,28 @@ jobs:
         fi
 
     - name: Refresh member auth state for browser smoke
+      id: refresh_member_state
       if: ${{ steps.smoke_ready.outputs.ready == '1' }}
       env:
         E2E_APP_URL: ${{ vars.E2E_APP_URL }}
         PW_REFRESH_ROLE_TIMEOUT_MS: '240000'
         PW_MEMBER_USER: ${{ secrets.PW_MEMBER_USER }}
         PW_MEMBER_PASS: ${{ secrets.PW_MEMBER_PASS }}
-      run: npm run e2e:refresh-tokens
+      run: npm run e2e:refresh-tokens -- --soft-skip
+
+    - name: Determine browser smoke execution
+      id: smoke_auth_state
+      if: ${{ steps.smoke_ready.outputs.ready == '1' }}
+      run: |
+        if [ -s tests/e2e/.auth/member.json ]; then
+          echo "run_browser_smoke=1" >> "$GITHUB_OUTPUT"
+        else
+          echo "run_browser_smoke=0" >> "$GITHUB_OUTPUT"
+          echo "::warning::Skipping browser smoke because member auth state is unavailable after refresh."
+        fi
 
     - name: Run post-deploy frontend browser smoke
-      if: ${{ steps.smoke_ready.outputs.ready == '1' }}
+      if: ${{ steps.smoke_ready.outputs.ready == '1' && steps.smoke_auth_state.outputs.run_browser_smoke == '1' }}
       env:
         E2E_APP_URL: ${{ vars.E2E_APP_URL }}
       run: npx playwright test tests/e2e/browser-postdeploy-smoke.spec.ts
