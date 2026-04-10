@@ -1,4 +1,4 @@
-import { apiGet, apiPost, apiPut } from './client';
+import { apiDelete, apiGet, apiPost, apiPut } from './client';
 
 interface InviteDraftRequest {
   event_id?: string;
@@ -102,6 +102,25 @@ interface SupportEmailRelayConfig {
   updatedBy: string | null;
 }
 
+interface AdminUser {
+  user_id: string;
+  azure_oid: string | null;
+  email: string;
+  display_name: string | null;
+  role: 'admin' | 'superadmin';
+  is_active: boolean;
+  last_login: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+interface AdminUsersResponse {
+  data: AdminUser[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
 const adminApi = {
   generateInviteDraft: (payload: InviteDraftRequest) =>
     apiPost<InviteDraftResponse>('/admin/ai/invite-draft', payload),
@@ -138,6 +157,18 @@ const adminApi = {
     relay_to: string[];
     enabled: boolean;
   }) => apiPut<SupportEmailRelayConfig>('/support/relay-config', payload),
+  listAdminUsers: (params?: { page?: number; pageSize?: number; search?: string; role?: 'admin' | 'superadmin'; isActive?: boolean }) => {
+    const query = new URLSearchParams();
+    if (params?.page !== undefined) query.set('page', String(params.page));
+    if (params?.pageSize !== undefined) query.set('pageSize', String(params.pageSize));
+    if (params?.search) query.set('search', params.search);
+    if (params?.role) query.set('role', params.role);
+    if (params?.isActive !== undefined) query.set('isActive', String(params.isActive));
+    const suffix = query.toString();
+    return apiGet<AdminUsersResponse>(`/admin/users${suffix ? `?${suffix}` : ''}`);
+  },
+  deleteAdminUser: (userId: string) =>
+    apiDelete<{ message: string; user_id: string }>(`/admin/users/${userId}`),
 };
 
 export { adminApi };
@@ -153,4 +184,6 @@ export type {
   InviteIdentityResponse,
   BulkInviteIdentityResponse,
   SupportEmailRelayConfig,
+  AdminUser,
+  AdminUsersResponse,
 };

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { adminApi } from '../api/admin'
+import type { AdminUser } from '../api/admin'
 import { eventsApi } from '../api/events'
 import { groupsApi } from '../api/groups'
 import { membersApi } from '../api/members'
@@ -72,6 +73,10 @@ function AdminPage() {
   const [supportRelayEnabled, setSupportRelayEnabled] = useState(false)
   const [supportRelayUpdatedAt, setSupportRelayUpdatedAt] = useState<string | null>(null)
   const [supportRelayUpdatedBy, setSupportRelayUpdatedBy] = useState<string | null>(null)
+  const [adminUsers, setAdminUsers] = useState<AdminUser[]>([])
+  const [adminUsersLoading, setAdminUsersLoading] = useState(true)
+  const [adminUsersError, setAdminUsersError] = useState<string | null>(null)
+  const [deletingUserId, setDeletingUserId] = useState<string | null>(null)
 
   useEffect(() => {
     const rawBase = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? '/api/v1'
@@ -96,6 +101,27 @@ function AdminPage() {
         }))
       })
       .catch(() => setHealth((h) => ({ ...h, notifications: 'error' })))
+  }, [])
+
+  useEffect(() => {
+    let active = true
+    setAdminUsersLoading(true)
+    setAdminUsersError(null)
+
+    adminApi.listAdminUsers({ page: 1, pageSize: 200 })
+      .then((response) => {
+        if (!active) return
+        setAdminUsers(response.data)
+      })
+      .catch((error) => {
+        if (!active) return
+        setAdminUsersError(toUserErrorMessage(error, 'Failed to load admin users.'))
+      })
+      .finally(() => {
+        if (active) setAdminUsersLoading(false)
+      })
+
+    return () => { active = false }
   }, [])
 
   useEffect(() => {
@@ -260,6 +286,22 @@ function AdminPage() {
     }
   }
 
+  async function handleDeleteAdminUser(user: AdminUser) {
+    const confirmed = window.confirm(`Delete admin user ${user.email}? This cannot be undone.`)
+    if (!confirmed) return
+
+    setDeletingUserId(user.user_id)
+    setAdminUsersError(null)
+    try {
+      await adminApi.deleteAdminUser(user.user_id)
+      setAdminUsers((current) => current.filter((row) => row.user_id !== user.user_id))
+    } catch (error) {
+      setAdminUsersError(toUserErrorMessage(error, 'Failed to delete admin user.'))
+    } finally {
+      setDeletingUserId(null)
+    }
+  }
+
   const provider = inviteDraft?.provider ?? null
   const providerHint =
     provider === 'azure-openai'
@@ -403,6 +445,47 @@ function AdminPage() {
               </Link>
             ))}
           </div>
+        </section>
+
+        <section className="card admin-tools-card">
+          <h2 className="admin-section-title">Admin Users</h2>
+          <p className="page-subtitle" style={{ marginBottom: '0.9rem' }}>
+            Manage admin portal user records. Deleting here removes access metadata in the app database.
+          </p>
+
+          {adminUsersLoading && <LoadingSkeleton lines={4} compact />}
+          {adminUsersError && <p className="ui-notice ui-notice--error">{adminUsersError}</p>}
+
+          {!adminUsersLoading && !adminUsersError && (
+            <table className="members-table">
+              <thead>
+                <tr>
+                  <th>Email</th>
+                  <th>Role</th>
+                  <th>Status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {adminUsers.map((user) => (
+                  <tr key={user.user_id}>
+                    <td>{user.email}</td>
+                    <td>{user.role}</td>
+                    <td>{user.is_active ? 'active' : 'inactive'}</td>
+                    <td>
+                      <button
+                        className="btn btn--outline btn--sm"
+                        disabled={deletingUserId === user.user_id}
+                        onClick={() => void handleDeleteAdminUser(user)}
+                      >
+                        {deletingUserId === user.user_id ? 'Deleting…' : 'Delete'}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </section>
 
         <section className="card admin-tools-card">
