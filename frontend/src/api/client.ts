@@ -2,12 +2,7 @@ type TokenGetter = () => Promise<string | null>;
 
 const DEFAULT_BASE = '/api/v1';
 const rawBase = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? DEFAULT_BASE;
-const PRODUCTION_BACKEND_FALLBACK = 'https://phwalpineeventsjb873a.azurewebsites.net/api/v1';
-const shouldUseProductionFallback = import.meta.env.PROD
-  && rawBase === DEFAULT_BASE
-  && typeof window !== 'undefined'
-  && /^(phwalpineeventsfe873a\.azurewebsites\.net|app\.phwcoloradoalpine\.org)$/i.test(window.location.hostname);
-const resolvedBase = shouldUseProductionFallback ? PRODUCTION_BACKEND_FALLBACK : rawBase;
+const resolvedBase = rawBase;
 const BASE_URL = resolvedBase.endsWith('/') ? resolvedBase.slice(0, -1) : resolvedBase;
 
 let getToken: TokenGetter = async () => null;
