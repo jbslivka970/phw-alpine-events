@@ -364,6 +364,64 @@ router.patch('/users/:id', writeLimiter, async (req, res) => {
   }
 });
 
+router.delete('/users/:id', writeLimiter, async (req, res) => {
+  try {
+    const userId = (req.params.id ?? '').trim();
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(userId)) {
+      res.status(400).json({ error: 'user_id must be a valid UUID.' });
+      return;
+    }
+
+    const pool = await getPool();
+    const lookup = await pool
+      .request()
+      .input('user_id', sql.UniqueIdentifier, userId)
+      .query<{ user_id: string; role: string; email: string | null }>(
+        `SELECT user_id, role, email
+         FROM [user]
+         WHERE user_id = @user_id`
+      );
+
+    const target = lookup.recordset[0];
+    if (!target) {
+      res.status(404).json({ error: 'User not found.' });
+      return;
+    }
+
+    const currentEmail = (req.user?.email ?? '').trim().toLowerCase();
+    const targetEmail = (target.email ?? '').trim().toLowerCase();
+    if (currentEmail && targetEmail && currentEmail === targetEmail) {
+      res.status(400).json({ error: 'You cannot delete your own account.' });
+      return;
+    }
+
+    if ((target.role ?? '').toLowerCase() === 'superadmin') {
+      const superAdminCount = await pool
+        .request()
+        .query<{ total: number }>(
+          `SELECT COUNT(1) AS total
+           FROM [user]
+           WHERE role = 'superadmin' AND is_active = 1`
+        );
+
+      if ((superAdminCount.recordset[0]?.total ?? 0) <= 1) {
+        res.status(409).json({ error: 'Cannot delete the last active superadmin.' });
+        return;
+      }
+    }
+
+    await pool
+      .request()
+      .input('user_id', sql.UniqueIdentifier, userId)
+      .query('DELETE FROM [user] WHERE user_id = @user_id');
+
+    res.status(200).json({ message: 'User deleted.', user_id: userId });
+  } catch (error) {
+    console.error('DELETE /admin/users/:id failed', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 router.post('/import', writeLimiter, async (req, res) => {
   try {
     const importId = (req.body?.import_id as string | undefined)?.trim();
