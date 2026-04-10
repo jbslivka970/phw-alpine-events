@@ -4,6 +4,7 @@ import { getPool, sql } from '../db';
 import authenticate from '../middleware/auth';
 import { apiLimiter, writeLimiter } from '../middleware/rateLimiter';
 import { requireAdmin } from '../middleware/rbac';
+import { loadEntraProvisioningConfig } from '../config';
 import { generateInviteDraft } from '../services/aiInviteService';
 import { isProvisioningEnabled, sendEntraInvitation } from '../services/identityProvisioningService';
 import { notificationService } from '../services/notifications';
@@ -62,13 +63,50 @@ const MAX_INVITE_TITLE_LENGTH = 160;
 const MAX_INVITE_LOCATION_LENGTH = 200;
 const MAX_INVITE_DESCRIPTION_LENGTH = 2000;
 
+const DEFAULT_PORTAL_LOGIN_URL = 'https://app.phwcoloradoalpine.org/login';
+
+function normalizePortalLoginUrl(candidate?: string | null): string {
+  let configuredDefault = DEFAULT_PORTAL_LOGIN_URL;
+  const configuredRedirect = loadEntraProvisioningConfig().redirectUrl?.trim();
+  if (configuredRedirect) {
+    try {
+      const parsedConfigured = new URL(configuredRedirect);
+      parsedConfigured.pathname = '/login';
+      parsedConfigured.search = '';
+      parsedConfigured.hash = '';
+      configuredDefault = parsedConfigured.toString();
+    } catch {
+      configuredDefault = DEFAULT_PORTAL_LOGIN_URL;
+    }
+  }
+
+  if (!candidate?.trim()) {
+    return configuredDefault;
+  }
+
+  try {
+    const expected = new URL(configuredDefault);
+    const parsedCandidate = new URL(candidate.trim());
+    if (parsedCandidate.origin !== expected.origin) {
+      return configuredDefault;
+    }
+
+    parsedCandidate.pathname = '/login';
+    parsedCandidate.search = '';
+    parsedCandidate.hash = '';
+    return parsedCandidate.toString();
+  } catch {
+    return configuredDefault;
+  }
+}
+
 async function sendIdentityAccessEmail(input: {
   to: string;
   firstName: string;
   signInUrl: string;
 }): Promise<void> {
   const safeName = input.firstName?.trim() || 'there';
-  const safeUrl = input.signInUrl?.trim() || 'https://app.phwcoloradoalpine.org';
+  const safeUrl = normalizePortalLoginUrl(input.signInUrl);
   let signInGuideUrl = 'https://app.phwcoloradoalpine.org/onboarding/sign-in-options.png';
   try {
     signInGuideUrl = `${new URL(safeUrl).origin}/onboarding/sign-in-options.png`;
@@ -640,7 +678,7 @@ router.post('/identity/invite', writeLimiter, async (req, res) => {
     }
 
     const memberId = (req.body?.member_id as string | undefined)?.trim();
-    const redirectUrl = (req.body?.redirect_url as string | undefined)?.trim();
+    const redirectUrl = normalizePortalLoginUrl((req.body?.redirect_url as string | undefined)?.trim());
     if (!memberId) {
       res.status(400).json({ error: 'member_id is required.' });
       return;
@@ -668,7 +706,7 @@ router.post('/identity/invite', writeLimiter, async (req, res) => {
 
     const currentUser = req.user?.email ?? req.user?.sub ?? 'unknown';
     await upsertMemberIdentityInvite(member.member_id, member.email, currentUser);
-    const signInUrl = invitation.inviteRedeemUrl ?? 'https://app.phwcoloradoalpine.org';
+    const signInUrl = normalizePortalLoginUrl(invitation.inviteRedeemUrl);
     try {
       await sendIdentityAccessEmail({
         to: member.email,
@@ -690,7 +728,7 @@ router.post('/identity/invite', writeLimiter, async (req, res) => {
       graphInvitationId: invitation.id ?? null,
       invitedUserId: invitation.invitedUser?.id ?? null,
       hasRedeemUrl: Boolean(invitation.inviteRedeemUrl),
-      redirectUrlOverride: redirectUrl ?? null,
+      redirectUrlOverride: redirectUrl,
       status: 'invited',
     });
 
@@ -700,7 +738,7 @@ router.post('/identity/invite', writeLimiter, async (req, res) => {
       status: 'invited',
       invitation_id: invitation.id ?? null,
       invited_user_id: invitation.invitedUser?.id ?? null,
-      invite_redeem_url: invitation.inviteRedeemUrl ?? null,
+      invite_redeem_url: signInUrl,
     });
   } catch (error) {
     console.error('POST /admin/identity/invite failed', error);
@@ -716,7 +754,7 @@ router.post('/identity/invite/bulk', writeLimiter, async (req, res) => {
     }
 
     const memberIdsRaw = req.body?.member_ids;
-    const redirectUrl = (req.body?.redirect_url as string | undefined)?.trim();
+    const redirectUrl = normalizePortalLoginUrl((req.body?.redirect_url as string | undefined)?.trim());
     if (!Array.isArray(memberIdsRaw)) {
       res.status(400).json({ error: 'member_ids array is required.' });
       return;
@@ -760,7 +798,7 @@ router.post('/identity/invite/bulk', writeLimiter, async (req, res) => {
           redirectUrl,
         });
         await upsertMemberIdentityInvite(member.member_id, member.email, currentUser);
-        const signInUrl = invitation.inviteRedeemUrl ?? 'https://app.phwcoloradoalpine.org';
+        const signInUrl = normalizePortalLoginUrl(invitation.inviteRedeemUrl);
         try {
           await sendIdentityAccessEmail({
             to: member.email,
@@ -782,7 +820,7 @@ router.post('/identity/invite/bulk', writeLimiter, async (req, res) => {
           graphInvitationId: invitation.id ?? null,
           invitedUserId: invitation.invitedUser?.id ?? null,
           hasRedeemUrl: Boolean(invitation.inviteRedeemUrl),
-          redirectUrlOverride: redirectUrl ?? null,
+          redirectUrlOverride: redirectUrl,
           status: 'invited',
         });
         results.push({ member_id: member.member_id, status: 'invited' });
