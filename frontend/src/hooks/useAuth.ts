@@ -74,7 +74,10 @@ function useAuth() {
 
         if (!cancelled) {
           const refreshedClaims = tokenResponse.idTokenClaims as Record<string, unknown> | undefined
-          setResolvedRoles(mapRoles(refreshedClaims))
+          setResolvedRoles(mergeRoles(
+            mapRoles(refreshedClaims),
+            mapRoles(decodeJwtPayload(tokenResponse.accessToken)),
+          ))
         }
       } catch {
         // Keep previously derived roles if forced refresh is unavailable.
@@ -283,6 +286,11 @@ function useAuth() {
             }
           }
 
+          setResolvedRoles((current) => mergeRoles(
+            current,
+            mapRoles(decodeJwtPayload(tokenResponse.accessToken)),
+          ))
+
           return tokenResponse.accessToken
         } catch (error: unknown) {
           if (!isInteractionRequired(error)) {
@@ -358,6 +366,11 @@ function useAuth() {
                   expiresAtMs: tokenResponse.expiresOn.getTime(),
                 }
               }
+
+              setResolvedRoles((current) => mergeRoles(
+                current,
+                mapRoles(decodeJwtPayload(tokenResponse.accessToken)),
+              ))
 
               tokenInteractiveInFlightRef.current = false
               return tokenResponse.accessToken
@@ -493,6 +506,43 @@ function mapRoles(claims: Record<string, unknown> | undefined): AppRole[] {
     .map(normalizeRole)
     .filter((role): role is AppRole => Boolean(role))
     .filter((role, index, all) => all.indexOf(role) === index)
+}
+
+function mergeRoles(...roleSets: AppRole[][]): AppRole[] {
+  const merged: AppRole[] = []
+  for (const roles of roleSets) {
+    for (const role of roles) {
+      if (!merged.includes(role)) {
+        merged.push(role)
+      }
+    }
+  }
+  return merged
+}
+
+function decodeJwtPayload(token: string | undefined): Record<string, unknown> | undefined {
+  if (!token) {
+    return undefined
+  }
+
+  const parts = token.split('.')
+  if (parts.length < 2) {
+    return undefined
+  }
+
+  const payloadPart = parts[1]
+  if (!payloadPart) {
+    return undefined
+  }
+
+  try {
+    const base64 = payloadPart.replace(/-/g, '+').replace(/_/g, '/')
+    const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4)
+    const decoded = atob(padded)
+    return JSON.parse(decoded) as Record<string, unknown>
+  } catch {
+    return undefined
+  }
 }
 
 function normalizeRole(value: string): AppRole | null {
