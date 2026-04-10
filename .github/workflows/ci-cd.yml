@@ -168,18 +168,41 @@ jobs:
           break
         done
 
-        RESPONSE_HEADERS=$(mktemp)
-        curl -fsS -u "$KUDU_USER:$KUDU_PASS" \
-          -X POST "$SCM_URL/api/zipdeploy?isAsync=true" \
-          --data-binary @release.zip \
-          -D "$RESPONSE_HEADERS" \
-          -o /dev/null
+        STATUS_URL=""
+        for attempt in $(seq 1 20); do
+          RESPONSE_HEADERS=$(mktemp)
+          RESPONSE_BODY=$(mktemp)
 
-        STATUS_URL=$(awk 'BEGIN{IGNORECASE=1} /^Location:/ {gsub("\r","",$2); print $2}' "$RESPONSE_HEADERS" | tail -n 1)
-        rm -f "$RESPONSE_HEADERS"
+          HTTP_CODE=$(curl -sS -u "$KUDU_USER:$KUDU_PASS" \
+            -X POST "$SCM_URL/api/zipdeploy?isAsync=true" \
+            --data-binary @release.zip \
+            -D "$RESPONSE_HEADERS" \
+            -o "$RESPONSE_BODY" \
+            -w "%{http_code}" || printf "000")
+
+          if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "202" ]; then
+            STATUS_URL=$(awk 'BEGIN{IGNORECASE=1} /^Location:/ {gsub("\r","",$2); print $2}' "$RESPONSE_HEADERS" | tail -n 1)
+            rm -f "$RESPONSE_HEADERS" "$RESPONSE_BODY"
+            break
+          fi
+
+          if [ "$HTTP_CODE" = "409" ]; then
+            echo "zipdeploy conflict (HTTP 409), waiting before retry... ($attempt/20)"
+            rm -f "$RESPONSE_HEADERS" "$RESPONSE_BODY"
+            sleep 15
+            continue
+          fi
+
+          echo "zipdeploy request failed with HTTP $HTTP_CODE"
+          echo "Response body:"
+          cat "$RESPONSE_BODY"
+          rm -f "$RESPONSE_HEADERS" "$RESPONSE_BODY"
+          exit 1
+        done
 
         if [ -z "$STATUS_URL" ]; then
-          STATUS_URL="$SCM_URL/api/deployments/latest"
+          echo "zipdeploy did not return a status URL after retries"
+          exit 1
         fi
 
         echo "Polling deployment status from: $STATUS_URL"
