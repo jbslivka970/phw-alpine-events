@@ -80,6 +80,7 @@ function LoginPage() {
           )}
           {loginError && <p className="events-error" role="alert">{loginError}</p>}
           <div className="login-card__links">
+            <Link to="/welcome?entry=signin&next=%2Flogin">First-time help</Link>
             <Link to="/privacy">Privacy Policy</Link>
             <Link to="/terms">Terms</Link>
             <Link to="/sms-program">SMS Program</Link>

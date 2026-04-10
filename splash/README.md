@@ -82,3 +82,4 @@ CI smoke job:
 ## Future extension pattern
 
 As the splash site grows, keep assets and pages in this folder and continue shipping independently from backend/frontend app pipelines.
+I 

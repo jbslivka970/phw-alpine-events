@@ -1565,3 +1565,14 @@
     grid-template-columns: 1fr !important;
   }
 }
+
+.onboarding-page__single-column {
+  width: min(540px, 100%);
+}
+
+.onboarding-card__actions {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}

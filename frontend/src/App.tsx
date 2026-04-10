@@ -12,6 +12,7 @@ const GroupsPage = lazy(() => import('./pages/GroupsPage').then((module) => ({ d
 const DashboardPage = lazy(() => import('./pages/DashboardPage'))
 const EventsPage = lazy(() => import('./pages/EventsPage').then((module) => ({ default: module.EventsPage })))
 const EventAssignmentPage = lazy(() => import('./pages/EventAssignmentPage').then((module) => ({ default: module.EventAssignmentPage })))
+const FirstTimeOnboardingPage = lazy(() => import('./pages/FirstTimeOnboardingPage').then((module) => ({ default: module.FirstTimeOnboardingPage })))
 const LoginPage = lazy(() => import('./pages/LoginPage').then((module) => ({ default: module.LoginPage })))
 const ImportPage = lazy(() => import('./pages/ImportPage').then((module) => ({ default: module.ImportPage })))
 const MembersPage = lazy(() => import('./pages/MembersPage').then((module) => ({ default: module.MembersPage })))
@@ -40,6 +41,7 @@ function App() {
       <Suspense fallback={<RouteFallback />}>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
+          <Route path="/welcome" element={<FirstTimeOnboardingPage />} />
           <Route path="/privacy" element={<PrivacyPolicyPage />} />
           <Route path="/terms" element={<TermsPage />} />
           <Route path="/sms-program" element={<SmsProgramPage />} />

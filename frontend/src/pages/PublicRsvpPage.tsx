@@ -182,6 +182,7 @@ function PublicRsvpPage() {
         )}
 
         <div className="login-card__links">
+          <Link to="/welcome?entry=rsvp&next=%2Flogin">First-time help</Link>
           <Link to="/login">Sign in</Link>
           <Link to="/privacy">Privacy Policy</Link>
           <Link to="/terms">Terms</Link>

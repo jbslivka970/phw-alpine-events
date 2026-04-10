@@ -2,7 +2,15 @@
 
 Date: 2026-03-20
 Owner: Product + Engineering
-Status: Active launch plan
+Status: Reconciled on 2026-04-09 (historical plan + current-state alignment)
+
+## 0) Reconciliation Update (2026-04-09)
+
+This file was originally authored as a forward-looking launch plan. The status table below is now reconciled to current implementation state.
+
+For a consolidated view of remaining feature gaps vs ops/system/test-depth gaps, see:
+- `docs/feature-gap-inventory-20260409.md`
+- `docs/prd-v1_2-full-compare-20260401.md`
 
 ## 1) Purpose
 
@@ -22,11 +30,9 @@ Completed and stable enough to build on:
 - TAVF posting/application/match flows plus expiry job
 - Calendar and reports pages, including delivery breakdown
 
-Still required for full launch:
-- Inbound SMS compliance path in production (Event Grid + inbound handler)
-- Reminder automation and idempotency
-- Functional email unsubscribe workflow
-- Remaining PRD feature and operational gaps listed below
+Still required for final sign-off:
+- Operational governance and evidence cadence items
+- Remaining quality hardening and optional polish items
 
 ## 3) Launch Definition
 
@@ -45,23 +51,23 @@ Legend:
 
 | ID | Priority | Work Item | Stage | Status | PRD References | Proposed PR |
 |---|---|---|---|---|---|---|
-| LR-01 | P0 | Inbound SMS path: STOP/HELP/RSVP through ACS Event Grid into app | Build | In Progress | 4.3, 6.3.3, US-MM-08, US-EM-05, T-IF-05, T-MEM-10, T-EVT-07 | PR-33 |
-| LR-02 | P0 | Production SMS compliance smoke suite and alerts | Validate | In Progress | 4.3, 11.x | PR-33a |
-| LR-03 | P0 | Automated reminders with idempotent send markers | Build | In Progress | 6.3.4, US-EM-06, US-EM-07, T-EVT-09 | PR-34 |
-| LR-04 | P0 | Tokenized one-click RSVP from email (no login required) | Build | In Progress | 6.3.3, US-EM-04, T-EVT-08 | PR-35 |
-| LR-05 | P0 | Email unsubscribe link and enforcement workflow | Build | In Progress | 4.4 | PR-36 |
-| LR-06 | P1 | Event update notifications with changed-field summary | Build | In Progress | 6.3.7, US-EM-16, T-EVT-14 | PR-37 |
-| LR-07 | P1 | Waitlist auto-promotion lifecycle and expiry handling | Build | In Progress | 6.7, US-EM-18, T-EVT-18 | PR-38 |
-| LR-08 | P1 | Notification template admin CRUD UI | Build | In Progress | 6.3.6, US-EM-13, T-EVT-16 | PR-41 |
-| LR-09 | P1 | Regional admin To-line configuration for email dispatch | Build | In Progress | 6.3.2, 13 decision item | PR-43 |
-| LR-10 | P1 | Channel preferences model: email_only, sms_only, both | Build | In Progress | 10.4, GAP-14 | PR-44 |
-| LR-11 | P1 | Complete notification service unit tests (email/sms/truncation) | Validate | In Progress | 14.1 PR31 follow-up, GAP-13 | PR-32 |
-| LR-12 | P1 | Application Insights wiring and alert baselines | Operate | In Progress | 4.1, 11.x, Open Question 17 | PR-45 |
-| LR-13 | P1 | Key Vault migration plan for sensitive app settings | Operate | In Progress | 4.1, GAP-19 | PR-46 |
-| LR-14 | P2 | ICS download from event detail and calendar context | Build | In Progress | 6.5, US-CR-07, T-CAL-08 | PR-42 |
-| LR-15 | P2 | Delivery report UX polish (filters/export/trends) | Build | In Progress | 6.6, US-CR-06, T-CAL-07 | PR-42b |
-| LR-16 | P2 | AI invite generation | Build | In Progress | 6.3.6, US-EM-12, T-EVT-15 | PR-39 |
-| LR-17 | P2 | AI equity recommendations for assignment | Build | In Progress | 6.3.5, US-EM-09, T-EVT-11 | PR-40 |
+| LR-01 | P0 | Inbound SMS path: STOP/HELP/RSVP through ACS Event Grid into app | Build | Complete | 4.3, 6.3.3, US-MM-08, US-EM-05, T-IF-05, T-MEM-10, T-EVT-07 | PR-33 |
+| LR-02 | P0 | Production SMS compliance smoke suite and alerts | Validate | Complete (ongoing evidence cadence) | 4.3, 11.x | PR-33a |
+| LR-03 | P0 | Automated reminders with idempotent send markers | Build | Complete | 6.3.4, US-EM-06, US-EM-07, T-EVT-09 | PR-34 |
+| LR-04 | P0 | Tokenized one-click RSVP from email (no login required) | Build | Complete | 6.3.3, US-EM-04, T-EVT-08 | PR-35 |
+| LR-05 | P0 | Email unsubscribe link and enforcement workflow | Build | Complete | 4.4 | PR-36 |
+| LR-06 | P1 | Event update notifications with changed-field summary | Build | Complete | 6.3.7, US-EM-16, T-EVT-14 | PR-37 |
+| LR-07 | P1 | Waitlist auto-promotion lifecycle and expiry handling | Build | Complete | 6.7, US-EM-18, T-EVT-18 | PR-38 |
+| LR-08 | P1 | Notification template admin CRUD UI | Build | Complete | 6.3.6, US-EM-13, T-EVT-16 | PR-41 |
+| LR-09 | P1 | Regional admin To-line configuration for email dispatch | Build | Complete | 6.3.2, 13 decision item | PR-43 |
+| LR-10 | P1 | Channel preferences model: email_only, sms_only, both | Build | Complete | 10.4, GAP-14 | PR-44 |
+| LR-11 | P1 | Complete notification service unit tests (email/sms/truncation) | Validate | Partial (branch-depth hardening pending) | 14.1 PR31 follow-up, GAP-13 | PR-32 |
+| LR-12 | P1 | Application Insights wiring and alert baselines | Operate | Partial (baseline in place, policy verification ongoing) | 4.1, 11.x, Open Question 17 | PR-45 |
+| LR-13 | P1 | Key Vault migration plan for sensitive app settings | Operate | Planned (migration rollout pending) | 4.1, GAP-19 | PR-46 |
+| LR-14 | P2 | ICS download from event detail and calendar context | Build | Complete | 6.5, US-CR-07, T-CAL-08 | PR-42 |
+| LR-15 | P2 | Delivery report UX polish (filters/export/trends) | Build | Partial (baseline complete, optional polish open) | 6.6, US-CR-06, T-CAL-07 | PR-42b |
+| LR-16 | P2 | AI invite generation | Build | Complete | 6.3.6, US-EM-12, T-EVT-15 | PR-39 |
+| LR-17 | P2 | AI equity recommendations for assignment | Build | Complete | 6.3.5, US-EM-09, T-EVT-11 | PR-40 |
 
 ## 5) Recommended Delivery Order
 
