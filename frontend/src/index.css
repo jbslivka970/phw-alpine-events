@@ -923,14 +923,6 @@ textarea {
   font-weight: 600;
 }
 
-/* Status transition buttons */
-.btn--status-published { border-color: #16a34a; color: #16a34a; }
-.btn--status-published:hover { background: #f0fdf4; }
-.btn--status-completed { border-color: #7c3aed; color: #7c3aed; }
-.btn--status-completed:hover { background: #f5f3ff; }
-.btn--status-cancelled { border-color: #dc2626; color: #dc2626; }
-.btn--status-cancelled:hover { background: #fef2f2; }
-
 /* RSVP panel */
 .rsvp-panel {
   margin-top: 1rem;
