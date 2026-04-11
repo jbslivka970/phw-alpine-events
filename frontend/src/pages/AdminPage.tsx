@@ -421,7 +421,7 @@ function AdminPage() {
   return (
     <div className="page">
       <h1 className="page-title">Admin</h1>
-      <p className="page-subtitle">Chapter system health, configuration status, and administration overview.</p>
+      <p className="page-subtitle">Program system health, configuration status, and administration overview.</p>
 
       <div className="admin-grid">
 
@@ -449,9 +449,9 @@ function AdminPage() {
           </div>
         </section>
 
-        {/* Chapter Stats */}
+        {/* Program Stats */}
         <section className="card admin-stats-card">
-          <h2 className="admin-section-title">Chapter at a Glance</h2>
+          <h2 className="admin-section-title">Program at a Glance</h2>
           {statsLoading ? (
             <div className="phw-skeleton-grid">
               <LoadingSkeleton lines={2} compact />

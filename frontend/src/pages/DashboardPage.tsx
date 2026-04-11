@@ -37,7 +37,7 @@ const GALLERY_PHOTOS = [
   '/PHW Photos/IMG_7247.JPG',
   '/PHW Photos/IMG_7251.JPG',
   '/PHW Photos/IMG_7264.JPG',
-  '/PHW Photos/IMG_7266.JPG',
+  '/PHW Photos/PHW-Hartsel25-1247.jpg',
 ];
 
 const ONBOARDING_KEY_PREFIX = 'phw-onboarding-dismissed';
@@ -53,7 +53,7 @@ function HeroBanner({ userName }: { userName?: string }) {
       />
       <div className="phw-hero__overlay" />
       <div className="phw-hero__content">
-        <p className="phw-hero__eyebrow">Colorado Alpine Chapter</p>
+        <p className="phw-hero__eyebrow">Colorado Alpine Program</p>
         <h1 className="phw-hero__title">
           Welcome back{userName ? `, ${userName}` : ''}
         </h1>
@@ -124,10 +124,6 @@ function DashboardPage() {
 
   const now = useMemo(() => new Date(), []);
 
-  function isUuid(value: string): boolean {
-    return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
-  }
-
   useEffect(() => {
     let active = true;
 
@@ -154,38 +150,20 @@ function DashboardPage() {
           upcomingEvents: next.length,
         }));
 
-        let resolvedMemberId: string | null = null;
-        if (user?.email) {
-          try {
-            const memberList = await membersApi.list({ page: 1, pageSize: 10, search: user.email });
-            const normalizedEmail = user.email.trim().toLowerCase();
-            resolvedMemberId = memberList.data.find((candidate) => candidate.email.trim().toLowerCase() === normalizedEmail)?.member_id ?? null;
-          } catch {
-            resolvedMemberId = null;
+        try {
+          const responses = await membersApi.myRsvps();
+          if (active) {
+            setMyRsvps(
+              responses.slice(0, 4).map((row) => ({
+                event_id: row.event_id,
+                title: row.title,
+                event_date: row.event_date,
+                response: row.response,
+              }))
+            );
           }
-        }
-        if (!resolvedMemberId && user?.id && isUuid(user.id)) {
-          resolvedMemberId = user.id;
-        }
-
-        if (resolvedMemberId) {
-          try {
-            const responses = await membersApi.rsvps(resolvedMemberId);
-            if (active) {
-              setMyRsvps(
-                responses.slice(0, 4).map((row) => ({
-                  event_id: row.event_id,
-                  title: row.title,
-                  event_date: row.event_date,
-                  response: row.response,
-                }))
-              );
-            }
-          } catch {
-            if (active) setMyRsvps([]);
-          }
-        } else if (active) {
-          setMyRsvps([]);
+        } catch {
+          if (active) setMyRsvps([]);
         }
 
         try {

@@ -72,6 +72,16 @@ const membersApi = {
     location: string | null;
     status: string;
   }>>(`/members/${id}/rsvps`),
+  myRsvps: () => apiGet<Array<{
+    response_id: string;
+    response: 'yes' | 'no' | 'maybe' | 'waitlist';
+    responded_at: string;
+    event_id: string;
+    title: string;
+    event_date: string;
+    location: string | null;
+    status: string;
+  }>>('/members/me/rsvps'),
   remove: (id: string) => apiDelete<{ message: string; member: MemberRecord }>(`/members/${id}`),
 };
 

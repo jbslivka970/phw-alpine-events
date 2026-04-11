@@ -17,6 +17,7 @@ vi.mock('../../api/members', () => ({
   membersApi: {
     list: vi.fn(),
     rsvps: vi.fn(),
+    myRsvps: vi.fn(),
   },
 }));
 
@@ -37,6 +38,7 @@ const mockedEventsApi = eventsApi as unknown as {
 const mockedMembersApi = membersApi as unknown as {
   list: ReturnType<typeof vi.fn>;
   rsvps: ReturnType<typeof vi.fn>;
+  myRsvps: ReturnType<typeof vi.fn>;
 };
 
 const mockedTavfApi = tavfApi as unknown as {
@@ -97,21 +99,17 @@ describe('DashboardPage regression coverage', () => {
       pageSize: 10,
     });
 
-    mockedMembersApi.rsvps.mockResolvedValue([]);
+    mockedMembersApi.myRsvps.mockResolvedValue([]);
     mockedTavfApi.listPostings.mockResolvedValue([]);
   });
 
-  it('resolves member by email and loads rsvps by member_id UUID', async () => {
+  it('loads my RSVPs using the authenticated self endpoint', async () => {
     renderPage();
 
     await screen.findByRole('heading', { name: /upcoming events/i });
 
     await waitFor(() => {
-      expect(mockedMembersApi.list).toHaveBeenCalledWith(
-        expect.objectContaining({ search: 'member@example.org' })
-      );
-      expect(mockedMembersApi.rsvps).toHaveBeenCalledWith('11111111-1111-4111-8111-111111111111');
-      expect(mockedMembersApi.rsvps).not.toHaveBeenCalledWith('auth-subject-id-not-uuid');
+      expect(mockedMembersApi.myRsvps).toHaveBeenCalled();
     });
   });
 });

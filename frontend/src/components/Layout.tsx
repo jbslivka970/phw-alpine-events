@@ -59,7 +59,7 @@ export default function Layout() {
             />
             <div className="phw-layout__brand-text">
               <div className="phw-layout__brand-title">Alpine Events</div>
-              <div className="phw-layout__brand-subtitle">Colorado Chapter</div>
+              <div className="phw-layout__brand-subtitle">Colorado Alpine Program</div>
             </div>
           </Link>
 
@@ -125,7 +125,7 @@ export default function Layout() {
               Healing America's veterans through the therapeutic art of fly fishing
             </p>
             <p className="phw-footer__credit">
-              &copy; {new Date().getFullYear()} Colorado Alpine Chapter
+              &copy; {new Date().getFullYear()} Colorado Alpine Program
             </p>
             <p className="phw-footer__accessibility">
               Accessibility notice: PHW Alpine Events aims to conform to WCAG 2.1 AA. If you need assistance accessing any feature, email{' '}

@@ -58,7 +58,7 @@ function LoginPage() {
             }}
           />
           <h1 className="login-card__title">Alpine Events</h1>
-          <p className="login-card__subtitle">Colorado Chapter</p>
+          <p className="login-card__subtitle">Colorado Alpine Program</p>
           <p className="login-card__desc">
             Sign in with your chapter identity provider to manage events, RSVPs, and the Take a Vet Fishing program.
           </p>

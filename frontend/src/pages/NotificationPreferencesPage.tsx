@@ -94,7 +94,7 @@ function NotificationPreferencesPage() {
     <div className="page">
       <h1 className="page__title">Notification Preferences</h1>
       <p className="page__subtitle">
-        Manage how Project Healing Waters Colorado Alpine Chapter contacts you about events.
+        Manage how Project Healing Waters Colorado Alpine Program contacts you about events.
       </p>
 
       <div className="card-grid">

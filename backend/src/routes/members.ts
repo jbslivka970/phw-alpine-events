@@ -297,7 +297,7 @@ router.get('/:id/participation', apiLimiter, authenticate, async (req, res, next
   }
 });
 
-router.get('/:id/rsvps', apiLimiter, authenticate, async (req, res, next) => {
+router.get('/:id([0-9a-fA-F-]{36})/rsvps', apiLimiter, authenticate, async (req, res, next) => {
   try {
     const memberId = req.params.id;
     const pool = await getPool();
@@ -321,6 +321,40 @@ router.get('/:id/rsvps', apiLimiter, authenticate, async (req, res, next) => {
       return;
     }
 
+    const result = await pool
+      .request()
+      .input('member_id', sql.UniqueIdentifier, memberId)
+      .query(
+        `SELECT
+            er.response_id,
+            er.response,
+            er.responded_at,
+            e.event_id,
+            e.title,
+            e.event_date,
+            e.location,
+            e.status
+         FROM event_response er
+         INNER JOIN event e ON e.event_id = er.event_id
+         WHERE er.member_id = @member_id
+         ORDER BY e.event_date ASC`
+      );
+
+    res.json(result.recordset);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/me/rsvps', apiLimiter, authenticate, async (req, res, next) => {
+  try {
+    const memberId = await resolveSelfMemberId(req.user?.sub, req.user?.email);
+    if (!memberId) {
+      res.json([]);
+      return;
+    }
+
+    const pool = await getPool();
     const result = await pool
       .request()
       .input('member_id', sql.UniqueIdentifier, memberId)
@@ -414,6 +448,43 @@ function isSelfMember(req: { user?: { sub?: string; email?: string } }, memberId
   }
 
   return req.user.email.trim().toLowerCase() === memberEmail.trim().toLowerCase();
+}
+
+async function resolveSelfMemberId(subject: string | undefined, email: string | undefined): Promise<string | null> {
+  const pool = await getPool();
+
+  if (email?.trim()) {
+    const normalizedEmail = email.trim().toLowerCase();
+    const byEmail = await pool
+      .request()
+      .input('email', sql.NVarChar(320), normalizedEmail)
+      .query<{ member_id: string }>(
+        `SELECT TOP 1 member_id
+         FROM member
+         WHERE LOWER(email) = @email
+         ORDER BY is_active DESC, updated_at DESC`
+      );
+
+    const memberId = byEmail.recordset[0]?.member_id;
+    if (memberId) {
+      return memberId;
+    }
+  }
+
+  if (subject && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(subject)) {
+    const byId = await pool
+      .request()
+      .input('member_id', sql.UniqueIdentifier, subject)
+      .query<{ member_id: string }>(
+        `SELECT member_id
+         FROM member
+         WHERE member_id = @member_id`
+      );
+
+    return byId.recordset[0]?.member_id ?? null;
+  }
+
+  return null;
 }
 
 export default router;

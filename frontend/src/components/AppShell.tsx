@@ -70,7 +70,7 @@ function AppShell() {
       </main>
 
       <footer className="app-footer">
-        <p>🎣 Project Healing Waters — Colorado Alpine Chapter</p>
+        <p>🎣 Project Healing Waters — Colorado Alpine Program</p>
       </footer>
     </div>
   )
