@@ -948,6 +948,10 @@ function EventsPage() {
   // RSVP panel
   const [rsvpEventId, setRsvpEventId] = useState<string | null>(null)
 
+  // edit form — pre-fetched notification-target group IDs
+  const [editInitialTargets, setEditInitialTargets] = useState<string[]>([])
+  const [editOpenLoading, setEditOpenLoading] = useState(false)
+
   // status transition in-flight
   const [transitioning, setTransitioning] = useState<string | null>(null)
   const [reportEmailingEventId, setReportEmailingEventId] = useState<string | null>(null)
@@ -1072,16 +1076,29 @@ function EventsPage() {
     setShowForm(true)
   }
 
-  function openEdit(event: EventRecord) {
-    setEditTarget(event)
+  async function openEdit(event: EventRecord) {
+    setEditOpenLoading(true)
     setFormError(null)
-    setShowForm(true)
+    try {
+      const detail = await eventsApi.get(event.event_id)
+      const groupIds = (detail.notification_targets as Array<{ group_id?: string }> ?? [])
+        .map(t => t.group_id)
+        .filter((id): id is string => typeof id === 'string')
+      setEditInitialTargets(groupIds)
+      setEditTarget(event)
+      setShowForm(true)
+    } catch (e: unknown) {
+      setFormError(toUserErrorMessage(e, 'Failed to load event details.'))
+    } finally {
+      setEditOpenLoading(false)
+    }
   }
 
   function closeForm() {
     setShowForm(false)
     setEditTarget(null)
     setFormError(null)
+    setEditInitialTargets([])
   }
 
   async function downloadIcs(event: EventRecord) {
@@ -1329,8 +1346,12 @@ function EventsPage() {
                   )}
 
                   {canEdit && (
-                    <button className="btn btn--outline btn--sm" onClick={() => openEdit(event)}>
-                      Edit
+                    <button
+                      className="btn btn--outline btn--sm"
+                      onClick={() => void openEdit(event)}
+                      disabled={editOpenLoading}
+                    >
+                      {editOpenLoading ? 'Loading…' : 'Edit'}
                     </button>
                   )}
 
@@ -1379,7 +1400,7 @@ function EventsPage() {
       {/* Create / Edit form modal */}
       {showForm && (
         <EventFormModal
-          initial={editTarget ? payloadFromRecord(editTarget) : EMPTY_FORM}
+          initial={editTarget ? { ...payloadFromRecord(editTarget), notification_targets: editInitialTargets } : EMPTY_FORM}
           groups={groups}
           onSave={handleSave}
           onGenerateAiDraftPreview={generateAiDraftPreview}

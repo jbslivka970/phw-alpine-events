@@ -138,7 +138,7 @@ function useAuth() {
   }
 
   function canCreateTavfPostings(): boolean {
-    return Boolean(user) && !isAdmin()
+    return Boolean(user) && (!isAdmin() || hasRole(ROLES.TAVF_CREATOR))
   }
 
   const interactionBusy = inProgress !== InteractionStatus.None
@@ -585,6 +585,10 @@ function normalizeRole(value: string): AppRole | null {
 
   if (['MEMBER', 'PARTICIPANT', 'READER'].includes(normalized)) {
     return ROLES.USER
+  }
+
+  if (['TAVFCREATOR', 'TAVF_GUIDE', 'GUIDE'].includes(normalized)) {
+    return ROLES.TAVF_CREATOR
   }
 
   return null

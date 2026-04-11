@@ -4,7 +4,7 @@ import jwksRsa, { JwksClient } from 'jwks-rsa';
 import { loadAuthConfig } from '../config';
 import { getPool, sql } from '../db';
 
-type AppRole = 'ADMIN' | 'EVENT_CREATOR' | 'USER';
+type AppRole = 'ADMIN' | 'EVENT_CREATOR' | 'USER' | 'TAVF_CREATOR';
 
 interface AuthenticatedUser {
   sub: string;
@@ -163,6 +163,10 @@ function extractRoles(claims: JwtPayload): AppRole[] {
 
     if (['MEMBER', 'PARTICIPANT', 'READER'].includes(normalized)) {
       return 'USER';
+    }
+
+    if (['TAVFCREATOR', 'TAVF_GUIDE', 'GUIDE'].includes(normalized)) {
+      return 'TAVF_CREATOR';
     }
 
     return null;

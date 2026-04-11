@@ -88,6 +88,7 @@ const ROLES = {
   ADMIN: 'ADMIN',
   EVENT_CREATOR: 'EVENT_CREATOR',
   USER: 'USER',
+  TAVF_CREATOR: 'TAVF_CREATOR',
 } as const
 
 type AppRole = (typeof ROLES)[keyof typeof ROLES]

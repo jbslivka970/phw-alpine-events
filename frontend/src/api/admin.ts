@@ -121,6 +121,24 @@ interface AdminUsersResponse {
   pageSize: number;
 }
 
+interface AppRoleAvailable {
+  id: string;
+  value: string;
+  displayName: string;
+}
+
+interface UserRoleAssignment {
+  assignmentId: string;
+  userObjectId: string;
+  appRoleId: string;
+  roleName: string;
+}
+
+interface UserRoleAssignmentsResponse {
+  email: string;
+  assignments: UserRoleAssignment[];
+}
+
 const adminApi = {
   generateInviteDraft: (payload: InviteDraftRequest) =>
     apiPost<InviteDraftResponse>('/admin/ai/invite-draft', payload),
@@ -169,6 +187,14 @@ const adminApi = {
   },
   deleteAdminUser: (userId: string) =>
     apiDelete<{ message: string; user_id: string }>(`/admin/users/${userId}`),
+  listAvailableAppRoles: () =>
+    apiGet<{ roles: AppRoleAvailable[] }>('/admin/app-roles/available'),
+  getUserRoleAssignments: (email: string) =>
+    apiGet<UserRoleAssignmentsResponse>(`/admin/app-roles/users?email=${encodeURIComponent(email)}`),
+  assignAppRole: (email: string, role: string) =>
+    apiPost<UserRoleAssignment>('/admin/app-roles/assign', { email, role }),
+  removeAppRole: (assignmentId: string) =>
+    apiDelete<{ message: string }>(`/admin/app-roles/assignments/${assignmentId}`),
 };
 
 export { adminApi };
@@ -186,4 +212,7 @@ export type {
   SupportEmailRelayConfig,
   AdminUser,
   AdminUsersResponse,
+  AppRoleAvailable,
+  UserRoleAssignment,
+  UserRoleAssignmentsResponse,
 };

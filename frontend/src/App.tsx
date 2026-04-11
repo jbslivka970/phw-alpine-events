@@ -71,7 +71,7 @@ function App() {
             <Route
               path="/tavf/new"
               element={
-                <ProtectedRoute disallowedRoles={[ROLES.ADMIN]}>
+                <ProtectedRoute requiredRoles={[ROLES.TAVF_CREATOR, ROLES.USER, ROLES.EVENT_CREATOR]}>
                   <TavfNewPage />
                 </ProtectedRoute>
               }

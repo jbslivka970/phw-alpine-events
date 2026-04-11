@@ -7,6 +7,13 @@ import { requireAdmin } from '../middleware/rbac';
 import { loadEntraProvisioningConfig } from '../config';
 import { generateInviteDraft } from '../services/aiInviteService';
 import { isProvisioningEnabled, sendEntraInvitation } from '../services/identityProvisioningService';
+import {
+  assignAppRole,
+  getUserRoleAssignments,
+  isGraphRoleManagementConfigured,
+  listAvailableAppRoles,
+  removeAppRole,
+} from '../services/graphRoleService';
 import { notificationService } from '../services/notifications';
 import { runRetentionJob } from '../jobs/retentionJob';
 
@@ -419,6 +426,81 @@ router.delete('/users/:id', writeLimiter, async (req, res) => {
   } catch (error) {
     console.error('DELETE /admin/users/:id failed', error);
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ── App-role management (Microsoft Graph) ────────────────────────────────────
+
+router.get('/app-roles/available', apiLimiter, authenticate, requireAdmin, async (_req, res) => {
+  try {
+    if (!isGraphRoleManagementConfigured()) {
+      res.status(503).json({ error: 'Graph role management is not configured. Set ENTRA_PROVISIONING_CLIENT_ID and ENTRA_PROVISIONING_CLIENT_SECRET.' });
+      return;
+    }
+    const roles = await listAvailableAppRoles();
+    res.json({ roles });
+  } catch (error) {
+    console.error('GET /admin/app-roles/available failed', error);
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Internal server error' });
+  }
+});
+
+router.get('/app-roles/users', apiLimiter, authenticate, requireAdmin, async (req, res) => {
+  try {
+    const email = (req.query.email as string | undefined)?.trim().toLowerCase();
+    if (!email) {
+      res.status(400).json({ error: 'email query parameter is required' });
+      return;
+    }
+    if (!isGraphRoleManagementConfigured()) {
+      res.status(503).json({ error: 'Graph role management is not configured.' });
+      return;
+    }
+    const assignments = await getUserRoleAssignments(email);
+    res.json({ email, assignments });
+  } catch (error) {
+    console.error('GET /admin/app-roles/users failed', error);
+    res.status(error instanceof Error && error.message.includes('No Entra user') ? 404 : 500)
+      .json({ error: error instanceof Error ? error.message : 'Internal server error' });
+  }
+});
+
+router.post('/app-roles/assign', writeLimiter, authenticate, requireAdmin, async (req, res) => {
+  try {
+    const email = (req.body?.email as string | undefined)?.trim().toLowerCase();
+    const role  = (req.body?.role as string | undefined)?.trim().toUpperCase();
+    if (!email || !role) {
+      res.status(400).json({ error: 'email and role are required' });
+      return;
+    }
+    if (!isGraphRoleManagementConfigured()) {
+      res.status(503).json({ error: 'Graph role management is not configured.' });
+      return;
+    }
+    const assignment = await assignAppRole(email, role);
+    res.status(201).json(assignment);
+  } catch (error) {
+    console.error('POST /admin/app-roles/assign failed', error);
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Internal server error' });
+  }
+});
+
+router.delete('/app-roles/assignments/:assignmentId', writeLimiter, authenticate, requireAdmin, async (req, res) => {
+  try {
+    const { assignmentId } = req.params;
+    if (!assignmentId?.trim()) {
+      res.status(400).json({ error: 'assignmentId is required' });
+      return;
+    }
+    if (!isGraphRoleManagementConfigured()) {
+      res.status(503).json({ error: 'Graph role management is not configured.' });
+      return;
+    }
+    await removeAppRole(assignmentId);
+    res.json({ message: 'Role assignment removed.' });
+  } catch (error) {
+    console.error('DELETE /admin/app-roles/assignments/:assignmentId failed', error);
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Internal server error' });
   }
 });
 

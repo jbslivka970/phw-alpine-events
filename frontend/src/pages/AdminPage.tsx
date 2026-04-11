@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { adminApi } from '../api/admin'
-import type { AdminUser } from '../api/admin'
+import type { AdminUser, AppRoleAvailable, UserRoleAssignment, UserRoleAssignmentsResponse } from '../api/admin'
 import { eventsApi } from '../api/events'
 import { groupsApi } from '../api/groups'
 import { membersApi } from '../api/members'
@@ -77,6 +77,15 @@ function AdminPage() {
   const [adminUsersLoading, setAdminUsersLoading] = useState(true)
   const [adminUsersError, setAdminUsersError] = useState<string | null>(null)
   const [deletingUserId, setDeletingUserId] = useState<string | null>(null)
+  const [roleEmail, setRoleEmail] = useState('')
+  const [roleLookupBusy, setRoleLookupBusy] = useState(false)
+  const [roleLookupError, setRoleLookupError] = useState<string | null>(null)
+  const [roleLookupResult, setRoleLookupResult] = useState<UserRoleAssignmentsResponse | null>(null)
+  const [availableRoles, setAvailableRoles] = useState<AppRoleAvailable[]>([])
+  const [selectedNewRole, setSelectedNewRole] = useState('')
+  const [roleAssignBusy, setRoleAssignBusy] = useState(false)
+  const [roleAssignError, setRoleAssignError] = useState<string | null>(null)
+  const [roleRemovingId, setRoleRemovingId] = useState<string | null>(null)
 
   useEffect(() => {
     const rawBase = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? '/api/v1'
@@ -286,6 +295,60 @@ function AdminPage() {
     }
   }
 
+    async function handleRoleLookup() {
+      if (!roleEmail.trim()) return
+      setRoleLookupBusy(true)
+      setRoleLookupError(null)
+      setRoleLookupResult(null)
+      setRoleAssignError(null)
+      try {
+        const [rolesResp, availResp] = await Promise.all([
+          adminApi.getUserRoleAssignments(roleEmail.trim()),
+          adminApi.listAvailableAppRoles(),
+        ])
+        setRoleLookupResult(rolesResp)
+        setAvailableRoles(availResp.roles)
+        setSelectedNewRole(availResp.roles[0]?.value ?? '')
+      } catch (error) {
+        setRoleLookupError(toUserErrorMessage(error, 'Failed to look up user roles.'))
+      } finally {
+        setRoleLookupBusy(false)
+      }
+    }
+
+    async function handleAssignRole() {
+      if (!roleLookupResult || !selectedNewRole) return
+      setRoleAssignBusy(true)
+      setRoleAssignError(null)
+      try {
+        const newAssignment = await adminApi.assignAppRole(roleLookupResult.email, selectedNewRole)
+        setRoleLookupResult((prev) =>
+          prev ? { ...prev, assignments: [...prev.assignments, newAssignment] } : prev,
+        )
+      } catch (error) {
+        setRoleAssignError(toUserErrorMessage(error, 'Failed to assign role.'))
+      } finally {
+        setRoleAssignBusy(false)
+      }
+    }
+
+    async function handleRemoveRole(assignment: UserRoleAssignment) {
+      setRoleRemovingId(assignment.assignmentId)
+      setRoleAssignError(null)
+      try {
+        await adminApi.removeAppRole(assignment.assignmentId)
+        setRoleLookupResult((prev) =>
+          prev
+            ? { ...prev, assignments: prev.assignments.filter((a) => a.assignmentId !== assignment.assignmentId) }
+            : prev,
+        )
+      } catch (error) {
+        setRoleAssignError(toUserErrorMessage(error, 'Failed to remove role.'))
+      } finally {
+        setRoleRemovingId(null)
+      }
+    }
+
   async function handleDeleteAdminUser(user: AdminUser) {
     const confirmed = window.confirm(`Delete admin user ${user.email}? This cannot be undone.`)
     if (!confirmed) return
@@ -428,8 +491,128 @@ function AdminPage() {
               </tr>
             </tbody>
           </table>
+            <table className="members-table">
+              <thead>
+                <tr><th>Role</th><th>Access</th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>Admin</code></td>
+                  <td>Full access — members, import, reports, groups, admin</td>
+                </tr>
+                <tr>
+                  <td><code>EventCreator</code></td>
+                  <td>Create and manage events, TAVF postings</td>
+                </tr>
+                <tr>
+                  <td><code>TavfCreator</code></td>
+                  <td>Guide-eligible; allows TAVF posting creation even with Admin role</td>
+                </tr>
+                <tr>
+                  <td><code>User</code></td>
+                  <td>View events, submit RSVPs, view TAVF listings</td>
+                </tr>
+              </tbody>
+            </table>
         </section>
 
+          {/* App Role Assignment */}
+          <section className="card admin-tools-card">
+            <h2 className="admin-section-title">App Role Assignment</h2>
+            <p className="page-subtitle" style={{ marginBottom: '0.9rem' }}>
+              Assign or remove Azure app roles for any user. Changes take effect after the user signs out and back in.
+              Requires <code>ENTRA_PROVISIONING_*</code> environment variables and the provisioning app to have the
+              <code> AppRoleAssignment.ReadWrite.All</code> Microsoft Graph permission.
+            </p>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+              <input
+                className="members-input"
+                style={{ flex: 1 }}
+                type="email"
+                placeholder="User email address"
+                value={roleEmail}
+                onChange={(e) => setRoleEmail(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') void handleRoleLookup() }}
+                disabled={roleLookupBusy}
+              />
+              <button
+                className="btn btn--outline btn--sm"
+                disabled={roleLookupBusy || !roleEmail.trim()}
+                onClick={() => void handleRoleLookup()}
+              >
+                {roleLookupBusy ? 'Looking up…' : 'Look Up'}
+              </button>
+            </div>
+
+            {roleLookupError && <p className="ui-notice ui-notice--error">{roleLookupError}</p>}
+
+            {roleLookupResult && (
+              <div style={{ marginTop: 12 }}>
+                <p style={{ marginBottom: 8 }}>
+                  <strong>{roleLookupResult.email}</strong> — current roles:
+                </p>
+                {roleLookupResult.assignments.length === 0 ? (
+                  <p className="page-subtitle">No app role assignments found.</p>
+                ) : (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+                    {roleLookupResult.assignments.map((a) => (
+                      <span
+                        key={a.assignmentId}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          background: '#e8f0fe',
+                          border: '1px solid #aac4f6',
+                          borderRadius: 6,
+                          padding: '3px 10px',
+                          fontSize: '0.85rem',
+                        }}
+                      >
+                        <code>{a.roleName}</code>
+                        <button
+                          aria-label={`Remove ${a.roleName}`}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, lineHeight: 1, color: '#c0392b' }}
+                          disabled={roleRemovingId === a.assignmentId}
+                          onClick={() => void handleRemoveRole(a)}
+                        >
+                          {roleRemovingId === a.assignmentId ? '…' : '✕'}
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                {availableRoles.length > 0 && (
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <select
+                      className="members-input"
+                      value={selectedNewRole}
+                      onChange={(e) => setSelectedNewRole(e.target.value)}
+                      disabled={roleAssignBusy}
+                    >
+                      {availableRoles.map((r) => (
+                        <option key={r.id} value={r.value}>{r.displayName} ({r.value})</option>
+                      ))}
+                    </select>
+                    <button
+                      className="btn btn--primary btn--sm"
+                      disabled={roleAssignBusy || !selectedNewRole}
+                      onClick={() => void handleAssignRole()}
+                    >
+                      {roleAssignBusy ? 'Assigning…' : 'Assign Role'}
+                    </button>
+                  </div>
+                )}
+
+                {roleAssignError && <p className="ui-notice ui-notice--error" style={{ marginTop: 8 }}>{roleAssignError}</p>}
+
+                <p className="page-subtitle" style={{ marginTop: 10, fontSize: '0.8rem' }}>
+                  Role changes require the user to sign out and sign back in before the new token reflects the updated role.
+                </p>
+              </div>
+            )}
+          </section>
         {/* Quick Tools */}
         <section className="card admin-tools-card">
           <h2 className="admin-section-title">Admin Tools</h2>
