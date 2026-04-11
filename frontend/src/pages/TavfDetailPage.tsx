@@ -258,7 +258,7 @@ function TavfDetailPage() {
   });
 
   const alreadyApplied = Boolean(viewerMemberId) && applications.some(a => a.vet_member_id === viewerMemberId);
-  const canApply = posting.status === 'open' && !alreadyApplied && !canCreateEvents() && Boolean(viewerMemberId);
+  const canApply = posting.status === 'open' && !alreadyApplied && Boolean(viewerMemberId);
 
   return (
     <div className="page-container">
@@ -336,7 +336,7 @@ function TavfDetailPage() {
         </section>
       )}
 
-      {alreadyApplied && !canCreateEvents() && (
+      {alreadyApplied && (
         <div className="tavf-applied-notice">
           You have already applied to this posting.
         </div>
