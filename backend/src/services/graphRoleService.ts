@@ -116,9 +116,8 @@ export async function getUserRoleAssignments(email: string): Promise<UserRoleAss
     getUserObjectId(email, token),
   ]);
 
-  const filter = encodeURIComponent(`principalId eq '${userObjectId}'`);
   const response = await fetch(
-    `https://graph.microsoft.com/v1.0/servicePrincipals/${spId}/appRoleAssignedTo?$filter=${filter}`,
+    `https://graph.microsoft.com/v1.0/users/${userObjectId}/appRoleAssignments?$select=id,appRoleId,resourceId,principalId`,
     { headers: { Authorization: `Bearer ${token}` } }
   );
 
@@ -128,11 +127,12 @@ export async function getUserRoleAssignments(email: string): Promise<UserRoleAss
   }
 
   const data = (await response.json()) as {
-    value: Array<{ id: string; principalId: string; appRoleId: string }>;
+    value: Array<{ id: string; principalId: string; appRoleId: string; resourceId: string }>;
   };
   const roleMap = new Map(appRoles.map((r) => [r.id, r.value]));
+  const relevant = data.value.filter((assignment) => assignment.resourceId === spId);
 
-  return data.value.map((a) => ({
+  return relevant.map((a) => ({
     assignmentId: a.id,
     userObjectId: a.principalId,
     appRoleId: a.appRoleId,
