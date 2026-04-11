@@ -1149,6 +1149,14 @@ function EventsPage() {
     }
   }
 
+  function ensureCompletedForReport(event: EventRecord, actionLabel: string): boolean {
+    if (event.status === 'completed') {
+      return true
+    }
+    setErr(`Set this event status to Completed before using ${actionLabel}.`)
+    return false
+  }
+
   function getRsvpDraft(eventId: string): RsvpDraft {
     return rsvpDraftByEvent[eventId] ?? DEFAULT_RSVP_DRAFT
   }
@@ -1318,27 +1326,33 @@ function EventsPage() {
                     <>
                       <button
                         className="btn btn--outline btn--sm"
-                        onClick={() => void downloadReportCsv(event)}
-                        disabled={event.status !== 'completed'}
-                        title={event.status !== 'completed' ? 'Available when event is completed' : undefined}
+                        onClick={() => {
+                          if (!ensureCompletedForReport(event, 'CSV export')) return
+                          void downloadReportCsv(event)
+                        }}
+                        title={event.status !== 'completed' ? 'Set status to Completed to enable report export' : undefined}
                       >
                         CSV
                       </button>
 
                       <button
                         className="btn btn--outline btn--sm"
-                        onClick={() => void downloadReportPdf(event)}
-                        disabled={event.status !== 'completed'}
-                        title={event.status !== 'completed' ? 'Available when event is completed' : undefined}
+                        onClick={() => {
+                          if (!ensureCompletedForReport(event, 'PDF export')) return
+                          void downloadReportPdf(event)
+                        }}
+                        title={event.status !== 'completed' ? 'Set status to Completed to enable report export' : undefined}
                       >
                         PDF
                       </button>
 
                       <button
                         className="btn btn--outline btn--sm"
-                        onClick={() => void downloadReportText(event)}
-                        disabled={event.status !== 'completed'}
-                        title={event.status !== 'completed' ? 'Available when event is completed' : undefined}
+                        onClick={() => {
+                          if (!ensureCompletedForReport(event, 'event record export')) return
+                          void downloadReportText(event)
+                        }}
+                        title={event.status !== 'completed' ? 'Set status to Completed to enable report export' : undefined}
                       >
                         Record
                       </button>
@@ -1364,9 +1378,12 @@ function EventsPage() {
                   {canEdit && (
                     <button
                       className="btn btn--outline btn--sm"
-                      onClick={() => void emailEventRecord(event)}
-                      disabled={event.status !== 'completed' || reportEmailingEventId === event.event_id}
-                      title={event.status !== 'completed' ? 'Available when event is completed' : undefined}
+                      onClick={() => {
+                        if (!ensureCompletedForReport(event, 'Email Record')) return
+                        void emailEventRecord(event)
+                      }}
+                      disabled={reportEmailingEventId === event.event_id}
+                      title={event.status !== 'completed' ? 'Set status to Completed to enable event record email' : undefined}
                     >
                       {reportEmailingEventId === event.event_id ? 'Emailing…' : 'Email Record'}
                     </button>
