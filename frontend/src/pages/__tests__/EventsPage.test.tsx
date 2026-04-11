@@ -10,6 +10,7 @@ import { EventsPage } from '../EventsPage';
 vi.mock('../../api/events', () => ({
   eventsApi: {
     list: vi.fn(),
+    get: vi.fn(),
     create: vi.fn(),
     update: vi.fn(),
     updateStatus: vi.fn(),
@@ -32,6 +33,7 @@ vi.mock('../../hooks/useAuth', () => ({
 
 const mockedEventsApi = eventsApi as unknown as {
   list: ReturnType<typeof vi.fn>;
+  get: ReturnType<typeof vi.fn>;
   create: ReturnType<typeof vi.fn>;
   update: ReturnType<typeof vi.fn>;
   updateStatus: ReturnType<typeof vi.fn>;
@@ -96,6 +98,7 @@ describe('EventsPage flow pattern', () => {
       user: { id: 'u-1' },
     });
     mockedEventsApi.list.mockResolvedValue([eventRecord]);
+    mockedEventsApi.get.mockResolvedValue({ ...eventRecord, notification_targets: [] });
     mockedEventsApi.create.mockResolvedValue({ ...eventRecord, event_id: 'e-2222' });
     mockedEventsApi.update.mockResolvedValue({ ...eventRecord, title: 'Updated River Day' });
     mockedEventsApi.updateStatus.mockResolvedValue({ ...eventRecord, status: 'cancelled' });
@@ -141,6 +144,7 @@ describe('EventsPage flow pattern', () => {
 
     await screen.findByRole('button', { name: 'Edit' });
     await userEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    await screen.findByText('Title *');
 
     await setFieldByLabel('Title *', 'River Day Updated');
     await setFieldByLabel('Update Reason', 'Adjusted agenda');
