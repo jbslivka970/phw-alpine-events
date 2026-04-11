@@ -297,30 +297,15 @@ router.get('/:id/participation', apiLimiter, authenticate, async (req, res, next
   }
 });
 
-router.get('/:id([0-9a-fA-F-]{36})/rsvps', apiLimiter, authenticate, async (req, res, next) => {
+router.get('/me/rsvps', apiLimiter, authenticate, async (req, res, next) => {
   try {
-    const memberId = req.params.id;
+    const memberId = await resolveSelfMemberId(req.user?.sub, req.user?.email);
+    if (!memberId) {
+      res.json([]);
+      return;
+    }
+
     const pool = await getPool();
-    const memberResult = await pool
-      .request()
-      .input('member_id', sql.UniqueIdentifier, memberId)
-      .query<{ member_id: string; email: string | null }>(
-        `SELECT member_id, email
-         FROM member
-         WHERE member_id = @member_id`
-      );
-
-    const memberRecord = memberResult.recordset[0];
-    if (!memberRecord) {
-      res.status(404).json({ error: 'Member not found.' });
-      return;
-    }
-
-    if (!isAdmin(req) && !isSelfMember(req, memberId, memberRecord.email)) {
-      res.status(403).json({ error: 'Insufficient permissions.' });
-      return;
-    }
-
     const result = await pool
       .request()
       .input('member_id', sql.UniqueIdentifier, memberId)
@@ -346,15 +331,30 @@ router.get('/:id([0-9a-fA-F-]{36})/rsvps', apiLimiter, authenticate, async (req,
   }
 });
 
-router.get('/me/rsvps', apiLimiter, authenticate, async (req, res, next) => {
+router.get('/:id/rsvps', apiLimiter, authenticate, async (req, res, next) => {
   try {
-    const memberId = await resolveSelfMemberId(req.user?.sub, req.user?.email);
-    if (!memberId) {
-      res.json([]);
+    const memberId = req.params.id;
+    const pool = await getPool();
+    const memberResult = await pool
+      .request()
+      .input('member_id', sql.UniqueIdentifier, memberId)
+      .query<{ member_id: string; email: string | null }>(
+        `SELECT member_id, email
+         FROM member
+         WHERE member_id = @member_id`
+      );
+
+    const memberRecord = memberResult.recordset[0];
+    if (!memberRecord) {
+      res.status(404).json({ error: 'Member not found.' });
       return;
     }
 
-    const pool = await getPool();
+    if (!isAdmin(req) && !isSelfMember(req, memberId, memberRecord.email)) {
+      res.status(403).json({ error: 'Insufficient permissions.' });
+      return;
+    }
+
     const result = await pool
       .request()
       .input('member_id', sql.UniqueIdentifier, memberId)
