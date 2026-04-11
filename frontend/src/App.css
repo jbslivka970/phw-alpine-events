@@ -1435,6 +1435,15 @@
   border-bottom: 1px solid var(--border);
 }
 
+.admin-users-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.admin-users-table-wrap .members-table {
+  min-width: 620px;
+}
+
 /* Health card */
 .admin-health-rows { display: flex; flex-direction: column; gap: 0.55rem; }
 

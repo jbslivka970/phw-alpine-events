@@ -161,4 +161,41 @@ describe('rsvpService waitlist auto-promotion', () => {
 
     expect(sendRsvpConfirmation).not.toHaveBeenCalled();
   });
+
+  it('allows RSVP when member is directly targeted by event invite without role groups', async () => {
+    const queue: Array<{ recordset?: unknown[]; rowsAffected?: number[] }> = [
+      { recordset: [] },
+      { recordset: [{ target_id: 'target-1' }] },
+      { recordset: [{ event_id: 'event-5', title: 'Direct Invite Event', status: 'published', mentor_capacity: null, participant_capacity: null, capacity: null, event_date: new Date('2026-06-05T18:00:00Z') }] },
+      { recordset: [] },
+      { recordset: [{ response_id: 'r5', event_id: 'event-5', member_id: 'member-direct', response: 'yes', responded_at: new Date('2026-05-01T00:00:00Z'), notes: null }] },
+      { recordset: [] },
+      { rowsAffected: [0] },
+      { recordset: [] },
+    ];
+
+    const mockRequest = {
+      input: jest.fn().mockReturnThis(),
+      query: jest.fn().mockImplementation(async () => {
+        return queue.shift() ?? { recordset: [] };
+      }),
+    };
+
+    (getPool as jest.Mock).mockResolvedValue({ request: () => mockRequest });
+
+    await expect(
+      recordRsvpResponse({
+        eventId: 'event-5',
+        memberId: 'member-direct',
+        response: 'yes',
+        responseChannel: 'tokenized_link',
+        responseRole: 'PARTICIPANT',
+      })
+    ).resolves.toMatchObject({
+      response_id: 'r5',
+      event_id: 'event-5',
+      member_id: 'member-direct',
+      response: 'yes',
+    });
+  });
 });

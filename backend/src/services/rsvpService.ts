@@ -126,10 +126,34 @@ async function getMemberEventRoles(memberId: string): Promise<Set<EventRole>> {
   return roles;
 }
 
-async function assertMemberCanRespondAsRole(memberId: string, responseRole: EventRole): Promise<void> {
+async function isMemberDirectlyTargetedForEvent(memberId: string, eventId: string): Promise<boolean> {
+  const pool = await getPool();
+  const targetResult = await pool
+    .request()
+    .input('event_id', sql.UniqueIdentifier, eventId)
+    .input('member_id', sql.UniqueIdentifier, memberId)
+    .query<{ target_id: string }>(
+      `SELECT TOP 1 target_id
+       FROM event_notification_target
+       WHERE event_id = @event_id
+         AND member_id = @member_id`
+    );
+
+  return Boolean(targetResult.recordset[0]?.target_id);
+}
+
+async function assertMemberCanRespondAsRole(
+  memberId: string,
+  responseRole: EventRole,
+  options?: { eventId?: string }
+): Promise<void> {
   const allowedRoles = await getMemberEventRoles(memberId);
 
   if (allowedRoles.size === 0) {
+    if (options?.eventId && await isMemberDirectlyTargetedForEvent(memberId, options.eventId)) {
+      return;
+    }
+
     throw new RsvpError('Member is missing RSVP eligibility group assignment (MENTORS or PARTICIPANTS).', 403);
   }
 
@@ -192,7 +216,7 @@ async function recordRsvpResponse(options: {
   const responseChannel = options.responseChannel ?? 'web';
   const groupContextId = options.groupContextId ?? null;
   const responseRole = normalizeResponseRole(options.responseRole);
-  await assertMemberCanRespondAsRole(options.memberId, responseRole);
+  await assertMemberCanRespondAsRole(options.memberId, responseRole, { eventId: options.eventId });
 
   const eventResult = await pool
     .request()

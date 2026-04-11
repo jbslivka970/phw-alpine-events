@@ -640,34 +640,36 @@ function AdminPage() {
           {adminUsersError && <p className="ui-notice ui-notice--error">{adminUsersError}</p>}
 
           {!adminUsersLoading && !adminUsersError && (
-            <table className="members-table">
-              <thead>
-                <tr>
-                  <th>Email</th>
-                  <th>Role</th>
-                  <th>Status</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {adminUsers.map((user) => (
-                  <tr key={user.user_id}>
-                    <td>{user.email}</td>
-                    <td>{user.role}</td>
-                    <td>{user.is_active ? 'active' : 'inactive'}</td>
-                    <td>
-                      <button
-                        className="btn btn--outline btn--sm"
-                        disabled={deletingUserId === user.user_id}
-                        onClick={() => void handleDeleteAdminUser(user)}
-                      >
-                        {deletingUserId === user.user_id ? 'Deleting…' : 'Delete'}
-                      </button>
-                    </td>
+            <div className="admin-users-table-wrap">
+              <table className="members-table">
+                <thead>
+                  <tr>
+                    <th>Email</th>
+                    <th>Role</th>
+                    <th>Status</th>
+                    <th>Actions</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {adminUsers.map((user) => (
+                    <tr key={user.user_id}>
+                      <td>{user.email}</td>
+                      <td>{user.role}</td>
+                      <td>{user.is_active ? 'active' : 'inactive'}</td>
+                      <td>
+                        <button
+                          className="btn btn--outline btn--sm"
+                          disabled={deletingUserId === user.user_id}
+                          onClick={() => void handleDeleteAdminUser(user)}
+                        >
+                          {deletingUserId === user.user_id ? 'Deleting…' : 'Delete'}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </section>
 
