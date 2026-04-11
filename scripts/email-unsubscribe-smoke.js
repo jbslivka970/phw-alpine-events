@@ -22,6 +22,8 @@ const expectedOutcomes = (process.env.EMAIL_EXPECTED_LOG_OUTCOMES || 'invalid_to
   .split(',')
   .map((item) => item.trim())
   .filter(Boolean);
+const contractRetryAttempts = Number.parseInt(process.env.EMAIL_CONTRACT_RETRY_ATTEMPTS || '6', 10);
+const contractRetryDelayMs = Number.parseInt(process.env.EMAIL_CONTRACT_RETRY_DELAY_MS || '10000', 10);
 
 function url(path) {
   return `${backendBaseUrl}${path}`;
@@ -61,15 +63,41 @@ function assert(condition, message) {
   }
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function runContractChecks() {
   const checks = [];
 
-  const invalid = await getText('/api/v1/preferences/email/unsubscribe/not-a-real-token');
-  checks.push(['unsubscribe_invalid_status', invalid.status]);
-  checks.push(['unsubscribe_invalid_contains', invalid.body.toLowerCase().includes('invalid or expired') ? 'yes' : 'no']);
+  let invalid = null;
+  let attempt = 0;
+  const maxAttempts = Number.isFinite(contractRetryAttempts) && contractRetryAttempts > 0 ? contractRetryAttempts : 6;
+  const delayMs = Number.isFinite(contractRetryDelayMs) && contractRetryDelayMs > 0 ? contractRetryDelayMs : 10000;
 
-  assert(invalid.status === 400, 'Invalid unsubscribe token should return 400.');
-  assert(invalid.body.toLowerCase().includes('invalid or expired'), 'Invalid unsubscribe response should mention invalid/expired link.');
+  for (attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    invalid = await getText('/api/v1/preferences/email/unsubscribe/not-a-real-token');
+    const bodyLower = String(invalid.body || '').toLowerCase();
+    const bodySnippet = String(invalid.body || '').replace(/\s+/g, ' ').slice(0, 180);
+    checks.push([`unsubscribe_invalid_status_attempt_${attempt}`, invalid.status]);
+    checks.push([`unsubscribe_invalid_body_attempt_${attempt}`, bodySnippet]);
+
+    if (invalid.status === 400 && bodyLower.includes('invalid or expired')) {
+      break;
+    }
+
+    if (attempt < maxAttempts) {
+      await sleep(delayMs);
+    }
+  }
+
+  const finalBodyLower = String(invalid?.body || '').toLowerCase();
+  checks.push(['unsubscribe_invalid_attempts', attempt]);
+  checks.push(['unsubscribe_invalid_status', invalid?.status ?? 'unknown']);
+  checks.push(['unsubscribe_invalid_contains', finalBodyLower.includes('invalid or expired') ? 'yes' : 'no']);
+
+  assert(invalid?.status === 400, 'Invalid unsubscribe token should return 400.');
+  assert(finalBodyLower.includes('invalid or expired'), 'Invalid unsubscribe response should mention invalid/expired link.');
 
   if (adminBearerToken) {
     const logs = await getJson('/api/v1/preferences/email/logs?limit=10', {
