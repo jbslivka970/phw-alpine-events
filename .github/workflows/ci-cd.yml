@@ -384,8 +384,7 @@ jobs:
     - deploy_frontend
     if: >-
       github.event_name == 'push' &&
-      github.ref == 'refs/heads/main' &&
-      vars.E2E_APP_URL != ''
+      github.ref == 'refs/heads/main'
 
     steps:
     - uses: actions/checkout@v5
@@ -403,24 +402,57 @@ jobs:
     - name: Install Playwright Chromium
       run: npx playwright install --with-deps chromium
 
+    - name: Resolve browser smoke target
+      id: smoke_target
+      env:
+        FRONTEND_SMOKE_REQUIRED: ${{ vars.FRONTEND_SMOKE_REQUIRED }}
+        E2E_APP_URL: ${{ vars.E2E_APP_URL }}
+        AZURE_FRONTEND_WEBAPP_NAME: ${{ vars.AZURE_FRONTEND_WEBAPP_NAME }}
+      run: |
+        REQUIRED="${FRONTEND_SMOKE_REQUIRED:-1}"
+        TARGET_URL="${E2E_APP_URL}"
+
+        if [ -z "$TARGET_URL" ] && [ -n "$AZURE_FRONTEND_WEBAPP_NAME" ]; then
+          TARGET_URL="https://${AZURE_FRONTEND_WEBAPP_NAME}.azurewebsites.net"
+        fi
+
+        if [ -z "$TARGET_URL" ]; then
+          if [ "$REQUIRED" = "1" ]; then
+            echo "::error::Frontend smoke is required but no target URL is available. Set vars.E2E_APP_URL or vars.AZURE_FRONTEND_WEBAPP_NAME."
+            exit 1
+          fi
+          echo "run_browser_smoke=0" >> "$GITHUB_OUTPUT"
+          echo "::warning::Skipping browser smoke because no target URL is configured."
+          exit 0
+        fi
+
+        echo "target_url=$TARGET_URL" >> "$GITHUB_OUTPUT"
+        echo "run_browser_smoke=1" >> "$GITHUB_OUTPUT"
+
     - name: Determine browser smoke readiness
       id: smoke_ready
       env:
+        FRONTEND_SMOKE_REQUIRED: ${{ vars.FRONTEND_SMOKE_REQUIRED }}
         PW_MEMBER_USER: ${{ secrets.PW_MEMBER_USER }}
         PW_MEMBER_PASS: ${{ secrets.PW_MEMBER_PASS }}
       run: |
+        REQUIRED="${FRONTEND_SMOKE_REQUIRED:-1}"
         if [ -n "$PW_MEMBER_USER" ] && [ -n "$PW_MEMBER_PASS" ]; then
           echo "ready=1" >> "$GITHUB_OUTPUT"
         else
+          if [ "$REQUIRED" = "1" ]; then
+            echo "::error::Frontend smoke is required but PW_MEMBER_USER/PW_MEMBER_PASS are not configured."
+            exit 1
+          fi
           echo "ready=0" >> "$GITHUB_OUTPUT"
-          echo "::warning::Skipping browser smoke because PW_MEMBER_USER/PW_MEMBER_PASS are not configured."
+          echo "::warning::Skipping browser smoke because PW_MEMBER_USER/PW_MEMBER_PASS are not configured and FRONTEND_SMOKE_REQUIRED is not 1."
         fi
 
     - name: Refresh member auth state for browser smoke
       id: refresh_member_state
-      if: ${{ steps.smoke_ready.outputs.ready == '1' }}
+      if: ${{ steps.smoke_target.outputs.run_browser_smoke == '1' && steps.smoke_ready.outputs.ready == '1' }}
       env:
-        E2E_APP_URL: ${{ vars.E2E_APP_URL }}
+        E2E_APP_URL: ${{ steps.smoke_target.outputs.target_url }}
         PW_REFRESH_ROLE_TIMEOUT_MS: '240000'
         PW_MEMBER_USER: ${{ secrets.PW_MEMBER_USER }}
         PW_MEMBER_PASS: ${{ secrets.PW_MEMBER_PASS }}
@@ -428,19 +460,26 @@ jobs:
 
     - name: Determine browser smoke execution
       id: smoke_auth_state
-      if: ${{ steps.smoke_ready.outputs.ready == '1' }}
+      if: ${{ steps.smoke_target.outputs.run_browser_smoke == '1' && steps.smoke_ready.outputs.ready == '1' }}
+      env:
+        FRONTEND_SMOKE_REQUIRED: ${{ vars.FRONTEND_SMOKE_REQUIRED }}
       run: |
+        REQUIRED="${FRONTEND_SMOKE_REQUIRED:-1}"
         if [ -s tests/e2e/.auth/member.json ]; then
           echo "run_browser_smoke=1" >> "$GITHUB_OUTPUT"
         else
+          if [ "$REQUIRED" = "1" ]; then
+            echo "::error::Frontend smoke is required but member auth state is unavailable after refresh."
+            exit 1
+          fi
           echo "run_browser_smoke=0" >> "$GITHUB_OUTPUT"
-          echo "::warning::Skipping browser smoke because member auth state is unavailable after refresh."
+          echo "::warning::Skipping browser smoke because member auth state is unavailable and FRONTEND_SMOKE_REQUIRED is not 1."
         fi
 
     - name: Run post-deploy frontend browser smoke
-      if: ${{ steps.smoke_ready.outputs.ready == '1' && steps.smoke_auth_state.outputs.run_browser_smoke == '1' }}
+      if: ${{ steps.smoke_target.outputs.run_browser_smoke == '1' && steps.smoke_ready.outputs.ready == '1' && steps.smoke_auth_state.outputs.run_browser_smoke == '1' }}
       env:
-        E2E_APP_URL: ${{ vars.E2E_APP_URL }}
+        E2E_APP_URL: ${{ steps.smoke_target.outputs.target_url }}
       run: npx playwright test tests/e2e/browser-postdeploy-smoke.spec.ts
 
   release_smoke:
