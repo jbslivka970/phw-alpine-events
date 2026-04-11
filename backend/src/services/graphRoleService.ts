@@ -64,7 +64,7 @@ async function getApiServicePrincipal(token: string): Promise<{ id: string; appR
   if (!response.ok) {
     const text = await response.text().catch(() => '');
     throw new Error(
-      `Could not look up service principal for app ${apiAppId} (${response.status}). Check that the provisioning app has AppRoleAssignment.ReadWrite.All permission on Microsoft Graph.${text ? ' ' + text.slice(0, 200) : ''}`
+      `Could not look up service principal for app ${apiAppId} (${response.status}). Ensure the provisioning app has Microsoft Graph application permissions Application.Read.All (or Directory.Read.All) and AppRoleAssignment.ReadWrite.All, then grant admin consent.${text ? ` Graph response: ${text.slice(0, 120)}` : ''}`
     );
   }
 
@@ -92,7 +92,7 @@ async function getUserObjectId(email: string, token: string): Promise<string> {
 
   if (!response.ok) {
     const text = await response.text().catch(() => '');
-    throw new Error(`User lookup failed for ${email} (${response.status})${text ? ': ' + text.slice(0, 200) : ''}`);
+    throw new Error(`User lookup failed for ${email} (${response.status}). Ensure the provisioning app has User.Read.All (or Directory.Read.All) and admin consent.${text ? ` Graph response: ${text.slice(0, 120)}` : ''}`);
   }
 
   const data = (await response.json()) as { value: Array<{ id: string }> };

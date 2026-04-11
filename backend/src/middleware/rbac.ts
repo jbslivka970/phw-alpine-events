@@ -31,7 +31,7 @@ function requireNonAdmin(req: Request, res: Response, next: NextFunction): void 
   next();
 }
 
-// Allow: any non-ADMIN user, OR an ADMIN who also holds TAVF_CREATOR (guide+admin combo)
+// Allow: any non-ADMIN user, or an ADMIN who also holds EVENT_CREATOR or TAVF_CREATOR.
 function requireTavfCreatorFn(req: Request, res: Response, next: NextFunction): void {
   if (!req.user) {
     res.status(401).json({ error: 'Authentication required' });
@@ -39,9 +39,10 @@ function requireTavfCreatorFn(req: Request, res: Response, next: NextFunction): 
   }
 
   const isAdmin = req.user.roles.includes('ADMIN');
+  const isEventCreator = req.user.roles.includes('EVENT_CREATOR');
   const isTavfCreator = req.user.roles.includes('TAVF_CREATOR');
 
-  if (isAdmin && !isTavfCreator) {
+  if (isAdmin && !isTavfCreator && !isEventCreator) {
     res.status(403).json({ error: 'Insufficient permissions' });
     return;
   }

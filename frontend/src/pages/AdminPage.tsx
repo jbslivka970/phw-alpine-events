@@ -35,6 +35,17 @@ function StatusDot({ status }: { status: HealthState }) {
   )
 }
 
+function formatRoleManagementError(error: unknown, fallback: string): string {
+  const message = toUserErrorMessage(error, fallback);
+  const withoutRawGraphJson = message.replace(/\{\s*"error"\s*:\s*\{[\s\S]*$/i, '').trim();
+
+  if (/Authorization_RequestDenied|Insufficient privileges|\(403\)/i.test(message)) {
+    return 'Role management is not authorized yet. Grant Microsoft Graph Application permissions to the provisioning app: Application.Read.All, User.Read.All, and AppRoleAssignment.ReadWrite.All, then Grant admin consent. You can assign roles manually in Azure Portal until this is configured.';
+  }
+
+  return withoutRawGraphJson || fallback;
+}
+
 function AdminPage() {
   const [health, setHealth] = useState<HealthStatus>({
     api: 'loading',
@@ -295,59 +306,59 @@ function AdminPage() {
     }
   }
 
-    async function handleRoleLookup() {
-      if (!roleEmail.trim()) return
-      setRoleLookupBusy(true)
-      setRoleLookupError(null)
-      setRoleLookupResult(null)
-      setRoleAssignError(null)
-      try {
-        const [rolesResp, availResp] = await Promise.all([
-          adminApi.getUserRoleAssignments(roleEmail.trim()),
-          adminApi.listAvailableAppRoles(),
-        ])
-        setRoleLookupResult(rolesResp)
-        setAvailableRoles(availResp.roles)
-        setSelectedNewRole(availResp.roles[0]?.value ?? '')
-      } catch (error) {
-        setRoleLookupError(toUserErrorMessage(error, 'Failed to look up user roles.'))
-      } finally {
-        setRoleLookupBusy(false)
-      }
+  async function handleRoleLookup() {
+    if (!roleEmail.trim()) return
+    setRoleLookupBusy(true)
+    setRoleLookupError(null)
+    setRoleLookupResult(null)
+    setRoleAssignError(null)
+    try {
+      const [rolesResp, availResp] = await Promise.all([
+        adminApi.getUserRoleAssignments(roleEmail.trim()),
+        adminApi.listAvailableAppRoles(),
+      ])
+      setRoleLookupResult(rolesResp)
+      setAvailableRoles(availResp.roles)
+      setSelectedNewRole(availResp.roles[0]?.value ?? '')
+    } catch (error) {
+      setRoleLookupError(formatRoleManagementError(error, 'Failed to look up user roles.'))
+    } finally {
+      setRoleLookupBusy(false)
     }
+  }
 
-    async function handleAssignRole() {
-      if (!roleLookupResult || !selectedNewRole) return
-      setRoleAssignBusy(true)
-      setRoleAssignError(null)
-      try {
-        const newAssignment = await adminApi.assignAppRole(roleLookupResult.email, selectedNewRole)
-        setRoleLookupResult((prev) =>
-          prev ? { ...prev, assignments: [...prev.assignments, newAssignment] } : prev,
-        )
-      } catch (error) {
-        setRoleAssignError(toUserErrorMessage(error, 'Failed to assign role.'))
-      } finally {
-        setRoleAssignBusy(false)
-      }
+  async function handleAssignRole() {
+    if (!roleLookupResult || !selectedNewRole) return
+    setRoleAssignBusy(true)
+    setRoleAssignError(null)
+    try {
+      const newAssignment = await adminApi.assignAppRole(roleLookupResult.email, selectedNewRole)
+      setRoleLookupResult((prev) =>
+        prev ? { ...prev, assignments: [...prev.assignments, newAssignment] } : prev,
+      )
+    } catch (error) {
+      setRoleAssignError(formatRoleManagementError(error, 'Failed to assign role.'))
+    } finally {
+      setRoleAssignBusy(false)
     }
+  }
 
-    async function handleRemoveRole(assignment: UserRoleAssignment) {
-      setRoleRemovingId(assignment.assignmentId)
-      setRoleAssignError(null)
-      try {
-        await adminApi.removeAppRole(assignment.assignmentId)
-        setRoleLookupResult((prev) =>
-          prev
-            ? { ...prev, assignments: prev.assignments.filter((a) => a.assignmentId !== assignment.assignmentId) }
-            : prev,
-        )
-      } catch (error) {
-        setRoleAssignError(toUserErrorMessage(error, 'Failed to remove role.'))
-      } finally {
-        setRoleRemovingId(null)
-      }
+  async function handleRemoveRole(assignment: UserRoleAssignment) {
+    setRoleRemovingId(assignment.assignmentId)
+    setRoleAssignError(null)
+    try {
+      await adminApi.removeAppRole(assignment.assignmentId)
+      setRoleLookupResult((prev) =>
+        prev
+          ? { ...prev, assignments: prev.assignments.filter((a) => a.assignmentId !== assignment.assignmentId) }
+          : prev,
+      )
+    } catch (error) {
+      setRoleAssignError(formatRoleManagementError(error, 'Failed to remove role.'))
+    } finally {
+      setRoleRemovingId(null)
     }
+  }
 
   async function handleDeleteAdminUser(user: AdminUser) {
     const confirmed = window.confirm(`Delete admin user ${user.email}? This cannot be undone.`)
@@ -486,43 +497,24 @@ function AdminPage() {
                 <td>Create and manage events, TAVF postings</td>
               </tr>
               <tr>
+                <td><code>TavfCreator</code></td>
+                <td>Guide-eligible; allows TAVF posting creation even with Admin role</td>
+              </tr>
+              <tr>
                 <td><code>User</code></td>
                 <td>View events, submit RSVPs, view TAVF listings</td>
               </tr>
             </tbody>
           </table>
-            <table className="members-table">
-              <thead>
-                <tr><th>Role</th><th>Access</th></tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td><code>Admin</code></td>
-                  <td>Full access — members, import, reports, groups, admin</td>
-                </tr>
-                <tr>
-                  <td><code>EventCreator</code></td>
-                  <td>Create and manage events, TAVF postings</td>
-                </tr>
-                <tr>
-                  <td><code>TavfCreator</code></td>
-                  <td>Guide-eligible; allows TAVF posting creation even with Admin role</td>
-                </tr>
-                <tr>
-                  <td><code>User</code></td>
-                  <td>View events, submit RSVPs, view TAVF listings</td>
-                </tr>
-              </tbody>
-            </table>
         </section>
 
           {/* App Role Assignment */}
           <section className="card admin-tools-card">
             <h2 className="admin-section-title">App Role Assignment</h2>
             <p className="page-subtitle" style={{ marginBottom: '0.9rem' }}>
-              Assign or remove Azure app roles for any user. Changes take effect after the user signs out and back in.
-              Requires <code>ENTRA_PROVISIONING_*</code> environment variables and the provisioning app to have the
-              <code> AppRoleAssignment.ReadWrite.All</code> Microsoft Graph permission.
+              Assign or remove Azure app roles for any user. Changes take effect after the user signs out and back in. Requires
+              {' '}<code>ENTRA_PROVISIONING_*</code>{' '}environment variables and Graph application permissions:
+              {' '}<code>Application.Read.All</code>, <code>User.Read.All</code>, and <code>AppRoleAssignment.ReadWrite.All</code>.
             </p>
             <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
               <input
@@ -544,7 +536,11 @@ function AdminPage() {
               </button>
             </div>
 
-            {roleLookupError && <p className="ui-notice ui-notice--error">{roleLookupError}</p>}
+            {roleLookupError && (
+              <p className="ui-notice ui-notice--error" style={{ overflowWrap: 'anywhere' }}>
+                {roleLookupError}
+              </p>
+            )}
 
             {roleLookupResult && (
               <div style={{ marginTop: 12 }}>
@@ -605,7 +601,11 @@ function AdminPage() {
                   </div>
                 )}
 
-                {roleAssignError && <p className="ui-notice ui-notice--error" style={{ marginTop: 8 }}>{roleAssignError}</p>}
+                {roleAssignError && (
+                  <p className="ui-notice ui-notice--error" style={{ marginTop: 8, overflowWrap: 'anywhere' }}>
+                    {roleAssignError}
+                  </p>
+                )}
 
                 <p className="page-subtitle" style={{ marginTop: 10, fontSize: '0.8rem' }}>
                   Role changes require the user to sign out and sign back in before the new token reflects the updated role.

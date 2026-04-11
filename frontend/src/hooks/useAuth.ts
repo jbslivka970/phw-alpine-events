@@ -138,7 +138,7 @@ function useAuth() {
   }
 
   function canCreateTavfPostings(): boolean {
-    return Boolean(user) && (!isAdmin() || hasRole(ROLES.TAVF_CREATOR))
+    return Boolean(user) && (!isAdmin() || hasRole(ROLES.TAVF_CREATOR) || hasRole(ROLES.EVENT_CREATOR))
   }
 
   const interactionBusy = inProgress !== InteractionStatus.None
