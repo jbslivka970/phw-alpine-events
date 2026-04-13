@@ -78,6 +78,7 @@ describe('import routes', () => {
       expect.objectContaining({ sessionId: 'session-1' }),
       {
         conflictResolutions: { '12': 'create' },
+        importedByEmail: 'admin@example.com',
         importedByUserId: '00000000-0000-0000-0000-000000000001',
       }
     );
