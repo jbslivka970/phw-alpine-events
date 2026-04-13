@@ -140,7 +140,7 @@ function ImportPage() {
     <div className="import-page">
       <div className="import-page__header">
         <h1 className="page-title">CSV Import</h1>
-        <p className="page-subtitle">Upload a member CSV to preview changes before committing.</p>
+        <p className="page-subtitle">Upload a member CSV to preview changes before committing. Optional columns active volunteer and active participant map members into Volunteer/Participant groups.</p>
       </div>
 
       {/* Upload card */}

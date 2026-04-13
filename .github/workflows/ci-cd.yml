@@ -474,49 +474,12 @@ jobs:
           echo "::warning::Skipping browser smoke because PW_MEMBER_USER/PW_MEMBER_PASS are not configured and FRONTEND_SMOKE_REQUIRED is not 1."
         fi
 
-    - name: Refresh member auth state for browser smoke
-      id: refresh_member_state
+    - name: Run post-deploy frontend browser smoke
       if: ${{ steps.smoke_target.outputs.run_browser_smoke == '1' && steps.smoke_ready.outputs.ready == '1' }}
       env:
         E2E_APP_URL: ${{ steps.smoke_target.outputs.target_url }}
-        PW_REFRESH_ROLE_TIMEOUT_MS: '240000'
         PW_MEMBER_USER: ${{ secrets.PW_MEMBER_USER }}
         PW_MEMBER_PASS: ${{ secrets.PW_MEMBER_PASS }}
-      run: |
-        rm -f tests/e2e/.auth/member.json
-        for attempt in 1 2 3; do
-          echo "Refreshing member auth state (attempt $attempt)..."
-          npm run e2e:refresh-tokens -- --soft-skip
-          if [ -s tests/e2e/.auth/member.json ]; then
-            echo "Member auth state refresh succeeded on attempt $attempt."
-            exit 0
-          fi
-          echo "Member auth state not available after attempt $attempt."
-        done
-        echo "Member auth state refresh attempts exhausted."
-
-    - name: Determine browser smoke execution
-      id: smoke_auth_state
-      if: ${{ steps.smoke_target.outputs.run_browser_smoke == '1' && steps.smoke_ready.outputs.ready == '1' }}
-      env:
-        FRONTEND_SMOKE_REQUIRED: ${{ vars.FRONTEND_SMOKE_REQUIRED }}
-      run: |
-        REQUIRED="${FRONTEND_SMOKE_REQUIRED:-1}"
-        if [ -s tests/e2e/.auth/member.json ]; then
-          echo "run_browser_smoke=1" >> "$GITHUB_OUTPUT"
-        else
-          if [ "$REQUIRED" = "1" ]; then
-            echo "::error::Frontend smoke is required but member auth state is unavailable after refresh."
-            exit 1
-          fi
-          echo "run_browser_smoke=0" >> "$GITHUB_OUTPUT"
-          echo "::warning::Skipping browser smoke because member auth state is unavailable and FRONTEND_SMOKE_REQUIRED is not 1."
-        fi
-
-    - name: Run post-deploy frontend browser smoke
-      if: ${{ steps.smoke_target.outputs.run_browser_smoke == '1' && steps.smoke_ready.outputs.ready == '1' && steps.smoke_auth_state.outputs.run_browser_smoke == '1' }}
-      env:
-        E2E_APP_URL: ${{ steps.smoke_target.outputs.target_url }}
       run: npx playwright test tests/e2e/browser-postdeploy-smoke.spec.ts
 
   release_smoke:

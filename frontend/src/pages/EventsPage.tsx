@@ -98,7 +98,7 @@ function SlotCount({
       {yesCount}/{cap ?? '∞'}
       {pct !== null && ` (${pct}%)`}
       {(mentorCapacity !== null || participantCapacity !== null)
-        ? ` M:${mentorCapacity ?? '∞'} P:${participantCapacity ?? '∞'}`
+        ? ` V:${mentorCapacity ?? '∞'} P:${participantCapacity ?? '∞'}`
         : ''}
     </span>
   )
@@ -112,6 +112,9 @@ interface EventFormPayload {
   description: string
   location: string
   photo_url: string
+  invitation_stage: 'volunteer' | 'participant' | 'both'
+  event_lead_name: string
+  event_lead_email: string
   end_date: string
   mentor_capacity: string
   participant_capacity: string
@@ -164,7 +167,7 @@ function saveCommonLocations(rows: CommonLocation[]): void {
 
 const EMPTY_FORM: EventFormPayload = {
   title: '', event_date: '', description: '', location: '',
-  photo_url: '',
+  photo_url: '', invitation_stage: 'both', event_lead_name: '', event_lead_email: '',
   end_date: '', mentor_capacity: '', participant_capacity: '', notification_targets: [], update_reason: '',
 }
 
@@ -361,6 +364,9 @@ function payloadFromRecord(e: EventRecord): EventFormPayload {
     description: e.description ?? '',
     location: e.location ?? '',
     photo_url: e.photo_url ?? '',
+    invitation_stage: e.invitation_stage ?? 'both',
+    event_lead_name: e.event_lead_name ?? '',
+    event_lead_email: e.event_lead_email ?? '',
     end_date: e.end_date ? e.end_date.slice(0, 16) : '',
     mentor_capacity: e.mentor_capacity != null ? String(e.mentor_capacity) : '',
     participant_capacity: e.participant_capacity != null
@@ -471,6 +477,7 @@ interface FormFieldErrors {
   event_time?: string
   end_date?: string
   end_time?: string
+  event_lead_email?: string
   mentor_capacity?: string
   participant_capacity?: string
 }
@@ -622,6 +629,13 @@ function EventFormModal({ initial, groups, onSave, onGenerateAiDraftPreview, onC
 
     if (!form.title.trim()) {
       nextErrors.title = 'Title is required.'
+    }
+
+    if (form.event_lead_email.trim()) {
+      const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+      if (!emailPattern.test(form.event_lead_email.trim().toLowerCase())) {
+        nextErrors.event_lead_email = 'Enter a valid email address.'
+      }
     }
 
     const eventDate = toCanonicalDate(eventDateParts.date)
@@ -807,7 +821,32 @@ function EventFormModal({ initial, groups, onSave, onGenerateAiDraftPreview, onC
             </div>
 
             <div className="form-field">
-              <label className="form-label">Mentor Capacity</label>
+              <label className="form-label">Invitation Stage</label>
+              <select
+                className="form-input"
+                value={form.invitation_stage}
+                onChange={e => set('invitation_stage', e.target.value as EventFormPayload['invitation_stage'])}
+              >
+                <option value="both">Both (single-step)</option>
+                <option value="volunteer">Volunteer call first</option>
+                <option value="participant">Participant call</option>
+              </select>
+            </div>
+
+            <div className="form-field">
+              <label className="form-label">Event Lead Name</label>
+              <input className="form-input" value={form.event_lead_name} onChange={e => set('event_lead_name', e.target.value)} />
+            </div>
+
+            <div className="form-field form-field--full">
+              <label className="form-label">Event Lead Email</label>
+              <input className="form-input" type="email" value={form.event_lead_email} onChange={e => set('event_lead_email', e.target.value)} placeholder="lead@example.org" />
+              <p className="form-field-hint">RSVP confirmations and event notifications will CC this address.</p>
+              {fieldErrors.event_lead_email && <p className="form-field-error">{fieldErrors.event_lead_email}</p>}
+            </div>
+
+            <div className="form-field">
+              <label className="form-label">Volunteer Capacity</label>
               <input
                 className="form-input"
                 type="number"
@@ -1032,6 +1071,9 @@ function EventsPage() {
         description: form.description || null,
         location: form.location || null,
         photo_url: form.photo_url.trim() || null,
+        invitation_stage: form.invitation_stage,
+        event_lead_name: form.event_lead_name.trim() || null,
+        event_lead_email: form.event_lead_email.trim().toLowerCase() || null,
         end_date: form.end_date || null,
         mentor_capacity: mentorCapacity,
         participant_capacity: participantCapacity,
@@ -1305,7 +1347,7 @@ function EventsPage() {
                       title="RSVP role"
                     >
                       <option value="PARTICIPANT">as Participant</option>
-                      <option value="MENTOR">as Mentor</option>
+                      <option value="MENTOR">as Volunteer</option>
                     </select>
 
                     <button

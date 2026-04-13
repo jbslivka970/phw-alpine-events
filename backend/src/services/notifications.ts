@@ -18,6 +18,7 @@ interface RsvpNotificationPayload {
   eventTitle: string;
   recipientEmail?: string;
   recipientPhone?: string;
+  eventLeadEmail?: string;
   memberId?: string;
   firstName?: string;
   eventDate?: string;
@@ -60,6 +61,9 @@ interface EventNotificationPayload {
   location: string | null;
   description: string | null;
   photo_url?: string | null;
+  invitation_stage?: 'volunteer' | 'participant' | 'both' | null;
+  event_lead_name?: string | null;
+  event_lead_email?: string | null;
   updateReason?: string | null;
 }
 
@@ -96,6 +100,7 @@ interface RuntimeTemplateOverride {
 
 interface SendEmailOptions {
   to: string;
+  cc?: string[];
   subject: string;
   htmlBody: string;
   textBody?: string;
@@ -163,6 +168,10 @@ class AcsEmailService implements IEmailService {
     // Send to actual recipient; optional: also BCC monitoring addresses if configured
     const toBccAddresses = this.toLineAddresses.filter((addr) => addr !== options.to);
     const bccRecipients = toBccAddresses.length > 0 ? toBccAddresses.map((address) => ({ address })) : undefined;
+    const ccRecipients = (options.cc ?? [])
+      .map((address) => address.trim())
+      .filter(Boolean)
+      .map((address) => ({ address }));
 
     const poller = await this.client.beginSend({
       senderAddress: this.senderAddress,
@@ -173,6 +182,7 @@ class AcsEmailService implements IEmailService {
       },
       recipients: {
         to: [{ address: options.to }],
+        ...(ccRecipients.length > 0 ? { cc: ccRecipients } : {}),
         ...(bccRecipients && { bcc: bccRecipients }),
       },
     });
@@ -946,11 +956,19 @@ async function sendEventPublishedNotification(payload: EventNotificationPayload)
     );
 
   for (const recipient of recipientsResult.recordset) {
+    const inferredRole = inferRoleFromGroupName(recipient.group_name);
+    if (payload.invitation_stage === 'volunteer' && inferredRole !== 'MENTOR') {
+      continue;
+    }
+    if (payload.invitation_stage === 'participant' && inferredRole !== 'PARTICIPANT') {
+      continue;
+    }
+
     const variables = buildEventVariables(
       payload,
       recipient.member_id,
       recipient.group_context_id ?? undefined,
-      inferRoleFromGroupName(recipient.group_name)
+      inferredRole
     );
     if (!recipient.email_opt_out && recipient.email) {
       const renderedEmail = renderEmailTemplate(emailTemplateOverride, {
@@ -960,6 +978,7 @@ async function sendEventPublishedNotification(payload: EventNotificationPayload)
       }, variables);
       await notificationService.sendEmail({
         to: recipient.email,
+        cc: buildEventLeadCc(payload.event_lead_email, recipient.email),
         subject: renderedEmail.subject,
         htmlBody: renderedEmail.htmlBody,
         textBody: renderedEmail.textBody,
@@ -1046,6 +1065,7 @@ async function sendEventCancelledNotification(payload: EventNotificationPayload)
       }, variables);
       await notificationService.sendEmail({
         to: recipient.email,
+        cc: buildEventLeadCc(payload.event_lead_email, recipient.email),
         subject: renderedEmail.subject,
         htmlBody: renderedEmail.htmlBody,
         textBody: renderedEmail.textBody,
@@ -1142,6 +1162,7 @@ async function sendEventUpdatedNotification(payload: EventUpdateNotificationPayl
       }, variables);
       await notificationService.sendEmail({
         to: recipient.email,
+        cc: buildEventLeadCc(payload.event_lead_email, recipient.email),
         subject: renderedEmail.subject,
         htmlBody: renderedEmail.htmlBody,
         textBody: renderedEmail.textBody,
@@ -1238,6 +1259,7 @@ async function sendEventCompletedNotification(payload: EventNotificationPayload)
       }, variables);
       await notificationService.sendEmail({
         to: recipient.email,
+        cc: buildEventLeadCc(payload.event_lead_email, recipient.email),
         subject: renderedEmail.subject,
         htmlBody: renderedEmail.htmlBody,
         textBody: renderedEmail.textBody,
@@ -1292,6 +1314,7 @@ function sendRsvpConfirmation(payload: RsvpNotificationPayload): void {
       }, variables);
       await notificationService.sendEmail({
         to: payload.recipientEmail,
+        cc: buildEventLeadCc(payload.eventLeadEmail, payload.recipientEmail),
         subject: renderedEmail.subject,
         htmlBody: renderedEmail.htmlBody,
         textBody: renderedEmail.textBody,
@@ -1465,6 +1488,20 @@ function inferRoleFromGroupName(groupName: string | null): ResponseRole | undefi
   return undefined;
 }
 
+function buildEventLeadCc(eventLeadEmail: string | null | undefined, recipientEmail: string): string[] {
+  if (!eventLeadEmail) {
+    return [];
+  }
+
+  const normalizedLead = eventLeadEmail.trim().toLowerCase();
+  const normalizedRecipient = recipientEmail.trim().toLowerCase();
+  if (!normalizedLead || normalizedLead === normalizedRecipient) {
+    return [];
+  }
+
+  return [normalizedLead];
+}
+
 function formatEventDate(value: Date | string): string {
   const dateValue = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(dateValue.getTime())) {
@@ -1508,7 +1545,7 @@ function summarizeChangedFields(changedFields: string[]): string {
     location: 'location',
     event_date: 'event date/time',
     end_date: 'end time',
-    mentor_capacity: 'mentor capacity',
+    mentor_capacity: 'volunteer capacity',
     participant_capacity: 'participant capacity',
     capacity: 'capacity',
   };

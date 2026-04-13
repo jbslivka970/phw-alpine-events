@@ -159,7 +159,7 @@ async function assertMemberCanRespondAsRole(
       return;
     }
 
-    throw new RsvpError('Member is missing RSVP eligibility group assignment (MENTORS or PARTICIPANTS).', 403);
+      throw new RsvpError('Member is missing RSVP eligibility group assignment (VOLUNTEERS or PARTICIPANTS).', 403);
   }
 
   if (!allowedRoles.has(responseRole)) {
@@ -226,8 +226,8 @@ async function recordRsvpResponse(options: {
   const eventResult = await pool
     .request()
     .input('event_id', sql.UniqueIdentifier, options.eventId)
-    .query<{ event_id: string; title: string; status: string; capacity: number | null; mentor_capacity: number | null; participant_capacity: number | null; event_date: Date }>(
-      'SELECT event_id, title, status, capacity, mentor_capacity, participant_capacity, event_date FROM event WHERE event_id = @event_id'
+      .query<{ event_id: string; title: string; status: string; capacity: number | null; mentor_capacity: number | null; participant_capacity: number | null; event_date: Date; event_lead_email: string | null }>(
+        'SELECT event_id, title, status, capacity, mentor_capacity, participant_capacity, event_date, event_lead_email FROM event WHERE event_id = @event_id'
     );
 
   const event = eventResult.recordset[0];
@@ -361,6 +361,7 @@ async function recordRsvpResponse(options: {
       rsvpStatus: options.response,
       recipientEmail: member.email ?? undefined,
       recipientPhone: member.sms_opt_in ? (member.mobile_phone ?? undefined) : undefined,
+        eventLeadEmail: event.event_lead_email ?? undefined,
     });
   }
 

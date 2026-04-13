@@ -464,6 +464,13 @@ router.post('/', writeLimiter, authenticate, requireEventCreatorOrAdmin, async (
     const description = (req.body?.description as string | undefined) ?? null;
     const location = (req.body?.location as string | undefined) ?? null;
     const photoUrl = parsePhotoUrl(req.body?.photo_url);
+    const invitationStage = parseInvitationStage(req.body?.invitation_stage);
+    const eventLeadName = normalizeString(req.body?.event_lead_name);
+    if (req.body?.event_lead_email !== undefined && normalizeString(req.body?.event_lead_email) && !parseOptionalEmail(req.body?.event_lead_email)) {
+      res.status(400).json({ error: 'event_lead_email must be a valid email address when provided' });
+      return;
+    }
+    const eventLeadEmail = parseOptionalEmail(req.body?.event_lead_email);
     const endDate = (req.body?.end_date as string | undefined) ?? null;
     const mentorCapacity = parseCapacity(req.body?.mentor_capacity);
     const participantCapacity = parseCapacity(req.body?.participant_capacity);
@@ -513,6 +520,9 @@ router.post('/', writeLimiter, authenticate, requireEventCreatorOrAdmin, async (
       .input('description', sql.NVarChar(sql.MAX), description)
       .input('location', sql.NVarChar, location)
       .input('photo_url', sql.NVarChar(1024), photoUrl)
+      .input('invitation_stage', sql.NVarChar(20), invitationStage)
+      .input('event_lead_name', sql.NVarChar(200), eventLeadName)
+      .input('event_lead_email', sql.NVarChar(255), eventLeadEmail)
       .input('event_date', sql.DateTime, parsedEventDate)
       .input('end_date', sql.DateTime, parsedEndDate)
       .input('mentor_capacity', sql.Int, mentorCapacity)
@@ -520,9 +530,9 @@ router.post('/', writeLimiter, authenticate, requireEventCreatorOrAdmin, async (
       .input('capacity', sql.Int, capacity)
       .input('created_by', sql.UniqueIdentifier, createdBy)
       .query(
-        `INSERT INTO event (event_id, title, description, location, photo_url, event_date, end_date, mentor_capacity, participant_capacity, capacity, status, created_by, created_at, updated_at)
+        `INSERT INTO event (event_id, title, description, location, photo_url, invitation_stage, event_lead_name, event_lead_email, event_date, end_date, mentor_capacity, participant_capacity, capacity, status, created_by, created_at, updated_at)
          OUTPUT INSERTED.*
-         VALUES (NEWID(), @title, @description, @location, @photo_url, @event_date, @end_date, @mentor_capacity, @participant_capacity, @capacity, 'draft', @created_by, GETUTCDATE(), GETUTCDATE())`
+         VALUES (NEWID(), @title, @description, @location, @photo_url, @invitation_stage, @event_lead_name, @event_lead_email, @event_date, @end_date, @mentor_capacity, @participant_capacity, @capacity, 'draft', @created_by, GETUTCDATE(), GETUTCDATE())`
       );
 
     const event = created.recordset[0];
@@ -566,13 +576,16 @@ router.put('/:id', writeLimiter, authenticate, requireEventCreatorOrAdmin, async
         description: string | null;
         location: string | null;
         photo_url: string | null;
+        invitation_stage: 'volunteer' | 'participant' | 'both';
+        event_lead_name: string | null;
+        event_lead_email: string | null;
         event_date: Date | string;
         end_date: Date | string | null;
         mentor_capacity: number | null;
         participant_capacity: number | null;
         capacity: number | null;
       }>(
-        'SELECT status, title, description, location, photo_url, event_date, end_date, mentor_capacity, participant_capacity, capacity FROM event WHERE event_id = @event_id'
+        'SELECT status, title, description, location, photo_url, invitation_stage, event_lead_name, event_lead_email, event_date, end_date, mentor_capacity, participant_capacity, capacity FROM event WHERE event_id = @event_id'
       );
 
     const existing = existingResult.recordset[0];
@@ -591,6 +604,9 @@ router.put('/:id', writeLimiter, authenticate, requireEventCreatorOrAdmin, async
     const proposedDescription = req.body?.description;
     const proposedLocation = req.body?.location;
     const proposedPhotoUrl = req.body?.photo_url;
+    const proposedInvitationStage = req.body?.invitation_stage;
+    const proposedEventLeadName = req.body?.event_lead_name;
+    const proposedEventLeadEmail = req.body?.event_lead_email;
     const proposedEventDate = req.body?.event_date;
     const proposedEndDate = req.body?.end_date;
     const proposedMentorCapacity = req.body?.mentor_capacity;
@@ -608,6 +624,15 @@ router.put('/:id', writeLimiter, authenticate, requireEventCreatorOrAdmin, async
     }
     if (proposedPhotoUrl !== undefined && normalizeString(proposedPhotoUrl) !== normalizeString(existing.photo_url)) {
       changedFields.push('photo_url');
+    }
+    if (proposedInvitationStage !== undefined && normalizeString(proposedInvitationStage) !== normalizeString(existing.invitation_stage)) {
+      changedFields.push('invitation_stage');
+    }
+    if (proposedEventLeadName !== undefined && normalizeString(proposedEventLeadName) !== normalizeString(existing.event_lead_name)) {
+      changedFields.push('event_lead_name');
+    }
+    if (proposedEventLeadEmail !== undefined && normalizeString(proposedEventLeadEmail) !== normalizeString(existing.event_lead_email)) {
+      changedFields.push('event_lead_email');
     }
     if (proposedEventDate !== undefined && toUtcMillis(proposedEventDate) !== toUtcMillis(existing.event_date)) {
       changedFields.push('event_date');
@@ -643,6 +668,22 @@ router.put('/:id', writeLimiter, authenticate, requireEventCreatorOrAdmin, async
     if (req.body?.photo_url !== undefined) {
       updates.push('photo_url = @photo_url');
       request.input('photo_url', sql.NVarChar(1024), parsePhotoUrl(req.body.photo_url));
+    }
+    if (req.body?.invitation_stage !== undefined) {
+      updates.push('invitation_stage = @invitation_stage');
+      request.input('invitation_stage', sql.NVarChar(20), parseInvitationStage(req.body.invitation_stage));
+    }
+    if (req.body?.event_lead_name !== undefined) {
+      updates.push('event_lead_name = @event_lead_name');
+      request.input('event_lead_name', sql.NVarChar(200), normalizeString(req.body.event_lead_name));
+    }
+    if (req.body?.event_lead_email !== undefined) {
+      if (normalizeString(req.body?.event_lead_email) && !parseOptionalEmail(req.body?.event_lead_email)) {
+        res.status(400).json({ error: 'event_lead_email must be a valid email address when provided' });
+        return;
+      }
+      updates.push('event_lead_email = @event_lead_email');
+      request.input('event_lead_email', sql.NVarChar(255), parseOptionalEmail(req.body.event_lead_email));
     }
     if (req.body?.event_date !== undefined) {
       updates.push('event_date = @event_date');
@@ -711,7 +752,27 @@ router.put('/:id', writeLimiter, authenticate, requireEventCreatorOrAdmin, async
     }
 
     if (existing.status === 'published' && changedFields.length > 0) {
-      const changeSummary = buildChangedFieldSummary(changedFields, existing, updated.recordset[0]);
+      if (changedFields.includes('invitation_stage')) {
+        await sendEventPublishedNotification({
+          event_id: req.params.id,
+          title: updated.recordset[0].title,
+          event_date: updated.recordset[0].event_date,
+          location: updated.recordset[0].location,
+          description: updated.recordset[0].description,
+          photo_url: updated.recordset[0].photo_url,
+          invitation_stage: updated.recordset[0].invitation_stage,
+          event_lead_name: updated.recordset[0].event_lead_name,
+          event_lead_email: updated.recordset[0].event_lead_email,
+        });
+      }
+
+      const updateChangedFields = changedFields.filter((field) => field !== 'invitation_stage');
+      if (updateChangedFields.length === 0) {
+        res.json(updated.recordset[0]);
+        return;
+      }
+
+      const changeSummary = buildChangedFieldSummary(updateChangedFields, existing, updated.recordset[0]);
       await sendEventUpdatedNotification({
         event_id: req.params.id,
         title: updated.recordset[0].title,
@@ -719,7 +780,10 @@ router.put('/:id', writeLimiter, authenticate, requireEventCreatorOrAdmin, async
         location: updated.recordset[0].location,
         description: updated.recordset[0].description,
         photo_url: updated.recordset[0].photo_url,
-        changedFields,
+        invitation_stage: updated.recordset[0].invitation_stage,
+        event_lead_name: updated.recordset[0].event_lead_name,
+        event_lead_email: updated.recordset[0].event_lead_email,
+        changedFields: updateChangedFields,
         changeSummary,
         updateReason: (req.body?.update_reason as string | undefined) ?? (req.body?.reason as string | undefined) ?? null,
       });
@@ -757,8 +821,11 @@ router.put('/:id/status', writeLimiter, authenticate, requireAnyAuthenticatedRol
         location: string | null;
         description: string | null;
         photo_url: string | null;
+        invitation_stage: 'volunteer' | 'participant' | 'both';
+        event_lead_name: string | null;
+        event_lead_email: string | null;
       }>(
-        'SELECT event_id, status, title, event_date, location, description, photo_url FROM event WHERE event_id = @event_id'
+        'SELECT event_id, status, title, event_date, location, description, photo_url, invitation_stage, event_lead_name, event_lead_email FROM event WHERE event_id = @event_id'
       );
 
     const existing = existingResult.recordset[0];
@@ -798,6 +865,9 @@ router.put('/:id/status', writeLimiter, authenticate, requireAnyAuthenticatedRol
         event_date: existing.event_date,
         location: existing.location,
         description: existing.description,
+        invitation_stage: existing.invitation_stage,
+        event_lead_name: existing.event_lead_name,
+        event_lead_email: existing.event_lead_email,
       });
     }
     if (newStatus === 'cancelled') {
@@ -808,6 +878,9 @@ router.put('/:id/status', writeLimiter, authenticate, requireAnyAuthenticatedRol
         location: existing.location,
         description: existing.description,
         photo_url: existing.photo_url,
+        invitation_stage: existing.invitation_stage,
+        event_lead_name: existing.event_lead_name,
+        event_lead_email: existing.event_lead_email,
         updateReason: (req.body?.reason as string | undefined) ?? (req.body?.cancellation_reason as string | undefined) ?? null,
       });
     }
@@ -819,6 +892,9 @@ router.put('/:id/status', writeLimiter, authenticate, requireAnyAuthenticatedRol
         location: existing.location,
         description: existing.description,
         photo_url: existing.photo_url,
+        invitation_stage: existing.invitation_stage,
+        event_lead_name: existing.event_lead_name,
+        event_lead_email: existing.event_lead_email,
       });
     }
 
@@ -1370,9 +1446,12 @@ function changedFieldLabel(field: string): string {
     description: 'Description',
     location: 'Location',
     photo_url: 'Photo URL',
+    invitation_stage: 'Invitation stage',
+    event_lead_name: 'Event lead name',
+    event_lead_email: 'Event lead email',
     event_date: 'Event date/time',
     end_date: 'End time',
-    mentor_capacity: 'Mentor capacity',
+    mentor_capacity: 'Volunteer capacity',
     participant_capacity: 'Participant capacity',
     capacity: 'Capacity',
   };
@@ -1441,6 +1520,34 @@ function parsePhotoUrl(value: unknown): string | null {
   } catch {
     return null;
   }
+}
+
+function parseInvitationStage(value: unknown): 'volunteer' | 'participant' | 'both' {
+  if (typeof value !== 'string') {
+    return 'both';
+  }
+
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'volunteer' || normalized === 'participant' || normalized === 'both') {
+    return normalized;
+  }
+
+  return 'both';
+}
+
+function parseOptionalEmail(value: unknown): string | null {
+  const normalized = normalizeString(value);
+  if (!normalized) {
+    return null;
+  }
+
+  const lower = normalized.toLowerCase();
+  const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailPattern.test(lower)) {
+    return null;
+  }
+
+  return lower;
 }
 
 function toUtcMillis(value: unknown): number | null {

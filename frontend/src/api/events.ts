@@ -6,6 +6,9 @@ interface EventRecord {
   description: string | null;
   location: string | null;
   photo_url: string | null;
+  invitation_stage: 'volunteer' | 'participant' | 'both';
+  event_lead_name: string | null;
+  event_lead_email: string | null;
   event_date: string;
   end_date: string | null;
   mentor_capacity: number | null;
@@ -28,6 +31,9 @@ interface UpdateEventPayload {
   description?: string | null;
   location?: string | null;
   photo_url?: string | null;
+  invitation_stage?: 'volunteer' | 'participant' | 'both';
+  event_lead_name?: string | null;
+  event_lead_email?: string | null;
   event_date?: string;
   end_date?: string | null;
   mentor_capacity?: number | null;
@@ -121,6 +127,9 @@ const eventsApi = {
     description?: string | null;
     location?: string | null;
     photo_url?: string | null;
+    invitation_stage?: 'volunteer' | 'participant' | 'both';
+    event_lead_name?: string | null;
+    event_lead_email?: string | null;
     end_date?: string | null;
     mentor_capacity?: number | null;
     participant_capacity?: number | null;

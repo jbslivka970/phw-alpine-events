@@ -50,6 +50,8 @@ describe('ImportPage conflict workflow', () => {
             accountName: '',
             smsOptIn: false,
             emailOptOut: false,
+            activeVolunteer: false,
+            activeParticipant: false,
           },
           conflictMembers: [
             {

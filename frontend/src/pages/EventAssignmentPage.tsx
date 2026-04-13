@@ -211,20 +211,20 @@ function EventAssignmentPage() {
       <section className="card members-table-wrap" style={{ marginTop: 12 }}>
         <h2>RSVP Pool</h2>
         <p className="page__subtitle" style={{ marginBottom: 8 }}>
-          Priority sorted by lowest {priorityRole === 'MENTOR' ? 'mentor shifts' : 'participant attendance'} first.
+          Priority sorted by lowest {priorityRole === 'MENTOR' ? 'volunteer shifts' : 'participant attendance'} first.
         </p>
         <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
           <button className={`btn btn--sm ${priorityRole === 'PARTICIPANT' ? '' : 'btn--outline'}`} onClick={() => setPriorityRole('PARTICIPANT')}>
             Prioritize Participant Role
           </button>
           <button className={`btn btn--sm ${priorityRole === 'MENTOR' ? '' : 'btn--outline'}`} onClick={() => setPriorityRole('MENTOR')}>
-            Prioritize Mentor Role
+            Prioritize Volunteer Role
           </button>
         </div>
         {recommendationsLoading && <p className="members-loading">Refreshing equity recommendations…</p>}
         <table className="members-table">
           <thead>
-            <tr><th>Name</th><th>Response</th><th>Mentor Y/PY</th><th>Participant Y/PY</th><th>Equity</th><th>Assign</th></tr>
+            <tr><th>Name</th><th>Response</th><th>Volunteer Y/PY</th><th>Participant Y/PY</th><th>Equity</th><th>Assign</th></tr>
           </thead>
           <tbody>
             {rankedRsvps.length === 0 ? (
@@ -256,7 +256,7 @@ function EventAssignmentPage() {
                     {alreadyAssigned ? 'Assigned' : (
                       <>
                         <button className="btn btn--sm" onClick={() => assignMember(row.member_id, 'PARTICIPANT')}>Assign Participant</button>
-                        <button className="btn btn--sm btn--outline" onClick={() => assignMember(row.member_id, 'MENTOR')}>Assign Mentor</button>
+                        <button className="btn btn--sm btn--outline" onClick={() => assignMember(row.member_id, 'MENTOR')}>Assign Volunteer</button>
                       </>
                     )}
                   </td>

@@ -21,6 +21,8 @@ interface ImportCsvRow {
   accountName: string;
   smsOptIn: boolean;
   emailOptOut: boolean;
+  activeVolunteer: boolean;
+  activeParticipant: boolean;
 }
 
 interface ImportConflictMember {

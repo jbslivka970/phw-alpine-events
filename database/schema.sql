@@ -5,7 +5,8 @@
 --   - email is intentionally NOT unique to support households that share an email address.
 --   - Idempotent guards (IF NOT EXISTS / IF OBJECT_ID IS NULL) allow re-running the script safely.
 --   - All DATETIME columns use GETUTCDATE() so timestamps are UTC-normalized.
---   - Four system groups (ALL, ADMIN, MENTORS, PARTICIPANTS) are seeded at the bottom.
+--   - System groups (ALL, ADMIN, VOLUNTEERS, PARTICIPANTS) are seeded at the bottom.
+--   - Legacy MENTORS is also seeded for backward compatibility.
 
 -- ---------------------------------------------------------------------------
 -- 1. Member
@@ -80,6 +81,10 @@ CREATE TABLE dbo.event (
     mentor_capacity   INT              NULL,
     participant_capacity INT           NULL,
     capacity          INT              NULL,
+    invitation_stage  NVARCHAR(20)     NOT NULL DEFAULT 'both'
+        CHECK (invitation_stage IN ('volunteer', 'participant', 'both')),
+    event_lead_name   NVARCHAR(200)    NULL,
+    event_lead_email  NVARCHAR(255)    NULL,
     status            NVARCHAR(20)     NOT NULL DEFAULT 'draft'
         CHECK (status IN ('draft', 'published', 'cancelled', 'completed')),
     created_by        UNIQUEIDENTIFIER NULL,  -- FK to dbo.[user] added after that table is created
@@ -98,6 +103,29 @@ BEGIN
 
     IF COL_LENGTH('dbo.event', 'photo_url') IS NULL
         ALTER TABLE dbo.event ADD photo_url NVARCHAR(1024) NULL;
+
+    IF COL_LENGTH('dbo.event', 'invitation_stage') IS NULL
+        ALTER TABLE dbo.event ADD invitation_stage NVARCHAR(20) NOT NULL CONSTRAINT DF_event_invitation_stage DEFAULT 'both';
+
+    IF COL_LENGTH('dbo.event', 'event_lead_name') IS NULL
+        ALTER TABLE dbo.event ADD event_lead_name NVARCHAR(200) NULL;
+
+    IF COL_LENGTH('dbo.event', 'event_lead_email') IS NULL
+        ALTER TABLE dbo.event ADD event_lead_email NVARCHAR(255) NULL;
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM sys.check_constraints
+        WHERE name = N'CK_event_invitation_stage'
+          AND parent_object_id = OBJECT_ID(N'dbo.event')
+    )
+        ALTER TABLE dbo.event
+        ADD CONSTRAINT CK_event_invitation_stage
+            CHECK (invitation_stage IN ('volunteer', 'participant', 'both'));
+
+    UPDATE dbo.event
+    SET invitation_stage = 'both'
+    WHERE invitation_stage IS NULL;
 
         EXEC sp_executesql N'
                 UPDATE dbo.event
@@ -742,6 +770,10 @@ IF NOT EXISTS (SELECT 1 FROM dbo.[group] WHERE group_name = 'ADMIN')
 IF NOT EXISTS (SELECT 1 FROM dbo.[group] WHERE group_name = 'MENTORS')
     INSERT INTO dbo.[group] (group_id, group_name, description, is_system)
     VALUES (NEWID(), 'MENTORS', 'Mentors / guides', 1);
+
+IF NOT EXISTS (SELECT 1 FROM dbo.[group] WHERE group_name = 'VOLUNTEERS')
+    INSERT INTO dbo.[group] (group_id, group_name, description, is_system)
+    VALUES (NEWID(), 'VOLUNTEERS', 'Volunteers / guides', 1);
 
 IF NOT EXISTS (SELECT 1 FROM dbo.[group] WHERE group_name = 'PARTICIPANTS')
     INSERT INTO dbo.[group] (group_id, group_name, description, is_system)

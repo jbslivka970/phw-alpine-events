@@ -14,6 +14,8 @@ interface CsvRow {
   accountName: string;
   smsOptIn: boolean;
   emailOptOut: boolean;
+  activeVolunteer: boolean;
+  activeParticipant: boolean;
 }
 
 type RowAction = 'new' | 'update' | 'unchanged' | 'conflict' | 'error';
@@ -131,7 +133,34 @@ const HEADER_MAP: Record<string, keyof Omit<CsvRow, 'rowNumber'>> = {
   'sms opt in': 'smsOptIn',
   emailoptout: 'emailOptOut',
   'email opt out': 'emailOptOut',
+  activevolunteer: 'activeVolunteer',
+  'active volunteer': 'activeVolunteer',
+  volunteerstatus: 'activeVolunteer',
+  'volunteer status': 'activeVolunteer',
+  activementor: 'activeVolunteer',
+  'active mentor': 'activeVolunteer',
+  activeparticipant: 'activeParticipant',
+  'active participant': 'activeParticipant',
+  participantstatus: 'activeParticipant',
+  'participant status': 'activeParticipant',
 };
+
+function parseBooleanFlag(raw: string | undefined): boolean {
+  const normalized = (raw ?? '').trim().toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+
+  if (['1', 'true', 'yes', 'y', 'active', 'enabled', 'current'].includes(normalized)) {
+    return true;
+  }
+
+  if (['0', 'false', 'no', 'n', 'inactive', 'disabled'].includes(normalized)) {
+    return false;
+  }
+
+  return false;
+}
 
 function normaliseHeader(raw: string): keyof Omit<CsvRow, 'rowNumber'> | null {
   const key = raw.trim().toLowerCase().replace(/[_-]/g, ' ');
@@ -176,6 +205,8 @@ function computeRowHash(row: CsvRow): string {
     row.accountName,
     row.smsOptIn ? '1' : '0',
     row.emailOptOut ? '1' : '0',
+    row.activeVolunteer ? '1' : '0',
+    row.activeParticipant ? '1' : '0',
   ]
     .join('|')
     .toLowerCase();
@@ -201,8 +232,10 @@ function parseCsv(buffer: Buffer): CsvRow[] {
       }
     }
 
-    const smsRaw = (mapped['smsOptIn'] ?? '').toLowerCase();
-    const emailOptOutRaw = (mapped['emailOptOut'] ?? '').toLowerCase();
+    const smsRaw = mapped['smsOptIn'];
+    const emailOptOutRaw = mapped['emailOptOut'];
+    const activeVolunteerRaw = mapped['activeVolunteer'];
+    const activeParticipantRaw = mapped['activeParticipant'];
 
     return {
       rowNumber: index + 2,
@@ -213,10 +246,97 @@ function parseCsv(buffer: Buffer): CsvRow[] {
       salutation: (mapped['salutation'] ?? '').trim(),
       title: (mapped['title'] ?? '').trim(),
       accountName: (mapped['accountName'] ?? '').trim(),
-      smsOptIn: smsRaw === '1' || smsRaw === 'true' || smsRaw === 'yes',
-      emailOptOut: emailOptOutRaw === '1' || emailOptOutRaw === 'true' || emailOptOutRaw === 'yes',
+      smsOptIn: parseBooleanFlag(smsRaw),
+      emailOptOut: parseBooleanFlag(emailOptOutRaw),
+      activeVolunteer: parseBooleanFlag(activeVolunteerRaw),
+      activeParticipant: parseBooleanFlag(activeParticipantRaw),
     };
   });
+}
+
+function rowIdentitySignature(row: CsvRow): string {
+  return [
+    row.firstName.trim().toLowerCase(),
+    row.lastName.trim().toLowerCase(),
+    row.email.trim().toLowerCase(),
+  ].join('|');
+}
+
+interface RoleGroupIds {
+  volunteerGroupIds: string[];
+  participantGroupIds: string[];
+}
+
+async function resolveRoleGroupIds(tx: sql.Transaction): Promise<RoleGroupIds> {
+  const result = await new sql.Request(tx).query<{ group_id: string; group_name: string }>(
+    `SELECT group_id, group_name
+     FROM [group]
+     WHERE UPPER(group_name) IN ('VOLUNTEERS', 'MENTORS', 'PARTICIPANTS')`
+  );
+
+  const volunteerGroupIds: string[] = [];
+  const participantGroupIds: string[] = [];
+
+  for (const row of result.recordset) {
+    const groupName = row.group_name.trim().toUpperCase();
+    if (groupName === 'VOLUNTEERS' || groupName === 'MENTORS') {
+      volunteerGroupIds.push(row.group_id);
+    }
+    if (groupName === 'PARTICIPANTS') {
+      participantGroupIds.push(row.group_id);
+    }
+  }
+
+  return { volunteerGroupIds, participantGroupIds };
+}
+
+async function syncMemberRoleGroups(
+  tx: sql.Transaction,
+  memberId: string,
+  row: CsvRow,
+  roleGroups: RoleGroupIds
+): Promise<void> {
+  for (const groupId of roleGroups.volunteerGroupIds) {
+    if (row.activeVolunteer) {
+      await new sql.Request(tx)
+        .input('member_id', sql.UniqueIdentifier, memberId)
+        .input('group_id', sql.UniqueIdentifier, groupId)
+        .query(
+          `IF NOT EXISTS (
+             SELECT 1 FROM member_group
+             WHERE member_id = @member_id AND group_id = @group_id
+           )
+           INSERT INTO member_group (member_group_id, member_id, group_id, added_at)
+           VALUES (NEWID(), @member_id, @group_id, GETUTCDATE())`
+        );
+    } else {
+      await new sql.Request(tx)
+        .input('member_id', sql.UniqueIdentifier, memberId)
+        .input('group_id', sql.UniqueIdentifier, groupId)
+        .query('DELETE FROM member_group WHERE member_id = @member_id AND group_id = @group_id');
+    }
+  }
+
+  for (const groupId of roleGroups.participantGroupIds) {
+    if (row.activeParticipant) {
+      await new sql.Request(tx)
+        .input('member_id', sql.UniqueIdentifier, memberId)
+        .input('group_id', sql.UniqueIdentifier, groupId)
+        .query(
+          `IF NOT EXISTS (
+             SELECT 1 FROM member_group
+             WHERE member_id = @member_id AND group_id = @group_id
+           )
+           INSERT INTO member_group (member_group_id, member_id, group_id, added_at)
+           VALUES (NEWID(), @member_id, @group_id, GETUTCDATE())`
+        );
+    } else {
+      await new sql.Request(tx)
+        .input('member_id', sql.UniqueIdentifier, memberId)
+        .input('group_id', sql.UniqueIdentifier, groupId)
+        .query('DELETE FROM member_group WHERE member_id = @member_id AND group_id = @group_id');
+    }
+  }
 }
 
 async function findExistingMember(row: CsvRow): Promise<MatchOutcome> {
@@ -261,12 +381,14 @@ async function findExistingMember(row: CsvRow): Promise<MatchOutcome> {
 
 async function generatePreview(buffer: Buffer, fileName: string, sessionId: string): Promise<ImportPreview> {
   const rows = parseCsv(buffer);
+  const seenRowSignatures = new Map<string, number>();
 
   const previewRows: PreviewRow[] = [];
   let newRows = 0;
   let updatedRows = 0;
   let unchangedRows = 0;
   let conflictRows = 0;
+  let skippedRows = 0;
   let errorRows = 0;
 
   for (const row of rows) {
@@ -280,6 +402,20 @@ async function generatePreview(buffer: Buffer, fileName: string, sessionId: stri
       errorRows++;
       continue;
     }
+
+    const signature = rowIdentitySignature(row);
+    const existingRowNumber = seenRowSignatures.get(signature);
+    if (existingRowNumber) {
+      previewRows.push({
+        rowNumber: row.rowNumber,
+        action: 'unchanged',
+        data: row,
+        errorMessage: `Duplicate member row in CSV (matches row ${existingRowNumber} by firstName+lastName+email). Keeping the first row and skipping this duplicate.`,
+      });
+      skippedRows++;
+      continue;
+    }
+    seenRowSignatures.set(signature, row.rowNumber);
 
     const { match: existing, conflictReason, sameEmailMembers } = await findExistingMember(row);
 
@@ -336,7 +472,7 @@ async function generatePreview(buffer: Buffer, fileName: string, sessionId: stri
     updatedRows,
     unchangedRows,
     conflictRows,
-    skippedRows: 0,
+    skippedRows,
     errorRows,
     rows: previewRows,
     createdAt: new Date(),
@@ -373,6 +509,8 @@ async function commitImport(preview: ImportPreview, options?: CommitOptions): Pr
           (@import_id, @imported_by, @file_name, @rows_processed, @rows_inserted, @rows_updated, @rows_skipped, @rows_errored, 'running', GETUTCDATE())`
       );
 
+    const roleGroups = await resolveRoleGroupIds(tx);
+
     for (const row of preview.rows) {
       if (row.action === 'error') {
         continue;
@@ -403,8 +541,9 @@ async function commitImport(preview: ImportPreview, options?: CommitOptions): Pr
         const hash = computeRowHash(row.data);
 
         if (row.action === 'new' || row.action === 'conflict') {
+          const memberId = crypto.randomUUID();
           await new sql.Request(tx)
-            .input('member_id', sql.UniqueIdentifier, crypto.randomUUID())
+            .input('member_id', sql.UniqueIdentifier, memberId)
             .input('first_name', sql.NVarChar, row.data.firstName)
             .input('last_name', sql.NVarChar, row.data.lastName)
             .input('email', sql.NVarChar, row.data.email)
@@ -421,9 +560,14 @@ async function commitImport(preview: ImportPreview, options?: CommitOptions): Pr
                VALUES
                 (@member_id, @first_name, @last_name, @email, @mobile_phone, @sms_opt_in, @email_opt_out, @salutation, @title, @account_name, 'import', @last_import_hash, 1, GETUTCDATE(), GETUTCDATE())`
             );
+          await syncMemberRoleGroups(tx, memberId, row.data, roleGroups);
           inserted++;
           committed++;
           continue;
+        }
+
+        if (!row.existingMemberId) {
+          throw new Error('existingMemberId is required for update rows.');
         }
 
         await new sql.Request(tx)
@@ -454,6 +598,7 @@ async function commitImport(preview: ImportPreview, options?: CommitOptions): Pr
                updated_at = GETUTCDATE()
              WHERE member_id = @member_id`
           );
+        await syncMemberRoleGroups(tx, row.existingMemberId, row.data, roleGroups);
         updated++;
         committed++;
       } catch (error: unknown) {

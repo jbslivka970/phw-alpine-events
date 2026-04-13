@@ -56,6 +56,9 @@ const eventRecord = {
   description: 'Annual spring trip',
   location: 'Clear Creek',
   photo_url: null,
+  invitation_stage: 'both',
+  event_lead_name: null,
+  event_lead_email: null,
   event_date: '2026-05-01T08:00:00.000Z',
   end_date: null,
   mentor_capacity: 1,
@@ -117,7 +120,7 @@ describe('EventsPage flow pattern', () => {
     await setFieldByLabel('Event Date *', '2026-06-10');
     await setFieldByLabel('Event Time (24-hour) *', '1923');
     await setFieldByLabel('Location', 'Blue Mesa');
-    await setFieldByLabel('Mentor Capacity', '1');
+    await setFieldByLabel('Volunteer Capacity', '1');
     await setFieldByLabel('Participant Capacity', '2');
     await setFieldByLabel('Description', 'First evening outing');
 
@@ -130,6 +133,9 @@ describe('EventsPage flow pattern', () => {
         description: 'First evening outing',
         location: 'Blue Mesa',
         photo_url: null,
+        invitation_stage: 'both',
+        event_lead_name: null,
+        event_lead_email: null,
         end_date: null,
         mentor_capacity: 1,
         participant_capacity: 2,
