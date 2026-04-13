@@ -335,20 +335,24 @@ jobs:
         if [ -z "$BACKEND_BASE_URL" ]; then
           BACKEND_BASE_URL="https://${{ vars.AZURE_WEBAPP_NAME }}.azurewebsites.net"
         fi
-        HEALTH_URL="$BACKEND_BASE_URL/api/v1/health/startup"
-        echo "Waiting for backend readiness at $HEALTH_URL"
+        STARTUP_HEALTH_URL="$BACKEND_BASE_URL/api/v1/health/startup"
+        BASIC_HEALTH_URL="$BACKEND_BASE_URL/api/v1/health"
+        echo "Waiting for backend readiness at $STARTUP_HEALTH_URL (fallback $BASIC_HEALTH_URL)"
 
-        for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
-          STATUS_CODE="$(curl -sS -o /dev/null -w "%{http_code}" "$HEALTH_URL" || true)"
-          if [ "$STATUS_CODE" = "200" ]; then
+        for attempt in $(seq 1 36); do
+          STARTUP_STATUS="$(curl -sS -o /dev/null -w "%{http_code}" "$STARTUP_HEALTH_URL" || true)"
+          BASIC_STATUS="$(curl -sS -o /dev/null -w "%{http_code}" "$BASIC_HEALTH_URL" || true)"
+
+          if [ "$STARTUP_STATUS" = "200" ] || [ "$BASIC_STATUS" = "200" ]; then
             echo "Backend is ready (attempt $attempt)."
             exit 0
           fi
-          echo "Backend not ready yet (attempt $attempt, status=$STATUS_CODE)."
+
+          echo "Backend not ready yet (attempt $attempt, startup=$STARTUP_STATUS, health=$BASIC_STATUS)."
           sleep 10
         done
 
-        echo "::error::Backend health endpoint did not return 200 within timeout."
+        echo "::error::Backend health endpoint did not return 200 within timeout (startup + health checked)."
         exit 1
 
     - name: Run post-deploy core compliance smokes
@@ -407,6 +411,7 @@ jobs:
     runs-on: ubuntu-latest
     needs:
     - deploy
+    - deploy_backend_smoke
     - deploy_frontend
     if: >-
       github.event_name == 'push' &&
