@@ -299,7 +299,7 @@ router.get('/:id/participation', apiLimiter, authenticate, async (req, res, next
 
 router.get('/me/rsvps', apiLimiter, authenticate, async (req, res, next) => {
   try {
-    const memberId = await resolveSelfMemberId(req.user?.sub, req.user?.email);
+    const memberId = await resolveSelfMemberId(req.user?.sub, req.user?.email, req.user?.rawClaims);
     if (!memberId) {
       res.json([]);
       return;
@@ -324,6 +324,50 @@ router.get('/me/rsvps', apiLimiter, authenticate, async (req, res, next) => {
          WHERE er.member_id = @member_id
          ORDER BY e.event_date ASC`
       );
+
+    if ((result.recordset.length === 0) && req.user?.email?.trim()) {
+      const normalizedEmail = req.user.email.trim().toLowerCase();
+      const fallbackMember = await pool
+        .request()
+        .input('email', sql.NVarChar(320), normalizedEmail)
+        .query<{ member_id: string }>(
+          `SELECT TOP 1 m.member_id
+           FROM member m
+           CROSS APPLY (
+             SELECT MAX(er.responded_at) AS last_responded_at
+             FROM event_response er
+             WHERE er.member_id = m.member_id
+           ) r
+           WHERE LOWER(m.email) = @email
+             AND r.last_responded_at IS NOT NULL
+           ORDER BY m.is_active DESC, r.last_responded_at DESC, m.updated_at DESC`
+        );
+
+      const fallbackMemberId = fallbackMember.recordset[0]?.member_id;
+      if (fallbackMemberId && fallbackMemberId !== memberId) {
+        const fallbackResponses = await pool
+          .request()
+          .input('member_id', sql.UniqueIdentifier, fallbackMemberId)
+          .query(
+            `SELECT
+                er.response_id,
+                er.response,
+                er.responded_at,
+                e.event_id,
+                e.title,
+                e.event_date,
+                e.location,
+                e.status
+             FROM event_response er
+             INNER JOIN event e ON e.event_id = er.event_id
+             WHERE er.member_id = @member_id
+             ORDER BY e.event_date ASC`
+          );
+
+        res.json(fallbackResponses.recordset);
+        return;
+      }
+    }
 
     res.json(result.recordset);
   } catch (error) {
@@ -450,8 +494,39 @@ function isSelfMember(req: { user?: { sub?: string; email?: string } }, memberId
   return req.user.email.trim().toLowerCase() === memberEmail.trim().toLowerCase();
 }
 
-async function resolveSelfMemberId(subject: string | undefined, email: string | undefined): Promise<string | null> {
+async function resolveSelfMemberId(
+  subject: string | undefined,
+  email: string | undefined,
+  rawClaims?: Record<string, unknown>
+): Promise<string | null> {
   const pool = await getPool();
+
+  const entraObjectId = typeof rawClaims?.['oid'] === 'string' ? rawClaims['oid'].trim() : undefined;
+  const issuer = typeof rawClaims?.['iss'] === 'string' ? rawClaims['iss'].trim() : undefined;
+  const issuerAssignedId = typeof subject === 'string' ? subject.trim() : undefined;
+
+  if (entraObjectId || (issuer && issuerAssignedId)) {
+    const byIdentityLink = await pool
+      .request()
+      .input('entra_object_id', sql.NVarChar(255), entraObjectId ?? null)
+      .input('issuer', sql.NVarChar(255), issuer ?? null)
+      .input('issuer_assigned_id', sql.NVarChar(255), issuerAssignedId ?? null)
+      .query<{ member_id: string }>(
+        `SELECT TOP 1 mil.member_id
+         FROM member_identity_link mil
+         INNER JOIN member m ON m.member_id = mil.member_id
+         WHERE (
+            (@entra_object_id IS NOT NULL AND mil.entra_object_id = @entra_object_id)
+            OR (@issuer IS NOT NULL AND @issuer_assigned_id IS NOT NULL AND mil.issuer = @issuer AND mil.issuer_assigned_id = @issuer_assigned_id)
+         )
+         ORDER BY m.is_active DESC, m.updated_at DESC`
+      );
+
+    const linkedMemberId = byIdentityLink.recordset[0]?.member_id;
+    if (linkedMemberId) {
+      return linkedMemberId;
+    }
+  }
 
   if (email?.trim()) {
     const normalizedEmail = email.trim().toLowerCase();
