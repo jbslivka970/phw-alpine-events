@@ -117,6 +117,44 @@ async function completePasswordStep(authPage: Page, password: string): Promise<b
   return false;
 }
 
+async function waitForAuthenticatedSession(page: Page, timeoutMs: number): Promise<void> {
+  await Promise.race([
+    page.waitForURL(/\/dashboard|\/events|\/tavf|\/$/, { timeout: timeoutMs }),
+    page.waitForFunction(() => {
+      const currentPath = window.location.pathname || '/';
+      if (/\/dashboard|\/events|\/tavf|\/$/.test(currentPath)) {
+        return true;
+      }
+
+      const sources = [window.sessionStorage, window.localStorage];
+      for (const source of sources) {
+        for (const key of Object.keys(source)) {
+          const raw = source.getItem(key);
+          if (!raw) {
+            continue;
+          }
+
+          if (raw.startsWith('eyJ') && raw.length > 20) {
+            return true;
+          }
+
+          try {
+            const parsed = JSON.parse(raw);
+            const candidates = [parsed.secret, parsed.accessToken, parsed.access_token, parsed.idToken, parsed.id_token, parsed.token];
+            if (candidates.some((item) => typeof item === 'string' && item.length > 20)) {
+              return true;
+            }
+          } catch {
+            // Ignore malformed cache entries.
+          }
+        }
+      }
+
+      return false;
+    }, undefined, { timeout: timeoutMs }),
+  ]);
+}
+
 async function loginWithCredentials(page: Page): Promise<void> {
   await page.goto(`${appBaseUrl}/login`, { waitUntil: 'domcontentloaded' });
   const onIdentityProvider = () => /login\.microsoftonline\.com|b2clogin\.com|ciamlogin\.com/i.test(page.url());
@@ -164,7 +202,9 @@ async function loginWithCredentials(page: Page): Promise<void> {
     await popup.waitForEvent('close', { timeout: 90_000 }).catch(() => {});
   }
 
-  await expect(page).toHaveURL(/\/dashboard|\/events|\/tavf|\/$/, { timeout: 90_000 });
+  await waitForAuthenticatedSession(page, 90_000);
+  await page.goto(`${appBaseUrl}/dashboard`, { waitUntil: 'domcontentloaded' });
+  await expect(page).not.toHaveURL(/\/login(\?|$)/, { timeout: 30_000 });
 }
 
 test.describe('Post-deploy browser smoke (member)', () => {
