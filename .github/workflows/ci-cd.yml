@@ -118,16 +118,16 @@ jobs:
     - name: Build backend
       run: cd backend && npm run build
 
+    - name: Prune backend dev dependencies
+      run: cd backend && npm prune --omit=dev
+
     - name: Prepare deployment package
       run: |
         rm -rf deploy-package
         rm -f release.zip
         mkdir -p deploy-package
-        cat > deploy-package/.deployment <<'EOF'
-        [config]
-        SCM_DO_BUILD_DURING_DEPLOYMENT=true
-        EOF
         cp -R backend/dist deploy-package/dist
+        cp -R backend/node_modules deploy-package/node_modules
         cp backend/package.json deploy-package/package.json
         cp backend/package-lock.json deploy-package/package-lock.json
         cp backend/server.js deploy-package/server.js
