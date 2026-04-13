@@ -198,9 +198,9 @@ class AcsEmailService implements IEmailService {
   }
 }
 
-function parseToLineAddresses(raw: string | undefined, fallback: string): string[] {
+function parseToLineAddresses(raw: string | undefined): string[] {
   if (!raw) {
-    return [fallback];
+    return [];
   }
 
   const entries = raw
@@ -208,7 +208,7 @@ function parseToLineAddresses(raw: string | undefined, fallback: string): string
     .map((value) => value.trim())
     .filter(Boolean);
 
-  return entries.length > 0 ? entries : [fallback];
+  return entries;
 }
 
 class AcsSmsService implements ISmsService {
@@ -656,7 +656,7 @@ if (!acsConfig.connectionString || !acsConfig.emailFrom) {
   console.warn('[NotificationService] ACS connection string appears invalid. Email sends are running in stub mode.');
 } else {
   try {
-    const toLineAddresses = parseToLineAddresses(acsConfig.emailTo, acsConfig.emailFrom ?? '');
+    const toLineAddresses = parseToLineAddresses(acsConfig.emailTo);
     emailService = new AcsEmailService(acsConfig.connectionString ?? '', acsConfig.emailFrom ?? '', toLineAddresses);
     isRealEmailService = true;
   } catch (error) {

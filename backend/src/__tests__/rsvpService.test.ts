@@ -198,4 +198,45 @@ describe('rsvpService waitlist auto-promotion', () => {
       response: 'yes',
     });
   });
+
+  it('allows RSVP when member is targeted via event target group without role groups', async () => {
+    const queryCalls: string[] = [];
+    const queue: Array<{ recordset?: unknown[]; rowsAffected?: number[] }> = [
+      { recordset: [] },
+      { recordset: [{ target_id: 'target-group-1' }] },
+      { recordset: [{ event_id: 'event-6', title: 'Group Invite Event', status: 'published', mentor_capacity: null, participant_capacity: null, capacity: null, event_date: new Date('2026-06-06T18:00:00Z') }] },
+      { recordset: [] },
+      { recordset: [{ response_id: 'r6', event_id: 'event-6', member_id: 'member-group-targeted', response: 'yes', responded_at: new Date('2026-05-01T00:00:00Z'), notes: null }] },
+      { recordset: [] },
+      { rowsAffected: [0] },
+      { recordset: [] },
+    ];
+
+    const mockRequest = {
+      input: jest.fn().mockReturnThis(),
+      query: jest.fn().mockImplementation(async (query: string) => {
+        queryCalls.push(query);
+        return queue.shift() ?? { recordset: [] };
+      }),
+    };
+
+    (getPool as jest.Mock).mockResolvedValue({ request: () => mockRequest });
+
+    await expect(
+      recordRsvpResponse({
+        eventId: 'event-6',
+        memberId: 'member-group-targeted',
+        response: 'yes',
+        responseChannel: 'tokenized_link',
+        responseRole: 'PARTICIPANT',
+      })
+    ).resolves.toMatchObject({
+      response_id: 'r6',
+      event_id: 'event-6',
+      member_id: 'member-group-targeted',
+      response: 'yes',
+    });
+
+    expect(queryCalls.some((query) => query.includes('LEFT JOIN member_group'))).toBe(true);
+  });
 });

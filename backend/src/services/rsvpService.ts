@@ -126,7 +126,7 @@ async function getMemberEventRoles(memberId: string): Promise<Set<EventRole>> {
   return roles;
 }
 
-async function isMemberDirectlyTargetedForEvent(memberId: string, eventId: string): Promise<boolean> {
+async function isMemberTargetedForEvent(memberId: string, eventId: string): Promise<boolean> {
   const pool = await getPool();
   const targetResult = await pool
     .request()
@@ -135,8 +135,13 @@ async function isMemberDirectlyTargetedForEvent(memberId: string, eventId: strin
     .query<{ target_id: string }>(
       `SELECT TOP 1 target_id
        FROM event_notification_target
-       WHERE event_id = @event_id
-         AND member_id = @member_id`
+       LEFT JOIN member_group ON member_group.group_id = event_notification_target.group_id
+         AND member_group.member_id = @member_id
+       WHERE event_notification_target.event_id = @event_id
+         AND (
+           event_notification_target.member_id = @member_id
+           OR member_group.member_id IS NOT NULL
+         )`
     );
 
   return Boolean(targetResult.recordset[0]?.target_id);
@@ -150,7 +155,7 @@ async function assertMemberCanRespondAsRole(
   const allowedRoles = await getMemberEventRoles(memberId);
 
   if (allowedRoles.size === 0) {
-    if (options?.eventId && await isMemberDirectlyTargetedForEvent(memberId, options.eventId)) {
+    if (options?.eventId && await isMemberTargetedForEvent(memberId, options.eventId)) {
       return;
     }
 
