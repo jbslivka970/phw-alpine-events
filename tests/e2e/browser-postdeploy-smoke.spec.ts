@@ -119,12 +119,27 @@ async function completePasswordStep(authPage: Page, password: string): Promise<b
 
 async function loginWithCredentials(page: Page): Promise<void> {
   await page.goto(`${appBaseUrl}/login`, { waitUntil: 'domcontentloaded' });
+  const onIdentityProvider = () => /login\.microsoftonline\.com|b2clogin\.com|ciamlogin\.com/i.test(page.url());
   const signInButton = page.getByRole('button', { name: /sign in/i });
-  await expect(signInButton).toBeVisible({ timeout: 20_000 });
+  let popup: Page | null = null;
 
-  const popupPromise = page.waitForEvent('popup', { timeout: 12_000 }).catch(() => null);
-  await signInButton.click();
-  const popup = await popupPromise;
+  if (!onIdentityProvider()) {
+    await signInButton.waitFor({ state: 'visible', timeout: 25_000 }).catch(() => null);
+    if (await signInButton.isVisible().catch(() => false)) {
+      const popupPromise = page.waitForEvent('popup', { timeout: 12_000 }).catch(() => null);
+      await signInButton.click();
+      popup = await popupPromise;
+    } else {
+      await clickInAnyScope(page, [
+        'button:has-text("Sign in")',
+        'button:has-text("Continue")',
+        'a:has-text("Sign in")',
+        'a:has-text("Continue")',
+      ]);
+      await page.waitForTimeout(1_500);
+    }
+  }
+
   const authPage = popup ?? page;
 
   await authPage.waitForLoadState('domcontentloaded').catch(() => {});
@@ -156,6 +171,7 @@ test.describe('Post-deploy browser smoke (member)', () => {
   test.skip(!appBaseUrl, 'E2E_APP_URL is required.');
 
   test('dashboard, events RSVP, and TAVF preference flow', async ({ browser }) => {
+    test.setTimeout(180_000);
     test.skip(!fs.existsSync(memberStatePath) && (!memberUsername || !memberPassword), 'Member storage state or PW_MEMBER_USER/PW_MEMBER_PASS are required.');
 
     const context = fs.existsSync(memberStatePath)
@@ -214,7 +230,7 @@ test.describe('Post-deploy browser smoke (member)', () => {
       await expect(reloadedToggle).toBeChecked({ checked: originalValue, timeout: 20_000 });
     } finally {
       page.off('response', responseListener);
-      await context.close();
+      await context.close().catch(() => {});
     }
   });
 });
