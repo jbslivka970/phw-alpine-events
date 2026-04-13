@@ -99,6 +99,7 @@ interface MatchOutcome {
 interface CommitOptions {
   conflictResolutions?: Record<string, ConflictResolution>;
   importedByUserId?: string | null;
+  importedByEmail?: string | null;
 }
 
 interface ImportLogFilters {
@@ -489,10 +490,15 @@ async function commitImport(preview: ImportPreview, options?: CommitOptions): Pr
   let inserted = 0;
   let updated = 0;
   let skipped = 0;
-  const importedByUserId = toNullableUuid(options?.importedByUserId ?? null);
 
   await tx.begin();
   try {
+    const importedByUserId = await resolveImportedByUserId(
+      tx,
+      options?.importedByUserId ?? null,
+      options?.importedByEmail ?? null
+    );
+
     await new sql.Request(tx)
       .input('import_id', sql.UniqueIdentifier, importId)
       .input('imported_by', sql.UniqueIdentifier, importedByUserId)
@@ -799,6 +805,39 @@ function toNullableUuid(value: string | null): string | null {
 
   const uuidV4Like = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   return uuidV4Like.test(value) ? value : null;
+}
+
+async function resolveImportedByUserId(
+  tx: InstanceType<typeof sql.Transaction>,
+  userIdCandidate: string | null,
+  emailCandidate: string | null
+): Promise<string | null> {
+  const normalizedUserId = toNullableUuid(userIdCandidate);
+  if (normalizedUserId) {
+    const byUserId = await new sql.Request(tx)
+      .input('user_id', sql.UniqueIdentifier, normalizedUserId)
+      .query<{ user_id: string }>('SELECT user_id FROM [user] WHERE user_id = @user_id');
+
+    if (byUserId.recordset[0]?.user_id) {
+      return byUserId.recordset[0].user_id;
+    }
+  }
+
+  const normalizedEmail = (emailCandidate ?? '').trim().toLowerCase();
+  if (!normalizedEmail) {
+    return null;
+  }
+
+  const byEmail = await new sql.Request(tx)
+    .input('email', sql.NVarChar(320), normalizedEmail)
+    .query<{ user_id: string }>(
+      `SELECT TOP 1 user_id
+       FROM [user]
+       WHERE LOWER(email) = @email
+       ORDER BY is_active DESC, updated_at DESC`
+    );
+
+  return byEmail.recordset[0]?.user_id ?? null;
 }
 
 async function getImportLogRowErrors(importId: string): Promise<Array<{ rowNumber: number; errorMessage: string }>> {

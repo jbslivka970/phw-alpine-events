@@ -71,6 +71,7 @@ router.post('/commit/:sessionId', writeLimiter, authenticate, requireAdmin, asyn
       conflictResolutions: (req.body as { conflictResolutions?: Record<string, 'create' | 'skip'> } | undefined)
         ?.conflictResolutions,
       importedByUserId: req.user?.sub ?? null,
+      importedByEmail: req.user?.email ?? null,
     });
     deletePreviewSession(req.params.sessionId);
 
