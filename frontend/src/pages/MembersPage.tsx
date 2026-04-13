@@ -53,6 +53,7 @@ function toEditState(m: MemberRecord): MemberEditState {
 }
 
 function MembersPage() {
+  const PAGE_SIZE = 100
   const { isAdmin } = useAuth()
   const isAdminUser = isAdmin()
   const modalRef = useRef<HTMLElement | null>(null)
@@ -62,7 +63,9 @@ function MembersPage() {
   const identityBulkLastRequestedAtRef = useRef(0)
   const identityBulkCooldownUntilRef = useRef(0)
   const [search, setSearch] = useState('')
+  const [page, setPage] = useState(1)
   const [members, setMembers] = useState<MemberRecord[]>([])
+  const [totalMembers, setTotalMembers] = useState(0)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [inviteSuccess, setInviteSuccess] = useState<{ email: string; redeemUrl: string | null } | null>(null)
@@ -81,9 +84,23 @@ function MembersPage() {
   }>>([])
 
   const totalLabel = useMemo(
-    () => `${members.length} member${members.length === 1 ? '' : 's'}`,
-    [members.length],
+    () => {
+      if (totalMembers <= PAGE_SIZE) {
+        return `${totalMembers} member${totalMembers === 1 ? '' : 's'}`
+      }
+      const start = (page - 1) * PAGE_SIZE + (members.length > 0 ? 1 : 0)
+      const end = (page - 1) * PAGE_SIZE + members.length
+      return `${start}-${end} of ${totalMembers} members`
+    },
+    [members.length, page, totalMembers],
   )
+
+  const hasPreviousPage = page > 1
+  const hasNextPage = page * PAGE_SIZE < totalMembers
+
+  useEffect(() => {
+    setPage(1)
+  }, [search])
 
   const isEditorOpen = Boolean(edit)
 
@@ -92,12 +109,16 @@ function MembersPage() {
     setIsLoading(true)
     setError(null)
     membersApi
-      .list({ page: 1, pageSize: 100, search: search || undefined, isActive: true })
-      .then((r) => { if (active) setMembers(r.data) })
+      .list({ page, pageSize: PAGE_SIZE, search: search || undefined, isActive: true })
+      .then((r) => {
+        if (!active) return
+        setMembers(r.data)
+        setTotalMembers(r.total)
+      })
       .catch((e: unknown) => { if (active) setError(toUserErrorMessage(e, 'Failed to load member records.')) })
       .finally(() => { if (active) setIsLoading(false) })
     return () => { active = false }
-  }, [search])
+  }, [search, page])
 
   useEffect(() => {
     if (!isAdminUser || members.length === 0) {
@@ -374,6 +395,22 @@ function MembersPage() {
           onChange={(e) => setSearch(e.target.value)}
         />
         <span className="members-count">{totalLabel}</span>
+        <button
+          className="btn btn--outline btn--sm"
+          type="button"
+          disabled={!hasPreviousPage || isLoading}
+          onClick={() => setPage((current) => Math.max(1, current - 1))}
+        >
+          Prev
+        </button>
+        <button
+          className="btn btn--outline btn--sm"
+          type="button"
+          disabled={!hasNextPage || isLoading}
+          onClick={() => setPage((current) => current + 1)}
+        >
+          Next
+        </button>
         {isAdminUser && (
           <button className="btn btn--primary btn--sm" type="button" onClick={startCreate}>
             Add member
