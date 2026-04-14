@@ -7,6 +7,7 @@ import LoadingSkeleton from './components/LoadingSkeleton'
 import { ProtectedRoute } from './components/ProtectedRoute'
 
 const AdminPage = lazy(() => import('./pages/AdminPage').then((module) => ({ default: module.AdminPage })))
+const AboutPage = lazy(() => import('./pages/AboutPage').then((module) => ({ default: module.AboutPage })))
 const CalendarPage = lazy(() => import('./pages/CalendarPage').then((module) => ({ default: module.CalendarPage })))
 const GroupsPage = lazy(() => import('./pages/GroupsPage').then((module) => ({ default: module.GroupsPage })))
 const DashboardPage = lazy(() => import('./pages/DashboardPage'))
@@ -42,6 +43,7 @@ function App() {
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route path="/welcome" element={<FirstTimeOnboardingPage />} />
+          <Route path="/about" element={<AboutPage />} />
           <Route path="/privacy" element={<PrivacyPolicyPage />} />
           <Route path="/terms" element={<TermsPage />} />
           <Route path="/sms-program" element={<SmsProgramPage />} />

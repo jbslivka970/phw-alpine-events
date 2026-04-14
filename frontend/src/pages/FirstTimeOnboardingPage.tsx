@@ -53,6 +53,7 @@ function FirstTimeOnboardingPage() {
           </div>
 
           <div className="login-card__links">
+            <Link to="/about">About</Link>
             <Link to="/privacy">Privacy Policy</Link>
             <Link to="/terms">Terms</Link>
             <Link to="/sms-program">SMS Program</Link>
