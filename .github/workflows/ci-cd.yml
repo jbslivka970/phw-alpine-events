@@ -440,11 +440,21 @@ jobs:
       id: smoke_target
       env:
         FRONTEND_SMOKE_REQUIRED: ${{ vars.FRONTEND_SMOKE_REQUIRED }}
+        E2E_PUBLIC_APP_URL: ${{ vars.E2E_PUBLIC_APP_URL }}
         E2E_APP_URL: ${{ vars.E2E_APP_URL }}
         AZURE_FRONTEND_WEBAPP_NAME: ${{ vars.AZURE_FRONTEND_WEBAPP_NAME }}
       run: |
         REQUIRED="${FRONTEND_SMOKE_REQUIRED:-1}"
-        TARGET_URL="${E2E_APP_URL}"
+
+        TARGET_URL="${E2E_PUBLIC_APP_URL}"
+        if [ -z "$TARGET_URL" ]; then
+          TARGET_URL="https://app.phwcoloradoalpine.org"
+        fi
+
+        if ! curl -fsS --max-time 15 "$TARGET_URL" >/dev/null; then
+          echo "::warning::Primary public smoke URL $TARGET_URL is not reachable; falling back."
+          TARGET_URL="${E2E_APP_URL}"
+        fi
 
         if [ -z "$TARGET_URL" ] && [ -n "$AZURE_FRONTEND_WEBAPP_NAME" ]; then
           TARGET_URL="https://${AZURE_FRONTEND_WEBAPP_NAME}.azurewebsites.net"
