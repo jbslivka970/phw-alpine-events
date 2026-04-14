@@ -3,7 +3,7 @@ import request from 'supertest';
 import eventsRouter from '../routes/events';
 import { getPool } from '../db';
 import { createRsvpToken } from '../services/rsvpLinkService';
-import { sendEventUpdatedNotification } from '../services/notifications';
+import { sendEventPublishedNotification, sendEventUpdatedNotification } from '../services/notifications';
 import { generateInviteDraft } from '../services/aiInviteService';
 
 jest.mock('../db', () => ({
@@ -122,6 +122,10 @@ describe('events routes', () => {
   });
 
   it('PUT /api/events/:id/status rejects invalid transition', async () => {
+    const supportRequest = createRequest(async () => ({
+      recordset: [{ has_event_lead_name: 1, has_event_lead_email: 1 }],
+    }));
+
     const selectRequest = createRequest(async () => ({
       recordset: [
         {
@@ -139,6 +143,7 @@ describe('events routes', () => {
     const pool = {
       request: jest
         .fn()
+        .mockReturnValueOnce(supportRequest)
         .mockReturnValueOnce(selectRequest)
         .mockReturnValueOnce(updateRequest),
     };
@@ -149,6 +154,45 @@ describe('events routes', () => {
     expect(res.status).toBe(409);
     expect(res.body.error).toContain('Cannot transition');
     expect(updateRequest.query).not.toHaveBeenCalled();
+  });
+
+  it('PUT /api/events/:id/status keeps status update when publish notification send fails', async () => {
+    (sendEventPublishedNotification as jest.Mock).mockRejectedValueOnce(new Error('provider outage'));
+
+    const selectRequest = createRequest(async () => ({
+      recordset: [
+        {
+          event_id: 'event-1',
+          status: 'draft',
+          title: 'Fly Tying 101',
+          event_date: new Date().toISOString(),
+          location: null,
+          description: null,
+          photo_url: null,
+          invitation_stage: 'both',
+          event_lead_name: null,
+          event_lead_email: null,
+        },
+      ],
+    }));
+
+    const updateRequest = createRequest(async () => ({
+      recordset: [{ event_id: 'event-1', status: 'published' }],
+    }));
+
+    const pool = {
+      request: jest
+        .fn()
+        .mockReturnValueOnce(selectRequest)
+        .mockReturnValueOnce(updateRequest),
+    };
+    (getPool as jest.Mock).mockResolvedValue(pool);
+
+    const res = await request(app).put('/api/events/event-1/status').send({ status: 'published' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('published');
+    expect(res.body.notification_warning).toContain('publish notifications failed');
   });
 
   it('PUT /api/events/:id sends update notifications for published events with changed fields', async () => {
