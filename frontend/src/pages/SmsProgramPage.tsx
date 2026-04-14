@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom'
 
 function SmsProgramPage() {
   const consentArtifactPath = '/compliance/sms-consent-artifact.svg'
+  const consentArtifactPagePath = '/compliance/sms-consent-artifact.html'
 
   return (
     <div className="legal-page">
@@ -54,6 +55,11 @@ function SmsProgramPage() {
             <p>
               Direct artifact URL for submission:{' '}
               <a href={consentArtifactPath} target="_blank" rel="noreferrer">https://app.phwcoloradoalpine.org/compliance/sms-consent-artifact.svg</a>
+            </p>
+
+            <p>
+              Standalone artifact page URL (no app shell):{' '}
+              <a href={consentArtifactPagePath} target="_blank" rel="noreferrer">https://app.phwcoloradoalpine.org/compliance/sms-consent-artifact.html</a>
             </p>
 
             <img
