@@ -56,15 +56,22 @@ async function completeUsernameStep(authPage: Page, username: string): Promise<b
     await clickInAnyScope(authPage, [
       `text="${username}"`,
       `[data-test-id="${username}"]`,
+      '[data-test-id="displayName"]',
       'div[role="button"]:has-text("Use another account")',
+      'div[role="button"]:has-text("Sign in")',
     ]);
 
     const entered = await fillInAnyScope(authPage, [
       'input[type="email"]',
+      'input[type="text"]',
       'input[name="loginfmt"]',
+      'input[name="identifier"]',
       'input#i0116',
       'input[name="signInName"]',
+      'input#username',
       'input[placeholder*="Email"]',
+      'input[placeholder*="email"]',
+      'input[placeholder*="phone"]',
     ], username);
 
     if (entered) {
@@ -94,6 +101,15 @@ async function completeUsernameStep(authPage: Page, username: string): Promise<b
 
 async function completePasswordStep(authPage: Page, password: string): Promise<boolean> {
   for (let i = 0; i < 45; i += 1) {
+    await clickInAnyScope(authPage, [
+      'a:has-text("Use password")',
+      'button:has-text("Use password")',
+      'a:has-text("Sign-in options")',
+      'button:has-text("Sign-in options")',
+      'a:has-text("Other ways to sign in")',
+      'button:has-text("Other ways to sign in")',
+    ]);
+
     const entered = await fillInAnyScope(authPage, [
       'input[type="password"]',
       'input[name="passwd"]',
@@ -118,62 +134,75 @@ async function completePasswordStep(authPage: Page, password: string): Promise<b
 }
 
 async function loginWithCredentials(page: Page): Promise<void> {
-  await page.goto(`${appBaseUrl}/login`, { waitUntil: 'domcontentloaded' });
-  const onIdentityProvider = () => /login\.microsoftonline\.com|b2clogin\.com|ciamlogin\.com/i.test(page.url());
-  const signInButton = page.getByRole('button', { name: /sign in/i });
-  let popup: Page | null = null;
+  let lastError: Error | null = null;
 
-  if (!onIdentityProvider()) {
-    await signInButton.waitFor({ state: 'visible', timeout: 25_000 }).catch(() => null);
-    if (await signInButton.isVisible().catch(() => false)) {
-      const popupPromise = page.waitForEvent('popup', { timeout: 12_000 }).catch(() => null);
-      await signInButton.click();
-      popup = await popupPromise;
-    } else {
-      await clickInAnyScope(page, [
-        'button:has-text("Sign in")',
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    try {
+      await page.goto(`${appBaseUrl}/login`, { waitUntil: 'domcontentloaded' });
+      const onIdentityProvider = () => /login\.microsoftonline\.com|b2clogin\.com|ciamlogin\.com/i.test(page.url());
+      const signInButton = page.getByRole('button', { name: /sign in/i });
+      let popup: Page | null = null;
+
+      if (!onIdentityProvider()) {
+        await signInButton.waitFor({ state: 'visible', timeout: 25_000 }).catch(() => null);
+        if (await signInButton.isVisible().catch(() => false)) {
+          const popupPromise = page.waitForEvent('popup', { timeout: 12_000 }).catch(() => null);
+          await signInButton.click();
+          popup = await popupPromise;
+        } else {
+          await clickInAnyScope(page, [
+            'button:has-text("Sign in")',
+            'button:has-text("Continue")',
+            'a:has-text("Sign in")',
+            'a:has-text("Continue")',
+          ]);
+          await page.waitForTimeout(1_500);
+        }
+      }
+
+      const authPage = popup ?? page;
+
+      await authPage.waitForLoadState('domcontentloaded').catch(() => {});
+      const userFilled = await completeUsernameStep(authPage, memberUsername);
+      expect(userFilled, 'username input should be reachable in auth flow').toBeTruthy();
+
+      await authPage.waitForLoadState('domcontentloaded').catch(() => {});
+      const passFilled = await completePasswordStep(authPage, memberPassword);
+      expect(passFilled, 'password input should be reachable in auth flow').toBeTruthy();
+
+      await authPage.waitForLoadState('domcontentloaded').catch(() => {});
+      await clickInAnyScope(authPage, [
+        'button:has-text("No")',
+        'button:has-text("Yes")',
+        'button:has-text("Accept")',
         'button:has-text("Continue")',
-        'a:has-text("Sign in")',
-        'a:has-text("Continue")',
+        'input[type="submit"]#idSIButton9',
+        'button[type="submit"]',
       ]);
-      await page.waitForTimeout(1_500);
-    }
-  }
 
-  const authPage = popup ?? page;
+      if (popup) {
+        await popup.waitForEvent('close', { timeout: 90_000 }).catch(() => {});
+      }
 
-  await authPage.waitForLoadState('domcontentloaded').catch(() => {});
-  const userFilled = await completeUsernameStep(authPage, memberUsername);
-  expect(userFilled, 'username input should be reachable in auth flow').toBeTruthy();
+      for (let authAttempt = 1; authAttempt <= 3; authAttempt += 1) {
+        await page.goto(`${appBaseUrl}/dashboard`, { waitUntil: 'domcontentloaded' });
+        const onLogin = /\/login(\?|$)/i.test(page.url());
+        if (!onLogin) {
+          return;
+        }
+        await page.waitForTimeout(2_500);
+      }
 
-  await authPage.waitForLoadState('domcontentloaded').catch(() => {});
-  const passFilled = await completePasswordStep(authPage, memberPassword);
-  expect(passFilled, 'password input should be reachable in auth flow').toBeTruthy();
-
-  await authPage.waitForLoadState('domcontentloaded').catch(() => {});
-  await clickInAnyScope(authPage, [
-    'button:has-text("No")',
-    'button:has-text("Yes")',
-    'button:has-text("Accept")',
-    'button:has-text("Continue")',
-    'input[type="submit"]#idSIButton9',
-    'button[type="submit"]',
-  ]);
-
-  if (popup) {
-    await popup.waitForEvent('close', { timeout: 90_000 }).catch(() => {});
-  }
-
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
-    await page.goto(`${appBaseUrl}/dashboard`, { waitUntil: 'domcontentloaded' });
-    const onLogin = /\/login(\?|$)/i.test(page.url());
-    if (!onLogin) {
+      await expect(page).not.toHaveURL(/\/login(\?|$)/, { timeout: 5_000 });
       return;
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      await page.context().clearCookies().catch(() => {});
+      await page.goto('about:blank').catch(() => {});
     }
-    await page.waitForTimeout(2_500);
   }
 
-  await expect(page).not.toHaveURL(/\/login(\?|$)/, { timeout: 5_000 });
+  throw lastError ?? new Error('Failed to log in with credentials.');
 }
 
 test.describe('Post-deploy browser smoke (member)', () => {

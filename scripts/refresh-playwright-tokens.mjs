@@ -40,17 +40,35 @@ const roles = [
 
 async function loginAndCaptureWithTimeout(role) {
   if (!Number.isFinite(perRoleTimeoutMs) || perRoleTimeoutMs <= 0) {
-    return loginAndCapture(role);
+    return loginAndCaptureWithRetries(role);
   }
 
   return Promise.race([
-    loginAndCapture(role),
+    loginAndCaptureWithRetries(role),
     new Promise((_, reject) => {
       setTimeout(() => {
         reject(new Error(`Timed out after ${perRoleTimeoutMs}ms while refreshing ${role.name}.`));
       }, perRoleTimeoutMs);
     }),
   ]);
+}
+
+async function loginAndCaptureWithRetries(role) {
+  let lastError = null;
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    try {
+      return await loginAndCapture(role);
+    } catch (error) {
+      lastError = error;
+      const reason = error instanceof Error ? error.message : String(error);
+      console.warn(`[refresh-playwright-tokens] attempt ${attempt} failed for ${role.name}: ${reason}`);
+    }
+  }
+
+  if (lastError instanceof Error) {
+    throw lastError;
+  }
+  throw new Error(`Failed to refresh ${role.name} token after retries.`);
 }
 
 function failOrSkip(message) {

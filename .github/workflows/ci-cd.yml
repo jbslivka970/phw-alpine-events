@@ -482,6 +482,23 @@ jobs:
           echo "::warning::Skipping browser smoke because PW_MEMBER_USER/PW_MEMBER_PASS are not configured and FRONTEND_SMOKE_REQUIRED is not 1."
         fi
 
+    - name: Refresh member auth state for browser smoke
+      if: ${{ steps.smoke_target.outputs.run_browser_smoke == '1' && steps.smoke_ready.outputs.ready == '1' }}
+      env:
+        E2E_APP_URL: ${{ steps.smoke_target.outputs.target_url }}
+        PW_REFRESH_ROLE_TIMEOUT_MS: '240000'
+        PW_MEMBER_USER: ${{ secrets.PW_MEMBER_USER }}
+        PW_MEMBER_PASS: ${{ secrets.PW_MEMBER_PASS }}
+      run: npm run e2e:refresh-tokens
+
+    - name: Validate refreshed member auth state
+      if: ${{ steps.smoke_target.outputs.run_browser_smoke == '1' && steps.smoke_ready.outputs.ready == '1' }}
+      run: |
+        if [ ! -s tests/e2e/.auth/member.json ]; then
+          echo "::error::Frontend smoke requires refreshed member auth state (tests/e2e/.auth/member.json)."
+          exit 1
+        fi
+
     - name: Run post-deploy frontend browser smoke
       if: ${{ steps.smoke_target.outputs.run_browser_smoke == '1' && steps.smoke_ready.outputs.ready == '1' }}
       env:
