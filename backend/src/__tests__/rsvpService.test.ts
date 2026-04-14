@@ -26,6 +26,7 @@ describe('rsvpService waitlist auto-promotion', () => {
     const queryCalls: string[] = [];
     const queue: Array<{ recordset?: unknown[]; rowsAffected?: number[] }> = [
       { recordset: [{ group_name: 'PARTICIPANTS' }] },
+      { recordset: [{ has_event_lead_email: 1 }] },
       { recordset: [{ event_id: 'event-1', title: 'River Day', status: 'published', mentor_capacity: null, participant_capacity: 2, capacity: 2, event_date: new Date('2026-06-01T18:00:00Z') }] },
       { recordset: [] },
       { recordset: [{ response_id: 'r1', event_id: 'event-1', member_id: 'member-yes', response: 'no', responded_at: new Date('2026-05-01T00:00:00Z'), notes: null }] },
@@ -67,6 +68,7 @@ describe('rsvpService waitlist auto-promotion', () => {
     const queryCalls: string[] = [];
     const queue: Array<{ recordset?: unknown[]; rowsAffected?: number[] }> = [
       { recordset: [{ group_name: 'PARTICIPANTS' }] },
+      { recordset: [{ has_event_lead_email: 1 }] },
       { recordset: [{ event_id: 'event-2', title: 'Casting Clinic', status: 'published', mentor_capacity: null, participant_capacity: 3, capacity: 3, event_date: new Date('2026-06-02T18:00:00Z') }] },
       { recordset: [{ response: 'no', response_role: 'PARTICIPANT' }] },
       { recordset: [{ yes_count: 2 }] },
@@ -102,6 +104,7 @@ describe('rsvpService waitlist auto-promotion', () => {
   it('does not send duplicate RSVP confirmation for identical repeated response', async () => {
     const queue: Array<{ recordset?: unknown[]; rowsAffected?: number[] }> = [
       { recordset: [{ group_name: 'PARTICIPANTS' }] },
+      { recordset: [{ has_event_lead_email: 1 }] },
       { recordset: [{ event_id: 'event-3', title: 'River Day', status: 'published', mentor_capacity: null, participant_capacity: 5, capacity: 5, event_date: new Date('2026-06-03T18:00:00Z') }] },
       { recordset: [{ response: 'yes', response_role: 'PARTICIPANT' }] },
       { recordset: [{ response_id: 'r3', event_id: 'event-3', member_id: 'member-repeat', response: 'yes', responded_at: new Date('2026-05-01T00:00:00Z'), notes: null }] },
@@ -166,6 +169,7 @@ describe('rsvpService waitlist auto-promotion', () => {
     const queue: Array<{ recordset?: unknown[]; rowsAffected?: number[] }> = [
       { recordset: [] },
       { recordset: [{ target_id: 'target-1' }] },
+      { recordset: [{ has_event_lead_email: 1 }] },
       { recordset: [{ event_id: 'event-5', title: 'Direct Invite Event', status: 'published', mentor_capacity: null, participant_capacity: null, capacity: null, event_date: new Date('2026-06-05T18:00:00Z') }] },
       { recordset: [] },
       { recordset: [{ response_id: 'r5', event_id: 'event-5', member_id: 'member-direct', response: 'yes', responded_at: new Date('2026-05-01T00:00:00Z'), notes: null }] },
@@ -204,6 +208,7 @@ describe('rsvpService waitlist auto-promotion', () => {
     const queue: Array<{ recordset?: unknown[]; rowsAffected?: number[] }> = [
       { recordset: [] },
       { recordset: [{ target_id: 'target-group-1' }] },
+      { recordset: [{ has_event_lead_email: 1 }] },
       { recordset: [{ event_id: 'event-6', title: 'Group Invite Event', status: 'published', mentor_capacity: null, participant_capacity: null, capacity: null, event_date: new Date('2026-06-06T18:00:00Z') }] },
       { recordset: [] },
       { recordset: [{ response_id: 'r6', event_id: 'event-6', member_id: 'member-group-targeted', response: 'yes', responded_at: new Date('2026-05-01T00:00:00Z'), notes: null }] },
