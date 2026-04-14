@@ -31,6 +31,12 @@ jobs:
           frontend/package-lock.json
           backend/package-lock.json
 
+    - name: Validate deploy safety flags
+      run: node scripts/ci/check-deploy-safety.mjs
+
+    - name: Validate SQL migration safety
+      run: npm run ci:check:migration-safety
+
     - name: Install frontend dependencies
       run: cd frontend && npm ci
 
@@ -96,6 +102,17 @@ jobs:
         PW_MEMBER_PASS: ${{ secrets.PW_MEMBER_PASS }}
       run: npm run test:e2e
 
+    - name: Upload Playwright artifacts on failure
+      if: ${{ (failure() || cancelled()) && ((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || github.event_name == 'workflow_dispatch' || github.event_name == 'release') && vars.E2E_API_BASE_URL != '' && vars.E2E_APP_URL != '' }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: playwright-failure-artifacts-${{ github.run_id }}
+        if-no-files-found: ignore
+        retention-days: 14
+        path: |
+          playwright-report/**
+          test-results/**
+
   deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -138,7 +155,211 @@ jobs:
         cd deploy-package
         zip -r ../release.zip .
 
+    - name: Determine backend deploy mode
+      id: backend_deploy_mode
+      env:
+        BACKEND_BLUE_GREEN_ENABLED: ${{ vars.BACKEND_BLUE_GREEN_ENABLED }}
+        AZURE_BACKEND_RESOURCE_GROUP: ${{ vars.AZURE_BACKEND_RESOURCE_GROUP }}
+        AZURE_BACKEND_SLOT_NAME: ${{ vars.AZURE_BACKEND_SLOT_NAME }}
+        AZURE_BACKEND_DEPLOY_CREDENTIALS: ${{ secrets.AZURE_BACKEND_DEPLOY_CREDENTIALS }}
+      run: |
+        MODE="${BACKEND_BLUE_GREEN_ENABLED:-0}"
+        if [ "$MODE" = "1" ]; then
+          if [ -z "${AZURE_BACKEND_RESOURCE_GROUP}" ] || [ -z "${AZURE_BACKEND_SLOT_NAME}" ] || [ -z "${AZURE_BACKEND_DEPLOY_CREDENTIALS}" ]; then
+            echo "::error::BACKEND_BLUE_GREEN_ENABLED=1 requires vars.AZURE_BACKEND_RESOURCE_GROUP, vars.AZURE_BACKEND_SLOT_NAME, and secrets.AZURE_BACKEND_DEPLOY_CREDENTIALS"
+            exit 1
+          fi
+          echo "use_blue_green=1" >> "$GITHUB_OUTPUT"
+          echo "Backend deploy mode: blue-green"
+        else
+          echo "use_blue_green=0" >> "$GITHUB_OUTPUT"
+          echo "Backend deploy mode: direct"
+        fi
+
+    - name: Azure CLI login (backend blue-green)
+      if: ${{ steps.backend_deploy_mode.outputs.use_blue_green == '1' }}
+      env:
+        AZURE_BACKEND_DEPLOY_CREDENTIALS: ${{ secrets.AZURE_BACKEND_DEPLOY_CREDENTIALS }}
+      run: |
+        AZ_LINE=$(python -c "import json,os; creds=json.loads(os.environ['AZURE_BACKEND_DEPLOY_CREDENTIALS']); print('\\t'.join([creds.get('clientId',''), creds.get('clientSecret',''), creds.get('tenantId',''), creds.get('subscriptionId','')]))")
+
+        IFS=$'\t' read -r AZ_CLIENT_ID AZ_CLIENT_SECRET AZ_TENANT_ID AZ_SUBSCRIPTION_ID <<< "$AZ_LINE"
+
+        if [ -z "$AZ_CLIENT_ID" ] || [ -z "$AZ_CLIENT_SECRET" ] || [ -z "$AZ_TENANT_ID" ] || [ -z "$AZ_SUBSCRIPTION_ID" ]; then
+          echo "AZURE_BACKEND_DEPLOY_CREDENTIALS is missing required fields"
+          exit 1
+        fi
+
+        az login --service-principal \
+          --username "$AZ_CLIENT_ID" \
+          --password "$AZ_CLIENT_SECRET" \
+          --tenant "$AZ_TENANT_ID" \
+          --output none
+
+        az account set --subscription "$AZ_SUBSCRIPTION_ID"
+
+    - name: Deploy backend package to staging slot
+      if: ${{ steps.backend_deploy_mode.outputs.use_blue_green == '1' }}
+      env:
+        AZURE_WEBAPP_NAME: ${{ vars.AZURE_WEBAPP_NAME }}
+        AZURE_BACKEND_RESOURCE_GROUP: ${{ vars.AZURE_BACKEND_RESOURCE_GROUP }}
+        AZURE_BACKEND_SLOT_NAME: ${{ vars.AZURE_BACKEND_SLOT_NAME }}
+      run: |
+        az webapp deploy \
+          --resource-group "$AZURE_BACKEND_RESOURCE_GROUP" \
+          --name "$AZURE_WEBAPP_NAME" \
+          --slot "$AZURE_BACKEND_SLOT_NAME" \
+          --src-path release.zip \
+          --type zip
+
+    - name: Wait for staging slot health before swap
+      if: ${{ steps.backend_deploy_mode.outputs.use_blue_green == '1' }}
+      env:
+        AZURE_WEBAPP_NAME: ${{ vars.AZURE_WEBAPP_NAME }}
+        AZURE_BACKEND_SLOT_NAME: ${{ vars.AZURE_BACKEND_SLOT_NAME }}
+        BACKEND_SLOT_BASE_URL: ${{ vars.BACKEND_SLOT_BASE_URL }}
+      run: |
+        SLOT_URL="${BACKEND_SLOT_BASE_URL}"
+        if [ -z "$SLOT_URL" ]; then
+          SLOT_URL="https://${AZURE_WEBAPP_NAME}-${AZURE_BACKEND_SLOT_NAME}.azurewebsites.net"
+        fi
+
+        STARTUP_HEALTH_URL="$SLOT_URL/api/v1/health/startup"
+        BASIC_HEALTH_URL="$SLOT_URL/api/v1/health"
+        echo "Waiting for slot readiness at $STARTUP_HEALTH_URL (fallback $BASIC_HEALTH_URL)"
+
+        for attempt in $(seq 1 36); do
+          STARTUP_STATUS="$(curl -sS -o /dev/null -w "%{http_code}" "$STARTUP_HEALTH_URL" || true)"
+          BASIC_STATUS="$(curl -sS -o /dev/null -w "%{http_code}" "$BASIC_HEALTH_URL" || true)"
+
+          if [ "$STARTUP_STATUS" = "200" ] || [ "$BASIC_STATUS" = "200" ]; then
+            echo "Staging slot is ready (attempt $attempt)."
+            exit 0
+          fi
+
+          echo "Staging slot not ready yet (attempt $attempt, startup=$STARTUP_STATUS, health=$BASIC_STATUS)."
+          sleep 10
+        done
+
+        echo "::error::Staging slot health did not return 200 within timeout."
+        exit 1
+
+    - name: Run staging slot core compliance smokes
+      if: ${{ steps.backend_deploy_mode.outputs.use_blue_green == '1' }}
+      env:
+        AZURE_WEBAPP_NAME: ${{ vars.AZURE_WEBAPP_NAME }}
+        AZURE_BACKEND_SLOT_NAME: ${{ vars.AZURE_BACKEND_SLOT_NAME }}
+        BACKEND_SLOT_BASE_URL: ${{ vars.BACKEND_SLOT_BASE_URL }}
+        RSVP_TEST_TOKEN: ${{ secrets.RSVP_TEST_TOKEN }}
+      run: |
+        SLOT_URL="${BACKEND_SLOT_BASE_URL}"
+        if [ -z "$SLOT_URL" ]; then
+          SLOT_URL="https://${AZURE_WEBAPP_NAME}-${AZURE_BACKEND_SLOT_NAME}.azurewebsites.net"
+        fi
+
+        if [ -z "$RSVP_TEST_TOKEN" ]; then
+          echo "::error::RSVP_TEST_TOKEN secret is required for live tokenized RSVP smoke checks before swap."
+          exit 1
+        fi
+
+        export BACKEND_BASE_URL="$SLOT_URL"
+        npm --prefix backend run smoke:email
+        export RSVP_TEST_ENABLE_LIVE=1
+        export RSVP_TEST_LIGHTWEIGHT=1
+        npm --prefix backend run smoke:rsvp
+
+    - name: Swap staging slot to production
+      if: ${{ steps.backend_deploy_mode.outputs.use_blue_green == '1' }}
+      env:
+        AZURE_WEBAPP_NAME: ${{ vars.AZURE_WEBAPP_NAME }}
+        AZURE_BACKEND_RESOURCE_GROUP: ${{ vars.AZURE_BACKEND_RESOURCE_GROUP }}
+        AZURE_BACKEND_SLOT_NAME: ${{ vars.AZURE_BACKEND_SLOT_NAME }}
+      run: |
+        az webapp deployment slot swap \
+          --resource-group "$AZURE_BACKEND_RESOURCE_GROUP" \
+          --name "$AZURE_WEBAPP_NAME" \
+          --slot "$AZURE_BACKEND_SLOT_NAME" \
+          --target-slot production
+
+    - name: Wait for production health after swap
+      id: post_swap_health
+      if: ${{ steps.backend_deploy_mode.outputs.use_blue_green == '1' }}
+      continue-on-error: true
+      env:
+        AZURE_WEBAPP_NAME: ${{ vars.AZURE_WEBAPP_NAME }}
+        BACKEND_BASE_URL: ${{ vars.BACKEND_BASE_URL }}
+      run: |
+        PROD_URL="${BACKEND_BASE_URL}"
+        if [ -z "$PROD_URL" ]; then
+          PROD_URL="https://${AZURE_WEBAPP_NAME}.azurewebsites.net"
+        fi
+
+        STARTUP_HEALTH_URL="$PROD_URL/api/v1/health/startup"
+        BASIC_HEALTH_URL="$PROD_URL/api/v1/health"
+
+        for attempt in $(seq 1 24); do
+          STARTUP_STATUS="$(curl -sS -o /dev/null -w "%{http_code}" "$STARTUP_HEALTH_URL" || true)"
+          BASIC_STATUS="$(curl -sS -o /dev/null -w "%{http_code}" "$BASIC_HEALTH_URL" || true)"
+
+          if [ "$STARTUP_STATUS" = "200" ] || [ "$BASIC_STATUS" = "200" ]; then
+            echo "Production health is ready (attempt $attempt)."
+            exit 0
+          fi
+
+          echo "Production not ready yet (attempt $attempt, startup=$STARTUP_STATUS, health=$BASIC_STATUS)."
+          sleep 10
+        done
+
+        echo "::error::Production health did not return 200 after swap."
+        exit 1
+
+    - name: Run production core smokes after swap
+      id: post_swap_smoke
+      if: ${{ steps.backend_deploy_mode.outputs.use_blue_green == '1' }}
+      continue-on-error: true
+      env:
+        AZURE_WEBAPP_NAME: ${{ vars.AZURE_WEBAPP_NAME }}
+        BACKEND_BASE_URL: ${{ vars.BACKEND_BASE_URL }}
+        RSVP_TEST_TOKEN: ${{ secrets.RSVP_TEST_TOKEN }}
+      run: |
+        PROD_URL="${BACKEND_BASE_URL}"
+        if [ -z "$PROD_URL" ]; then
+          PROD_URL="https://${AZURE_WEBAPP_NAME}.azurewebsites.net"
+        fi
+
+        if [ -z "$RSVP_TEST_TOKEN" ]; then
+          echo "::error::RSVP_TEST_TOKEN secret is required for post-swap live RSVP smoke checks."
+          exit 1
+        fi
+
+        export BACKEND_BASE_URL="$PROD_URL"
+        npm --prefix backend run smoke:email
+        export RSVP_TEST_ENABLE_LIVE=1
+        export RSVP_TEST_LIGHTWEIGHT=1
+        npm --prefix backend run smoke:rsvp
+
+    - name: Auto-rollback swap back on post-swap failure
+      if: ${{ steps.backend_deploy_mode.outputs.use_blue_green == '1' && (steps.post_swap_health.outcome == 'failure' || steps.post_swap_smoke.outcome == 'failure') }}
+      env:
+        AZURE_WEBAPP_NAME: ${{ vars.AZURE_WEBAPP_NAME }}
+        AZURE_BACKEND_RESOURCE_GROUP: ${{ vars.AZURE_BACKEND_RESOURCE_GROUP }}
+        AZURE_BACKEND_SLOT_NAME: ${{ vars.AZURE_BACKEND_SLOT_NAME }}
+      run: |
+        echo "Post-swap validation failed; swapping back to previous production slot."
+        az webapp deployment slot swap \
+          --resource-group "$AZURE_BACKEND_RESOURCE_GROUP" \
+          --name "$AZURE_WEBAPP_NAME" \
+          --slot "$AZURE_BACKEND_SLOT_NAME" \
+          --target-slot production
+
+    - name: Fail deploy after rollback
+      if: ${{ steps.backend_deploy_mode.outputs.use_blue_green == '1' && (steps.post_swap_health.outcome == 'failure' || steps.post_swap_smoke.outcome == 'failure') }}
+      run: |
+        echo "::error::Blue-green deploy swapped to production but post-swap checks failed. Auto-rollback executed."
+        exit 1
+
     - name: Deploy to Azure via Kudu zipdeploy
+      if: ${{ steps.backend_deploy_mode.outputs.use_blue_green != '1' }}
       env:
         AZURE_WEBAPP_NAME: ${{ vars.AZURE_WEBAPP_NAME }}
         AZUREAPPSERVICE_PUBLISHPROFILE: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE }}
@@ -380,14 +601,22 @@ jobs:
         exit 1
 
     - name: Run post-deploy core compliance smokes
+      env:
+        RSVP_TEST_TOKEN: ${{ secrets.RSVP_TEST_TOKEN }}
       run: |
         BACKEND_BASE_URL="${{ vars.BACKEND_BASE_URL }}"
         if [ -z "$BACKEND_BASE_URL" ]; then
           BACKEND_BASE_URL="https://${{ vars.AZURE_WEBAPP_NAME }}.azurewebsites.net"
         fi
         echo "Running core compliance smokes against $BACKEND_BASE_URL"
+        if [ -z "$RSVP_TEST_TOKEN" ]; then
+          echo "::error::RSVP_TEST_TOKEN secret is required for live tokenized RSVP smoke checks."
+          exit 1
+        fi
         export BACKEND_BASE_URL
         npm --prefix backend run smoke:email
+        export RSVP_TEST_ENABLE_LIVE=1
+        export RSVP_TEST_LIGHTWEIGHT=1
         npm --prefix backend run smoke:rsvp
 
     - name: Run post-deploy SMS compliance smoke (optional)
