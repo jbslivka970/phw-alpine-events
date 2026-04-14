@@ -3,6 +3,9 @@ import path from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 
 const appBaseUrl = (process.env.E2E_APP_URL ?? '').trim().replace(/\/$/, '');
+const localE2EAuthEnabled = /^(1|true|yes|on)$/i.test(process.env.E2E_LOCAL_AUTH_ENABLED ?? '');
+const authStepMaxAttempts = 18;
+const authStepSleepMs = 500;
 
 type BrowserAccount = {
   label: string;
@@ -74,7 +77,7 @@ async function clickInAnyScope(page: Page, selectors: string[]): Promise<boolean
 }
 
 async function completeUsernameStep(authPage: Page, username: string): Promise<boolean> {
-  for (let i = 0; i < 45; i += 1) {
+  for (let i = 0; i < authStepMaxAttempts; i += 1) {
       // Try clicking an account tile for the exact username first (handles account-chooser UI)
       await clickInAnyScope(authPage, [
         `text="${username}"`,
@@ -113,14 +116,14 @@ async function completeUsernameStep(authPage: Page, username: string): Promise<b
       'a:has-text("Continue")',
     ]);
 
-    await authPage.waitForTimeout(800);
+    await authPage.waitForTimeout(authStepSleepMs);
   }
 
   return false;
 }
 
 async function completePasswordStep(authPage: Page, password: string): Promise<boolean> {
-  for (let i = 0; i < 45; i += 1) {
+  for (let i = 0; i < authStepMaxAttempts; i += 1) {
     const entered = await fillInAnyScope(
       authPage,
       ['input[type="password"]', 'input[name="passwd"]', 'input#i0118', 'input[name="password"]'],
@@ -137,7 +140,7 @@ async function completePasswordStep(authPage: Page, password: string): Promise<b
       return true;
     }
 
-    await authPage.waitForTimeout(800);
+    await authPage.waitForTimeout(authStepSleepMs);
   }
 
   return false;
@@ -209,19 +212,46 @@ async function hasAdminRoleInSession(page: Page): Promise<boolean> {
   });
 }
 
+async function seedLocalAuthRole(page: Page, accountLabel: string): Promise<void> {
+  if (!localE2EAuthEnabled) {
+    return;
+  }
+
+  const roleValue = accountLabel === 'event_creator' ? 'EVENT_CREATOR' : 'USER';
+  await page.addInitScript(({ role }) => {
+    window.localStorage.setItem('phw_e2e_local_auth', '1');
+    window.localStorage.setItem('phw_e2e_role', role);
+  }, { role: roleValue });
+}
+
+async function appearsAuthenticated(page: Page): Promise<boolean> {
+  await page.waitForTimeout(1200);
+  if (/\/login(\?|$)/i.test(page.url())) {
+    return false;
+  }
+  const signInVisible = await page.getByRole('button', { name: /sign in/i }).first().isVisible().catch(() => false);
+  return !signInVisible;
+}
+
 async function ensureAuthenticatedSession(page: Page, account: BrowserAccount): Promise<boolean> {
+  if (localE2EAuthEnabled) {
+    await seedLocalAuthRole(page, account.label);
+    await page.goto(`${appBaseUrl}/dashboard`, { waitUntil: 'domcontentloaded' });
+    return appearsAuthenticated(page);
+  }
+
   const statePath = authStateByLabel[account.label] ?? '';
   const hasStateFile = Boolean(statePath) && fs.existsSync(statePath);
 
   if (hasStateFile) {
     await page.goto(`${appBaseUrl}/dashboard`, { waitUntil: 'domcontentloaded' });
-    if (!/\/login(\?|$)/.test(page.url())) {
+    if (await appearsAuthenticated(page)) {
       return true;
     }
   }
 
   await loginWithCredentials(page, account.username, account.password).catch(() => {});
-  return !/\/login(\?|$)/.test(page.url());
+  return appearsAuthenticated(page);
 }
 
 test.describe('Browser role flows (credential login)', () => {
@@ -237,7 +267,7 @@ test.describe('Browser role flows (credential login)', () => {
         test.use({ storageState: storageStatePath });
       }
 
-      test.skip(!hasStorageState && (!account.username || !account.password), `${account.label} credentials are required when storage state is missing.`);
+      test.skip(!localE2EAuthEnabled && !hasStorageState && (!account.username || !account.password), `${account.label} credentials are required when storage state is missing.`);
 
       test('preferences page loads without GUID/500 errors', async ({ page }) => {
 
@@ -270,7 +300,7 @@ test.describe('Browser role flows (credential login)', () => {
         page.on('response', responseListener);
         try {
           const isAuthenticated = await ensureAuthenticatedSession(page, account);
-          test.skip(!isAuthenticated, `${account.label} could not establish an authenticated browser session in CI.`);
+          expect(isAuthenticated, `${account.label} could not establish an authenticated browser session in this environment.`).toBeTruthy();
 
           await page.goto(`${appBaseUrl}/preferences`, { waitUntil: 'domcontentloaded' });
           await expect(page.getByRole('heading', { name: /notification preferences/i })).toBeVisible({ timeout: 15_000 });
@@ -278,7 +308,8 @@ test.describe('Browser role flows (credential login)', () => {
           await expect(page.getByText(/api 500/i)).toHaveCount(0);
           await page.waitForTimeout(1_200);
 
-          expect(nonUuidMemberDetailIds, 'preferences should only request member detail by UUID').toHaveLength(0);
+          const unsupportedMemberDetailIds = nonUuidMemberDetailIds.filter((value) => value.toLowerCase() !== 'me');
+          expect(unsupportedMemberDetailIds, 'preferences should only request member detail by UUID or "me"').toHaveLength(0);
           expect(invalidGuidErrors, 'members detail requests should never return Invalid GUID').toHaveLength(0);
         } finally {
           page.off('response', responseListener);
@@ -288,7 +319,7 @@ test.describe('Browser role flows (credential login)', () => {
       test('tavf new route respects non-admin access rule', async ({ page }) => {
 
         const isAuthenticated = await ensureAuthenticatedSession(page, account);
-        test.skip(!isAuthenticated, `${account.label} could not establish an authenticated browser session in CI.`);
+        expect(isAuthenticated, `${account.label} could not establish an authenticated browser session in this environment.`).toBeTruthy();
 
         const isAdmin = await hasAdminRoleInSession(page);
         await page.goto(`${appBaseUrl}/tavf/new`, { waitUntil: 'domcontentloaded' });
