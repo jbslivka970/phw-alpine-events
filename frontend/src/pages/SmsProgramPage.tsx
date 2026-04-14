@@ -1,6 +1,8 @@
 import { Link } from 'react-router-dom'
 
 function SmsProgramPage() {
+  const consentArtifactPath = '/compliance/sms-consent-artifact.svg'
+
   return (
     <div className="legal-page">
       <div className="legal-page__shell">
@@ -46,36 +48,23 @@ function SmsProgramPage() {
           <div className="artifact-card">
             <div className="artifact-card__header">
               <h3>Screenshot-Ready Consent Example</h3>
-              <span>Use this layout as verification support</span>
+              <span>Use this exact artifact as verification support</span>
             </div>
 
-            <div className="consent-demo">
-              <label className="consent-demo__field">
-                <span>Mobile phone number</span>
-                <input type="text" value="(970) 555-0123" readOnly />
-              </label>
+            <p>
+              Direct artifact URL for submission:{' '}
+              <a href={consentArtifactPath} target="_blank" rel="noreferrer">https://app.phwcoloradoalpine.org/compliance/sms-consent-artifact.svg</a>
+            </p>
 
-              <label className="consent-demo__checkbox">
-                <input type="checkbox" checked={false} readOnly aria-label="Consent checkbox example (not preselected)" />
-                <span>
-                  I agree to receive SMS messages from Project Healing Waters Colorado Alpine
-                  Program related to event invitations, RSVP reminders, and program updates.
-                  Message frequency varies. Message and data rates may apply. Reply STOP to
-                  opt out and HELP for help.
-                </span>
-              </label>
+            <img
+              src={consentArtifactPath}
+              alt="SMS consent artifact showing unchecked opt-in language and Save preferences action"
+              style={{ width: '100%', height: 'auto', borderRadius: 12, border: '1px solid #d7dce5' }}
+            />
 
-              <p className="consent-demo__note">
-                Demonstration only: consent must be actively selected by the member and is not preselected.
-              </p>
-
-              <p className="consent-demo__links">
-                See our <Link to="/privacy">Privacy Policy</Link> and{' '}
-                <Link to="/terms">Terms and Conditions</Link>.
-              </p>
-
-              <button className="btn btn--primary" type="button">Save preferences</button>
-            </div>
+            <p className="consent-demo__note">
+              This page renders the same standalone file linked above, so reviewer view and user view match exactly.
+            </p>
           </div>
         </section>
 
