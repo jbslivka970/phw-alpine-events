@@ -7,6 +7,9 @@ const localE2EAuthEnabled = /^(1|true|yes|on)$/i.test(process.env.E2E_LOCAL_AUTH
 const memberStatePath = path.resolve(process.cwd(), 'tests/e2e/.auth/member.json');
 const memberUsername = (process.env.PW_MEMBER_USER ?? '').trim();
 const memberPassword = (process.env.PW_MEMBER_PASS ?? '').trim();
+const authStepMaxAttempts = 18;
+const authStepSleepMs = 500;
+const loginAttemptTimeoutMs = 65_000;
 
 function scopes(page: Page): Array<Page | Frame> {
   return [page, ...page.frames()];
@@ -53,7 +56,7 @@ async function clickInAnyScope(page: Page, selectors: string[]): Promise<boolean
 }
 
 async function completeUsernameStep(authPage: Page, username: string): Promise<boolean> {
-  for (let i = 0; i < 45; i += 1) {
+  for (let i = 0; i < authStepMaxAttempts; i += 1) {
     await clickInAnyScope(authPage, [
       `text="${username}"`,
       `[data-test-id="${username}"]`,
@@ -94,14 +97,14 @@ async function completeUsernameStep(authPage: Page, username: string): Promise<b
       'a:has-text("Continue")',
     ]);
 
-    await authPage.waitForTimeout(800);
+    await authPage.waitForTimeout(authStepSleepMs);
   }
 
   return false;
 }
 
 async function completePasswordStep(authPage: Page, password: string): Promise<boolean> {
-  for (let i = 0; i < 45; i += 1) {
+  for (let i = 0; i < authStepMaxAttempts; i += 1) {
     await clickInAnyScope(authPage, [
       'a:has-text("Use password")',
       'button:has-text("Use password")',
@@ -128,7 +131,7 @@ async function completePasswordStep(authPage: Page, password: string): Promise<b
       return true;
     }
 
-    await authPage.waitForTimeout(800);
+    await authPage.waitForTimeout(authStepSleepMs);
   }
 
   return false;
@@ -228,7 +231,10 @@ async function clearBrowserSession(page: Page): Promise<void> {
 
 async function hasStableDashboardAccess(page: Page): Promise<boolean> {
   for (let attempt = 1; attempt <= 3; attempt += 1) {
-    await page.goto(`${appBaseUrl}/dashboard`, { waitUntil: 'domcontentloaded' });
+    await page.goto(`${appBaseUrl}/dashboard`, { waitUntil: 'domcontentloaded' }).catch(() => null);
+    if (page.isClosed()) {
+      return false;
+    }
     await page.waitForTimeout(2_000);
     if (/\/login(\?|$)/i.test(page.url())) {
       return false;
@@ -260,7 +266,17 @@ async function ensureMemberAuthenticatedSession(page: Page): Promise<boolean> {
   await clearBrowserSession(page);
 
   for (let attempt = 1; attempt <= 2; attempt += 1) {
-    await loginWithCredentials(page).catch(() => {});
+    await Promise.race([
+      loginWithCredentials(page),
+      new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error(`Login attempt timed out after ${loginAttemptTimeoutMs}ms`)), loginAttemptTimeoutMs);
+      }),
+    ]).catch(() => {});
+
+    if (page.isClosed()) {
+      return false;
+    }
+
     if (await hasStableDashboardAccess(page)) {
       return true;
     }
@@ -274,7 +290,7 @@ test.describe('Post-deploy browser smoke (member)', () => {
   test.skip(!appBaseUrl, 'E2E_APP_URL is required.');
 
   test('dashboard, events RSVP, and TAVF preference flow', async ({ browser }) => {
-    test.setTimeout(180_000);
+    test.setTimeout(210_000);
     test.skip(!localE2EAuthEnabled && !fs.existsSync(memberStatePath) && (!memberUsername || !memberPassword), 'Member storage state or PW_MEMBER_USER/PW_MEMBER_PASS are required.');
 
     const context = fs.existsSync(memberStatePath)
@@ -294,7 +310,7 @@ test.describe('Post-deploy browser smoke (member)', () => {
 
     try {
       const isAuthenticated = await ensureMemberAuthenticatedSession(page);
-      test.skip(!isAuthenticated, 'Member session is not authenticated and PW_MEMBER_USER/PW_MEMBER_PASS are not available or failed.');
+      expect(isAuthenticated, 'Member session failed to authenticate; this indicates an auth/session reliability regression.').toBeTruthy();
 
       await page.goto(`${appBaseUrl}/dashboard`, { waitUntil: 'domcontentloaded' });
       await expect(page).not.toHaveURL(/\/login(\?|$)/, { timeout: 20_000 });
