@@ -9,29 +9,36 @@
       main { max-width: 980px; margin: 0 auto; padding: 28px 18px 44px; }
       h1 { margin: 0 0 8px; font-size: 34px; }
       h2 { margin-top: 28px; font-size: 24px; }
+      h3 { margin-top: 18px; font-size: 19px; }
       .card { background: #fff; border: 1px solid #d7dce5; border-radius: 14px; padding: 22px; }
       a { color: #0d4ed8; }
       .meta { color: #4b5d75; margin-bottom: 18px; }
       img { width: 100%; height: auto; border: 1px solid #d7dce5; border-radius: 10px; }
+      .template { border: 1px solid #d7dce5; border-radius: 10px; padding: 14px; margin-top: 12px; background: #fdfefe; }
     </style>
   </head>
   <body>
     <main>
       <div class="card">
         <h1>SMS Program and Consent</h1>
-        <p class="meta">Public compliance page for messaging verification.</p>
+        <p class="meta">This public page documents the PHW Alpine SMS program, opt-in language, and message templates.</p>
 
         <h2>Program Description</h2>
         <p>
-          Project Healing Waters Colorado Alpine sends informational SMS messages for event
-          invitations, reminders, updates, and support.
+          Project Healing Waters Colorado Alpine Program sends informational SMS messages to
+          members about event invitations, RSVP reminders, schedule changes, and chapter
+          event logistics.
         </p>
+
+        <h2>Program Content Type</h2>
+        <p>Informational and customer-care messaging related to chapter events.</p>
 
         <h2>Opt-In Method</h2>
         <p>
-          Members explicitly opt in via web workflow/profile consent or by texting START/YES
-          to +1 (970) 771-0150.
+          Members opt in through a chapter-managed web workflow or member profile update
+          that requires explicit consent before SMS is enabled.
         </p>
+        <p>Members can also opt in by texting START or YES to +1 (970) 771-0150.</p>
 
         <h2>Consent Artifact</h2>
         <p>Direct artifact file: <a href="/compliance/sms-consent-artifact.svg">/compliance/sms-consent-artifact.svg</a></p>
@@ -40,6 +47,24 @@
 
         <h2>Help and Opt-Out</h2>
         <p>Reply HELP for help. Reply STOP to unsubscribe. Message and data rates may apply.</p>
+
+        <h2>Message Templates</h2>
+        <article class="template">
+          <h3>1. Opt-In Confirmation</h3>
+          <p>PHW Alpine: You are subscribed to chapter event texts. Message frequency varies. Msg&amp;data rates may apply. Reply HELP for help or STOP to opt out.</p>
+        </article>
+        <article class="template">
+          <h3>2. Event Invitation</h3>
+          <p>PHW Alpine: You are invited to Fly Fishing Outing on May 4 at Deckers. RSVP at the event link provided. Reply STOP to opt out.</p>
+        </article>
+        <article class="template">
+          <h3>3. Reminder</h3>
+          <p>PHW Alpine: Reminder: your scheduled event is coming up soon. Check your event link for details. Reply STOP to opt out.</p>
+        </article>
+        <article class="template">
+          <h3>4. Help / Support</h3>
+          <p>PHW Alpine: Help for chapter event texts is available through Colorado Alpine Program leadership. Reply STOP to opt out. See Terms and Privacy pages for details.</p>
+        </article>
 
         <h2>Related Pages</h2>
         <ul>
