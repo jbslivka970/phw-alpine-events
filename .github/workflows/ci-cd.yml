@@ -159,24 +159,40 @@ jobs:
 
         echo "Deploying release.zip to $AZURE_WEBAPP_NAME via $SCM_URL"
 
-        # If a deployment is already in progress, wait briefly instead of colliding with 409.
-        for attempt in $(seq 1 20); do
-                DEPLOY_STATUS=$(curl -fsS -u "$KUDU_USER:$KUDU_PASS" "$SCM_URL/api/deployments/latest" 2>/dev/null | python -c "import json,sys; txt=sys.stdin.read().strip();
-          print('unknown') if not txt else None;
-          data=(json.loads(txt) if txt else {});
-          status=data.get('status') if isinstance(data, dict) else None;
-          print('none' if txt and status is None else (str(status) if txt else 'unknown'))" 2>/dev/null || printf "unknown")
+        get_latest_deploy_status() {
+          curl -fsS -u "$KUDU_USER:$KUDU_PASS" "$SCM_URL/api/deployments/latest" 2>/dev/null | python -c "import json,sys; txt=sys.stdin.read().strip(); data=(json.loads(txt) if txt else {}); status=data.get('status') if isinstance(data, dict) else None; dep_id=(data.get('id') or '') if isinstance(data, dict) else ''; msg=(data.get('status_text') or data.get('message') or '') if isinstance(data, dict) else ''; msg=str(msg).replace('\\n',' ').strip(); normalized=('unknown' if not txt else ('none' if status is None else status)); print('%s\\t%s\\t%s' % (normalized, dep_id, msg))" 2>/dev/null || printf "unknown\t\t"
+        }
 
-          if [ "$DEPLOY_STATUS" = "0" ] || [ "$DEPLOY_STATUS" = "1" ]; then
-            echo "Existing deployment in progress (status=$DEPLOY_STATUS), waiting... ($attempt/20)"
-            sleep 10
-            continue
-          fi
-          break
-        done
+        wait_for_kudu_idle() {
+          MAX_ATTEMPTS="${1:-60}"
+          SLEEP_SECONDS="${2:-10}"
+          for attempt in $(seq 1 "$MAX_ATTEMPTS"); do
+            LATEST=$(get_latest_deploy_status)
+            DEPLOY_STATUS=$(printf "%s" "$LATEST" | cut -f1)
+            DEPLOY_ID=$(printf "%s" "$LATEST" | cut -f2)
+            DEPLOY_MSG=$(printf "%s" "$LATEST" | cut -f3-)
+
+            if [ "$DEPLOY_STATUS" = "0" ] || [ "$DEPLOY_STATUS" = "1" ]; then
+              echo "Existing deployment in progress (status=$DEPLOY_STATUS id=$DEPLOY_ID), waiting... ($attempt/$MAX_ATTEMPTS)"
+              if [ -n "$DEPLOY_MSG" ]; then
+                echo "Latest deploy message: $DEPLOY_MSG"
+              fi
+              sleep "$SLEEP_SECONDS"
+              continue
+            fi
+
+            echo "Kudu ready for zipdeploy (latest status=$DEPLOY_STATUS id=$DEPLOY_ID)."
+            return 0
+          done
+
+          echo "Kudu stayed busy too long; proceeding to zipdeploy retries."
+          return 0
+        }
+
+        wait_for_kudu_idle 60 10
 
         STATUS_URL=""
-        for attempt in $(seq 1 20); do
+        for attempt in $(seq 1 40); do
           RESPONSE_HEADERS=$(mktemp)
           RESPONSE_BODY=$(mktemp)
 
@@ -189,14 +205,17 @@ jobs:
 
           if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "202" ]; then
             STATUS_URL=$(awk 'BEGIN{IGNORECASE=1} /^Location:/ {gsub("\r","",$2); print $2}' "$RESPONSE_HEADERS" | tail -n 1)
+            if [ -z "$STATUS_URL" ]; then
+              STATUS_URL="$SCM_URL/api/deployments/latest"
+            fi
             rm -f "$RESPONSE_HEADERS" "$RESPONSE_BODY"
             break
           fi
 
           if [ "$HTTP_CODE" = "409" ]; then
-            echo "zipdeploy conflict (HTTP 409), waiting before retry... ($attempt/20)"
+            echo "zipdeploy conflict (HTTP 409), waiting before retry... ($attempt/40)"
             rm -f "$RESPONSE_HEADERS" "$RESPONSE_BODY"
-            sleep 15
+            wait_for_kudu_idle 12 10
             continue
           fi
 
@@ -208,6 +227,8 @@ jobs:
         done
 
         if [ -z "$STATUS_URL" ]; then
+          echo "Latest deployment status from Kudu before exit:"
+          get_latest_deploy_status
           echo "zipdeploy did not return a status URL after retries"
           exit 1
         fi
