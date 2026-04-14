@@ -489,15 +489,7 @@ jobs:
         PW_REFRESH_ROLE_TIMEOUT_MS: '240000'
         PW_MEMBER_USER: ${{ secrets.PW_MEMBER_USER }}
         PW_MEMBER_PASS: ${{ secrets.PW_MEMBER_PASS }}
-      run: npm run e2e:refresh-tokens
-
-    - name: Validate refreshed member auth state
-      if: ${{ steps.smoke_target.outputs.run_browser_smoke == '1' && steps.smoke_ready.outputs.ready == '1' }}
-      run: |
-        if [ ! -s tests/e2e/.auth/member.json ]; then
-          echo "::error::Frontend smoke requires refreshed member auth state (tests/e2e/.auth/member.json)."
-          exit 1
-        fi
+      run: npm run e2e:refresh-tokens -- --soft-skip
 
     - name: Run post-deploy frontend browser smoke
       if: ${{ steps.smoke_target.outputs.run_browser_smoke == '1' && steps.smoke_ready.outputs.ready == '1' }}

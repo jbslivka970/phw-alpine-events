@@ -223,6 +223,15 @@ async function completeUsernameStep(authPage, username) {
 
 async function completePasswordStep(authPage, password) {
   for (let i = 0; i < 45; i += 1) {
+    await clickInAnyScope(authPage, [
+      'a:has-text("Use password")',
+      'button:has-text("Use password")',
+      'a:has-text("Sign-in options")',
+      'button:has-text("Sign-in options")',
+      'a:has-text("Other ways to sign in")',
+      'button:has-text("Other ways to sign in")',
+    ]);
+
     const entered = await fillInAnyScope(
       authPage,
       ['input[type="password"]', 'input[name="passwd"]', 'input#i0118', 'input[name="password"]'],
