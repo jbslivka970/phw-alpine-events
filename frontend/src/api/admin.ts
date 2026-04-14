@@ -20,6 +20,9 @@ interface InviteDraftResponse {
 
 interface ApplyInviteDraftRequest extends InviteDraftRequest {
   template_name?: string;
+  subject?: string;
+  emailBody?: string;
+  smsBody?: string;
   approved: boolean;
   review_note?: string;
 }

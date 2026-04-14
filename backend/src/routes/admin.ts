@@ -27,6 +27,9 @@ interface InviteDraftRequestBody {
   event_date?: string;
   location?: string | null;
   description?: string | null;
+  subject?: string;
+  emailBody?: string;
+  smsBody?: string;
   tone?: string;
 }
 
@@ -581,20 +584,45 @@ router.post('/ai/invite-draft/apply', writeLimiter, async (req, res) => {
     const reviewNote = reviewNoteRaw && reviewNoteRaw.length > 0 ? reviewNoteRaw.slice(0, 500) : null;
 
     const { draft, source, tone } = await resolveInviteDraftRequest(req.body as InviteDraftRequestBody);
+    const subjectOverride = typeof req.body?.subject === 'string' ? req.body.subject.trim() : '';
+    const emailBodyOverride = typeof req.body?.emailBody === 'string' ? req.body.emailBody.trim() : '';
+    const smsBodyOverride = typeof req.body?.smsBody === 'string' ? req.body.smsBody.trim() : '';
+
+    const finalSubject = subjectOverride || draft.subject;
+    const finalEmailBody = emailBodyOverride || draft.emailBody;
+    const finalSmsBody = smsBodyOverride || draft.smsBody;
+
+    if (!finalSubject) {
+      res.status(400).json({ error: 'subject is required.' });
+      return;
+    }
+    if (finalSubject.length > 300) {
+      res.status(400).json({ error: 'subject must be <= 300 characters.' });
+      return;
+    }
+    if (!finalEmailBody) {
+      res.status(400).json({ error: 'emailBody is required.' });
+      return;
+    }
+    if (!finalSmsBody) {
+      res.status(400).json({ error: 'smsBody is required.' });
+      return;
+    }
+
     const pool = await getPool();
 
     const [emailTemplate, smsTemplate] = await Promise.all([
       upsertNotificationTemplate(pool, {
         templateName,
         channel: 'email',
-        subject: draft.subject,
-        body: draft.emailBody,
+        subject: finalSubject,
+        body: finalEmailBody,
       }),
       upsertNotificationTemplate(pool, {
         templateName,
         channel: 'sms',
         subject: null,
-        body: draft.smsBody,
+        body: finalSmsBody,
       }),
     ]);
 
@@ -707,6 +735,10 @@ router.post('/retention/preview', async (req, res) => {
 router.get('/identity/status/:memberId', async (req, res) => {
   try {
     const memberId = req.params.memberId;
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(memberId)) {
+      res.status(400).json({ error: 'memberId must be a valid UUID.' });
+      return;
+    }
     const status = await getIdentityStatusByMemberId(memberId);
 
     if (!status) {

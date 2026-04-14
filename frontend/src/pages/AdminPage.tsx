@@ -62,6 +62,7 @@ function AdminPage() {
   const [isGeneratingInvite, setIsGeneratingInvite] = useState(false)
   const [isApplyingInvite, setIsApplyingInvite] = useState(false)
   const [inviteDraft, setInviteDraft] = useState<{ subject: string; emailBody: string; smsBody: string; provider: string } | null>(null)
+  const [inviteDraftEdited, setInviteDraftEdited] = useState<{ subject: string; emailBody: string; smsBody: string } | null>(null)
   const [inviteError, setInviteError] = useState<string | null>(null)
   const [inviteApplyError, setInviteApplyError] = useState<string | null>(null)
   const [inviteApplySuccess, setInviteApplySuccess] = useState<string | null>(null)
@@ -208,6 +209,11 @@ function AdminPage() {
         tone: inviteTone,
       })
       setInviteDraft(draft)
+      setInviteDraftEdited({
+        subject: draft.subject,
+        emailBody: draft.emailBody,
+        smsBody: draft.smsBody,
+      })
     } catch (error) {
       setInviteError(toUserErrorMessage(error, 'Failed to generate invite draft.'))
     } finally {
@@ -217,6 +223,10 @@ function AdminPage() {
 
   async function handleApplyInviteDraft() {
     if (!inviteDraft) {
+      setInviteApplyError('Generate a draft first.')
+      return
+    }
+    if (!inviteDraftEdited) {
       setInviteApplyError('Generate a draft first.')
       return
     }
@@ -237,6 +247,9 @@ function AdminPage() {
         event_id: selectedEventId,
         tone: inviteTone,
         template_name: inviteTemplateName.trim() || 'Event Invite',
+        subject: inviteDraftEdited.subject,
+        emailBody: inviteDraftEdited.emailBody,
+        smsBody: inviteDraftEdited.smsBody,
         approved: true,
         review_note: inviteReviewNote.trim() || undefined,
       })
@@ -712,15 +725,42 @@ function AdminPage() {
             <div style={{ marginTop: 12, display: 'grid', gap: 10 }}>
               <div>
                 <strong>Subject</strong>
-                <div className="members-input" style={{ whiteSpace: 'pre-wrap' }}>{inviteDraft.subject}</div>
+                <input
+                  className="members-input"
+                  value={inviteDraftEdited?.subject ?? ''}
+                  onChange={(e) => setInviteDraftEdited((current) => ({
+                    subject: e.target.value,
+                    emailBody: current?.emailBody ?? inviteDraft.emailBody,
+                    smsBody: current?.smsBody ?? inviteDraft.smsBody,
+                  }))}
+                  placeholder="Subject"
+                />
               </div>
               <div>
                 <strong>Email Body</strong>
-                <textarea className="members-input" rows={7} readOnly value={inviteDraft.emailBody} />
+                <textarea
+                  className="members-input"
+                  rows={7}
+                  value={inviteDraftEdited?.emailBody ?? ''}
+                  onChange={(e) => setInviteDraftEdited((current) => ({
+                    subject: current?.subject ?? inviteDraft.subject,
+                    emailBody: e.target.value,
+                    smsBody: current?.smsBody ?? inviteDraft.smsBody,
+                  }))}
+                />
               </div>
               <div>
                 <strong>SMS Body</strong>
-                <textarea className="members-input" rows={3} readOnly value={inviteDraft.smsBody} />
+                <textarea
+                  className="members-input"
+                  rows={3}
+                  value={inviteDraftEdited?.smsBody ?? ''}
+                  onChange={(e) => setInviteDraftEdited((current) => ({
+                    subject: current?.subject ?? inviteDraft.subject,
+                    emailBody: current?.emailBody ?? inviteDraft.emailBody,
+                    smsBody: e.target.value,
+                  }))}
+                />
               </div>
               {inviteDraft.provider === 'fallback' && (
                 <p className="ui-notice ui-notice--info" style={{ margin: 0 }}>
