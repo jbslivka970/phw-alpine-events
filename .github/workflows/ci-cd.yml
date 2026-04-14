@@ -276,7 +276,10 @@ jobs:
           --name "$AZURE_WEBAPP_NAME" \
           --slot "$AZURE_BACKEND_SLOT_NAME" \
           --src-path release.zip \
-          --type zip
+          --type zip \
+          --async true \
+          --track-status false \
+          --timeout 1800000
 
     - name: Wait for staging slot health before swap
       if: ${{ steps.backend_deploy_mode.outputs.use_blue_green == '1' }}
@@ -294,7 +297,7 @@ jobs:
         BASIC_HEALTH_URL="$SLOT_URL/api/v1/health"
         echo "Waiting for slot readiness at $STARTUP_HEALTH_URL (fallback $BASIC_HEALTH_URL)"
 
-        for attempt in $(seq 1 36); do
+        for attempt in $(seq 1 60); do
           STARTUP_STATUS="$(curl -sS -o /dev/null -w "%{http_code}" "$STARTUP_HEALTH_URL" || true)"
           BASIC_STATUS="$(curl -sS -o /dev/null -w "%{http_code}" "$BASIC_HEALTH_URL" || true)"
 
@@ -620,7 +623,10 @@ jobs:
           --resource-group "${{ vars.AZURE_FRONTEND_RESOURCE_GROUP }}" \
           --name "${{ vars.AZURE_FRONTEND_WEBAPP_NAME }}" \
           --src-path frontend-release.zip \
-          --type zip
+          --type zip \
+          --async true \
+          --track-status false \
+          --timeout 1800000
 
   deploy_backend_smoke:
     runs-on: ubuntu-latest
