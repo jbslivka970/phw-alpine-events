@@ -34,6 +34,17 @@ interface MemberRoleRow {
   group_name: string | null;
 }
 
+async function hasEventLeadEmailColumn(): Promise<boolean> {
+  const pool = await getPool();
+  const result = await pool
+    .request()
+    .query<{ has_event_lead_email: number }>(
+      "SELECT CASE WHEN COL_LENGTH('dbo.event', 'event_lead_email') IS NULL THEN 0 ELSE 1 END AS has_event_lead_email"
+    );
+
+  return result.recordset[0]?.has_event_lead_email === 1;
+}
+
 class RsvpError extends Error {
   constructor(message: string, readonly statusCode: number) {
     super(message);
@@ -227,7 +238,17 @@ async function recordRsvpResponse(options: {
     .request()
     .input('event_id', sql.UniqueIdentifier, options.eventId)
       .query<{ event_id: string; title: string; status: string; capacity: number | null; mentor_capacity: number | null; participant_capacity: number | null; event_date: Date; event_lead_email: string | null }>(
-        'SELECT event_id, title, status, capacity, mentor_capacity, participant_capacity, event_date, event_lead_email FROM event WHERE event_id = @event_id'
+        `SELECT
+           event_id,
+           title,
+           status,
+           capacity,
+           mentor_capacity,
+           participant_capacity,
+           event_date,
+           ${await hasEventLeadEmailColumn() ? 'event_lead_email' : 'CAST(NULL AS NVARCHAR(255)) AS event_lead_email'}
+         FROM event
+         WHERE event_id = @event_id`
     );
 
   const event = eventResult.recordset[0];
