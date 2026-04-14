@@ -1,6 +1,10 @@
 {
   "scripts": {
     "ci:check:compliance-pages": "node scripts/ci/check-compliance-pages.mjs",
+    "ci:check:migration-safety": "node scripts/ci/check-migration-safety.mjs",
+    "test:v2:local": "bash scripts/local-v2-validation.sh",
+    "test:v2:local:quick": "bash scripts/local-v2-validation.sh --quick",
+    "test:e2e:local": "E2E_LOCAL_AUTH_ENABLED=1 E2E_API_BASE_URL=http://localhost:3001 E2E_APP_URL=http://localhost:5173 npm run test:e2e",
     "test:e2e": "playwright test",
     "test:e2e:role-matrix": "playwright test tests/e2e/api-role-matrix.spec.ts",
     "test:e2e:browser": "playwright test tests/e2e/browser-auth-flows.spec.ts",
