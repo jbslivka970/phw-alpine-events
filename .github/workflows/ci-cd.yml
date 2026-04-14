@@ -67,16 +67,83 @@ jobs:
     - name: Test backend
       run: cd backend && npm run test:ci
 
-    - name: Install Playwright role-matrix dependencies
-      if: ${{ ((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || github.event_name == 'workflow_dispatch' || github.event_name == 'release') && vars.E2E_API_BASE_URL != '' && vars.E2E_APP_URL != '' }}
+  e2e_api_role_matrix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: build
+    if: ${{ github.event_name == 'workflow_dispatch' && vars.E2E_API_BASE_URL != '' && vars.E2E_APP_URL != '' }}
+
+    steps:
+    - uses: actions/checkout@v5
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v5
+      with:
+        node-version: '22'
+        cache: 'npm'
+        cache-dependency-path: package-lock.json
+
+    - name: Install Playwright dependencies
+      run: npm ci
+
+    - name: Install Playwright Chromium for token refresh helper
+      run: npx playwright install --with-deps chromium
+
+    - name: Refresh Playwright tokens for API role matrix
+      env:
+        E2E_API_BASE_URL: ${{ vars.E2E_API_BASE_URL }}
+        E2E_APP_URL: ${{ vars.E2E_APP_URL }}
+        PW_REFRESH_ROLE_TIMEOUT_MS: '90000'
+        PW_ADMIN_USER: ${{ secrets.PW_ADMIN_USER }}
+        PW_ADMIN_PASS: ${{ secrets.PW_ADMIN_PASS }}
+        PW_EVENT_CREATOR_USER: ${{ secrets.PW_EVENT_CREATOR_USER }}
+        PW_EVENT_CREATOR_PASS: ${{ secrets.PW_EVENT_CREATOR_PASS }}
+        PW_MEMBER_USER: ${{ secrets.PW_MEMBER_USER }}
+        PW_MEMBER_PASS: ${{ secrets.PW_MEMBER_PASS }}
+      run: npm run e2e:refresh-tokens -- --soft-skip
+
+    - name: Run Playwright API role matrix
+      env:
+        E2E_API_BASE_URL: ${{ vars.E2E_API_BASE_URL }}
+        PW_ADMIN_TOKEN: ${{ secrets.PW_ADMIN_TOKEN }}
+        PW_EVENT_CREATOR_TOKEN: ${{ secrets.PW_EVENT_CREATOR_TOKEN }}
+        PW_MEMBER_TOKEN: ${{ secrets.PW_MEMBER_TOKEN }}
+      run: npm run test:e2e:role-matrix
+
+    - name: Upload Playwright artifacts on failure
+      if: ${{ failure() || cancelled() }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: playwright-api-role-matrix-artifacts-${{ github.run_id }}
+        if-no-files-found: ignore
+        retention-days: 14
+        path: |
+          playwright-report/**
+          test-results/**
+
+  e2e_full_suite:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    needs: build
+    if: ${{ ((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || github.event_name == 'release') && vars.E2E_API_BASE_URL != '' && vars.E2E_APP_URL != '' }}
+
+    steps:
+    - uses: actions/checkout@v5
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v5
+      with:
+        node-version: '22'
+        cache: 'npm'
+        cache-dependency-path: package-lock.json
+
+    - name: Install Playwright dependencies
       run: npm ci
 
     - name: Install Playwright Chromium
-      if: ${{ ((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || github.event_name == 'workflow_dispatch' || github.event_name == 'release') && vars.E2E_API_BASE_URL != '' && vars.E2E_APP_URL != '' }}
       run: npx playwright install --with-deps chromium
 
     - name: Refresh Playwright tokens and storage state
-      if: ${{ ((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || github.event_name == 'workflow_dispatch' || github.event_name == 'release') && vars.E2E_API_BASE_URL != '' && vars.E2E_APP_URL != '' }}
       env:
         E2E_API_BASE_URL: ${{ vars.E2E_API_BASE_URL }}
         E2E_APP_URL: ${{ vars.E2E_APP_URL }}
@@ -89,8 +156,7 @@ jobs:
         PW_MEMBER_PASS: ${{ secrets.PW_MEMBER_PASS }}
       run: npm run e2e:refresh-tokens -- --soft-skip
 
-    - name: Run Playwright role matrix and browser flows
-      if: ${{ ((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || github.event_name == 'workflow_dispatch' || github.event_name == 'release') && vars.E2E_API_BASE_URL != '' && vars.E2E_APP_URL != '' }}
+    - name: Run full Playwright suite
       env:
         E2E_API_BASE_URL: ${{ vars.E2E_API_BASE_URL }}
         E2E_APP_URL: ${{ vars.E2E_APP_URL }}
@@ -103,10 +169,10 @@ jobs:
       run: npm run test:e2e
 
     - name: Upload Playwright artifacts on failure
-      if: ${{ (failure() || cancelled()) && ((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || github.event_name == 'workflow_dispatch' || github.event_name == 'release') && vars.E2E_API_BASE_URL != '' && vars.E2E_APP_URL != '' }}
+      if: ${{ failure() || cancelled() }}
       uses: actions/upload-artifact@v4
       with:
-        name: playwright-failure-artifacts-${{ github.run_id }}
+        name: playwright-full-suite-artifacts-${{ github.run_id }}
         if-no-files-found: ignore
         retention-days: 14
         path: |
