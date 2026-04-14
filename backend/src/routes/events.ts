@@ -29,33 +29,39 @@ const STATUS_TRANSITIONS: Record<string, string[]> = {
   cancelled: [],
 };
 
-type EventLeadColumnSupport = {
+type EventColumnSupport = {
   hasEventLeadName: boolean;
   hasEventLeadEmail: boolean;
+  hasPhotoUrl: boolean;
+  hasInvitationStage: boolean;
 };
 
-let cachedEventLeadColumnSupport: EventLeadColumnSupport | null = null;
+let cachedEventColumnSupport: EventColumnSupport | null = null;
 
-async function getEventLeadColumnSupport(pool: Awaited<ReturnType<typeof getPool>>): Promise<EventLeadColumnSupport> {
-  if (cachedEventLeadColumnSupport) {
-    return cachedEventLeadColumnSupport;
+async function getEventColumnSupport(pool: Awaited<ReturnType<typeof getPool>>): Promise<EventColumnSupport> {
+  if (cachedEventColumnSupport) {
+    return cachedEventColumnSupport;
   }
 
   const result = await pool
     .request()
-    .query<{ has_event_lead_name: number; has_event_lead_email: number }>(
+    .query<{ has_event_lead_name: number; has_event_lead_email: number; has_photo_url: number; has_invitation_stage: number }>(
       `SELECT
          CASE WHEN COL_LENGTH('dbo.event', 'event_lead_name') IS NULL THEN 0 ELSE 1 END AS has_event_lead_name,
-         CASE WHEN COL_LENGTH('dbo.event', 'event_lead_email') IS NULL THEN 0 ELSE 1 END AS has_event_lead_email`
+         CASE WHEN COL_LENGTH('dbo.event', 'event_lead_email') IS NULL THEN 0 ELSE 1 END AS has_event_lead_email,
+         CASE WHEN COL_LENGTH('dbo.event', 'photo_url') IS NULL THEN 0 ELSE 1 END AS has_photo_url,
+         CASE WHEN COL_LENGTH('dbo.event', 'invitation_stage') IS NULL THEN 0 ELSE 1 END AS has_invitation_stage`
     );
 
   const row = result.recordset[0];
-  cachedEventLeadColumnSupport = {
+  cachedEventColumnSupport = {
     hasEventLeadName: row?.has_event_lead_name === 1,
     hasEventLeadEmail: row?.has_event_lead_email === 1,
+    hasPhotoUrl: row?.has_photo_url === 1,
+    hasInvitationStage: row?.has_invitation_stage === 1,
   };
 
-  return cachedEventLeadColumnSupport;
+  return cachedEventColumnSupport;
 }
 
 function isNotificationConfigurationError(error: unknown): error is Error {
@@ -542,15 +548,13 @@ router.post('/', writeLimiter, authenticate, requireEventCreatorOrAdmin, async (
     }
 
     const pool = await getPool();
-    const eventLeadColumns = await getEventLeadColumnSupport(pool);
+    const eventColumns = await getEventColumnSupport(pool);
 
     const createRequest = pool
       .request()
       .input('title', sql.NVarChar, title)
       .input('description', sql.NVarChar(sql.MAX), description)
       .input('location', sql.NVarChar, location)
-      .input('photo_url', sql.NVarChar(1024), photoUrl)
-      .input('invitation_stage', sql.NVarChar(20), invitationStage)
       .input('event_date', sql.DateTime, parsedEventDate)
       .input('end_date', sql.DateTime, parsedEndDate)
       .input('mentor_capacity', sql.Int, mentorCapacity)
@@ -563,8 +567,6 @@ router.post('/', writeLimiter, authenticate, requireEventCreatorOrAdmin, async (
       'title',
       'description',
       'location',
-      'photo_url',
-      'invitation_stage',
       'event_date',
       'end_date',
       'mentor_capacity',
@@ -580,8 +582,6 @@ router.post('/', writeLimiter, authenticate, requireEventCreatorOrAdmin, async (
       '@title',
       '@description',
       '@location',
-      '@photo_url',
-      '@invitation_stage',
       '@event_date',
       '@end_date',
       '@mentor_capacity',
@@ -593,13 +593,25 @@ router.post('/', writeLimiter, authenticate, requireEventCreatorOrAdmin, async (
       'GETUTCDATE()',
     ];
 
-    if (eventLeadColumns.hasEventLeadName) {
+    if (eventColumns.hasPhotoUrl) {
+      insertColumns.splice(4, 0, 'photo_url');
+      insertValues.splice(4, 0, '@photo_url');
+      createRequest.input('photo_url', sql.NVarChar(1024), photoUrl);
+    }
+    if (eventColumns.hasInvitationStage) {
+      const insertIndex = eventColumns.hasPhotoUrl ? 5 : 4;
+      insertColumns.splice(insertIndex, 0, 'invitation_stage');
+      insertValues.splice(insertIndex, 0, '@invitation_stage');
+      createRequest.input('invitation_stage', sql.NVarChar(20), invitationStage);
+    }
+
+    if (eventColumns.hasEventLeadName) {
       insertColumns.splice(6, 0, 'event_lead_name');
       insertValues.splice(6, 0, '@event_lead_name');
       createRequest.input('event_lead_name', sql.NVarChar(200), eventLeadName);
     }
-    if (eventLeadColumns.hasEventLeadEmail) {
-      const insertIndex = eventLeadColumns.hasEventLeadName ? 7 : 6;
+    if (eventColumns.hasEventLeadEmail) {
+      const insertIndex = eventColumns.hasEventLeadName ? 7 : 6;
       insertColumns.splice(insertIndex, 0, 'event_lead_email');
       insertValues.splice(insertIndex, 0, '@event_lead_email');
       createRequest.input('event_lead_email', sql.NVarChar(255), eventLeadEmail);
@@ -643,7 +655,7 @@ router.post('/', writeLimiter, authenticate, requireEventCreatorOrAdmin, async (
 router.put('/:id', writeLimiter, authenticate, requireEventCreatorOrAdmin, async (req, res) => {
   try {
     const pool = await getPool();
-    const eventLeadColumns = await getEventLeadColumnSupport(pool);
+    const eventColumns = await getEventColumnSupport(pool);
     const existingResult = await pool
       .request()
       .input('event_id', sql.UniqueIdentifier, req.params.id)
@@ -667,10 +679,10 @@ router.put('/:id', writeLimiter, authenticate, requireEventCreatorOrAdmin, async
            title,
            description,
            location,
-           photo_url,
-           invitation_stage,
-           ${eventLeadColumns.hasEventLeadName ? 'event_lead_name' : 'CAST(NULL AS NVARCHAR(200)) AS event_lead_name'},
-           ${eventLeadColumns.hasEventLeadEmail ? 'event_lead_email' : 'CAST(NULL AS NVARCHAR(255)) AS event_lead_email'},
+           ${eventColumns.hasPhotoUrl ? 'photo_url' : 'CAST(NULL AS NVARCHAR(1024)) AS photo_url'},
+           ${eventColumns.hasInvitationStage ? 'invitation_stage' : "CAST('both' AS NVARCHAR(20)) AS invitation_stage"},
+           ${eventColumns.hasEventLeadName ? 'event_lead_name' : 'CAST(NULL AS NVARCHAR(200)) AS event_lead_name'},
+           ${eventColumns.hasEventLeadEmail ? 'event_lead_email' : 'CAST(NULL AS NVARCHAR(255)) AS event_lead_email'},
            event_date,
            end_date,
            mentor_capacity,
@@ -714,16 +726,16 @@ router.put('/:id', writeLimiter, authenticate, requireEventCreatorOrAdmin, async
     if (proposedLocation !== undefined && normalizeString(proposedLocation) !== normalizeString(existing.location)) {
       changedFields.push('location');
     }
-    if (proposedPhotoUrl !== undefined && normalizeString(proposedPhotoUrl) !== normalizeString(existing.photo_url)) {
+    if (eventColumns.hasPhotoUrl && proposedPhotoUrl !== undefined && normalizeString(proposedPhotoUrl) !== normalizeString(existing.photo_url)) {
       changedFields.push('photo_url');
     }
-    if (proposedInvitationStage !== undefined && normalizeString(proposedInvitationStage) !== normalizeString(existing.invitation_stage)) {
+    if (eventColumns.hasInvitationStage && proposedInvitationStage !== undefined && normalizeString(proposedInvitationStage) !== normalizeString(existing.invitation_stage)) {
       changedFields.push('invitation_stage');
     }
-    if (eventLeadColumns.hasEventLeadName && proposedEventLeadName !== undefined && normalizeString(proposedEventLeadName) !== normalizeString(existing.event_lead_name)) {
+    if (eventColumns.hasEventLeadName && proposedEventLeadName !== undefined && normalizeString(proposedEventLeadName) !== normalizeString(existing.event_lead_name)) {
       changedFields.push('event_lead_name');
     }
-    if (eventLeadColumns.hasEventLeadEmail && proposedEventLeadEmail !== undefined && normalizeString(proposedEventLeadEmail) !== normalizeString(existing.event_lead_email)) {
+    if (eventColumns.hasEventLeadEmail && proposedEventLeadEmail !== undefined && normalizeString(proposedEventLeadEmail) !== normalizeString(existing.event_lead_email)) {
       changedFields.push('event_lead_email');
     }
     if (proposedEventDate !== undefined && toUtcMillis(proposedEventDate) !== toUtcMillis(existing.event_date)) {
@@ -757,19 +769,19 @@ router.put('/:id', writeLimiter, authenticate, requireEventCreatorOrAdmin, async
       updates.push('location = @location');
       request.input('location', sql.NVarChar, req.body.location);
     }
-    if (req.body?.photo_url !== undefined) {
+    if (eventColumns.hasPhotoUrl && req.body?.photo_url !== undefined) {
       updates.push('photo_url = @photo_url');
       request.input('photo_url', sql.NVarChar(1024), parsePhotoUrl(req.body.photo_url));
     }
-    if (req.body?.invitation_stage !== undefined) {
+    if (eventColumns.hasInvitationStage && req.body?.invitation_stage !== undefined) {
       updates.push('invitation_stage = @invitation_stage');
       request.input('invitation_stage', sql.NVarChar(20), parseInvitationStage(req.body.invitation_stage));
     }
-    if (eventLeadColumns.hasEventLeadName && req.body?.event_lead_name !== undefined) {
+    if (eventColumns.hasEventLeadName && req.body?.event_lead_name !== undefined) {
       updates.push('event_lead_name = @event_lead_name');
       request.input('event_lead_name', sql.NVarChar(200), normalizeString(req.body.event_lead_name));
     }
-    if (eventLeadColumns.hasEventLeadEmail && req.body?.event_lead_email !== undefined) {
+    if (eventColumns.hasEventLeadEmail && req.body?.event_lead_email !== undefined) {
       if (normalizeString(req.body?.event_lead_email) && !parseOptionalEmail(req.body?.event_lead_email)) {
         res.status(400).json({ error: 'event_lead_email must be a valid email address when provided' });
         return;
@@ -810,8 +822,18 @@ router.put('/:id', writeLimiter, authenticate, requireEventCreatorOrAdmin, async
       request.input('capacity', sql.Int, combined > 0 ? combined : null);
     }
 
+    let notificationWarning: string | null = null;
+
     if (existing.status === 'published' && changedFields.length > 0) {
-      await assertEventUpdatedNotificationReady(req.params.id);
+      try {
+        await assertEventUpdatedNotificationReady(req.params.id);
+      } catch (error) {
+        if (isNotificationConfigurationError(error)) {
+          throw error;
+        }
+        notificationWarning = 'Event updated, but notification readiness checks failed.';
+        console.error('PUT /events/:id update notification readiness check failed', error);
+      }
     }
 
     const updated = await request.query(
@@ -845,7 +867,39 @@ router.put('/:id', writeLimiter, authenticate, requireEventCreatorOrAdmin, async
 
     if (existing.status === 'published' && changedFields.length > 0) {
       if (changedFields.includes('invitation_stage')) {
-        await sendEventPublishedNotification({
+        try {
+          await sendEventPublishedNotification({
+            event_id: req.params.id,
+            title: updated.recordset[0].title,
+            event_date: updated.recordset[0].event_date,
+            location: updated.recordset[0].location,
+            description: updated.recordset[0].description,
+            photo_url: updated.recordset[0].photo_url,
+            invitation_stage: updated.recordset[0].invitation_stage,
+            event_lead_name: updated.recordset[0].event_lead_name,
+            event_lead_email: updated.recordset[0].event_lead_email,
+          });
+        } catch (error) {
+          if (isNotificationConfigurationError(error)) {
+            throw error;
+          }
+          notificationWarning = 'Event updated, but republish notifications failed.';
+          console.error('PUT /events/:id republish notification failed', error);
+        }
+      }
+
+      const updateChangedFields = changedFields.filter((field) => field !== 'invitation_stage');
+      if (updateChangedFields.length === 0) {
+        res.json({
+          ...updated.recordset[0],
+          ...(notificationWarning ? { notification_warning: notificationWarning } : {}),
+        });
+        return;
+      }
+
+      const changeSummary = buildChangedFieldSummary(updateChangedFields, existing, updated.recordset[0]);
+      try {
+        await sendEventUpdatedNotification({
           event_id: req.params.id,
           title: updated.recordset[0].title,
           event_date: updated.recordset[0].event_date,
@@ -855,33 +909,23 @@ router.put('/:id', writeLimiter, authenticate, requireEventCreatorOrAdmin, async
           invitation_stage: updated.recordset[0].invitation_stage,
           event_lead_name: updated.recordset[0].event_lead_name,
           event_lead_email: updated.recordset[0].event_lead_email,
+          changedFields: updateChangedFields,
+          changeSummary,
+          updateReason: (req.body?.update_reason as string | undefined) ?? (req.body?.reason as string | undefined) ?? null,
         });
+      } catch (error) {
+        if (isNotificationConfigurationError(error)) {
+          throw error;
+        }
+        notificationWarning = 'Event updated, but attendee update notifications failed.';
+        console.error('PUT /events/:id update notification send failed', error);
       }
-
-      const updateChangedFields = changedFields.filter((field) => field !== 'invitation_stage');
-      if (updateChangedFields.length === 0) {
-        res.json(updated.recordset[0]);
-        return;
-      }
-
-      const changeSummary = buildChangedFieldSummary(updateChangedFields, existing, updated.recordset[0]);
-      await sendEventUpdatedNotification({
-        event_id: req.params.id,
-        title: updated.recordset[0].title,
-        event_date: updated.recordset[0].event_date,
-        location: updated.recordset[0].location,
-        description: updated.recordset[0].description,
-        photo_url: updated.recordset[0].photo_url,
-        invitation_stage: updated.recordset[0].invitation_stage,
-        event_lead_name: updated.recordset[0].event_lead_name,
-        event_lead_email: updated.recordset[0].event_lead_email,
-        changedFields: updateChangedFields,
-        changeSummary,
-        updateReason: (req.body?.update_reason as string | undefined) ?? (req.body?.reason as string | undefined) ?? null,
-      });
     }
 
-    res.json(updated.recordset[0]);
+    res.json({
+      ...updated.recordset[0],
+      ...(notificationWarning ? { notification_warning: notificationWarning } : {}),
+    });
   } catch (error) {
     if (isNotificationConfigurationError(error)) {
       res.status(503).json({ error: error.message });
@@ -902,7 +946,7 @@ router.put('/:id/status', writeLimiter, authenticate, requireAnyAuthenticatedRol
     }
 
     const pool = await getPool();
-    const eventLeadColumns = await getEventLeadColumnSupport(pool);
+    const eventColumns = await getEventColumnSupport(pool);
     const existingResult = await pool
       .request()
       .input('event_id', sql.UniqueIdentifier, req.params.id)
@@ -925,10 +969,10 @@ router.put('/:id/status', writeLimiter, authenticate, requireAnyAuthenticatedRol
            event_date,
            location,
            description,
-           photo_url,
-           invitation_stage,
-           ${eventLeadColumns.hasEventLeadName ? 'event_lead_name' : 'CAST(NULL AS NVARCHAR(200)) AS event_lead_name'},
-           ${eventLeadColumns.hasEventLeadEmail ? 'event_lead_email' : 'CAST(NULL AS NVARCHAR(255)) AS event_lead_email'}
+           ${eventColumns.hasPhotoUrl ? 'photo_url' : 'CAST(NULL AS NVARCHAR(1024)) AS photo_url'},
+           ${eventColumns.hasInvitationStage ? 'invitation_stage' : "CAST('both' AS NVARCHAR(20)) AS invitation_stage"},
+           ${eventColumns.hasEventLeadName ? 'event_lead_name' : 'CAST(NULL AS NVARCHAR(200)) AS event_lead_name'},
+           ${eventColumns.hasEventLeadEmail ? 'event_lead_email' : 'CAST(NULL AS NVARCHAR(255)) AS event_lead_email'}
          FROM event
          WHERE event_id = @event_id`
       );
@@ -945,11 +989,29 @@ router.put('/:id/status', writeLimiter, authenticate, requireAnyAuthenticatedRol
       return;
     }
 
+    let notificationWarning: string | null = null;
+
     if (newStatus === 'published') {
-      await assertEventPublishedNotificationReady(req.params.id);
+      try {
+        await assertEventPublishedNotificationReady(req.params.id);
+      } catch (error) {
+        if (isNotificationConfigurationError(error)) {
+          throw error;
+        }
+        notificationWarning = 'Event status changed, but publish notification readiness checks failed.';
+        console.error('PUT /events/:id/status publish readiness check failed', error);
+      }
     }
     if (newStatus === 'cancelled') {
-      await assertEventCancelledNotificationReady(req.params.id);
+      try {
+        await assertEventCancelledNotificationReady(req.params.id);
+      } catch (error) {
+        if (isNotificationConfigurationError(error)) {
+          throw error;
+        }
+        notificationWarning = 'Event status changed, but cancellation notification readiness checks failed.';
+        console.error('PUT /events/:id/status cancellation readiness check failed', error);
+      }
     }
 
     const updated = await pool
@@ -963,8 +1025,6 @@ router.put('/:id/status', writeLimiter, authenticate, requireAnyAuthenticatedRol
          WHERE event_id = @event_id`
       );
 
-    let notificationWarning: string | null = null;
-
     if (newStatus === 'published') {
       try {
         await sendEventPublishedNotification({
@@ -973,7 +1033,7 @@ router.put('/:id/status', writeLimiter, authenticate, requireAnyAuthenticatedRol
           event_date: existing.event_date,
           location: existing.location,
           description: existing.description,
-          invitation_stage: existing.invitation_stage,
+          invitation_stage: existing.invitation_stage ?? 'both',
           event_lead_name: existing.event_lead_name,
           event_lead_email: existing.event_lead_email,
         });
