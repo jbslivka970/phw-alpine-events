@@ -496,7 +496,7 @@ jobs:
       if: ${{ steps.smoke_target.outputs.run_browser_smoke == '1' && steps.smoke_ready.outputs.ready == '1' }}
       env:
         E2E_APP_URL: ${{ steps.smoke_target.outputs.target_url }}
-        PW_REFRESH_ROLE_TIMEOUT_MS: '240000'
+        PW_REFRESH_ROLE_TIMEOUT_MS: '90000'
         PW_MEMBER_USER: ${{ secrets.PW_MEMBER_USER }}
         PW_MEMBER_PASS: ${{ secrets.PW_MEMBER_PASS }}
       run: npm run e2e:refresh-tokens -- --soft-skip
