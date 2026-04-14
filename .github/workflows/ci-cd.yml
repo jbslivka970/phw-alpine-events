@@ -271,15 +271,39 @@ jobs:
         AZURE_BACKEND_RESOURCE_GROUP: ${{ vars.AZURE_BACKEND_RESOURCE_GROUP }}
         AZURE_BACKEND_SLOT_NAME: ${{ vars.AZURE_BACKEND_SLOT_NAME }}
       run: |
-        az webapp deploy \
-          --resource-group "$AZURE_BACKEND_RESOURCE_GROUP" \
-          --name "$AZURE_WEBAPP_NAME" \
-          --slot "$AZURE_BACKEND_SLOT_NAME" \
-          --src-path release.zip \
-          --type zip \
-          --async true \
-          --track-status false \
-          --timeout 1800000
+        for attempt in $(seq 1 18); do
+          set +e
+          DEPLOY_OUTPUT=$(az webapp deploy \
+            --resource-group "$AZURE_BACKEND_RESOURCE_GROUP" \
+            --name "$AZURE_WEBAPP_NAME" \
+            --slot "$AZURE_BACKEND_SLOT_NAME" \
+            --src-path release.zip \
+            --type zip \
+            --async true \
+            --track-status false \
+            --timeout 1800000 2>&1)
+          DEPLOY_EXIT=$?
+          set -e
+
+          echo "$DEPLOY_OUTPUT"
+
+          if [ "$DEPLOY_EXIT" -eq 0 ]; then
+            echo "Backend slot deployment accepted."
+            exit 0
+          fi
+
+          if printf "%s" "$DEPLOY_OUTPUT" | grep -qi "Another deployment is in progress"; then
+            echo "Backend slot deployment locked by another deployment (attempt $attempt/18). Retrying in 20s..."
+            sleep 20
+            continue
+          fi
+
+          echo "Backend slot deploy failed with a non-retryable error."
+          exit "$DEPLOY_EXIT"
+        done
+
+        echo "Backend slot deploy did not obtain deployment lock after retries."
+        exit 1
 
     - name: Wait for staging slot health before swap
       if: ${{ steps.backend_deploy_mode.outputs.use_blue_green == '1' }}
@@ -619,14 +643,38 @@ jobs:
 
     - name: Deploy frontend to Azure
       run: |
-        az webapp deploy \
-          --resource-group "${{ vars.AZURE_FRONTEND_RESOURCE_GROUP }}" \
-          --name "${{ vars.AZURE_FRONTEND_WEBAPP_NAME }}" \
-          --src-path frontend-release.zip \
-          --type zip \
-          --async true \
-          --track-status false \
-          --timeout 1800000
+        for attempt in $(seq 1 18); do
+          set +e
+          DEPLOY_OUTPUT=$(az webapp deploy \
+            --resource-group "${{ vars.AZURE_FRONTEND_RESOURCE_GROUP }}" \
+            --name "${{ vars.AZURE_FRONTEND_WEBAPP_NAME }}" \
+            --src-path frontend-release.zip \
+            --type zip \
+            --async true \
+            --track-status false \
+            --timeout 1800000 2>&1)
+          DEPLOY_EXIT=$?
+          set -e
+
+          echo "$DEPLOY_OUTPUT"
+
+          if [ "$DEPLOY_EXIT" -eq 0 ]; then
+            echo "Frontend deployment accepted."
+            exit 0
+          fi
+
+          if printf "%s" "$DEPLOY_OUTPUT" | grep -qi "Another deployment is in progress"; then
+            echo "Frontend deployment locked by another deployment (attempt $attempt/18). Retrying in 20s..."
+            sleep 20
+            continue
+          fi
+
+          echo "Frontend deploy failed with a non-retryable error."
+          exit "$DEPLOY_EXIT"
+        done
+
+        echo "Frontend deploy did not obtain deployment lock after retries."
+        exit 1
 
   deploy_backend_smoke:
     runs-on: ubuntu-latest
