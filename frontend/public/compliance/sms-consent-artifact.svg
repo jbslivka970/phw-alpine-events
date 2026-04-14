@@ -4,28 +4,29 @@
   <rect width="1200" height="900" fill="#f5f7fb"/>
   <rect x="120" y="80" width="960" height="740" rx="16" fill="#ffffff" stroke="#d7dce5"/>
 
-  <text x="170" y="150" font-size="38" font-family="Arial, Helvetica, sans-serif" font-weight="700" fill="#10243f">PHW Alpine SMS Consent Example</text>
-  <text x="170" y="186" font-size="22" font-family="Arial, Helvetica, sans-serif" fill="#42556f">Demonstration only for toll-free verification evidence.</text>
+  <text x="170" y="150" font-size="38" font-family="Arial, Helvetica, sans-serif" font-weight="700" fill="#10243f">Notification Preferences: SMS Consent</text>
+  <text x="170" y="186" font-size="22" font-family="Arial, Helvetica, sans-serif" fill="#42556f">Members can opt in to receive event invitation, RSVP reminder,</text>
+  <text x="170" y="214" font-size="22" font-family="Arial, Helvetica, sans-serif" fill="#42556f">and program update texts.</text>
 
-  <text x="170" y="245" font-size="22" font-family="Arial, Helvetica, sans-serif" font-weight="700" fill="#0f2747">Mobile phone number</text>
-  <rect x="170" y="262" width="860" height="62" rx="10" fill="#ffffff" stroke="#b6c2d4"/>
-  <text x="192" y="302" font-size="28" font-family="Arial, Helvetica, sans-serif" fill="#1f2f44">(970) 555-0123</text>
+  <text x="170" y="260" font-size="22" font-family="Arial, Helvetica, sans-serif" font-weight="700" fill="#0f2747">Mobile phone number</text>
+  <rect x="170" y="278" width="860" height="62" rx="10" fill="#ffffff" stroke="#b6c2d4"/>
+  <text x="192" y="318" font-size="28" font-family="Arial, Helvetica, sans-serif" fill="#1f2f44">(970) 555-0123</text>
 
-  <rect x="170" y="360" width="32" height="32" rx="4" fill="#ffffff" stroke="#7a8799"/>
-  <text x="220" y="386" font-size="22" font-family="Arial, Helvetica, sans-serif" fill="#1f2f44">I agree to receive SMS messages from Project Healing Waters Colorado Alpine Program</text>
-  <text x="220" y="417" font-size="22" font-family="Arial, Helvetica, sans-serif" fill="#1f2f44">related to event invitations, RSVP reminders, and program updates. Message frequency</text>
-  <text x="220" y="448" font-size="22" font-family="Arial, Helvetica, sans-serif" fill="#1f2f44">varies. Message and data rates may apply. Reply STOP to opt out and HELP for help.</text>
+  <rect x="170" y="376" width="32" height="32" rx="4" fill="#ffffff" stroke="#7a8799"/>
+  <text x="220" y="402" font-size="22" font-family="Arial, Helvetica, sans-serif" fill="#1f2f44">I agree to receive SMS messages from Project Healing Waters Colorado Alpine Program</text>
+  <text x="220" y="433" font-size="22" font-family="Arial, Helvetica, sans-serif" fill="#1f2f44">related to event invitations, RSVP reminders, and program updates. Message frequency</text>
+  <text x="220" y="464" font-size="22" font-family="Arial, Helvetica, sans-serif" fill="#1f2f44">varies. Message and data rates may apply. Reply STOP to opt out and HELP for help.</text>
 
-  <text x="170" y="510" font-size="20" font-family="Arial, Helvetica, sans-serif" fill="#4d5d75">Demonstration only: consent must be actively selected by the member and is not preselected.</text>
+  <text x="170" y="526" font-size="20" font-family="Arial, Helvetica, sans-serif" fill="#4d5d75">Demonstration only: consent must be actively selected by the member and is not preselected.</text>
 
-  <text x="170" y="554" font-size="20" font-family="Arial, Helvetica, sans-serif" fill="#1f2f44">See our </text>
-  <text x="244" y="554" font-size="20" font-family="Arial, Helvetica, sans-serif" fill="#0d4ed8" text-decoration="underline">Privacy Policy</text>
-  <text x="348" y="554" font-size="20" font-family="Arial, Helvetica, sans-serif" fill="#1f2f44"> and </text>
-  <text x="392" y="554" font-size="20" font-family="Arial, Helvetica, sans-serif" fill="#0d4ed8" text-decoration="underline">Terms and Conditions</text>
-  <text x="595" y="554" font-size="20" font-family="Arial, Helvetica, sans-serif" fill="#1f2f44">.</text>
+  <text x="170" y="570" font-size="20" font-family="Arial, Helvetica, sans-serif" fill="#1f2f44">See our </text>
+  <text x="250" y="570" font-size="20" font-family="Arial, Helvetica, sans-serif" fill="#0d4ed8" text-decoration="underline">Privacy Policy</text>
+  <text x="375" y="570" font-size="20" font-family="Arial, Helvetica, sans-serif" fill="#1f2f44"> and </text>
+  <text x="425" y="570" font-size="20" font-family="Arial, Helvetica, sans-serif" fill="#0d4ed8" text-decoration="underline">Terms and Conditions</text>
+  <text x="635" y="570" font-size="20" font-family="Arial, Helvetica, sans-serif" fill="#1f2f44">.</text>
 
-  <rect x="170" y="610" width="260" height="62" rx="10" fill="#0d4ed8"/>
-  <text x="205" y="650" font-size="26" font-family="Arial, Helvetica, sans-serif" font-weight="700" fill="#ffffff">Save preferences</text>
+  <rect x="170" y="626" width="260" height="62" rx="10" fill="#0d4ed8"/>
+  <text x="205" y="666" font-size="26" font-family="Arial, Helvetica, sans-serif" font-weight="700" fill="#ffffff">Save preferences</text>
 
-  <text x="170" y="742" font-size="18" font-family="Arial, Helvetica, sans-serif" fill="#6a7688">Artifact URL: https://app.phwcoloradoalpine.org/compliance/sms-consent-artifact.svg</text>
+  <text x="170" y="758" font-size="18" font-family="Arial, Helvetica, sans-serif" fill="#6a7688">Artifact URL: https://app.phwcoloradoalpine.org/compliance/sms-consent-artifact.svg</text>
 </svg>
