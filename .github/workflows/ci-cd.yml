@@ -40,6 +40,9 @@ jobs:
     - name: Build frontend
       run: cd frontend && npm run build
 
+    - name: Validate compliance static pages and SMS consent artifact flow
+      run: npm run ci:check:compliance-pages
+
     - name: Test frontend regression flows
       run: cd frontend && npm run test:flows
 

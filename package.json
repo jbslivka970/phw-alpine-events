@@ -1,5 +1,6 @@
 {
   "scripts": {
+    "ci:check:compliance-pages": "node scripts/ci/check-compliance-pages.mjs",
     "test:e2e": "playwright test",
     "test:e2e:role-matrix": "playwright test tests/e2e/api-role-matrix.spec.ts",
     "test:e2e:browser": "playwright test tests/e2e/browser-auth-flows.spec.ts",
