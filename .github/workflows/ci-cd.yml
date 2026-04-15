@@ -261,13 +261,36 @@ jobs:
           exit 1
         fi
 
-        az login --service-principal \
-          --username "$AZ_CLIENT_ID" \
-          --password "$AZ_CLIENT_SECRET" \
-          --tenant "$AZ_TENANT_ID" \
-          --output none
+        for attempt in $(seq 1 5); do
+          set +e
+          LOGIN_OUTPUT=$(timeout 120 az login --service-principal \
+            --username "$AZ_CLIENT_ID" \
+            --password "$AZ_CLIENT_SECRET" \
+            --tenant "$AZ_TENANT_ID" \
+            --output none 2>&1)
+          LOGIN_EXIT=$?
+          set -e
 
-        az account set --subscription "$AZ_SUBSCRIPTION_ID"
+          echo "$LOGIN_OUTPUT"
+
+          if [ "$LOGIN_EXIT" -eq 0 ]; then
+            az account set --subscription "$AZ_SUBSCRIPTION_ID"
+            echo "Azure backend login succeeded."
+            exit 0
+          fi
+
+          if [ "$LOGIN_EXIT" -eq 124 ] || printf "%s" "$LOGIN_OUTPUT" | grep -Eqi "timed out|timeout|temporarily unavailable|connection|EOF|unreachable"; then
+            echo "Azure backend login transient failure (attempt $attempt/5). Retrying in 15s..."
+            sleep 15
+            continue
+          fi
+
+          echo "Azure backend login failed with a non-retryable error."
+          exit "$LOGIN_EXIT"
+        done
+
+        echo "Azure backend login failed after retries."
+        exit 1
 
     - name: Deploy backend package to staging slot
       if: ${{ steps.backend_deploy_mode.outputs.use_blue_green == '1' }}
@@ -706,13 +729,36 @@ jobs:
           exit 1
         fi
 
-        az login --service-principal \
-          --username "$AZ_CLIENT_ID" \
-          --password "$AZ_CLIENT_SECRET" \
-          --tenant "$AZ_TENANT_ID" \
-          --output none
+        for attempt in $(seq 1 5); do
+          set +e
+          LOGIN_OUTPUT=$(timeout 120 az login --service-principal \
+            --username "$AZ_CLIENT_ID" \
+            --password "$AZ_CLIENT_SECRET" \
+            --tenant "$AZ_TENANT_ID" \
+            --output none 2>&1)
+          LOGIN_EXIT=$?
+          set -e
 
-        az account set --subscription "$AZ_SUBSCRIPTION_ID"
+          echo "$LOGIN_OUTPUT"
+
+          if [ "$LOGIN_EXIT" -eq 0 ]; then
+            az account set --subscription "$AZ_SUBSCRIPTION_ID"
+            echo "Azure frontend login succeeded."
+            exit 0
+          fi
+
+          if [ "$LOGIN_EXIT" -eq 124 ] || printf "%s" "$LOGIN_OUTPUT" | grep -Eqi "timed out|timeout|temporarily unavailable|connection|EOF|unreachable"; then
+            echo "Azure frontend login transient failure (attempt $attempt/5). Retrying in 15s..."
+            sleep 15
+            continue
+          fi
+
+          echo "Azure frontend login failed with a non-retryable error."
+          exit "$LOGIN_EXIT"
+        done
+
+        echo "Azure frontend login failed after retries."
+        exit 1
 
     - name: Deploy frontend to Azure
       run: |
