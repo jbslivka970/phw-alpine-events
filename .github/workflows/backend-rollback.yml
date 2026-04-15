@@ -1,0 +1,152 @@
+name: Backend Manual Rollback
+
+on:
+  workflow_dispatch:
+    inputs:
+      webapp_name:
+        description: "Azure App Service name (optional override; defaults to vars.AZURE_WEBAPP_NAME)"
+        required: false
+        type: string
+      resource_group:
+        description: "Azure resource group (optional override; defaults to vars.AZURE_BACKEND_RESOURCE_GROUP)"
+        required: false
+        type: string
+      slot_name:
+        description: "Staging slot to swap with production (optional override; defaults to vars.AZURE_BACKEND_SLOT_NAME)"
+        required: false
+        type: string
+      run_smokes:
+        description: "Run health and core smoke checks after rollback"
+        required: true
+        default: true
+        type: boolean
+
+jobs:
+  rollback:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+    - uses: actions/checkout@v5
+
+    - name: Resolve rollback target
+      id: target
+      env:
+        INPUT_WEBAPP_NAME: ${{ github.event.inputs.webapp_name }}
+        INPUT_RESOURCE_GROUP: ${{ github.event.inputs.resource_group }}
+        INPUT_SLOT_NAME: ${{ github.event.inputs.slot_name }}
+        VAR_WEBAPP_NAME: ${{ vars.AZURE_WEBAPP_NAME }}
+        VAR_RESOURCE_GROUP: ${{ vars.AZURE_BACKEND_RESOURCE_GROUP }}
+        VAR_SLOT_NAME: ${{ vars.AZURE_BACKEND_SLOT_NAME }}
+      run: |
+        WEBAPP_NAME="${INPUT_WEBAPP_NAME:-$VAR_WEBAPP_NAME}"
+        RESOURCE_GROUP="${INPUT_RESOURCE_GROUP:-$VAR_RESOURCE_GROUP}"
+        SLOT_NAME="${INPUT_SLOT_NAME:-$VAR_SLOT_NAME}"
+
+        if [ -z "$WEBAPP_NAME" ] || [ -z "$RESOURCE_GROUP" ] || [ -z "$SLOT_NAME" ]; then
+          echo "::error::Missing rollback target. Provide workflow inputs or configure vars.AZURE_WEBAPP_NAME, vars.AZURE_BACKEND_RESOURCE_GROUP, vars.AZURE_BACKEND_SLOT_NAME."
+          exit 1
+        fi
+
+        echo "webapp_name=$WEBAPP_NAME" >> "$GITHUB_OUTPUT"
+        echo "resource_group=$RESOURCE_GROUP" >> "$GITHUB_OUTPUT"
+        echo "slot_name=$SLOT_NAME" >> "$GITHUB_OUTPUT"
+
+    - name: Azure CLI login
+      env:
+        AZURE_BACKEND_DEPLOY_CREDENTIALS: ${{ secrets.AZURE_BACKEND_DEPLOY_CREDENTIALS }}
+      run: |
+        if [ -z "$AZURE_BACKEND_DEPLOY_CREDENTIALS" ]; then
+          echo "::error::AZURE_BACKEND_DEPLOY_CREDENTIALS secret is required"
+          exit 1
+        fi
+
+        AZ_LINE=$(python -c "import json,os; creds=json.loads(os.environ['AZURE_BACKEND_DEPLOY_CREDENTIALS']); print('\\t'.join([creds.get('clientId',''), creds.get('clientSecret',''), creds.get('tenantId',''), creds.get('subscriptionId','')]))")
+
+        IFS=$'\t' read -r AZ_CLIENT_ID AZ_CLIENT_SECRET AZ_TENANT_ID AZ_SUBSCRIPTION_ID <<< "$AZ_LINE"
+
+        if [ -z "$AZ_CLIENT_ID" ] || [ -z "$AZ_CLIENT_SECRET" ] || [ -z "$AZ_TENANT_ID" ] || [ -z "$AZ_SUBSCRIPTION_ID" ]; then
+          echo "::error::AZURE_BACKEND_DEPLOY_CREDENTIALS is missing required fields"
+          exit 1
+        fi
+
+        az login --service-principal \
+          --username "$AZ_CLIENT_ID" \
+          --password "$AZ_CLIENT_SECRET" \
+          --tenant "$AZ_TENANT_ID" \
+          --output none
+
+        az account set --subscription "$AZ_SUBSCRIPTION_ID"
+
+    - name: Swap slot back to production
+      run: |
+        az webapp deployment slot swap \
+          --resource-group "${{ steps.target.outputs.resource_group }}" \
+          --name "${{ steps.target.outputs.webapp_name }}" \
+          --slot "${{ steps.target.outputs.slot_name }}" \
+          --target-slot production
+
+    - name: Setup Node.js for smoke checks
+      if: ${{ github.event.inputs.run_smokes == 'true' }}
+      uses: actions/setup-node@v5
+      with:
+        node-version: '22'
+        cache: 'npm'
+        cache-dependency-path: backend/package-lock.json
+
+    - name: Install backend dependencies for smoke checks
+      if: ${{ github.event.inputs.run_smokes == 'true' }}
+      run: cd backend && npm ci
+
+    - name: Wait for production health after rollback
+      if: ${{ github.event.inputs.run_smokes == 'true' }}
+      env:
+        WEBAPP_NAME: ${{ steps.target.outputs.webapp_name }}
+        BACKEND_BASE_URL: ${{ vars.BACKEND_BASE_URL }}
+      run: |
+        PROD_URL="${BACKEND_BASE_URL}"
+        if [ -z "$PROD_URL" ]; then
+          PROD_URL="https://${WEBAPP_NAME}.azurewebsites.net"
+        fi
+
+        STARTUP_HEALTH_URL="$PROD_URL/api/v1/health/startup"
+        BASIC_HEALTH_URL="$PROD_URL/api/v1/health"
+
+        for attempt in $(seq 1 24); do
+          STARTUP_STATUS="$(curl -sS -o /dev/null -w "%{http_code}" "$STARTUP_HEALTH_URL" || true)"
+          BASIC_STATUS="$(curl -sS -o /dev/null -w "%{http_code}" "$BASIC_HEALTH_URL" || true)"
+
+          if [ "$STARTUP_STATUS" = "200" ] || [ "$BASIC_STATUS" = "200" ]; then
+            echo "Production health is ready (attempt $attempt)."
+            exit 0
+          fi
+
+          echo "Production not ready yet (attempt $attempt, startup=$STARTUP_STATUS, health=$BASIC_STATUS)."
+          sleep 10
+        done
+
+        echo "::error::Production health did not return 200 after rollback swap."
+        exit 1
+
+    - name: Run post-rollback core compliance smokes
+      if: ${{ github.event.inputs.run_smokes == 'true' }}
+      env:
+        WEBAPP_NAME: ${{ steps.target.outputs.webapp_name }}
+        BACKEND_BASE_URL: ${{ vars.BACKEND_BASE_URL }}
+        RSVP_TEST_TOKEN: ${{ secrets.RSVP_TEST_TOKEN }}
+      run: |
+        PROD_URL="${BACKEND_BASE_URL}"
+        if [ -z "$PROD_URL" ]; then
+          PROD_URL="https://${WEBAPP_NAME}.azurewebsites.net"
+        fi
+
+        if [ -z "$RSVP_TEST_TOKEN" ]; then
+          echo "::error::RSVP_TEST_TOKEN secret is required for live tokenized RSVP smoke checks."
+          exit 1
+        fi
+
+        export BACKEND_BASE_URL="$PROD_URL"
+        npm --prefix backend run smoke:email
+        export RSVP_TEST_ENABLE_LIVE=1
+        export RSVP_TEST_LIGHTWEIGHT=1
+        npm --prefix backend run smoke:rsvp

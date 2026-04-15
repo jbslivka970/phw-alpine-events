@@ -63,13 +63,21 @@ The pipeline lives in `.github/workflows/ci-cd.yml`.
 - `build` installs and compiles the frontend and backend
 - `build` runs frontend lint, backend typecheck, backend compile, test-suite sanity checks, and backend tests
 - `deploy` assembles the backend deployment package and pushes it to Azure App Service on pushes to `main`
+- `deploy` supports two backend modes:
+  - direct mode (default): Kudu zipdeploy to production
+  - blue-green mode (`BACKEND_BLUE_GREEN_ENABLED=1`): deploy to slot, run slot smokes, swap, run post-swap smokes, auto-rollback on failure
 - `deploy_frontend` builds the frontend and deploys `frontend/dist` to the frontend Azure App Service on pushes to `main`
 - `deploy` runs core post-deploy compliance smokes (`email` + `rsvp`) as required gates
 - `deploy` runs SMS post-deploy smoke only when enabled via variables
+- `.github/workflows/backend-rollback.yml` provides a manual one-click backend swap-back workflow
 
 ### Required GitHub Variables
 
 - `AZURE_WEBAPP_NAME`
+- `BACKEND_BLUE_GREEN_ENABLED` (optional, set to `1` to enable slot-based backend deploy)
+- `AZURE_BACKEND_RESOURCE_GROUP` (required when blue-green is enabled)
+- `AZURE_BACKEND_SLOT_NAME` (required when blue-green is enabled)
+- `BACKEND_SLOT_BASE_URL` (optional slot URL override; defaults to `https://<app>-<slot>.azurewebsites.net`)
 - `AZURE_FRONTEND_WEBAPP_NAME`
 - `AZURE_FRONTEND_RESOURCE_GROUP`
 - `VITE_EXTERNAL_CLIENT_ID`
@@ -83,7 +91,9 @@ The pipeline lives in `.github/workflows/ci-cd.yml`.
 ### Required GitHub Secrets
 
 - `AZUREAPPSERVICE_PUBLISHPROFILE`
+- `AZURE_BACKEND_DEPLOY_CREDENTIALS` (required when blue-green is enabled or for manual rollback)
 - `AZURE_FRONTEND_DEPLOY_CREDENTIALS`
+- `RSVP_TEST_TOKEN` (required for blue-green pre-swap and post-swap live RSVP checks)
 - `COMPLIANCE_ALERT_WEBHOOK_URL` (optional; receives a webhook when required compliance gates fail)
 
 If `AZURE_WEBAPP_NAME` is not configured, the backend deploy job is skipped.
@@ -131,6 +141,7 @@ Key backend variables:
 - `ACS_CONNECTION_STRING`
 - `ACS_EMAIL_FROM`
 - `ACS_EMAIL_TO` (optional comma-separated To-line addresses for regional admin dispatch)
+- `EVENT_RECORD_EMAIL_TO` (optional comma-separated recipients for Events -> Email Record; defaults to `ACS_EMAIL_TO` when unset)
 - `TELNYX_API_KEY` (recommended for SMS)
 - `TELNYX_MESSAGING_PROFILE_ID` (recommended with Telnyx)
 - `TELNYX_FROM_NUMBER` (optional when messaging profile is configured)
@@ -209,6 +220,48 @@ For full frontend unit/integration tests:
 cd frontend && npm test
 ```
 
+### V2 Local Release Validation (Recommended)
+
+For V2 pre-release checks, use the single-command local validation runner:
+
+```bash
+npm run test:v2:local:quick
+```
+
+Quick mode runs:
+- frontend lint
+- frontend flow regression tests
+- backend typecheck
+- backend targeted CI suites (`events`, `rsvpService`, `notifications`, `aiInviteService`, `reminderJob`)
+
+Full mode (adds backend full coverage run and optional Playwright API role matrix):
+
+```bash
+npm run test:v2:local
+```
+
+The local runner script is [scripts/local-v2-validation.sh](scripts/local-v2-validation.sh).
+
+Behavior notes:
+- If `BACKEND_BASE_URL` is reachable (default `http://localhost:3001`), it runs local `smoke:email` and `smoke:rsvp`.
+- If backend is not running, smoke scripts are skipped with guidance.
+- If `E2E_API_BASE_URL` and `E2E_APP_URL` are set, full mode runs Playwright role matrix with those endpoints.
+- If E2E vars are not set, full mode runs deterministic local Playwright API + browser suites in bypass mode (`E2E_LOCAL_AUTH_ENABLED=1`) against `http://localhost:3001` and `http://localhost:5173`.
+
+### Backend Coverage
+
+Generate backend coverage locally:
+
+```bash
+cd backend && npm run test:coverage
+```
+
+CI-style serial coverage run:
+
+```bash
+cd backend && npm run test:coverage:ci
+```
+
 ### Playwright Role-Matrix Regression Suite
 
 Use this for authenticated API path regression checks across roles:
@@ -216,6 +269,15 @@ Use this for authenticated API path regression checks across roles:
 ```bash
 npm run test:e2e:role-matrix
 ```
+
+Local no-credential mode (deterministic role tokens + local auth bypass):
+
+```bash
+E2E_LOCAL_AUTH_ENABLED=1 E2E_API_BASE_URL=http://localhost:3001 E2E_APP_URL=http://localhost:5173 npm run test:e2e:role-matrix
+```
+
+For browser Playwright suites in local no-credential mode, start backend with `E2E_LOCAL_AUTH_ENABLED=1` so Bearer tokens like `e2e-admin` are accepted.
+This bypass mode is hard-disabled in production even if the flag is accidentally set.
 
 For browser route validation with credential-based login (Preferences + TAVF paths):
 
@@ -227,6 +289,12 @@ For full API + browser suite:
 
 ```bash
 npm run test:e2e
+```
+
+For full local API + browser suite without Entra credentials:
+
+```bash
+npm run test:e2e:local
 ```
 
 Before running on demand, refresh short-lived tokens and storage state:

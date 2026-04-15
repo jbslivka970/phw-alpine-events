@@ -128,11 +128,15 @@ async function runReminderJob(lookAheadHours = 48): Promise<void> {
 
   for (const row of result.recordset) {
     attempted += 1;
+    const normalizedLocation = row.location?.trim() || '';
     const variables = {
       firstName: row.first_name,
       eventName: row.title,
       eventDate: row.event_date.toLocaleString(),
-      eventLocation: row.location ?? '',
+      eventLocation: normalizedLocation,
+      mapUrl: normalizedLocation
+        ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(normalizedLocation)}`
+        : '',
     };
 
     let delivered = false;

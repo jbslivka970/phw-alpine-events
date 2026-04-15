@@ -10,6 +10,7 @@
  * Environment variables:
  * - BACKEND_BASE_URL: API origin, example https://phwalpineeventsjb873a.azurewebsites.net
  * - RSVP_TEST_ENABLE_LIVE: set to 1 to run live checks
+ * - RSVP_TEST_LIGHTWEIGHT: set to 1 to run GET-only live check (assert 200)
  * - RSVP_TEST_TOKEN: signed RSVP token for live mode
  * - RSVP_TEST_RESPONSE: response for live POST (default yes)
  * - RSVP_TEST_RESPONSE_ROLE: optional role for live POST (MENTOR or PARTICIPANT)
@@ -17,6 +18,7 @@
 
 const backendBaseUrl = (process.env.BACKEND_BASE_URL || 'http://localhost:3001').replace(/\/$/, '');
 const liveMode = process.env.RSVP_TEST_ENABLE_LIVE === '1';
+const lightweightLiveMode = process.env.RSVP_TEST_LIGHTWEIGHT === '1';
 const rsvpToken = process.env.RSVP_TEST_TOKEN || '';
 const liveResponse = (process.env.RSVP_TEST_RESPONSE || 'yes').toLowerCase();
 const liveResponseRole = (process.env.RSVP_TEST_RESPONSE_ROLE || '').toUpperCase();
@@ -93,6 +95,10 @@ async function runLiveChecks() {
   assert(liveGet.status === 200, 'Live RSVP token GET should return 200.');
   assert(Boolean(liveGet.body?.event_id), 'Live RSVP GET response should include event_id.');
 
+  if (lightweightLiveMode) {
+    return checks;
+  }
+
   const postPayload = {
     response: liveResponse,
     ...(liveResponseRole === 'MENTOR' || liveResponseRole === 'PARTICIPANT' ? { response_role: liveResponseRole } : {}),
@@ -121,6 +127,7 @@ async function runLiveChecks() {
     allChecks.push(['started_at', started]);
     allChecks.push(['backend_base_url', backendBaseUrl]);
     allChecks.push(['live_mode', liveMode]);
+    allChecks.push(['lightweight_live_mode', lightweightLiveMode]);
 
     const contractChecks = await runContractChecks();
     allChecks.push(...contractChecks);

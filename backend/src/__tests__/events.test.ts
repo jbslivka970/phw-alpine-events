@@ -195,7 +195,7 @@ describe('events routes', () => {
     expect(res.body.notification_warning).toContain('publish notifications failed');
   });
 
-  it('PUT /api/events/:id sends update notifications for published events with changed fields', async () => {
+  it('PUT /api/events/:id does not auto-send update notifications for published events', async () => {
     const queue = [
       {
         recordset: [
@@ -236,18 +236,7 @@ describe('events routes', () => {
       .send({ event_date: '2026-04-02T18:00:00.000Z', update_reason: 'Weather shift' });
 
     expect(res.status).toBe(200);
-    expect(sendEventUpdatedNotification).toHaveBeenCalledWith(
-      expect.objectContaining({
-        event_id: 'event-1',
-        updateReason: 'Weather shift',
-      })
-    );
-    expect(sendEventUpdatedNotification).toHaveBeenCalledWith(
-      expect.objectContaining({
-        changedFields: expect.arrayContaining(['event_date']),
-        changeSummary: expect.stringContaining('Event date/time: 2026-04-01T18:00:00.000Z -> 2026-04-02T18:00:00.000Z'),
-      })
-    );
+    expect(sendEventUpdatedNotification).not.toHaveBeenCalled();
   });
 
   it('PUT /api/events/:id skips update notifications when no tracked field changed', async () => {
@@ -293,6 +282,45 @@ describe('events routes', () => {
 
     expect(res.status).toBe(200);
     expect(sendEventUpdatedNotification).not.toHaveBeenCalled();
+  });
+
+  it('POST /api/events/:id/send-update sends notifications explicitly for published events', async () => {
+    const queue = [
+      {
+        recordset: [
+          {
+            event_id: 'event-1',
+            status: 'published',
+            title: 'Fly Tying 101',
+            event_date: '2026-04-02T18:00:00.000Z',
+            location: 'Denver',
+            description: 'Updated logistics',
+            photo_url: null,
+            invitation_stage: 'both',
+            event_lead_name: 'Pat Lead',
+            event_lead_email: 'pat@example.com',
+          },
+        ],
+      },
+    ];
+    const mockRequest = {
+      input: jest.fn().mockReturnThis(),
+      query: jest.fn().mockImplementation(async () => queue.shift() ?? { recordset: [] }),
+    };
+    (getPool as jest.Mock).mockResolvedValue({ request: () => mockRequest });
+
+    const res = await request(app)
+      .post('/api/events/event-1/send-update')
+      .send({ update_reason: 'Parking lot changed', changed_fields: ['location'] });
+
+    expect(res.status).toBe(200);
+    expect(sendEventUpdatedNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event_id: 'event-1',
+        updateReason: 'Parking lot changed',
+        changedFields: ['location'],
+      })
+    );
   });
 
   it('POST /api/events validates required fields', async () => {

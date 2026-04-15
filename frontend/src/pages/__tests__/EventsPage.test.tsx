@@ -118,7 +118,9 @@ describe('EventsPage flow pattern', () => {
 
     await setFieldByLabel('Title *', 'Summer Opener');
     await setFieldByLabel('Event Date *', '2026-06-10');
-    await setFieldByLabel('Event Time (24-hour) *', '1923');
+    await setFieldByLabel('Event Time (24-hour) *', '19:23');
+    await setFieldByLabel('End Date', '');
+    await setFieldByLabel('End Time (24-hour)', '');
     await setFieldByLabel('Location', 'Blue Mesa');
     await setFieldByLabel('Volunteer Capacity', '1');
     await setFieldByLabel('Participant Capacity', '2');

@@ -1,11 +1,35 @@
 type TokenGetter = () => Promise<string | null>;
 
+function getLocalE2EToken(): string | null {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  const envEnabled = (import.meta.env.VITE_E2E_LOCAL_AUTH as string | undefined) === '1';
+  const storageEnabled = window.localStorage.getItem('phw_e2e_local_auth') === '1';
+  if (!envEnabled && !storageEnabled) {
+    return null;
+  }
+
+  const role = (window.localStorage.getItem('phw_e2e_role') ?? 'USER').trim().toUpperCase().replace(/[\s-]+/g, '_');
+  if (role === 'ADMIN') {
+    return 'e2e-admin';
+  }
+  if (role === 'EVENT_CREATOR') {
+    return 'e2e-event_creator';
+  }
+  if (role === 'TAVF_CREATOR') {
+    return 'e2e-tavf_creator';
+  }
+  return 'e2e-user';
+}
+
 const DEFAULT_BASE = '/api/v1';
 const rawBase = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? DEFAULT_BASE;
 const resolvedBase = rawBase;
 const BASE_URL = resolvedBase.endsWith('/') ? resolvedBase.slice(0, -1) : resolvedBase;
 
-let getToken: TokenGetter = async () => null;
+let getToken: TokenGetter = async () => getLocalE2EToken();
 const AUTH_RETRY_DELAY_MS = 250;
 const TOKEN_CACHE_TTL_MS = 30_000;
 let cachedToken: string | null | undefined;
@@ -35,9 +59,10 @@ async function getCachedToken(): Promise<string | null> {
 
   tokenRequestInFlight = (async () => {
     const token = await getToken();
-    cachedToken = token;
+    const resolvedToken = token ?? getLocalE2EToken();
+    cachedToken = resolvedToken;
     cachedTokenAtMs = Date.now();
-    return token;
+    return resolvedToken;
   })();
 
   try {

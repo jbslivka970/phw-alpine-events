@@ -14,6 +14,8 @@
     "deploy-schema": "ts-node src/deploy-schema.ts",
     "test": "jest",
     "test:ci": "jest --runInBand --detectOpenHandles",
+    "test:coverage": "jest --coverage",
+    "test:coverage:ci": "jest --runInBand --coverage",
     "smoke:sms": "node ../scripts/sms-compliance-smoke.js",
     "smoke:email": "node ../scripts/email-unsubscribe-smoke.js",
     "smoke:rsvp": "node ../scripts/tokenized-rsvp-smoke.js",
@@ -31,6 +33,16 @@
       "ts",
       "js",
       "json"
+    ],
+    "collectCoverageFrom": [
+      "src/**/*.ts",
+      "!src/**/*.d.ts",
+      "!src/**/__tests__/**"
+    ],
+    "coverageReporters": [
+      "text",
+      "lcov",
+      "html"
     ]
   },
   "dependencies": {

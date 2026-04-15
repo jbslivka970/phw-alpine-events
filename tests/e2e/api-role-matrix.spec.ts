@@ -17,10 +17,11 @@ function resolveApiBaseUrl(): string {
 }
 
 const apiBaseUrl = resolveApiBaseUrl();
+const localE2EAuthEnabled = /^(1|true|yes|on)$/i.test(process.env.E2E_LOCAL_AUTH_ENABLED ?? '');
 const tokensByRole = {
-  ADMIN: process.env.PW_ADMIN_TOKEN ?? '',
-  EVENT_CREATOR: process.env.PW_EVENT_CREATOR_TOKEN ?? '',
-  USER: process.env.PW_MEMBER_TOKEN ?? '',
+  ADMIN: process.env.PW_ADMIN_TOKEN ?? (localE2EAuthEnabled ? 'e2e-admin' : ''),
+  EVENT_CREATOR: process.env.PW_EVENT_CREATOR_TOKEN ?? (localE2EAuthEnabled ? 'e2e-event_creator' : ''),
+  USER: process.env.PW_MEMBER_TOKEN ?? (localE2EAuthEnabled ? 'e2e-user' : ''),
 } as const;
 
 type Role = keyof typeof tokensByRole;

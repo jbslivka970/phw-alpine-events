@@ -534,6 +534,49 @@ function authenticate(req: Request, res: Response, next: NextFunction): void {
     return;
   }
 
+  const localE2EAuthEnabled = /^(1|true|yes|on)$/i.test(process.env['E2E_LOCAL_AUTH_ENABLED'] ?? '');
+  if (localE2EAuthEnabled && process.env.NODE_ENV === 'production') {
+    console.error('[auth] E2E_LOCAL_AUTH_ENABLED is not allowed in production.');
+    res.status(503).json({ error: 'Local E2E auth bypass is disabled in production.' });
+    return;
+  }
+
+  if (localE2EAuthEnabled) {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      res.status(401).json({ error: 'Missing or invalid Authorization header' });
+      return;
+    }
+
+    const token = authHeader.slice('Bearer '.length).trim().toLowerCase();
+    const roleByToken: Record<string, AppRole[]> = {
+      'e2e-admin': ['ADMIN', 'EVENT_CREATOR', 'USER', 'TAVF_CREATOR'],
+      'e2e-event_creator': ['EVENT_CREATOR', 'USER', 'TAVF_CREATOR'],
+      'e2e-user': ['USER', 'TAVF_CREATOR'],
+      'e2e-tavf_creator': ['TAVF_CREATOR', 'USER'],
+    };
+    const roles = roleByToken[token];
+
+    if (!roles) {
+      res.status(401).json({ error: 'Invalid local E2E token' });
+      return;
+    }
+
+    req.user = {
+      sub: token,
+      email: `${token}@local.e2e`,
+      name: token,
+      roles,
+      rawClaims: {
+        sub: token,
+        email: `${token}@local.e2e`,
+        roles,
+      },
+    };
+    next();
+    return;
+  }
+
   if (!authConfig.isConfigured) {
     res.status(503).json({ error: 'Authentication is not configured' });
     return;

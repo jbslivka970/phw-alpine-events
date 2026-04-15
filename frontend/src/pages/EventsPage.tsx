@@ -55,6 +55,17 @@ function parseDispositionFilename(headerValue: string | null): string | null {
   return plainMatch?.[1] ?? null
 }
 
+function parseRecipientInput(raw: string): string[] {
+  return raw
+    .split(/[;,\s]+/)
+    .map((value) => value.trim().toLowerCase())
+    .filter((value) => value.length > 0)
+}
+
+function isValidEmailAddress(value: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
+}
+
 function downloadBlobFile(blob: Blob, headers: Headers, fallbackFilename: string) {
   const objectUrl = URL.createObjectURL(blob)
   const anchor = document.createElement('a')
@@ -135,8 +146,17 @@ const DEFAULT_RSVP_DRAFT: RsvpDraft = {
 type CommonLocation = {
   query: string
   label: string
+  county?: string
+  state?: string
   count: number
   lastUsedAt: string
+}
+
+const PROGRAM_GEO_CONFIG = {
+  state: 'Colorado',
+  country: 'USA',
+  primaryCounties: ['summit', 'eagle', 'routt', 'grand', 'park', 'garfield', 'lake'],
+  viewbox: '-109.06,36.99,-102.04,41.0',
 }
 
 const COMMON_LOCATIONS_KEY = 'phw-common-locations'
@@ -165,10 +185,43 @@ function saveCommonLocations(rows: CommonLocation[]): void {
   }
 }
 
-const EMPTY_FORM: EventFormPayload = {
-  title: '', event_date: '', description: '', location: '',
-  photo_url: '', invitation_stage: 'both', event_lead_name: '', event_lead_email: '',
-  end_date: '', mentor_capacity: '', participant_capacity: '', notification_targets: [], update_reason: '',
+function hasExplicitRegionQualifier(query: string): boolean {
+  return /\b(colorado|co|usa|wy|ut|nm|az|ks|ne|tx|id|mt|ca|wa|or|fl|ny|il|pa|va|nc|sc|ga|al|ak|hi|ma|ct|ri|nj|md|dc)\b/i.test(query)
+    || /,\s*[A-Z]{2}\b/.test(query)
+}
+
+function toLocalDateTimeInputValue(value: Date): string {
+  const year = value.getFullYear()
+  const month = String(value.getMonth() + 1).padStart(2, '0')
+  const day = String(value.getDate()).padStart(2, '0')
+  const hours = String(value.getHours()).padStart(2, '0')
+  const minutes = String(value.getMinutes()).padStart(2, '0')
+  return `${year}-${month}-${day}T${hours}:${minutes}`
+}
+
+function buildDefaultEventForm(): EventFormPayload {
+  const now = new Date()
+  now.setSeconds(0, 0)
+  const roundedMinutes = Math.ceil(now.getMinutes() / 15) * 15
+  now.setMinutes(roundedMinutes)
+  const start = new Date(now.getTime() + 60 * 60 * 1000)
+  const end = new Date(start.getTime() + 2 * 60 * 60 * 1000)
+
+  return {
+    title: '',
+    event_date: toLocalDateTimeInputValue(start),
+    description: '',
+    location: '',
+    photo_url: '',
+    invitation_stage: 'both',
+    event_lead_name: '',
+    event_lead_email: '',
+    end_date: toLocalDateTimeInputValue(end),
+    mentor_capacity: '',
+    participant_capacity: '',
+    notification_targets: [],
+    update_reason: '',
+  }
 }
 
 function splitDateTime(value: string): { date: string; time: string } {
@@ -462,8 +515,8 @@ interface EventFormModalProps {
   groups: GroupRecord[]
   onSave: (data: EventFormPayload) => Promise<void>
   onGenerateAiDraftPreview: (
-    payload: { title: string; event_date: string; location?: string | null; description?: string | null },
-    tone: 'friendly' | 'professional'
+    payload: { title: string; event_date: string; location?: string | null; description?: string | null; event_lead_name?: string | null },
+    tone: 'friendly' | 'professional' | 'casual' | 'exciting'
   ) => Promise<EventAiDraftResponse>
   onCancel: () => void
   saving: boolean
@@ -485,13 +538,17 @@ interface FormFieldErrors {
 function EventFormModal({ initial, groups, onSave, onGenerateAiDraftPreview, onCancel, saving, error, isEdit }: EventFormModalProps) {
   const [form, setForm] = useState<EventFormPayload>(initial)
   const [fieldErrors, setFieldErrors] = useState<FormFieldErrors>({})
-  const [aiTone, setAiTone] = useState<'friendly' | 'professional'>('friendly')
+  const [aiTone, setAiTone] = useState<'friendly' | 'professional' | 'casual' | 'exciting'>('friendly')
   const [aiDraftLoading, setAiDraftLoading] = useState(false)
   const [aiDraftError, setAiDraftError] = useState<string | null>(null)
   const [aiDraftResult, setAiDraftResult] = useState<EventAiDraftResponse | null>(null)
+  const [aiSubjectDraft, setAiSubjectDraft] = useState('')
+  const [aiEmailDraft, setAiEmailDraft] = useState('')
+  const [aiSmsDraft, setAiSmsDraft] = useState('')
   const [commonLocations, setCommonLocations] = useState<CommonLocation[]>(() => loadCommonLocations())
   const [locationValidation, setLocationValidation] = useState<string | null>(null)
   const [locationValidationError, setLocationValidationError] = useState<string | null>(null)
+  const [lastValidatedGeo, setLastValidatedGeo] = useState<{ query: string; county: string; state: string } | null>(null)
   const [validatingLocation, setValidatingLocation] = useState(false)
   const eventDateParts = splitDateTime(form.event_date)
   const endDateParts = splitDateTime(form.end_date)
@@ -514,18 +571,52 @@ function EventFormModal({ initial, groups, onSave, onGenerateAiDraftPreview, onC
     setLocationValidationError(null)
 
     try {
-      const params = new URLSearchParams({ format: 'json', q: query, limit: '1' })
+      const normalizedQuery = hasExplicitRegionQualifier(query) ? query : `${query}, ${PROGRAM_GEO_CONFIG.state}, ${PROGRAM_GEO_CONFIG.country}`
+      const params = new URLSearchParams({
+        format: 'jsonv2',
+        q: normalizedQuery,
+        limit: '1',
+        addressdetails: '1',
+        viewbox: PROGRAM_GEO_CONFIG.viewbox,
+        bounded: '0',
+      })
       const response = await fetch(`https://nominatim.openstreetmap.org/search?${params.toString()}`)
       if (!response.ok) {
         throw new Error(`Validation request failed (${response.status})`)
       }
-      const payload = (await response.json()) as Array<{ display_name?: string; lat?: string; lon?: string }>
+      const payload = (await response.json()) as Array<{
+        display_name?: string
+        lat?: string
+        lon?: string
+        address?: { county?: string; state?: string; country_code?: string }
+      }>
       const first = payload[0]
       if (!first?.display_name) {
         setLocationValidationError('No geocoding match found. Try a more specific address.')
         return
       }
-      setLocationValidation(`Validated: ${first.display_name}${first.lat && first.lon ? ` (lat ${first.lat}, lon ${first.lon})` : ''}`)
+      const county = first.address?.county?.replace(/\s+county$/i, '').trim() ?? ''
+      const state = first.address?.state?.trim() ?? ''
+      const countryCode = (first.address?.country_code ?? '').toLowerCase()
+      const inColorado = state.toLowerCase() === 'colorado' || countryCode === 'us' && /\bco\b/i.test(state)
+      const inPrimaryCounty = county && PROGRAM_GEO_CONFIG.primaryCounties.includes(county.toLowerCase())
+
+      if (!inColorado) {
+        setLocationValidation(`Validated (outside Colorado): ${first.display_name}${first.lat && first.lon ? ` (lat ${first.lat}, lon ${first.lon})` : ''}`)
+        setLocationValidationError('This location appears to be outside Colorado. Confirm this is intentional.')
+      } else if (inPrimaryCounty) {
+        setLocationValidation(`Validated (primary county: ${county} County, ${state}): ${first.display_name}`)
+        setLocationValidationError(null)
+      } else {
+        setLocationValidation(`Validated (Colorado, outside primary counties): ${first.display_name}`)
+        setLocationValidationError('Location is in Colorado but outside preferred counties (Summit, Eagle, Routt, Grand, Park, Garfield, Lake).')
+      }
+
+      setLastValidatedGeo({
+        query,
+        county,
+        state,
+      })
     } catch (err) {
       setLocationValidationError(err instanceof Error ? err.message : 'Unable to validate location right now.')
     } finally {
@@ -546,13 +637,19 @@ function EventFormModal({ initial, groups, onSave, onGenerateAiDraftPreview, onC
       next[existingIndex] = {
         ...next[existingIndex],
         label: query,
+        county: lastValidatedGeo?.query.toLowerCase() === query.toLowerCase() ? lastValidatedGeo.county : next[existingIndex]?.county,
+        state: lastValidatedGeo?.query.toLowerCase() === query.toLowerCase() ? lastValidatedGeo.state : next[existingIndex]?.state,
         count: (next[existingIndex]?.count ?? 0) + 1,
         lastUsedAt: new Date().toISOString(),
       }
     } else {
       next.push({
         query,
-        label: query,
+        label: lastValidatedGeo?.query.toLowerCase() === query.toLowerCase() && lastValidatedGeo.county
+          ? `${query} (${lastValidatedGeo.county} County, ${lastValidatedGeo.state || 'CO'})`
+          : query,
+        county: lastValidatedGeo?.query.toLowerCase() === query.toLowerCase() ? lastValidatedGeo.county : undefined,
+        state: lastValidatedGeo?.query.toLowerCase() === query.toLowerCase() ? lastValidatedGeo.state : undefined,
         count: 1,
         lastUsedAt: new Date().toISOString(),
       })
@@ -580,8 +677,12 @@ function EventFormModal({ initial, groups, onSave, onGenerateAiDraftPreview, onC
         event_date: normalizedDate,
         location: form.location.trim() || null,
         description: form.description.trim() || null,
+        event_lead_name: form.event_lead_name.trim() || null,
       }, aiTone)
       setAiDraftResult(draft)
+      setAiSubjectDraft(draft.subject)
+      setAiEmailDraft(draft.emailBody)
+      setAiSmsDraft(draft.smsBody)
     } catch (err) {
       setAiDraftError(err instanceof Error ? err.message : 'Unable to generate AI draft preview.')
     } finally {
@@ -641,10 +742,10 @@ function EventFormModal({ initial, groups, onSave, onGenerateAiDraftPreview, onC
     const eventDate = toCanonicalDate(eventDateParts.date)
     const eventTime = toCanonicalTime(eventDateParts.time)
     if (!eventDate) {
-      nextErrors.event_date = 'Use YYYY-MM-DD or MMDDYYYY.'
+      nextErrors.event_date = 'Select a valid event date.'
     }
     if (!eventTime) {
-      nextErrors.event_time = 'Use 24-hour time like 1923, 941, or 20:41.'
+      nextErrors.event_time = 'Select a valid event time.'
     }
 
     let canonicalEndDate: string | null = null
@@ -713,9 +814,7 @@ function EventFormModal({ initial, groups, onSave, onGenerateAiDraftPreview, onC
               <label className="form-label">Event Date *</label>
               <input
                 className="form-input"
-                type="text"
-                inputMode="numeric"
-                placeholder="YYYY-MM-DD or MMDDYYYY"
+                type="date"
                 value={eventDateParts.date}
                 onChange={e => handleDateInput('event_date', e.target.value, eventDateParts.time)}
                 onBlur={e => handleDateBlur('event_date', e.target.value, eventDateParts.time)}
@@ -728,15 +827,12 @@ function EventFormModal({ initial, groups, onSave, onGenerateAiDraftPreview, onC
               <label className="form-label">Event Time (24-hour) *</label>
               <input
                 className="form-input"
-                type="text"
-                inputMode="numeric"
-                placeholder="HH:mm"
+                type="time"
                 value={eventDateParts.time}
                 onChange={e => handleTimeInput('event_date', eventDateParts.date, e.target.value)}
                 onBlur={e => handleTimeBlur('event_date', eventDateParts.date, e.target.value)}
                 required
               />
-              <p className="form-field-hint">Examples: 1923, 941, 20:41</p>
               {fieldErrors.event_time && <p className="form-field-error">{fieldErrors.event_time}</p>}
             </div>
 
@@ -744,9 +840,7 @@ function EventFormModal({ initial, groups, onSave, onGenerateAiDraftPreview, onC
               <label className="form-label">End Date</label>
               <input
                 className="form-input"
-                type="text"
-                inputMode="numeric"
-                placeholder="YYYY-MM-DD or MMDDYYYY"
+                type="date"
                 value={endDateParts.date}
                 onChange={e => handleDateInput('end_date', e.target.value, endDateParts.time)}
                 onBlur={e => handleDateBlur('end_date', e.target.value, endDateParts.time)}
@@ -758,9 +852,7 @@ function EventFormModal({ initial, groups, onSave, onGenerateAiDraftPreview, onC
               <label className="form-label">End Time (24-hour)</label>
               <input
                 className="form-input"
-                type="text"
-                inputMode="numeric"
-                placeholder="HH:mm"
+                type="time"
                 value={endDateParts.time}
                 onChange={e => handleTimeInput('end_date', endDateParts.date, e.target.value)}
                 onBlur={e => handleTimeBlur('end_date', endDateParts.date, e.target.value)}
@@ -880,9 +972,11 @@ function EventFormModal({ initial, groups, onSave, onGenerateAiDraftPreview, onC
             <div className="form-field form-field--full">
               <label className="form-label">AI Invite Preview</label>
               <div className="event-ai-inline__toolbar">
-                <select className="form-input event-ai-inline__tone" value={aiTone} onChange={(e) => setAiTone(e.target.value as 'friendly' | 'professional')}>
+                <select className="form-input event-ai-inline__tone" value={aiTone} onChange={(e) => setAiTone(e.target.value as 'friendly' | 'professional' | 'casual' | 'exciting')}>
                   <option value="friendly">Friendly</option>
                   <option value="professional">Professional</option>
+                  <option value="casual">Casual</option>
+                  <option value="exciting">Exciting</option>
                 </select>
                 <button className="btn btn--outline btn--sm" type="button" onClick={() => void handleGenerateAiPreview()} disabled={aiDraftLoading || saving}>
                   {aiDraftLoading ? 'Generating…' : 'Generate from Form'}
@@ -891,19 +985,43 @@ function EventFormModal({ initial, groups, onSave, onGenerateAiDraftPreview, onC
               {aiDraftError && <p className="form-field-error">{aiDraftError}</p>}
               {aiDraftResult && (
                 <div className="event-ai-inline">
+                  <p className="form-field-hint">Provider: {aiDraftResult.provider}</p>
                   <label className="form-label">Subject</label>
-                  <textarea className="form-textarea" rows={2} readOnly value={aiDraftResult.subject} />
+                  <textarea className="form-textarea" rows={2} value={aiSubjectDraft} onChange={(e) => setAiSubjectDraft(e.target.value)} />
                   <label className="form-label">Email Draft</label>
-                  <textarea className="form-textarea" rows={6} readOnly value={aiDraftResult.emailBody} />
+                  <textarea className="form-textarea" rows={6} value={aiEmailDraft} onChange={(e) => setAiEmailDraft(e.target.value)} />
                   <label className="form-label">SMS Draft</label>
-                  <textarea className="form-textarea" rows={3} readOnly value={aiDraftResult.smsBody} />
+                  <textarea className="form-textarea" rows={3} value={aiSmsDraft} onChange={(e) => setAiSmsDraft(e.target.value)} />
+                  {Array.isArray(aiDraftResult.imageSuggestions) && aiDraftResult.imageSuggestions.length > 0 && (
+                    <div>
+                      <p className="form-field-hint">Image ideas:</p>
+                      <div className="event-ai-inline__toolbar">
+                        {aiDraftResult.imageSuggestions.map((url) => (
+                          <a key={url} className="btn btn--outline btn--sm" href={url} target="_blank" rel="noreferrer">
+                            Browse Image Options
+                          </a>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                   <div className="event-ai-inline__toolbar">
                     <button
                       type="button"
                       className="btn btn--outline btn--sm"
-                      onClick={() => set('description', aiDraftResult.emailBody)}
+                      onClick={() => set('description', aiEmailDraft)}
                     >
-                      Use Email Draft as Description
+                      Use Edited Email Draft as Description
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn--outline btn--sm"
+                      onClick={() => {
+                        setAiSubjectDraft(aiDraftResult.subject)
+                        setAiEmailDraft(aiDraftResult.emailBody)
+                        setAiSmsDraft(aiDraftResult.smsBody)
+                      }}
+                    >
+                      Reset to AI Draft
                     </button>
                     {aiDraftResult.mapUrl && (
                       <a className="btn btn--outline btn--sm" href={aiDraftResult.mapUrl} target="_blank" rel="noreferrer">
@@ -993,6 +1111,7 @@ function EventsPage() {
 
   // status transition in-flight
   const [transitioning, setTransitioning] = useState<string | null>(null)
+  const [sendingUpdateEventId, setSendingUpdateEventId] = useState<string | null>(null)
   const [reportEmailingEventId, setReportEmailingEventId] = useState<string | null>(null)
   const [memberId, setMemberId] = useState<string | null>(null)
   const [rsvpBusyEventId, setRsvpBusyEventId] = useState<string | null>(null)
@@ -1101,6 +1220,20 @@ function EventsPage() {
   }
 
   async function handleStatusTransition(event: EventRecord, newStatus: EventRecord['status']) {
+    if (newStatus === 'published') {
+      const preview = [
+        `Publish and send invites for "${event.title}"?`,
+        '',
+        `When: ${formatDate(event.event_date)}`,
+        `Where: ${event.location ?? 'TBD'}`,
+        '',
+        'Publishing triggers invite sends. Editing later will not auto-send updates.',
+      ].join('\n')
+      if (!window.confirm(preview)) {
+        return
+      }
+    }
+
     setTransitioning(event.event_id)
     try {
       await eventsApi.updateStatus(event.event_id, newStatus)
@@ -1112,9 +1245,34 @@ function EventsPage() {
     }
   }
 
+  async function sendUpdate(event: EventRecord) {
+    const updateReason = window.prompt('Update reason (sent to RSVP\'d members):', '')?.trim() ?? ''
+    if (!updateReason) {
+      return
+    }
+
+    if (!window.confirm('Send this update notification now?')) {
+      return
+    }
+
+    setSendingUpdateEventId(event.event_id)
+    try {
+      await eventsApi.sendUpdate(event.event_id, {
+        update_reason: updateReason,
+        changed_fields: ['details'],
+      })
+      setErr(null)
+    } catch (error) {
+      setErr(toUserErrorMessage(error, 'Unable to send event update notification.'))
+    } finally {
+      setSendingUpdateEventId(null)
+    }
+  }
+
   function openCreate() {
     setEditTarget(null)
     setFormError(null)
+    setEditInitialTargets([])
     setShowForm(true)
   }
 
@@ -1185,7 +1343,33 @@ function EventsPage() {
       await eventsApi.emailReport(event.event_id)
       setErr(null)
     } catch (error) {
-      setErr(toUserErrorMessage(error, 'Failed to email event record.'))
+      const message = toUserErrorMessage(error, 'Failed to email event record.')
+      if (message.includes('No recipients configured')) {
+        const recipientInput = window.prompt(
+          'No default recipients configured. Enter recipient email(s), comma-separated:',
+          ''
+        )
+
+        if (recipientInput) {
+          const recipients = parseRecipientInput(recipientInput)
+          const invalid = recipients.filter((email) => !isValidEmailAddress(email))
+
+          if (recipients.length === 0 || invalid.length > 0) {
+            setErr('Invalid recipient list. Enter one or more valid email addresses separated by commas.')
+          } else {
+            try {
+              await eventsApi.emailReport(event.event_id, recipients)
+              setErr(null)
+            } catch (retryError) {
+              setErr(toUserErrorMessage(retryError, 'Failed to email event record.'))
+            }
+          }
+        } else {
+          setErr('Email record canceled. Configure EVENT_RECORD_EMAIL_TO in backend/.env to avoid manual recipient entry.')
+        }
+      } else {
+        setErr(message)
+      }
     } finally {
       setReportEmailingEventId(null)
     }
@@ -1238,8 +1422,8 @@ function EventsPage() {
   }
 
   async function generateAiDraftPreview(
-    payload: { title: string; event_date: string; location?: string | null; description?: string | null },
-    tone: 'friendly' | 'professional'
+    payload: { title: string; event_date: string; location?: string | null; description?: string | null; event_lead_name?: string | null },
+    tone: 'friendly' | 'professional' | 'casual' | 'exciting'
   ) {
     return eventsApi.generateAiDraftPreview(payload, tone)
   }
@@ -1441,6 +1625,16 @@ function EventsPage() {
                       {isTransitioning ? '…' : STATUS_LABELS[next]}
                     </button>
                   ))}
+
+                  {canEdit && event.status === 'published' && (
+                    <button
+                      className="btn btn--outline btn--sm"
+                      onClick={() => void sendUpdate(event)}
+                      disabled={sendingUpdateEventId === event.event_id}
+                    >
+                      {sendingUpdateEventId === event.event_id ? 'Sending…' : 'Send Update'}
+                    </button>
+                  )}
                 </div>
 
                 {event.target_count ? (
@@ -1459,7 +1653,7 @@ function EventsPage() {
       {/* Create / Edit form modal */}
       {showForm && (
         <EventFormModal
-          initial={editTarget ? { ...payloadFromRecord(editTarget), notification_targets: editInitialTargets } : EMPTY_FORM}
+          initial={editTarget ? { ...payloadFromRecord(editTarget), notification_targets: editInitialTargets } : buildDefaultEventForm()}
           groups={groups}
           onSave={handleSave}
           onGenerateAiDraftPreview={generateAiDraftPreview}

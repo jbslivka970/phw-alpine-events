@@ -25,7 +25,70 @@ interface AuthUser {
   roles: AppRole[]
 }
 
+const LOCAL_E2E_AUTH_TOGGLE_KEY = 'phw_e2e_local_auth'
+const LOCAL_E2E_AUTH_ROLE_KEY = 'phw_e2e_role'
+
+function isLocalE2EAuthEnabled(): boolean {
+  if ((import.meta.env.VITE_E2E_LOCAL_AUTH as string | undefined) === '1') {
+    return true
+  }
+
+  if (typeof window === 'undefined') {
+    return false
+  }
+
+  return window.localStorage.getItem(LOCAL_E2E_AUTH_TOGGLE_KEY) === '1'
+}
+
+function mapLocalRole(raw: string | null | undefined): AppRole {
+  const normalized = (raw ?? '').trim().toUpperCase().replace(/[\s-]+/g, '_')
+  if (normalized === ROLES.ADMIN) {
+    return ROLES.ADMIN
+  }
+  if (normalized === ROLES.EVENT_CREATOR) {
+    return ROLES.EVENT_CREATOR
+  }
+  if (normalized === ROLES.TAVF_CREATOR) {
+    return ROLES.TAVF_CREATOR
+  }
+  return ROLES.USER
+}
+
+function readLocalE2ERole(): AppRole {
+  if (typeof window === 'undefined') {
+    return ROLES.USER
+  }
+  return mapLocalRole(window.localStorage.getItem(LOCAL_E2E_AUTH_ROLE_KEY))
+}
+
+function localRoleSet(role: AppRole): AppRole[] {
+  if (role === ROLES.ADMIN) {
+    return [ROLES.ADMIN, ROLES.EVENT_CREATOR, ROLES.TAVF_CREATOR, ROLES.USER]
+  }
+  if (role === ROLES.EVENT_CREATOR) {
+    return [ROLES.EVENT_CREATOR, ROLES.TAVF_CREATOR, ROLES.USER]
+  }
+  if (role === ROLES.TAVF_CREATOR) {
+    return [ROLES.TAVF_CREATOR, ROLES.USER]
+  }
+  return [ROLES.USER]
+}
+
+function localRoleToken(role: AppRole): string {
+  if (role === ROLES.ADMIN) {
+    return 'e2e-admin'
+  }
+  if (role === ROLES.EVENT_CREATOR) {
+    return 'e2e-event_creator'
+  }
+  if (role === ROLES.TAVF_CREATOR) {
+    return 'e2e-tavf_creator'
+  }
+  return 'e2e-user'
+}
+
 function useAuth() {
+  const localE2EAuth = isLocalE2EAuthEnabled()
   const { accounts, instance, inProgress } = useMsal()
   const isAuthenticated = useIsAuthenticated()
   const account = accounts[0] ?? null
@@ -44,6 +107,26 @@ function useAuth() {
   })
   const [isLoggingIn, setIsLoggingIn] = useState(false)
   const [loginError, setLoginError] = useState<string | null>(null)
+  const [localE2ERole, setLocalE2ERole] = useState<AppRole>(() => readLocalE2ERole())
+
+  useEffect(() => {
+    if (!localE2EAuth || typeof window === 'undefined') {
+      return
+    }
+
+    setLocalE2ERole(readLocalE2ERole())
+
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === LOCAL_E2E_AUTH_ROLE_KEY || event.key === LOCAL_E2E_AUTH_TOGGLE_KEY) {
+        setLocalE2ERole(readLocalE2ERole())
+      }
+    }
+
+    window.addEventListener('storage', onStorage)
+    return () => {
+      window.removeEventListener('storage', onStorage)
+    }
+  }, [localE2EAuth])
 
   useEffect(() => {
     setResolvedRoles(mapRoles(accountClaims))
@@ -126,6 +209,9 @@ function useAuth() {
     : null
 
   function hasRole(role: AppRole): boolean {
+    if (localE2EAuth) {
+      return localRoleSet(localE2ERole).includes(role)
+    }
     return user?.roles.includes(role) ?? false
   }
 
@@ -156,6 +242,18 @@ function useAuth() {
   }, [accounts.length, inProgress, interactionBusy, isAuthenticated, isLoggingIn, loginError, instance])
 
   async function login() {
+    if (localE2EAuth) {
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem(LOCAL_E2E_AUTH_TOGGLE_KEY, '1')
+        if (!window.localStorage.getItem(LOCAL_E2E_AUTH_ROLE_KEY)) {
+          window.localStorage.setItem(LOCAL_E2E_AUTH_ROLE_KEY, ROLES.USER)
+        }
+      }
+      setLocalE2ERole(readLocalE2ERole())
+      setLoginError(null)
+      return
+    }
+
     authDebugLog('login:start', {
       hasAuthConfig,
       interactionBusy,
@@ -269,6 +367,14 @@ function useAuth() {
   }
 
   async function logout() {
+    if (localE2EAuth) {
+      if (typeof window !== 'undefined') {
+        window.localStorage.removeItem(LOCAL_E2E_AUTH_ROLE_KEY)
+      }
+      setLocalE2ERole(ROLES.USER)
+      return
+    }
+
     await instance.logoutPopup({
       account: account ?? undefined,
       postLogoutRedirectUri: popupRedirectUri ?? null,
@@ -277,6 +383,11 @@ function useAuth() {
   }
 
   useEffect(() => {
+    if (localE2EAuth) {
+      setTokenGetter(async () => localRoleToken(localE2ERole))
+      return
+    }
+
     setTokenGetter(async () => {
       if (!account) return null
 
@@ -430,21 +541,33 @@ function useAuth() {
         tokenRequestInFlightRef.current = null
       }
     })
-  }, [account, instance, interactionBusy])
+  }, [account, instance, interactionBusy, localE2EAuth, localE2ERole])
+
+  const localUser: AuthUser = {
+    id: `e2e-${localE2ERole.toLowerCase()}`,
+    name: `E2E ${localE2ERole}`,
+    email: `${localE2ERole.toLowerCase()}@local.e2e`,
+    roles: localRoleSet(localE2ERole),
+  }
+
+  const effectiveUser = localE2EAuth ? localUser : user
+  const effectiveIsAuthenticated = localE2EAuth ? true : isAuthenticated
+  const effectiveInteractionBusy = localE2EAuth ? false : interactionBusy
+  const effectiveRolesReady = localE2EAuth ? true : rolesReady
 
   return {
     hasRole,
     isAdmin,
     canCreateEvents,
     canCreateTavfPostings,
-    isAuthenticated,
+    isAuthenticated: effectiveIsAuthenticated,
     login,
     logout,
-    user,
-    interactionBusy,
+    user: effectiveUser,
+    interactionBusy: effectiveInteractionBusy,
     isLoggingIn,
     loginError,
-    rolesReady,
+    rolesReady: effectiveRolesReady,
   }
 }
 

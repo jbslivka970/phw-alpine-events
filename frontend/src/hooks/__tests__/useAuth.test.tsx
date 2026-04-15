@@ -90,7 +90,7 @@ describe('useAuth auth flow regression coverage', () => {
       await result.current.login()
     })
 
-    expect(result.current.loginError).toMatch(/blocked the sign-in popup/i)
+    expect(result.current.loginError).toMatch(/blocked the sign-in (window|popup)/i)
   })
 
   it('logs out via popup and keeps redirect in the main window', async () => {

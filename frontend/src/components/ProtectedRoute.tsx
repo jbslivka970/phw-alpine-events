@@ -1,5 +1,5 @@
 import { InteractionStatus } from '@azure/msal-browser'
-import { useIsAuthenticated, useMsal } from '@azure/msal-react'
+import { useMsal } from '@azure/msal-react'
 import { useEffect, useRef } from 'react'
 import type { ReactNode } from 'react'
 import { Navigate, useLocation } from 'react-router-dom'
@@ -16,8 +16,7 @@ interface ProtectedRouteProps {
 
 function ProtectedRoute({ children, requiredRole, requiredRoles, disallowedRoles }: ProtectedRouteProps) {
   const { accounts, inProgress } = useMsal()
-  const isAuthenticated = useIsAuthenticated()
-  const { hasRole, rolesReady } = useAuth()
+  const { hasRole, rolesReady, isAuthenticated } = useAuth()
   const location = useLocation()
   const lastDecisionRef = useRef<string | null>(null)
   const authReady = inProgress === InteractionStatus.None

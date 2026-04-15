@@ -73,6 +73,8 @@ interface EventUpdateNotificationPayload extends EventNotificationPayload {
   updateReason?: string | null;
 }
 
+const EVENT_PUBLISH_COOLDOWN_MINUTES = 30;
+
 interface WaitlistPromotionNotificationPayload {
   event_id: string;
   title: string;
@@ -916,7 +918,33 @@ async function assertEventUpdatedNotificationReady(eventId: string): Promise<voi
   assertChannelsAvailable({ emailNeeded, smsNeeded }, 'event_updated');
 }
 
+async function hasRecentPublishedNotification(eventId: string, cooldownMinutes: number): Promise<boolean> {
+  const pool = await getPool();
+  const result = await pool
+    .request()
+    .input('event_id', sql.UniqueIdentifier, eventId)
+    .input('cooldown_minutes', sql.Int, cooldownMinutes)
+    .query<{ hit_count: number }>(
+      `SELECT COUNT(*) AS hit_count
+       FROM notification_log
+       WHERE event_id = @event_id
+         AND operation_type = 'event_published'
+         AND status IN ('sent', 'delivered', 'stubbed')
+         AND sent_at >= DATEADD(MINUTE, -@cooldown_minutes, GETUTCDATE())`
+    );
+
+  return (result.recordset[0]?.hit_count ?? 0) > 0;
+}
+
 async function sendEventPublishedNotification(payload: EventNotificationPayload): Promise<void> {
+  if (await hasRecentPublishedNotification(payload.event_id, EVENT_PUBLISH_COOLDOWN_MINUTES)) {
+    console.warn('[NotificationService] Skipping event_published send due to cooldown window', {
+      eventId: payload.event_id,
+      cooldownMinutes: EVENT_PUBLISH_COOLDOWN_MINUTES,
+    });
+    return;
+  }
+
   await assertEventPublishedNotificationReady(payload.event_id);
 
   const [emailTemplateOverride, smsTemplateOverride] = await Promise.all([
@@ -1422,6 +1450,22 @@ function buildEventVariables(
   preferredRole?: ResponseRole
 ): Record<string, string> {
   const eventDate = formatEventDate(payload.event_date);
+  const normalizedLocation = payload.location?.trim() || 'TBD';
+  const mapUrl = normalizedLocation !== 'TBD'
+    ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(normalizedLocation)}`
+    : '';
+  const photoUrl = payload.photo_url?.trim() || '';
+  const eventLeadName = payload.event_lead_name?.trim() || '';
+  const eventLeadEmail = payload.event_lead_email?.trim() || '';
+  const mapSection = mapUrl
+    ? `<p style="margin:8px 0 0;"><strong>Map:</strong> <a href="${mapUrl}" style="color:#1456cc;text-decoration:underline;">View on Google Maps</a></p>`
+    : '';
+  const photoSection = photoUrl
+    ? `<tr><td style="padding:0 0 16px;"><img src="${photoUrl}" alt="${payload.title}" style="display:block;width:100%;max-width:608px;height:auto;border-radius:14px;border:1px solid #d7e3f4;" /></td></tr>`
+    : '';
+  const eventLeadSection = (eventLeadName || eventLeadEmail)
+    ? `<p style="margin:10px 0 0;color:#1f3b6e;font-size:14px;"><strong>Coordinator:</strong> ${eventLeadName || 'PHW Alpine Team'}${eventLeadEmail ? ` · <a href=\"mailto:${eventLeadEmail}\" style=\"color:#1456cc;text-decoration:underline;\">${eventLeadEmail}</a>` : ''}</p>`
+    : '';
   const defaultRsvpUrl = `/events/${payload.event_id}`;
   let rsvpUrl = defaultRsvpUrl;
   let yesUrl = defaultRsvpUrl;
@@ -1457,9 +1501,15 @@ function buildEventVariables(
   return {
     eventTitle: payload.title,
     eventDate,
-    location: payload.location ?? 'TBD',
+    location: normalizedLocation,
     description: payload.description ?? 'No additional details were provided.',
-    eventPhotoUrl: payload.photo_url ?? '',
+    eventPhotoUrl: photoUrl,
+    mapUrl,
+    mapSection,
+    photoSection,
+    eventLeadName,
+    eventLeadEmail,
+    eventLeadSection,
     rsvpUrl,
     yesUrl,
     noUrl,

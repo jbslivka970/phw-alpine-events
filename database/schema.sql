@@ -6,7 +6,6 @@
 --   - Idempotent guards (IF NOT EXISTS / IF OBJECT_ID IS NULL) allow re-running the script safely.
 --   - All DATETIME columns use GETUTCDATE() so timestamps are UTC-normalized.
 --   - System groups (ALL, ADMIN, VOLUNTEERS, PARTICIPANTS) are seeded at the bottom.
---   - Legacy MENTORS is also seeded for backward compatibility.
 
 -- ---------------------------------------------------------------------------
 -- 1. Member
@@ -766,10 +765,6 @@ IF NOT EXISTS (SELECT 1 FROM dbo.[group] WHERE group_name = 'ALL')
 IF NOT EXISTS (SELECT 1 FROM dbo.[group] WHERE group_name = 'ADMIN')
     INSERT INTO dbo.[group] (group_id, group_name, description, is_system)
     VALUES (NEWID(), 'ADMIN', 'Chapter administrators', 1);
-
-IF NOT EXISTS (SELECT 1 FROM dbo.[group] WHERE group_name = 'MENTORS')
-    INSERT INTO dbo.[group] (group_id, group_name, description, is_system)
-    VALUES (NEWID(), 'MENTORS', 'Mentors / guides', 1);
 
 IF NOT EXISTS (SELECT 1 FROM dbo.[group] WHERE group_name = 'VOLUNTEERS')
     INSERT INTO dbo.[group] (group_id, group_name, description, is_system)

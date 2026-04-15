@@ -3,7 +3,8 @@ interface InviteDraftInput {
   eventDate: string;
   location?: string | null;
   description?: string | null;
-  tone?: 'friendly' | 'professional';
+  eventLeadName?: string | null;
+  tone?: 'friendly' | 'professional' | 'casual' | 'exciting';
 }
 
 interface InviteDraftOutput {
@@ -50,13 +51,14 @@ function formatEventDate(value: string): string {
 function buildFallbackDraft(input: InviteDraftInput): InviteDraftOutput {
   const dateLabel = formatEventDate(input.eventDate);
   const locationLabel = input.location?.trim() || 'TBD';
+  const leadLine = input.eventLeadName?.trim() ? `\n\nCoordinator: ${input.eventLeadName.trim()}` : '';
   const descriptionLine = input.description?.trim()
     ? `\n\nDetails:\n${input.description.trim()}`
     : '';
 
   return {
     subject: `You're invited: ${input.eventTitle}`,
-    emailBody: `Hello PHW Alpine members and veterans,\n\nYou're invited to ${input.eventTitle} on ${dateLabel} at ${locationLabel}. Please RSVP to help us plan staffing and equipment.${descriptionLine}\n\nWe are honored to serve military veterans through each event and appreciate your support.\n\nTight lines,\nPHW Alpine Team`,
+    emailBody: `Hello PHW Alpine members and veterans,\n\nYou're invited to ${input.eventTitle} on ${dateLabel} at ${locationLabel}. Please RSVP to help us plan staffing and equipment.${descriptionLine}${leadLine}\n\nWe are honored to serve military veterans through each event and appreciate your support.\n\nTight lines,\nPHW Alpine Team`,
     smsBody: `PHW Alpine: ${input.eventTitle} on ${dateLabel} at ${locationLabel}. Please RSVP in the app. Reply STOP to opt out.`,
     provider: 'fallback',
     mapUrl: buildMapUrl(input.location),
@@ -178,19 +180,28 @@ function buildPrompt(input: InviteDraftInput): { system: string; user: string } 
   const description = input.description?.trim()
     ? input.description.trim().slice(0, MAX_DESCRIPTION_PROMPT_LENGTH)
     : 'n/a';
+  const lead = input.eventLeadName?.trim() || 'n/a';
 
   return {
-    system: 'You generate concise event invite copy for nonprofit chapter communications. Keep wording warm, professional, and inclusive of military veterans. Return only JSON with keys: subject, email_body, sms_body.',
+    system: [
+      'You generate concise event invite copy for nonprofit program communications.',
+      'Tone must match the requested style and still be polished, modern, and clear.',
+      'Return only JSON with keys: subject, email_body, sms_body.',
+      'Do not use markdown. Do not include HTML.',
+    ].join(' '),
     user: [
       `Tone: ${tone}`,
       `Event title: ${input.eventTitle}`,
       `Event date: ${formatEventDate(input.eventDate)}`,
       `Location: ${input.location ?? 'TBD'}`,
+      `Event lead: ${lead}`,
       `Description: ${description}`,
       'Constraints:',
       '- subject <= 90 characters',
       '- sms_body <= 280 characters and include RSVP call-to-action',
       '- include one sentence that reflects support for military veterans',
+      '- highlight one specific event detail when available (agenda item, activity, speaker, or location detail)',
+      '- include a compelling call-to-action',
       '- no markdown formatting',
     ].join('\n'),
   };

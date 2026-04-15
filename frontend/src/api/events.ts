@@ -44,7 +44,7 @@ interface UpdateEventPayload {
 
 interface EventAiDraftResponse {
   event_id: string | null;
-  tone: 'friendly' | 'professional';
+  tone: 'friendly' | 'professional' | 'casual' | 'exciting';
   subject: string;
   emailBody: string;
   smsBody: string;
@@ -140,6 +140,8 @@ const eventsApi = {
     apiPut<EventRecord>(`/events/${id}`, data),
   updateStatus: (id: string, status: EventRecord['status']) =>
     apiPut<EventRecord>(`/events/${id}/status`, { status }),
+  sendUpdate: (id: string, payload: { update_reason: string; change_summary?: string | null; changed_fields?: string[] }) =>
+    apiPost<{ ok: boolean; event_id: string; sent: boolean }>(`/events/${id}/send-update`, payload),
   downloadIcs: (id: string) => apiGetBlob(`/events/${id}/ics`),
   downloadReportCsv: (id: string) => apiGetBlob(`/events/${id}/report.csv`),
   downloadReportPdf: (id: string) => apiGetBlob(`/events/${id}/report.pdf`),
@@ -147,7 +149,7 @@ const eventsApi = {
   emailReport: (id: string, recipients?: string[]) => apiPost<{ event_id: string; recipients: string[]; sent: number }>(`/events/${id}/report/email`, {
     ...(Array.isArray(recipients) && recipients.length > 0 ? { recipients } : {}),
   }),
-  generateAiDraft: (id: string, tone: 'friendly' | 'professional' = 'friendly') =>
+  generateAiDraft: (id: string, tone: 'friendly' | 'professional' | 'casual' | 'exciting' = 'friendly') =>
     apiPost<EventAiDraftResponse>(`/events/${id}/ai-draft`, { tone }),
   generateAiDraftPreview: (
     payload: {
@@ -155,8 +157,9 @@ const eventsApi = {
       event_date: string;
       location?: string | null;
       description?: string | null;
+      event_lead_name?: string | null;
     },
-    tone: 'friendly' | 'professional' = 'friendly'
+    tone: 'friendly' | 'professional' | 'casual' | 'exciting' = 'friendly'
   ) => apiPost<EventAiDraftResponse>('/events/ai-draft-preview', { ...payload, tone }),
   remove: (id: string) => apiDelete<void>(`/events/${id}`),
 };
