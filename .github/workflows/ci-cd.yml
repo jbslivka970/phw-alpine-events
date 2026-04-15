@@ -299,7 +299,8 @@ jobs:
         AZURE_BACKEND_RESOURCE_GROUP: ${{ vars.AZURE_BACKEND_RESOURCE_GROUP }}
         AZURE_BACKEND_SLOT_NAME: ${{ vars.AZURE_BACKEND_SLOT_NAME }}
       run: |
-        for attempt in $(seq 1 18); do
+        SLOT_RESTARTED=0
+        for attempt in $(seq 1 36); do
           set +e
           DEPLOY_OUTPUT=$(az webapp deploy \
             --resource-group "$AZURE_BACKEND_RESOURCE_GROUP" \
@@ -321,7 +322,19 @@ jobs:
           fi
 
           if printf "%s" "$DEPLOY_OUTPUT" | grep -qi "Another deployment is in progress"; then
-            echo "Backend slot deployment locked by another deployment (attempt $attempt/18). Retrying in 20s..."
+            if [ "$attempt" -eq 12 ] && [ "$SLOT_RESTARTED" -eq 0 ]; then
+              echo "Staging slot lock persisted through 12 attempts; restarting slot once to clear stale deploy state."
+              az webapp restart \
+                --resource-group "$AZURE_BACKEND_RESOURCE_GROUP" \
+                --name "$AZURE_WEBAPP_NAME" \
+                --slot "$AZURE_BACKEND_SLOT_NAME"
+              SLOT_RESTARTED=1
+              echo "Restarted staging slot; waiting 40s before retrying deploy."
+              sleep 40
+              continue
+            fi
+
+            echo "Backend slot deployment locked by another deployment (attempt $attempt/36). Retrying in 20s..."
             sleep 20
             continue
           fi
