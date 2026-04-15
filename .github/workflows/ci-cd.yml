@@ -186,12 +186,12 @@ jobs:
 
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 40
     needs: build
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.AZURE_WEBAPP_NAME != ''
     concurrency:
       group: azure-prod-deploy-${{ github.ref_name }}
-      cancel-in-progress: true
+      cancel-in-progress: false
 
     steps:
     - uses: actions/checkout@v5
@@ -419,9 +419,24 @@ jobs:
         AZURE_BACKEND_RESOURCE_GROUP: ${{ vars.AZURE_BACKEND_RESOURCE_GROUP }}
         AZURE_BACKEND_SLOT_NAME: ${{ vars.AZURE_BACKEND_SLOT_NAME }}
       run: |
-        for attempt in $(seq 1 8); do
+        # Check for stale swap operations from prior cancelled runs
+        for pre_check in $(seq 1 10); do
+          SITE_STATE=$(az webapp show \
+            --resource-group "$AZURE_BACKEND_RESOURCE_GROUP" \
+            --name "$AZURE_WEBAPP_NAME" \
+            --query "state" -o tsv 2>/dev/null || echo "unknown")
+          if [ "$SITE_STATE" = "Running" ]; then
+            break
+          fi
+          echo "Waiting for site to be in Running state (current: $SITE_STATE, check $pre_check/10)..."
+          sleep 15
+        done
+
+        for attempt in $(seq 1 5); do
           set +e
-          SWAP_OUTPUT=$(timeout 300 az webapp deployment slot swap \
+          # No timeout wrapper: let az CLI run to completion.
+          # The job-level timeout-minutes is the safety net.
+          SWAP_OUTPUT=$(az webapp deployment slot swap \
             --resource-group "$AZURE_BACKEND_RESOURCE_GROUP" \
             --name "$AZURE_WEBAPP_NAME" \
             --slot "$AZURE_BACKEND_SLOT_NAME" \
@@ -436,9 +451,9 @@ jobs:
             exit 0
           fi
 
-          if [ "$SWAP_EXIT" -eq 124 ] || printf "%s" "$SWAP_OUTPUT" | grep -Eqi "in progress|conflict|timeout|timed out"; then
-            echo "Slot swap is busy/timed out (attempt $attempt/8). Retrying in 20s..."
-            sleep 20
+          if printf "%s" "$SWAP_OUTPUT" | grep -Eqi "in progress|conflict"; then
+            echo "Another operation is in progress (attempt $attempt/5). Waiting 60s for it to clear..."
+            sleep 60
             continue
           fi
 
@@ -524,9 +539,9 @@ jobs:
         AZURE_BACKEND_SLOT_NAME: ${{ vars.AZURE_BACKEND_SLOT_NAME }}
       run: |
         echo "Post-swap validation failed; swapping back to previous production slot."
-        for attempt in $(seq 1 6); do
+        for attempt in $(seq 1 5); do
           set +e
-          ROLLBACK_OUTPUT=$(timeout 300 az webapp deployment slot swap \
+          ROLLBACK_OUTPUT=$(az webapp deployment slot swap \
             --resource-group "$AZURE_BACKEND_RESOURCE_GROUP" \
             --name "$AZURE_WEBAPP_NAME" \
             --slot "$AZURE_BACKEND_SLOT_NAME" \
@@ -541,9 +556,9 @@ jobs:
             exit 0
           fi
 
-          if [ "$ROLLBACK_EXIT" -eq 124 ] || printf "%s" "$ROLLBACK_OUTPUT" | grep -Eqi "in progress|conflict|timeout|timed out"; then
-            echo "Rollback swap busy/timed out (attempt $attempt/6). Retrying in 20s..."
-            sleep 20
+          if printf "%s" "$ROLLBACK_OUTPUT" | grep -Eqi "in progress|conflict"; then
+            echo "Rollback swap blocked by in-progress operation (attempt $attempt/5). Waiting 60s..."
+            sleep 60
             continue
           fi
 
@@ -697,7 +712,7 @@ jobs:
       vars.VITE_API_BASE_URL != ''
     concurrency:
       group: azure-frontend-deploy-${{ github.ref_name }}
-      cancel-in-progress: true
+      cancel-in-progress: false
 
     steps:
     - uses: actions/checkout@v5
