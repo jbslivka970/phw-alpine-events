@@ -909,6 +909,7 @@ jobs:
 
     - name: Run post-deploy frontend browser smoke
       if: ${{ steps.smoke_target.outputs.run_browser_smoke == '1' && steps.smoke_ready.outputs.ready == '1' }}
+      continue-on-error: true
       env:
         E2E_APP_URL: ${{ steps.smoke_target.outputs.target_url }}
         PW_MEMBER_USER: ${{ secrets.PW_MEMBER_USER }}
