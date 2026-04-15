@@ -6,8 +6,7 @@ function getLocalE2EToken(): string | null {
   }
 
   const envEnabled = (import.meta.env.VITE_E2E_LOCAL_AUTH as string | undefined) === '1';
-  const storageEnabled = window.localStorage.getItem('phw_e2e_local_auth') === '1';
-  if (!envEnabled && !storageEnabled) {
+  if (!envEnabled) {
     return null;
   }
 
@@ -58,8 +57,7 @@ async function getCachedToken(): Promise<string | null> {
   }
 
   tokenRequestInFlight = (async () => {
-    const token = await getToken();
-    const resolvedToken = token ?? getLocalE2EToken();
+    const resolvedToken = await getToken();
     cachedToken = resolvedToken;
     cachedTokenAtMs = Date.now();
     return resolvedToken;

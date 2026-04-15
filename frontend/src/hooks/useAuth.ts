@@ -29,15 +29,7 @@ const LOCAL_E2E_AUTH_TOGGLE_KEY = 'phw_e2e_local_auth'
 const LOCAL_E2E_AUTH_ROLE_KEY = 'phw_e2e_role'
 
 function isLocalE2EAuthEnabled(): boolean {
-  if ((import.meta.env.VITE_E2E_LOCAL_AUTH as string | undefined) === '1') {
-    return true
-  }
-
-  if (typeof window === 'undefined') {
-    return false
-  }
-
-  return window.localStorage.getItem(LOCAL_E2E_AUTH_TOGGLE_KEY) === '1'
+  return (import.meta.env.VITE_E2E_LOCAL_AUTH as string | undefined) === '1'
 }
 
 function mapLocalRole(raw: string | null | undefined): AppRole {

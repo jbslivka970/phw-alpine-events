@@ -6,12 +6,17 @@
   - Add helpful notification log index for publish cooldown checks
 
   Safe to run multiple times.
+
+  The run-migration.js runner executes this in two separate SQL batches
+  (PHASE_1_END marker) to avoid SQL Server parse-time column resolution
+  errors when columns are added and referenced in the same batch.
 */
 
+-- ============================================================
+-- PHASE 1: Column DDL only (no references to newly-added cols)
+-- ============================================================
 SET XACT_ABORT ON;
-BEGIN TRANSACTION;
 
--- P0: Ensure event columns exist.
 IF COL_LENGTH('dbo.event', 'photo_url') IS NULL
     ALTER TABLE dbo.event ADD photo_url NVARCHAR(1024) NULL;
 
@@ -25,6 +30,16 @@ IF COL_LENGTH('dbo.event', 'event_lead_name') IS NULL
 
 IF COL_LENGTH('dbo.event', 'event_lead_email') IS NULL
     ALTER TABLE dbo.event ADD event_lead_email NVARCHAR(255) NULL;
+
+-- ============================================================
+-- PHASE_1_END  <-- runner splits here, phase 2 is a new batch
+-- ============================================================
+
+-- ============================================================
+-- PHASE 2: Constraints, backfill, group cleanup, index
+-- ============================================================
+SET XACT_ABORT ON;
+BEGIN TRANSACTION;
 
 -- Keep invitation_stage constrained.
 IF NOT EXISTS (
@@ -82,6 +97,10 @@ BEGIN
     SET group_id = @volunteers_group_id
     WHERE group_id = @mentors_group_id;
 
+    UPDATE dbo.event_response
+    SET group_context_id = @volunteers_group_id
+    WHERE group_context_id = @mentors_group_id;
+
     DELETE FROM dbo.[group]
     WHERE group_id = @mentors_group_id;
 END;
@@ -94,6 +113,10 @@ WHERE group_name = 'RollOutTest';
 
 IF @rollout_group_id IS NOT NULL
 BEGIN
+    UPDATE dbo.event_response
+    SET group_context_id = NULL
+    WHERE group_context_id = @rollout_group_id;
+
     DELETE FROM dbo.event_notification_target WHERE group_id = @rollout_group_id;
     DELETE FROM dbo.member_group WHERE group_id = @rollout_group_id;
     DELETE FROM dbo.[group] WHERE group_id = @rollout_group_id;
