@@ -29,6 +29,10 @@ logs/
 *.log
 *appservice-logs-*.zip
 
+# Test coverage output
+backend/coverage/
+coverage/
+
 # Local deployment artifacts
 backend-release-*.zip
 backend-rollback-*.zip
@@ -38,6 +42,8 @@ frontend-flat-*.zip
 frontend-static-*.zip
 backend/deploy-package/
 backend/release.zip
+deploy-package/
+slot-release.zip
 frontend/dist-deploy-slim/
 frontend/frontend-release-*.zip
 
