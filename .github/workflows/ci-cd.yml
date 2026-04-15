@@ -383,11 +383,35 @@ jobs:
         AZURE_BACKEND_RESOURCE_GROUP: ${{ vars.AZURE_BACKEND_RESOURCE_GROUP }}
         AZURE_BACKEND_SLOT_NAME: ${{ vars.AZURE_BACKEND_SLOT_NAME }}
       run: |
-        az webapp deployment slot swap \
-          --resource-group "$AZURE_BACKEND_RESOURCE_GROUP" \
-          --name "$AZURE_WEBAPP_NAME" \
-          --slot "$AZURE_BACKEND_SLOT_NAME" \
-          --target-slot production
+        for attempt in $(seq 1 8); do
+          set +e
+          SWAP_OUTPUT=$(timeout 300 az webapp deployment slot swap \
+            --resource-group "$AZURE_BACKEND_RESOURCE_GROUP" \
+            --name "$AZURE_WEBAPP_NAME" \
+            --slot "$AZURE_BACKEND_SLOT_NAME" \
+            --target-slot production 2>&1)
+          SWAP_EXIT=$?
+          set -e
+
+          echo "$SWAP_OUTPUT"
+
+          if [ "$SWAP_EXIT" -eq 0 ]; then
+            echo "Slot swap completed."
+            exit 0
+          fi
+
+          if [ "$SWAP_EXIT" -eq 124 ] || printf "%s" "$SWAP_OUTPUT" | grep -Eqi "in progress|conflict|timeout|timed out"; then
+            echo "Slot swap is busy/timed out (attempt $attempt/8). Retrying in 20s..."
+            sleep 20
+            continue
+          fi
+
+          echo "Slot swap failed with a non-retryable error."
+          exit "$SWAP_EXIT"
+        done
+
+        echo "Slot swap did not complete after retries."
+        exit 1
 
     - name: Wait for production health after swap
       id: post_swap_health
@@ -464,11 +488,35 @@ jobs:
         AZURE_BACKEND_SLOT_NAME: ${{ vars.AZURE_BACKEND_SLOT_NAME }}
       run: |
         echo "Post-swap validation failed; swapping back to previous production slot."
-        az webapp deployment slot swap \
-          --resource-group "$AZURE_BACKEND_RESOURCE_GROUP" \
-          --name "$AZURE_WEBAPP_NAME" \
-          --slot "$AZURE_BACKEND_SLOT_NAME" \
-          --target-slot production
+        for attempt in $(seq 1 6); do
+          set +e
+          ROLLBACK_OUTPUT=$(timeout 300 az webapp deployment slot swap \
+            --resource-group "$AZURE_BACKEND_RESOURCE_GROUP" \
+            --name "$AZURE_WEBAPP_NAME" \
+            --slot "$AZURE_BACKEND_SLOT_NAME" \
+            --target-slot production 2>&1)
+          ROLLBACK_EXIT=$?
+          set -e
+
+          echo "$ROLLBACK_OUTPUT"
+
+          if [ "$ROLLBACK_EXIT" -eq 0 ]; then
+            echo "Rollback swap completed."
+            exit 0
+          fi
+
+          if [ "$ROLLBACK_EXIT" -eq 124 ] || printf "%s" "$ROLLBACK_OUTPUT" | grep -Eqi "in progress|conflict|timeout|timed out"; then
+            echo "Rollback swap busy/timed out (attempt $attempt/6). Retrying in 20s..."
+            sleep 20
+            continue
+          fi
+
+          echo "Rollback swap failed with a non-retryable error."
+          exit "$ROLLBACK_EXIT"
+        done
+
+        echo "Rollback swap did not complete after retries."
+        exit 1
 
     - name: Fail deploy after rollback
       if: ${{ steps.backend_deploy_mode.outputs.use_blue_green == '1' && (steps.post_swap_health.outcome == 'failure' || steps.post_swap_smoke.outcome == 'failure') }}
