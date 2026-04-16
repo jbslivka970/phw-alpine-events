@@ -1048,6 +1048,11 @@ function EventFormModal({ initial, groups, onSave, onGenerateAiDescriptionPrevie
               {aiDescriptionDraft && (
                 <div className="event-ai-inline">
                   <p className="form-field-hint">Provider: {aiDescriptionProvider ?? 'unknown'}</p>
+                  {aiDescriptionProvider === 'fallback' && (
+                    <p className="form-field-error">
+                      AI provider is not configured. This draft is deterministic fallback copy. Add AZURE_OPENAI_* or OPENAI_API_KEY on the backend to enable full AI generation.
+                    </p>
+                  )}
                   <label className="form-label">Polished Description Draft (editable)</label>
                   <textarea className="form-textarea" rows={6} value={aiDescriptionDraft} onChange={(e) => setAiDescriptionDraft(e.target.value)} />
                   <div className="event-ai-inline__toolbar">
@@ -1081,6 +1086,11 @@ function EventFormModal({ initial, groups, onSave, onGenerateAiDescriptionPrevie
               {aiDraftResult && (
                 <div className="event-ai-inline">
                   <p className="form-field-hint">Provider: {aiDraftResult.provider}</p>
+                  {aiDraftResult.provider === 'fallback' && (
+                    <p className="form-field-error">
+                      AI provider is not configured. This invite is deterministic fallback copy. Add AZURE_OPENAI_* or OPENAI_API_KEY on the backend to enable full AI generation.
+                    </p>
+                  )}
                   <label className="form-label">Subject</label>
                   <textarea className="form-textarea" rows={2} value={aiSubjectDraft} onChange={(e) => setAiSubjectDraft(e.target.value)} />
                   <label className="form-label">Email Draft</label>

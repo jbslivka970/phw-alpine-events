@@ -111,6 +111,7 @@ router.post('/', writeLimiter, authenticate, async (req, res: Response) => {
     const memberId = (typeof requestedMemberId === 'string' && UUID_PATTERN.test(requestedMemberId))
       ? requestedMemberId
       : await resolveCurrentMemberId(req.user);
+    const isSelfRsvp = !requestedMemberId || requestedMemberId === memberId;
 
     if (!memberId) {
       res.status(400).json({ error: 'member_id is required and could not be inferred from the authenticated profile' });
@@ -144,6 +145,7 @@ router.post('/', writeLimiter, authenticate, async (req, res: Response) => {
       notes,
       responseChannel: 'web',
       responseRole,
+      allowUngroupedParticipant: isSelfRsvp,
     });
     res.status(200).json(upsert);
   } catch (error) {

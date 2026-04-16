@@ -162,11 +162,15 @@ async function isMemberTargetedForEvent(memberId: string, eventId: string): Prom
 async function assertMemberCanRespondAsRole(
   memberId: string,
   responseRole: EventRole,
-  options?: { eventId?: string }
+  options?: { eventId?: string; allowUngroupedParticipant?: boolean }
 ): Promise<void> {
   const allowedRoles = await getMemberEventRoles(memberId);
 
   if (allowedRoles.size === 0) {
+    if (options?.allowUngroupedParticipant && responseRole === 'PARTICIPANT') {
+      return;
+    }
+
     if (options?.eventId && await isMemberTargetedForEvent(memberId, options.eventId)) {
       return;
     }
@@ -227,13 +231,17 @@ async function recordRsvpResponse(options: {
   responseChannel?: string;
   groupContextId?: string | null;
   responseRole?: EventRole;
+  allowUngroupedParticipant?: boolean;
 }): Promise<RecordedRsvp> {
   const pool = await getPool();
   const notes = options.notes ?? null;
   const responseChannel = options.responseChannel ?? 'web';
   const groupContextId = options.groupContextId ?? null;
   const responseRole = normalizeResponseRole(options.responseRole);
-  await assertMemberCanRespondAsRole(options.memberId, responseRole, { eventId: options.eventId });
+  await assertMemberCanRespondAsRole(options.memberId, responseRole, {
+    eventId: options.eventId,
+    allowUngroupedParticipant: options.allowUngroupedParticipant,
+  });
 
   const eventResult = await pool
     .request()

@@ -52,4 +52,17 @@ describe('rsvpLinkService', () => {
     expect(verified.eventId).toBe('00000000-0000-0000-0000-000000000101');
     expect(verified.memberId).toBe('00000000-0000-0000-0000-000000000202');
   });
+
+  it('verifies tokens extracted from wrapped link text noise', () => {
+    const token = createRsvpToken(
+      '00000000-0000-0000-0000-000000000101',
+      '00000000-0000-0000-0000-000000000202'
+    );
+
+    const wrapped = `Open this link: <https://example.test/rsvp/${token}>`;
+    const verified = verifyRsvpToken(wrapped);
+
+    expect(verified.eventId).toBe('00000000-0000-0000-0000-000000000101');
+    expect(verified.memberId).toBe('00000000-0000-0000-0000-000000000202');
+  });
 });

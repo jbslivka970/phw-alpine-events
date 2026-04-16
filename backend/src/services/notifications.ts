@@ -1483,7 +1483,7 @@ function buildEventVariables(
       memberId ? `Member ID: ${memberId}` : '',
       groupContextId ? `Group Context ID: ${groupContextId}` : '',
     ].filter(Boolean).join('\n');
-    return `mailto:${encodeURIComponent(replyAddress)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    return `mailto:${replyAddress}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
   };
 
   if (memberId) {

@@ -244,4 +244,42 @@ describe('rsvpService waitlist auto-promotion', () => {
 
     expect(queryCalls.some((query) => query.includes('LEFT JOIN member_group'))).toBe(true);
   });
+
+  it('allows ungrouped member self RSVP as participant when explicitly enabled', async () => {
+    const queue: Array<{ recordset?: unknown[]; rowsAffected?: number[] }> = [
+      { recordset: [] },
+      { recordset: [{ has_event_lead_email: 1 }] },
+      { recordset: [{ event_id: 'event-7', title: 'Open RSVP Event', status: 'published', mentor_capacity: null, participant_capacity: null, capacity: null, event_date: new Date('2026-06-07T18:00:00Z') }] },
+      { recordset: [] },
+      { recordset: [{ response_id: 'r7', event_id: 'event-7', member_id: 'member-ungrouped', response: 'yes', responded_at: new Date('2026-05-01T00:00:00Z'), notes: null }] },
+      { recordset: [] },
+      { rowsAffected: [0] },
+      { recordset: [] },
+    ];
+
+    const mockRequest = {
+      input: jest.fn().mockReturnThis(),
+      query: jest.fn().mockImplementation(async () => {
+        return queue.shift() ?? { recordset: [] };
+      }),
+    };
+
+    (getPool as jest.Mock).mockResolvedValue({ request: () => mockRequest });
+
+    await expect(
+      recordRsvpResponse({
+        eventId: 'event-7',
+        memberId: 'member-ungrouped',
+        response: 'yes',
+        responseChannel: 'web',
+        responseRole: 'PARTICIPANT',
+        allowUngroupedParticipant: true,
+      })
+    ).resolves.toMatchObject({
+      response_id: 'r7',
+      event_id: 'event-7',
+      member_id: 'member-ungrouped',
+      response: 'yes',
+    });
+  });
 });

@@ -107,6 +107,12 @@ function normalizeIncomingToken(rawToken: string): string {
     }
   }
 
+  // Recover token from wrapped text or link fragments when clients prepend/append noise.
+  const jwtMatch = token.match(/([A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)/);
+  if (jwtMatch?.[1]) {
+    token = jwtMatch[1];
+  }
+
   return token;
 }
 

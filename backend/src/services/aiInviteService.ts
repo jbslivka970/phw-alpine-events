@@ -54,6 +54,100 @@ const OPENAI_TIMEOUT_MS = 12_000;
 const MAX_DESCRIPTION_PROMPT_LENGTH = 1_500;
 const AZURE_OPENAI_API_VERSION = '2024-12-01-preview';
 
+function normalizeForComparison(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function dedupeParagraphs(paragraphs: string[]): string[] {
+  const seen = new Set<string>();
+  const unique: string[] = [];
+  for (const paragraph of paragraphs) {
+    const normalized = normalizeForComparison(paragraph);
+    if (!normalized || seen.has(normalized)) {
+      continue;
+    }
+    seen.add(normalized);
+    unique.push(paragraph.trim());
+  }
+  return unique;
+}
+
+function cleanDescriptionForInvite(description: string | null | undefined, input: { eventTitle: string; eventDate?: string | null; location?: string | null }): string {
+  const raw = description?.trim();
+  if (!raw) {
+    return '';
+  }
+
+  const titleKey = normalizeForComparison(input.eventTitle);
+  const dateKey = input.eventDate ? normalizeForComparison(formatEventDate(input.eventDate)) : '';
+  const locationKey = input.location?.trim() ? normalizeForComparison(input.location) : '';
+
+  const paragraphs = raw
+    .split(/\n\s*\n/)
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0);
+
+  const filtered = paragraphs.filter((paragraph) => {
+    const normalized = normalizeForComparison(paragraph);
+    const hasTitle = titleKey.length > 0 && normalized.includes(titleKey);
+    const hasDate = dateKey.length > 0 && normalized.includes(dateKey);
+    const hasLocation = locationKey.length > 0 && normalized.includes(locationKey);
+    const leadIn = /^(join us|you'?re invited|welcome\b|hello\b)/i.test(paragraph);
+
+    // Drop description paragraphs that duplicate invite lead-ins with title/date/location.
+    return !(leadIn && hasTitle && (hasDate || hasLocation));
+  });
+
+  return dedupeParagraphs(filtered).join('\n\n');
+}
+
+function mentionsVeterans(text: string): boolean {
+  return /\bveteran(s)?\b|\bmilitary\b|\bservice\b/i.test(text);
+}
+
+function mentionsRsvp(text: string): boolean {
+  return /\brsvp\b|\bregister\b|\bsign up\b/i.test(text);
+}
+
+function formatEventDateNarrative(value: string | null | undefined): string {
+  if (!value) {
+    return 'Date and time TBD';
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return 'Date and time TBD';
+  }
+
+  const parts = new Intl.DateTimeFormat('en-US', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+    timeZone: (process.env['PROGRAM_TIMEZONE']?.trim() || process.env['APP_TIMEZONE']?.trim() || 'America/Denver'),
+    timeZoneName: 'short',
+  }).formatToParts(parsed);
+
+  const byType = (type: string): string => parts.find((part) => part.type === type)?.value ?? '';
+  const weekday = byType('weekday');
+  const month = byType('month');
+  const day = byType('day');
+  const year = byType('year');
+  const hour = byType('hour');
+  const minute = byType('minute');
+  const dayPeriod = byType('dayPeriod').toLowerCase() === 'pm' ? 'p.m.' : 'a.m.';
+  const zone = byType('timeZoneName');
+
+  return `${weekday}, ${month} ${day}, ${year} | ${hour}:${minute} ${dayPeriod}${zone ? ` ${zone}` : ''}`;
+}
+
 function formatEventDate(value: string): string {
   return formatInProgramTimeZone(value);
 }
@@ -61,14 +155,39 @@ function formatEventDate(value: string): string {
 function buildFallbackDraft(input: InviteDraftInput): InviteDraftOutput {
   const dateLabel = formatEventDate(input.eventDate);
   const locationLabel = input.location?.trim() || 'TBD';
-  const leadLine = input.eventLeadName?.trim() ? `\n\nCoordinator: ${input.eventLeadName.trim()}` : '';
-  const descriptionLine = input.description?.trim()
-    ? `\n\nWhat to expect:\n${input.description.trim()}`
-    : '';
+  const leadLine = input.eventLeadName?.trim() ? `Coordinator: ${input.eventLeadName.trim()}` : '';
+  const cleanedDescription = cleanDescriptionForInvite(input.description, {
+    eventTitle: input.eventTitle,
+    eventDate: input.eventDate,
+    location: input.location,
+  });
+
+  const sections: string[] = [
+    'Hello PHW Alpine members and veterans,',
+    `Join us for ${input.eventTitle} on ${dateLabel} at ${locationLabel}.`,
+  ];
+
+  if (cleanedDescription) {
+    sections.push(cleanedDescription);
+  } else {
+    sections.push('We are planning a welcoming outing with strong on-site support for everyone attending.');
+  }
+
+  if (!mentionsVeterans(cleanedDescription)) {
+    sections.push('This event is part of our mission to serve military veterans through meaningful time outdoors and community connection.');
+  }
+
+  sections.push('Please RSVP so we can finalize staffing, gear coordination, and on-site flow.');
+
+  if (leadLine) {
+    sections.push(leadLine);
+  }
+
+  sections.push('Thank you for supporting Project Healing Waters Alpine.');
 
   return {
     subject: `You're invited: ${input.eventTitle}`,
-    emailBody: `Hello PHW Alpine members and veterans,\n\nJoin us for ${input.eventTitle} on ${dateLabel} at ${locationLabel}. We are building this event to be welcoming, well-supported, and mission-focused for our veteran community.${descriptionLine}${leadLine}\n\nPlease RSVP so we can finalize staffing, gear coordination, and on-site flow for everyone.\n\nThank you for supporting Project Healing Waters Alpine.`,
+    emailBody: sections.join('\n\n'),
     smsBody: `PHW Alpine: ${input.eventTitle} on ${dateLabel} at ${locationLabel}. Please RSVP in the app. Reply STOP to opt out.`,
     provider: 'fallback',
     mapUrl: buildMapUrl(input.location),
@@ -85,17 +204,38 @@ function buildMapUrl(location?: string | null): string | null {
 }
 
 function buildFallbackDescription(input: DescriptionPolishInput): DescriptionPolishOutput {
-  const eventLabel = input.eventTitle.trim() || 'this event';
-  const dateLabel = input.eventDate ? formatEventDate(input.eventDate) : 'TBD';
-  const locationLabel = input.location?.trim() || 'TBD';
   const leadLabel = input.eventLeadName?.trim() || 'PHW Alpine team';
-  const polishedDescription = [
-    `Join us for ${eventLabel} on ${dateLabel} at ${locationLabel}.`,
+  const cleaned = cleanDescriptionForInvite(input.description, {
+    eventTitle: input.eventTitle,
+    eventDate: input.eventDate,
+    location: input.location,
+  }) || input.description.trim();
+  const eventTitle = input.eventTitle.trim() || 'Upcoming PHW Alpine Event';
+  const narrativeDate = formatEventDateNarrative(input.eventDate);
+  const locationSentence = input.location?.trim()
+    ? `We are partnering around ${input.location.trim()} for a day on the water focused on connection, confidence, and time outdoors together.`
+    : 'We are building this outing around connection, confidence, and time outdoors together.';
+
+  const sections: string[] = [
+    eventTitle,
+    narrativeDate,
     '',
-    input.description.trim(),
+    cleaned,
     '',
-    `This outing is designed to create a welcoming, mission-focused experience for veterans, with support from ${leadLabel}. Please RSVP early so we can finalize staffing and logistics.`,
-  ].join('\n');
+    locationSentence,
+  ];
+
+  if (!mentionsVeterans(cleaned)) {
+    sections.push('This outing is rooted in the PHW mission: serving military veterans through camaraderie, shared purpose, and meaningful time on the river.');
+  }
+
+  if (!mentionsRsvp(cleaned)) {
+    sections.push('Please RSVP early so we can ensure guides, volunteers, and logistics are in place for a great experience for everyone.');
+  }
+
+  sections.push(`Event coordination support: ${leadLabel}.`);
+
+  const polishedDescription = sections.join('\n\n');
 
   return {
     polishedDescription,
@@ -256,6 +396,7 @@ function buildPrompt(input: InviteDraftInput): { system: string; user: string } 
       '- include one sentence that reflects support for military veterans',
       '- highlight one specific event detail when available (agenda item, activity, speaker, or location detail)',
       '- include a compelling call-to-action',
+      '- avoid repeating the same event title/date/location phrasing across paragraphs',
       '- no markdown formatting',
     ].join('\n'),
   };
@@ -270,6 +411,8 @@ function buildDescriptionPrompt(input: DescriptionPolishInput): { system: string
     system: [
       'You rewrite rough nonprofit event notes into polished event descriptions.',
       'Keep the requested tone while making the writing vivid, clear, and concise.',
+      'Write with a confident, human voice that feels ready to publish.',
+      'Avoid generic filler phrases and avoid repeating title/date/location language.',
       'Return only JSON with key: polished_description.',
       'Do not use markdown or HTML.',
     ].join(' '),
@@ -281,10 +424,12 @@ function buildDescriptionPrompt(input: DescriptionPolishInput): { system: string
       `Event lead: ${lead}`,
       `Raw description notes: ${description}`,
       'Constraints:',
-      '- Produce 2-3 short paragraphs.',
+      '- Output structure: title line, date/time line, then 3-4 short paragraphs.',
       '- Keep concrete details from the notes; do not invent logistics.',
-      '- Include a clear RSVP encouragement.',
+      '- Include one clear RSVP encouragement near the end.',
       '- Mention support for military veterans in a natural sentence.',
+      '- Add one vivid line about scenery, river experience, or camaraderie when supported by notes.',
+      '- Keep it polished but not corporate; avoid cliches and repetitive transitions.',
       '- Output only JSON',
     ].join('\n'),
   };
