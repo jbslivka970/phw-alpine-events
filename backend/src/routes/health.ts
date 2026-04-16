@@ -1,5 +1,7 @@
 import { Request, Response, Router } from 'express';
 import { ManagedIdentityCredential } from '@azure/identity';
+import fs from 'fs';
+import path from 'path';
 import { getPool } from '../db';
 import { loadAcsConfig, loadAuthConfig, loadTelnyxSmsConfig, loadTwilioSmsConfig } from '../config';
 import { getNotificationRuntimeStatus } from '../services/notifications';
@@ -26,6 +28,30 @@ interface KeyVaultReferenceCheckResult {
 }
 
 let keyVaultReferenceCache: { expiresAt: number; result: KeyVaultReferenceCheckResult } | null = null;
+const DEFAULT_APP_VERSION = '2.1.0';
+
+function resolveAppVersion(): string {
+  const fromEnv = process.env['APP_VERSION']?.trim() || process.env['npm_package_version']?.trim();
+  if (fromEnv) {
+    return fromEnv;
+  }
+
+  try {
+    const packageJsonPath = path.resolve(__dirname, '../../package.json');
+    const packageJsonText = fs.readFileSync(packageJsonPath, 'utf-8');
+    const parsed = JSON.parse(packageJsonText) as { version?: string };
+    const fromPackage = parsed.version?.trim();
+    if (fromPackage) {
+      return fromPackage;
+    }
+  } catch {
+    // Fall through to default when package metadata is unavailable.
+  }
+
+  return DEFAULT_APP_VERSION;
+}
+
+const APP_VERSION = resolveAppVersion();
 
 function missingEnvVars(names: readonly string[]): string[] {
   return names.filter((name) => !process.env[name]);
@@ -161,7 +187,7 @@ router.get('/', (_req: Request, res: Response) => {
   res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
-    version: process.env['npm_package_version'] ?? '1.0.0',
+    version: APP_VERSION,
   });
 });
 

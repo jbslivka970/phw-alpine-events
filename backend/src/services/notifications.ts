@@ -984,6 +984,9 @@ async function sendEventPublishedNotification(payload: EventNotificationPayload)
          AND m.member_id IS NOT NULL`
     );
 
+  let sentEmailCount = 0;
+  let sentSmsCount = 0;
+
   for (const recipient of recipientsResult.recordset) {
     const inferredRole = inferRoleFromGroupName(recipient.group_name);
     if (payload.invitation_stage === 'volunteer' && inferredRole !== 'MENTOR') {
@@ -1007,7 +1010,6 @@ async function sendEventPublishedNotification(payload: EventNotificationPayload)
       }, variables);
       await notificationService.sendEmail({
         to: recipient.email,
-        cc: buildEventLeadCc(payload.event_lead_email, recipient.email),
         subject: renderedEmail.subject,
         htmlBody: renderedEmail.htmlBody,
         textBody: renderedEmail.textBody,
@@ -1016,6 +1018,7 @@ async function sendEventPublishedNotification(payload: EventNotificationPayload)
         eventId: payload.event_id,
         operationType: 'event_published',
       });
+      sentEmailCount += 1;
     }
 
     if (recipient.mobile_phone && recipient.sms_opt_in) {
@@ -1027,8 +1030,24 @@ async function sendEventPublishedNotification(payload: EventNotificationPayload)
         eventId: payload.event_id,
         operationType: 'event_published',
       });
+      sentSmsCount += 1;
     }
   }
+
+  await sendCoordinatorSummaryEmail({
+    eventLeadEmail: payload.event_lead_email,
+    eventId: payload.event_id,
+    subject: `Coordinator summary: invites sent for ${payload.title}`,
+    lines: [
+      `Event: ${payload.title}`,
+      `Date/time: ${formatEventDate(payload.event_date)}`,
+      `Location: ${payload.location ?? 'TBD'}`,
+      `Invitation stage: ${payload.invitation_stage ?? 'both'}`,
+      `Email recipients sent: ${sentEmailCount}`,
+      `SMS recipients sent: ${sentSmsCount}`,
+    ],
+    operationType: 'event_published',
+  });
 }
 
 async function sendEventCancelledNotification(payload: EventNotificationPayload): Promise<void> {
@@ -1159,6 +1178,8 @@ async function sendEventUpdatedNotification(payload: EventUpdateNotificationPayl
     );
 
   const changeSummary = payload.changeSummary?.trim() || summarizeChangedFields(payload.changedFields);
+  let sentEmailCount = 0;
+  let sentSmsCount = 0;
 
   for (const recipient of recipientsResult.recordset) {
     const variables = {
@@ -1180,6 +1201,7 @@ async function sendEventUpdatedNotification(payload: EventUpdateNotificationPayl
         operationType: 'event_updated',
         operationReason: payload.updateReason ?? undefined,
       });
+      sentSmsCount += 1;
       continue;
     }
 
@@ -1191,7 +1213,6 @@ async function sendEventUpdatedNotification(payload: EventUpdateNotificationPayl
       }, variables);
       await notificationService.sendEmail({
         to: recipient.email,
-        cc: buildEventLeadCc(payload.event_lead_email, recipient.email),
         subject: renderedEmail.subject,
         htmlBody: renderedEmail.htmlBody,
         textBody: renderedEmail.textBody,
@@ -1201,6 +1222,7 @@ async function sendEventUpdatedNotification(payload: EventUpdateNotificationPayl
         operationType: 'event_updated',
         operationReason: payload.updateReason ?? undefined,
       });
+      sentEmailCount += 1;
       continue;
     }
 
@@ -1214,8 +1236,25 @@ async function sendEventUpdatedNotification(payload: EventUpdateNotificationPayl
         operationType: 'event_updated',
         operationReason: payload.updateReason ?? undefined,
       });
+      sentSmsCount += 1;
     }
   }
+
+  await sendCoordinatorSummaryEmail({
+    eventLeadEmail: payload.event_lead_email,
+    eventId: payload.event_id,
+    subject: `Coordinator summary: update sent for ${payload.title}`,
+    lines: [
+      `Event: ${payload.title}`,
+      `Date/time: ${formatEventDate(payload.event_date)}`,
+      `Location: ${payload.location ?? 'TBD'}`,
+      `Change summary: ${changeSummary}`,
+      `Update reason: ${payload.updateReason?.trim() || 'Not provided'}`,
+      `Email recipients sent: ${sentEmailCount}`,
+      `SMS recipients sent: ${sentSmsCount}`,
+    ],
+    operationType: 'event_updated',
+  });
 }
 
 async function sendEventCompletedNotification(payload: EventNotificationPayload): Promise<void> {
@@ -1341,9 +1380,12 @@ function sendRsvpConfirmation(payload: RsvpNotificationPayload): void {
         htmlBody: rsvpConfirmationTemplate.htmlBodyTemplate ?? '',
         textBody: rsvpConfirmationTemplate.textBodyTemplate ?? '',
       }, variables);
+      const coordinatorCc = shouldCcCoordinatorForRsvp(payload.rsvpStatus)
+        ? buildEventLeadCc(payload.eventLeadEmail, payload.recipientEmail)
+        : [];
       await notificationService.sendEmail({
         to: payload.recipientEmail,
-        cc: buildEventLeadCc(payload.eventLeadEmail, payload.recipientEmail),
+        cc: coordinatorCc,
         subject: renderedEmail.subject,
         htmlBody: renderedEmail.htmlBody,
         textBody: renderedEmail.textBody,
@@ -1551,6 +1593,42 @@ function buildEventLeadCc(eventLeadEmail: string | null | undefined, recipientEm
   }
 
   return [normalizedLead];
+}
+
+function shouldCcCoordinatorForRsvp(rsvpStatus: string | undefined): boolean {
+  if (!rsvpStatus) {
+    return false;
+  }
+  const normalized = rsvpStatus.trim().toLowerCase();
+  return normalized === 'yes' || normalized === 'confirmed_yes';
+}
+
+async function sendCoordinatorSummaryEmail(options: {
+  eventLeadEmail?: string | null;
+  eventId: string;
+  subject: string;
+  lines: string[];
+  operationType: 'event_published' | 'event_updated';
+}): Promise<void> {
+  const to = options.eventLeadEmail?.trim().toLowerCase();
+  if (!to) {
+    return;
+  }
+
+  const textBody = options.lines.join('\n');
+  const htmlBody = `<div style="font-family:Segoe UI,Arial,sans-serif;line-height:1.5;color:#1f2937;">${options.lines
+    .map((line) => `<p style="margin:0 0 8px;">${line.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</p>`)
+    .join('')}</div>`;
+
+  await notificationService.sendEmail({
+    to,
+    subject: options.subject,
+    htmlBody,
+    textBody,
+    eventId: options.eventId,
+    operationType: options.operationType,
+    operationReason: 'coordinator_summary',
+  });
 }
 
 function formatEventDate(value: Date | string): string {
