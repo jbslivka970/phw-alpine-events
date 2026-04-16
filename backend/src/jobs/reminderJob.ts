@@ -3,6 +3,7 @@ import { notificationService } from '../services/notifications';
 import { renderTemplate } from '../templates/NotificationTemplate';
 import { eventReminderTemplate } from '../templates/eventReminder';
 import { randomUUID } from 'crypto';
+import { formatInProgramTimeZone } from '../utils/dateTime';
 
 const REMINDER_CLAIM_TIMEOUT_MINUTES = 30;
 
@@ -132,7 +133,7 @@ async function runReminderJob(lookAheadHours = 48): Promise<void> {
     const variables = {
       firstName: row.first_name,
       eventName: row.title,
-      eventDate: row.event_date.toLocaleString(),
+      eventDate: formatInProgramTimeZone(row.event_date),
       eventLocation: normalizedLocation,
       mapUrl: normalizedLocation
         ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(normalizedLocation)}`

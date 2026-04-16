@@ -1,3 +1,5 @@
+import { formatInProgramTimeZone } from '../utils/dateTime';
+
 interface InviteDraftInput {
   eventTitle: string;
   eventDate: string;
@@ -16,10 +18,28 @@ interface InviteDraftOutput {
   imageSuggestions?: string[];
 }
 
+interface DescriptionPolishInput {
+  eventTitle: string;
+  eventDate?: string | null;
+  location?: string | null;
+  description: string;
+  eventLeadName?: string | null;
+  tone?: 'friendly' | 'professional' | 'casual' | 'exciting';
+}
+
+interface DescriptionPolishOutput {
+  polishedDescription: string;
+  provider: 'azure-openai' | 'openai' | 'fallback';
+}
+
 interface OpenAiDraftResponse {
   subject?: unknown;
   email_body?: unknown;
   sms_body?: unknown;
+}
+
+interface OpenAiDescriptionResponse {
+  polished_description?: unknown;
 }
 
 interface AzureOpenAiChatResponse {
@@ -35,17 +55,7 @@ const MAX_DESCRIPTION_PROMPT_LENGTH = 1_500;
 const AZURE_OPENAI_API_VERSION = '2024-12-01-preview';
 
 function formatEventDate(value: string): string {
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
-    return value;
-  }
-  return parsed.toLocaleString('en-US', {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  });
+  return formatInProgramTimeZone(value);
 }
 
 function buildFallbackDraft(input: InviteDraftInput): InviteDraftOutput {
@@ -53,12 +63,12 @@ function buildFallbackDraft(input: InviteDraftInput): InviteDraftOutput {
   const locationLabel = input.location?.trim() || 'TBD';
   const leadLine = input.eventLeadName?.trim() ? `\n\nCoordinator: ${input.eventLeadName.trim()}` : '';
   const descriptionLine = input.description?.trim()
-    ? `\n\nDetails:\n${input.description.trim()}`
+    ? `\n\nWhat to expect:\n${input.description.trim()}`
     : '';
 
   return {
     subject: `You're invited: ${input.eventTitle}`,
-    emailBody: `Hello PHW Alpine members and veterans,\n\nYou're invited to ${input.eventTitle} on ${dateLabel} at ${locationLabel}. Please RSVP to help us plan staffing and equipment.${descriptionLine}${leadLine}\n\nWe are honored to serve military veterans through each event and appreciate your support.\n\nTight lines,\nPHW Alpine Team`,
+    emailBody: `Hello PHW Alpine members and veterans,\n\nJoin us for ${input.eventTitle} on ${dateLabel} at ${locationLabel}. We are building this event to be welcoming, well-supported, and mission-focused for our veteran community.${descriptionLine}${leadLine}\n\nPlease RSVP so we can finalize staffing, gear coordination, and on-site flow for everyone.\n\nThank you for supporting Project Healing Waters Alpine.`,
     smsBody: `PHW Alpine: ${input.eventTitle} on ${dateLabel} at ${locationLabel}. Please RSVP in the app. Reply STOP to opt out.`,
     provider: 'fallback',
     mapUrl: buildMapUrl(input.location),
@@ -72,6 +82,25 @@ function buildMapUrl(location?: string | null): string | null {
     return null;
   }
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(normalized)}`;
+}
+
+function buildFallbackDescription(input: DescriptionPolishInput): DescriptionPolishOutput {
+  const eventLabel = input.eventTitle.trim() || 'this event';
+  const dateLabel = input.eventDate ? formatEventDate(input.eventDate) : 'TBD';
+  const locationLabel = input.location?.trim() || 'TBD';
+  const leadLabel = input.eventLeadName?.trim() || 'PHW Alpine team';
+  const polishedDescription = [
+    `Join us for ${eventLabel} on ${dateLabel} at ${locationLabel}.`,
+    '',
+    input.description.trim(),
+    '',
+    `This outing is designed to create a welcoming, mission-focused experience for veterans, with support from ${leadLabel}. Please RSVP early so we can finalize staffing and logistics.`,
+  ].join('\n');
+
+  return {
+    polishedDescription,
+    provider: 'fallback',
+  };
 }
 
 function buildImageSuggestions(input: InviteDraftInput): string[] {
@@ -175,6 +204,27 @@ function toInviteDraftFromJson(text: string, provider: 'azure-openai' | 'openai'
   }
 }
 
+function toDescriptionPolishFromJson(text: string, provider: 'azure-openai' | 'openai'): DescriptionPolishOutput | null {
+  try {
+    const parsed = JSON.parse(text) as OpenAiDescriptionResponse;
+    if (typeof parsed.polished_description !== 'string') {
+      return null;
+    }
+
+    const polishedDescription = parsed.polished_description.trim();
+    if (!polishedDescription) {
+      return null;
+    }
+
+    return {
+      polishedDescription,
+      provider,
+    };
+  } catch {
+    return null;
+  }
+}
+
 function buildPrompt(input: InviteDraftInput): { system: string; user: string } {
   const tone = input.tone ?? 'friendly';
   const description = input.description?.trim()
@@ -186,6 +236,9 @@ function buildPrompt(input: InviteDraftInput): { system: string; user: string } 
     system: [
       'You generate concise event invite copy for nonprofit program communications.',
       'Tone must match the requested style and still be polished, modern, and clear.',
+      'Treat the provided description as rough notes and rewrite it into compelling, publication-ready copy.',
+      'Do not just append a tag line to the provided description.',
+      'Produce a fresh draft with a clear hook, concrete details, and a strong RSVP call-to-action.',
       'Return only JSON with keys: subject, email_body, sms_body.',
       'Do not use markdown. Do not include HTML.',
     ].join(' '),
@@ -199,10 +252,40 @@ function buildPrompt(input: InviteDraftInput): { system: string; user: string } 
       'Constraints:',
       '- subject <= 90 characters',
       '- sms_body <= 280 characters and include RSVP call-to-action',
+      '- email_body should be 2-4 short paragraphs with concise sentence lengths',
       '- include one sentence that reflects support for military veterans',
       '- highlight one specific event detail when available (agenda item, activity, speaker, or location detail)',
       '- include a compelling call-to-action',
       '- no markdown formatting',
+    ].join('\n'),
+  };
+}
+
+function buildDescriptionPrompt(input: DescriptionPolishInput): { system: string; user: string } {
+  const tone = input.tone ?? 'friendly';
+  const description = input.description.trim().slice(0, MAX_DESCRIPTION_PROMPT_LENGTH);
+  const lead = input.eventLeadName?.trim() || 'n/a';
+
+  return {
+    system: [
+      'You rewrite rough nonprofit event notes into polished event descriptions.',
+      'Keep the requested tone while making the writing vivid, clear, and concise.',
+      'Return only JSON with key: polished_description.',
+      'Do not use markdown or HTML.',
+    ].join(' '),
+    user: [
+      `Tone: ${tone}`,
+      `Event title: ${input.eventTitle}`,
+      `Event date: ${input.eventDate ? formatEventDate(input.eventDate) : 'n/a'}`,
+      `Location: ${input.location ?? 'TBD'}`,
+      `Event lead: ${lead}`,
+      `Raw description notes: ${description}`,
+      'Constraints:',
+      '- Produce 2-3 short paragraphs.',
+      '- Keep concrete details from the notes; do not invent logistics.',
+      '- Include a clear RSVP encouragement.',
+      '- Mention support for military veterans in a natural sentence.',
+      '- Output only JSON',
     ].join('\n'),
   };
 }
@@ -330,6 +413,99 @@ async function generateWithPublicOpenAi(input: InviteDraftInput): Promise<Invite
   return draft;
 }
 
+async function generateDescriptionWithAzureOpenAi(input: DescriptionPolishInput): Promise<DescriptionPolishOutput | null> {
+  const endpoint = process.env['AZURE_OPENAI_ENDPOINT']?.trim();
+  const apiKey = process.env['AZURE_OPENAI_API_KEY']?.trim();
+  const deployment = process.env['AZURE_OPENAI_DEPLOYMENT']?.trim();
+  const apiVersion = process.env['AZURE_OPENAI_API_VERSION']?.trim() || AZURE_OPENAI_API_VERSION;
+
+  if (!endpoint || !apiKey || !deployment) {
+    return null;
+  }
+
+  const prompt = buildDescriptionPrompt(input);
+  const normalizedEndpoint = endpoint.replace(/\/$/, '');
+  const url = `${normalizedEndpoint}/openai/deployments/${deployment}/chat/completions?api-version=${encodeURIComponent(apiVersion)}`;
+  const payload = {
+    messages: [
+      { role: 'system', content: prompt.system },
+      { role: 'user', content: prompt.user },
+    ],
+    max_tokens: 450,
+    temperature: 0.45,
+    response_format: { type: 'json_object' },
+  };
+
+  const data = await fetchJsonWithTimeout(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'api-key': apiKey,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const text = parseAzureOpenAiTextPayload(data);
+  const draft = toDescriptionPolishFromJson(text, 'azure-openai');
+  if (!draft) {
+    throw new Error('Azure OpenAI response did not contain valid description JSON');
+  }
+
+  return draft;
+}
+
+async function generateDescriptionWithPublicOpenAi(input: DescriptionPolishInput): Promise<DescriptionPolishOutput | null> {
+  const apiKey = process.env['OPENAI_API_KEY'];
+  const model = process.env['OPENAI_MODEL'] ?? 'gpt-4.1-mini';
+
+  if (!apiKey) {
+    return null;
+  }
+
+  const prompt = buildDescriptionPrompt(input);
+  const payload = {
+    model,
+    input: [
+      {
+        role: 'system',
+        content: [
+          {
+            type: 'text',
+            text: prompt.system,
+          },
+        ],
+      },
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'text',
+            text: prompt.user,
+          },
+        ],
+      },
+    ],
+    max_output_tokens: 450,
+  };
+
+  const data = await fetchJsonWithTimeout('https://api.openai.com/v1/responses', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const text = parseOpenAiTextPayload(data);
+  const draft = toDescriptionPolishFromJson(text, 'openai');
+  if (!draft) {
+    throw new Error('OpenAI response did not contain valid description JSON');
+  }
+
+  return draft;
+}
+
 async function generateInviteDraft(input: InviteDraftInput): Promise<InviteDraftOutput> {
   try {
     const azureDraft = await generateWithAzureOpenAi(input);
@@ -353,5 +529,28 @@ async function generateInviteDraft(input: InviteDraftInput): Promise<InviteDraft
   }
 }
 
-export { generateInviteDraft };
-export type { InviteDraftInput, InviteDraftOutput };
+async function generateDescriptionDraft(input: DescriptionPolishInput): Promise<DescriptionPolishOutput> {
+  try {
+    const azureDraft = await generateDescriptionWithAzureOpenAi(input);
+    if (azureDraft) {
+      return azureDraft;
+    }
+
+    const publicDraft = await generateDescriptionWithPublicOpenAi(input);
+    if (publicDraft) {
+      return publicDraft;
+    }
+
+    return buildFallbackDescription(input);
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      console.warn('[aiInviteService] AI description generation timed out. Falling back to deterministic description draft.');
+      return buildFallbackDescription(input);
+    }
+    console.warn('[aiInviteService] Falling back to deterministic description draft.', error);
+    return buildFallbackDescription(input);
+  }
+}
+
+export { generateInviteDraft, generateDescriptionDraft };
+export type { InviteDraftInput, InviteDraftOutput, DescriptionPolishInput, DescriptionPolishOutput };

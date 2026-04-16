@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { eventsApi, rsvpApi } from '../api/events'
-import type { EventAiDraftResponse, EventRecord, RsvpRecord } from '../api/events'
+import type { EventAiDescriptionResponse, EventAiDraftResponse, EventRecord, RsvpRecord } from '../api/events'
 import { groupsApi } from '../api/groups'
 import type { GroupRecord } from '../api/groups'
 import { useAuth } from '../hooks/useAuth'
@@ -197,6 +197,30 @@ function toLocalDateTimeInputValue(value: Date): string {
   const hours = String(value.getHours()).padStart(2, '0')
   const minutes = String(value.getMinutes()).padStart(2, '0')
   return `${year}-${month}-${day}T${hours}:${minutes}`
+}
+
+function toApiUtcDateTime(localDateTimeValue: string): string {
+  const normalized = normalizeDateTimeValue(localDateTimeValue)
+  if (!isValid24HourDateTime(normalized)) {
+    return localDateTimeValue
+  }
+
+  const asLocal = new Date(`${normalized}:00`)
+  if (Number.isNaN(asLocal.getTime())) {
+    return localDateTimeValue
+  }
+
+  return asLocal.toISOString()
+}
+
+function toLocalDateTimeFromApi(value: string): string {
+  const parsed = new Date(value)
+  if (!Number.isNaN(parsed.getTime())) {
+    return toLocalDateTimeInputValue(parsed)
+  }
+
+  const normalized = normalizeDateTimeValue(value)
+  return isValid24HourDateTime(normalized) ? normalized : ''
 }
 
 function buildDefaultEventForm(): EventFormPayload {
@@ -413,14 +437,14 @@ function isValid24HourDateTime(value: string): boolean {
 function payloadFromRecord(e: EventRecord): EventFormPayload {
   return {
     title: e.title,
-    event_date: e.event_date ? e.event_date.slice(0, 16) : '',
+    event_date: e.event_date ? toLocalDateTimeFromApi(e.event_date) : '',
     description: e.description ?? '',
     location: e.location ?? '',
     photo_url: e.photo_url ?? '',
     invitation_stage: e.invitation_stage ?? 'both',
     event_lead_name: e.event_lead_name ?? '',
     event_lead_email: e.event_lead_email ?? '',
-    end_date: e.end_date ? e.end_date.slice(0, 16) : '',
+    end_date: e.end_date ? toLocalDateTimeFromApi(e.end_date) : '',
     mentor_capacity: e.mentor_capacity != null ? String(e.mentor_capacity) : '',
     participant_capacity: e.participant_capacity != null
       ? String(e.participant_capacity)
@@ -514,6 +538,10 @@ interface EventFormModalProps {
   initial: EventFormPayload
   groups: GroupRecord[]
   onSave: (data: EventFormPayload) => Promise<void>
+  onGenerateAiDescriptionPreview: (
+    payload: { title: string; description: string; event_date?: string; location?: string | null; event_lead_name?: string | null },
+    tone: 'friendly' | 'professional' | 'casual' | 'exciting'
+  ) => Promise<EventAiDescriptionResponse>
   onGenerateAiDraftPreview: (
     payload: { title: string; event_date: string; location?: string | null; description?: string | null; event_lead_name?: string | null },
     tone: 'friendly' | 'professional' | 'casual' | 'exciting'
@@ -535,10 +563,14 @@ interface FormFieldErrors {
   participant_capacity?: string
 }
 
-function EventFormModal({ initial, groups, onSave, onGenerateAiDraftPreview, onCancel, saving, error, isEdit }: EventFormModalProps) {
+function EventFormModal({ initial, groups, onSave, onGenerateAiDescriptionPreview, onGenerateAiDraftPreview, onCancel, saving, error, isEdit }: EventFormModalProps) {
   const [form, setForm] = useState<EventFormPayload>(initial)
   const [fieldErrors, setFieldErrors] = useState<FormFieldErrors>({})
   const [aiTone, setAiTone] = useState<'friendly' | 'professional' | 'casual' | 'exciting'>('friendly')
+  const [aiDescriptionLoading, setAiDescriptionLoading] = useState(false)
+  const [aiDescriptionError, setAiDescriptionError] = useState<string | null>(null)
+  const [aiDescriptionProvider, setAiDescriptionProvider] = useState<EventAiDescriptionResponse['provider'] | null>(null)
+  const [aiDescriptionDraft, setAiDescriptionDraft] = useState('')
   const [aiDraftLoading, setAiDraftLoading] = useState(false)
   const [aiDraftError, setAiDraftError] = useState<string | null>(null)
   const [aiDraftResult, setAiDraftResult] = useState<EventAiDraftResponse | null>(null)
@@ -662,6 +694,36 @@ function EventFormModal({ initial, groups, onSave, onGenerateAiDraftPreview, onC
     setLocationValidationError(null)
   }
 
+  async function handlePolishDescription(): Promise<void> {
+    const title = form.title.trim()
+    const description = form.description.trim()
+    if (!title || !description) {
+      setAiDescriptionError('Add both a title and description before polishing with AI.')
+      return
+    }
+
+    const normalizedDate = normalizeDateTimeValue(form.event_date)
+    const eventDateForAi = isValid24HourDateTime(normalizedDate) ? toApiUtcDateTime(normalizedDate) : undefined
+
+    setAiDescriptionLoading(true)
+    setAiDescriptionError(null)
+    try {
+      const draft = await onGenerateAiDescriptionPreview({
+        title,
+        description,
+        event_date: eventDateForAi,
+        location: form.location.trim() || null,
+        event_lead_name: form.event_lead_name.trim() || null,
+      }, aiTone)
+      setAiDescriptionProvider(draft.provider)
+      setAiDescriptionDraft(draft.polished_description)
+    } catch (err) {
+      setAiDescriptionError(err instanceof Error ? err.message : 'Unable to polish description.')
+    } finally {
+      setAiDescriptionLoading(false)
+    }
+  }
+
   async function handleGenerateAiPreview(): Promise<void> {
     const normalizedDate = normalizeDateTimeValue(form.event_date)
     if (!form.title.trim() || !isValid24HourDateTime(normalizedDate)) {
@@ -674,9 +736,9 @@ function EventFormModal({ initial, groups, onSave, onGenerateAiDraftPreview, onC
     try {
       const draft = await onGenerateAiDraftPreview({
         title: form.title.trim(),
-        event_date: normalizedDate,
+        event_date: toApiUtcDateTime(normalizedDate),
         location: form.location.trim() || null,
-        description: form.description.trim() || null,
+        description: aiDescriptionDraft.trim() || form.description.trim() || null,
         event_lead_name: form.event_lead_name.trim() || null,
       }, aiTone)
       setAiDraftResult(draft)
@@ -787,8 +849,8 @@ function EventFormModal({ initial, groups, onSave, onGenerateAiDraftPreview, onC
     await onSave({
       ...form,
       title: form.title.trim(),
-      event_date: joinDateTime(eventDate!, eventTime!),
-      end_date: endHasInput ? joinDateTime(canonicalEndDate!, canonicalEndTime!) : '',
+      event_date: toApiUtcDateTime(joinDateTime(eventDate!, eventTime!)),
+      end_date: endHasInput ? toApiUtcDateTime(joinDateTime(canonicalEndDate!, canonicalEndTime!)) : '',
       mentor_capacity: mentorCapacity == null ? '' : String(mentorCapacity),
       participant_capacity: participantCapacity == null ? '' : String(participantCapacity),
     })
@@ -827,7 +889,10 @@ function EventFormModal({ initial, groups, onSave, onGenerateAiDraftPreview, onC
               <label className="form-label">Event Time (24-hour) *</label>
               <input
                 className="form-input"
-                type="time"
+                type="text"
+                inputMode="numeric"
+                placeholder="07:30"
+                autoComplete="off"
                 value={eventDateParts.time}
                 onChange={e => handleTimeInput('event_date', eventDateParts.date, e.target.value)}
                 onBlur={e => handleTimeBlur('event_date', eventDateParts.date, e.target.value)}
@@ -852,7 +917,10 @@ function EventFormModal({ initial, groups, onSave, onGenerateAiDraftPreview, onC
               <label className="form-label">End Time (24-hour)</label>
               <input
                 className="form-input"
-                type="time"
+                type="text"
+                inputMode="numeric"
+                placeholder="17:30"
+                autoComplete="off"
                 value={endDateParts.time}
                 onChange={e => handleTimeInput('end_date', endDateParts.date, e.target.value)}
                 onBlur={e => handleTimeBlur('end_date', endDateParts.date, e.target.value)}
@@ -970,6 +1038,32 @@ function EventFormModal({ initial, groups, onSave, onGenerateAiDraftPreview, onC
             </div>
 
             <div className="form-field form-field--full">
+              <label className="form-label">Description (Draft with AI)</label>
+              <div className="event-ai-inline__toolbar">
+                <button className="btn btn--outline btn--sm" type="button" onClick={() => void handlePolishDescription()} disabled={aiDescriptionLoading || saving}>
+                  {aiDescriptionLoading ? 'Polishing…' : 'Polish Description with AI'}
+                </button>
+              </div>
+              {aiDescriptionError && <p className="form-field-error">{aiDescriptionError}</p>}
+              {aiDescriptionDraft && (
+                <div className="event-ai-inline">
+                  <p className="form-field-hint">Provider: {aiDescriptionProvider ?? 'unknown'}</p>
+                  <label className="form-label">Polished Description Draft (editable)</label>
+                  <textarea className="form-textarea" rows={6} value={aiDescriptionDraft} onChange={(e) => setAiDescriptionDraft(e.target.value)} />
+                  <div className="event-ai-inline__toolbar">
+                    <button
+                      type="button"
+                      className="btn btn--outline btn--sm"
+                      onClick={() => set('description', aiDescriptionDraft)}
+                    >
+                      Apply Edited Description
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="form-field form-field--full">
               <label className="form-label">AI Invite Preview</label>
               <div className="event-ai-inline__toolbar">
                 <select className="form-input event-ai-inline__tone" value={aiTone} onChange={(e) => setAiTone(e.target.value as 'friendly' | 'professional' | 'casual' | 'exciting')}>
@@ -979,9 +1073,10 @@ function EventFormModal({ initial, groups, onSave, onGenerateAiDraftPreview, onC
                   <option value="exciting">Exciting</option>
                 </select>
                 <button className="btn btn--outline btn--sm" type="button" onClick={() => void handleGenerateAiPreview()} disabled={aiDraftLoading || saving}>
-                  {aiDraftLoading ? 'Generating…' : 'Generate from Form'}
+                  {aiDraftLoading ? 'Generating…' : 'Generate Invite from Current Description'}
                 </button>
               </div>
+              {aiDescriptionDraft && <p className="form-field-hint">Invite generation is using your edited polished description draft unless you clear it.</p>}
               {aiDraftError && <p className="form-field-error">{aiDraftError}</p>}
               {aiDraftResult && (
                 <div className="event-ai-inline">
@@ -1428,6 +1523,13 @@ function EventsPage() {
     return eventsApi.generateAiDraftPreview(payload, tone)
   }
 
+  async function generateAiDescriptionPreview(
+    payload: { title: string; description: string; event_date?: string; location?: string | null; event_lead_name?: string | null },
+    tone: 'friendly' | 'professional' | 'casual' | 'exciting'
+  ) {
+    return eventsApi.generateAiDescriptionPreview(payload, tone)
+  }
+
   return (
     <div className="events-page">
       <div className="events-page__header">
@@ -1656,6 +1758,7 @@ function EventsPage() {
           initial={editTarget ? { ...payloadFromRecord(editTarget), notification_targets: editInitialTargets } : buildDefaultEventForm()}
           groups={groups}
           onSave={handleSave}
+          onGenerateAiDescriptionPreview={generateAiDescriptionPreview}
           onGenerateAiDraftPreview={generateAiDraftPreview}
           onCancel={closeForm}
           saving={formSaving}

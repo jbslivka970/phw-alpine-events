@@ -12,6 +12,7 @@ import { rsvpConfirmationTemplate } from '../templates/rsvpConfirmation';
 import { waitlistPromotionTemplate } from '../templates/waitlistPromotion';
 import { buildMemberEmailUnsubscribeUrl } from './emailPreferenceLinkService';
 import { buildMemberRsvpUrls, type ResponseRole } from './rsvpLinkService';
+import { formatInProgramTimeZone } from '../utils/dateTime';
 
 interface RsvpNotificationPayload {
   eventId: string;
@@ -1553,18 +1554,7 @@ function buildEventLeadCc(eventLeadEmail: string | null | undefined, recipientEm
 }
 
 function formatEventDate(value: Date | string): string {
-  const dateValue = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(dateValue.getTime())) {
-    return 'TBD';
-  }
-
-  return dateValue.toLocaleString('en-US', {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  });
+  return formatInProgramTimeZone(value);
 }
 
 function truncateSms(message: string, limit = 160): string {

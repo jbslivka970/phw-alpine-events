@@ -18,7 +18,7 @@ import {
 } from '../services/notifications';
 import { inferResponseRoleForMember, recordRsvpResponse, RsvpError, VALID_RESPONSES, type RsvpResponse } from '../services/rsvpService';
 import { verifyRsvpToken } from '../services/rsvpLinkService';
-import { generateInviteDraft } from '../services/aiInviteService';
+import { generateDescriptionDraft, generateInviteDraft } from '../services/aiInviteService';
 
 const router = Router();
 
@@ -464,6 +464,48 @@ router.post('/ai-draft-preview', writeLimiter, authenticate, requireEventCreator
     });
   } catch (error) {
     console.error('POST /events/ai-draft-preview failed', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.post('/ai-description-preview', writeLimiter, authenticate, requireEventCreatorOrAdmin, async (req, res) => {
+  try {
+    const tone = parseAiTone(req.body?.tone);
+    const title = typeof req.body?.title === 'string' ? req.body.title.trim() : '';
+    const description = typeof req.body?.description === 'string' ? req.body.description.trim() : '';
+    const eventDate = typeof req.body?.event_date === 'string' ? req.body.event_date.trim() : '';
+    const location = typeof req.body?.location === 'string' ? req.body.location.trim() : null;
+    const eventLeadName = typeof req.body?.event_lead_name === 'string' ? req.body.event_lead_name.trim() : null;
+
+    if (!title || !description) {
+      res.status(400).json({ error: 'title and description are required' });
+      return;
+    }
+
+    if (eventDate) {
+      const parsedEventDate = new Date(eventDate);
+      if (Number.isNaN(parsedEventDate.getTime())) {
+        res.status(400).json({ error: 'event_date must be a valid ISO datetime string when provided' });
+        return;
+      }
+    }
+
+    const draft = await generateDescriptionDraft({
+      eventTitle: title,
+      eventDate: eventDate || null,
+      location,
+      description,
+      eventLeadName,
+      tone,
+    });
+
+    res.json({
+      polished_description: draft.polishedDescription,
+      provider: draft.provider,
+      tone,
+    });
+  } catch (error) {
+    console.error('POST /events/ai-description-preview failed', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

@@ -53,6 +53,12 @@ interface EventAiDraftResponse {
   imageSuggestions?: string[];
 }
 
+interface EventAiDescriptionResponse {
+  tone: 'friendly' | 'professional' | 'casual' | 'exciting';
+  polished_description: string;
+  provider: 'azure-openai' | 'openai' | 'fallback';
+}
+
 interface RsvpRecord {
   response_id: string;
   event_id: string;
@@ -161,6 +167,16 @@ const eventsApi = {
     },
     tone: 'friendly' | 'professional' | 'casual' | 'exciting' = 'friendly'
   ) => apiPost<EventAiDraftResponse>('/events/ai-draft-preview', { ...payload, tone }),
+  generateAiDescriptionPreview: (
+    payload: {
+      title: string;
+      description: string;
+      event_date?: string;
+      location?: string | null;
+      event_lead_name?: string | null;
+    },
+    tone: 'friendly' | 'professional' | 'casual' | 'exciting' = 'friendly'
+  ) => apiPost<EventAiDescriptionResponse>('/events/ai-description-preview', { ...payload, tone }),
   remove: (id: string) => apiDelete<void>(`/events/${id}`),
 };
 
@@ -200,4 +216,5 @@ export type {
   PublicRsvpContext,
   UpdateEventPayload,
   EventAiDraftResponse,
+  EventAiDescriptionResponse,
 };

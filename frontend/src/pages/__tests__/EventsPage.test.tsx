@@ -131,7 +131,7 @@ describe('EventsPage flow pattern', () => {
     await waitFor(() => {
       expect(mockedEventsApi.create).toHaveBeenCalledWith({
         title: 'Summer Opener',
-        event_date: '2026-06-10T19:23',
+        event_date: expect.stringMatching(/^(2026-06-10T19:23:00\.000Z|2026-06-11T01:23:00\.000Z)$/),
         description: 'First evening outing',
         location: 'Blue Mesa',
         photo_url: null,

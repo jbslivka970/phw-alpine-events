@@ -1,5 +1,6 @@
 import { getPool, sql } from '../db';
 import { sendRsvpConfirmation, sendWaitlistPromotionNotification } from './notifications';
+import { formatInProgramTimeZone } from '../utils/dateTime';
 
 const VALID_RESPONSES = ['yes', 'no', 'maybe', 'waitlist'] as const;
 type RsvpResponse = (typeof VALID_RESPONSES)[number];
@@ -376,7 +377,7 @@ async function recordRsvpResponse(options: {
     sendRsvpConfirmation({
       eventId: event.event_id,
       eventTitle: event.title,
-      eventDate: new Date(event.event_date).toLocaleString(),
+      eventDate: formatInProgramTimeZone(event.event_date),
       firstName: member.first_name,
       memberId: options.memberId,
       rsvpStatus: options.response,
