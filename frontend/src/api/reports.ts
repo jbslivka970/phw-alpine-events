@@ -95,6 +95,43 @@ interface DeliveryLogResponse {
   rows: DeliveryLogRow[];
 }
 
+interface EventDeliveryCoverageSummary {
+  targeted_members: number;
+  email_eligible_members: number;
+  sms_eligible_members: number;
+  attempted_members: number;
+  delivered_members: number;
+  failed_members: number;
+  skipped_members: number;
+  no_attempt_members: number;
+}
+
+interface EventDeliveryCoverageRow {
+  member_id: string;
+  email: string | null;
+  mobile_phone: string | null;
+  email_eligible: boolean;
+  sms_eligible: boolean;
+  attempted: boolean;
+  delivered: boolean;
+  failed: boolean;
+  skipped: boolean;
+  attempt_count: number;
+  latest_email_status: string | null;
+  latest_sms_status: string | null;
+  latest_attempt_at: string | null;
+  last_error_detail: string | null;
+  inferred_reason: string;
+}
+
+interface EventDeliveryCoverageResponse {
+  event_id: string;
+  operation_type: string;
+  generated_at: string;
+  summary: EventDeliveryCoverageSummary;
+  rows: EventDeliveryCoverageRow[];
+}
+
 interface DeliveryFilters {
   channel?: 'email' | 'sms';
   status?: 'queued' | 'sent' | 'delivered' | 'failed' | 'stubbed' | 'skipped';
@@ -159,6 +196,8 @@ const reportsApi = {
     apiGet<DeliveryTrendResponse>(`/reports/delivery/trends?${buildDeliveryQuery(from, to, filters)}`),
   deliveryLogs: (from: string, to: string, filters?: DeliveryLogFilters) =>
     apiGet<DeliveryLogResponse>(`/reports/delivery/logs?${buildDeliveryLogQuery(from, to, filters)}`),
+  deliveryEventCoverage: (eventId: string, operationType = 'event_published') =>
+    apiGet<EventDeliveryCoverageResponse>(`/reports/delivery/event/${encodeURIComponent(eventId)}/coverage?operation_type=${encodeURIComponent(operationType)}`),
   downloadExport: async (from: string, to: string): Promise<void> => {
     const response = await apiGetBlob(`/reports/export?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
     const disposition = response.headers.get('content-disposition') ?? '';
@@ -190,4 +229,7 @@ export type {
   DeliveryLogRow,
   DeliveryLogResponse,
   DeliveryLogFilters,
+  EventDeliveryCoverageSummary,
+  EventDeliveryCoverageRow,
+  EventDeliveryCoverageResponse,
 };

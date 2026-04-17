@@ -14,6 +14,22 @@ import {
 } from '../services/memberService';
 
 const router = Router();
+const DEFAULT_SMS_ROLLOUT_EMAIL_ALLOWLIST = 'sarnitro@gmail.com';
+
+type SmsRolloutReason =
+  | 'open_rollout'
+  | 'email_allowlist'
+  | 'group_allowlist'
+  | 'not_in_rollout_cohort'
+  | 'missing_member_email';
+
+interface SmsRolloutStatus {
+  enabled: boolean;
+  reason: SmsRolloutReason;
+  configuredEmails: string[];
+  configuredGroups: string[];
+  matchedGroups: string[];
+}
 
 router.get('/', apiLimiter, authenticate, requireAnyAuthenticatedRole, async (req, res, next) => {
   try {
@@ -81,6 +97,17 @@ router.patch('/:id/sms-consent', writeLimiter, authenticate, async (req, res, ne
     if (!isAdmin(req) && !isSelfMember(req, memberId, memberRecord.email)) {
       res.status(403).json({ error: 'Insufficient permissions.' });
       return;
+    }
+
+    if (smsOptIn) {
+      const rolloutStatus = await getSmsRolloutStatus(memberId, memberRecord.email);
+      if (!rolloutStatus.enabled) {
+        res.status(403).json({
+          error: 'SMS enrollment is not enabled for this account yet.',
+          reason: rolloutStatus.reason,
+        });
+        return;
+      }
     }
 
     const updatedResult = await pool
@@ -162,6 +189,17 @@ router.patch('/:id/channel-preference', writeLimiter, authenticate, async (req, 
       return;
     }
 
+    if (nextSmsOptIn) {
+      const rolloutStatus = await getSmsRolloutStatus(memberId, existing.email);
+      if (!rolloutStatus.enabled) {
+        res.status(403).json({
+          error: 'SMS enrollment is not enabled for this account yet.',
+          reason: rolloutStatus.reason,
+        });
+        return;
+      }
+    }
+
     if (nextSmsOptIn && !existing.mobile_phone) {
       res.status(400).json({ error: 'A mobile phone number is required before SMS can be enabled.' });
       return;
@@ -212,12 +250,35 @@ router.patch('/:id/channel-preference', writeLimiter, authenticate, async (req, 
   }
 });
 
-router.get('/:id/sms-consent-log', apiLimiter, authenticate, requireAdmin, async (req, res, next) => {
+router.get('/:id/sms-consent-log', apiLimiter, authenticate, requireAnyAuthenticatedRole, async (req, res, next) => {
   try {
+    const memberId = req.params.id;
     const pool = await getPool();
+    if (!isAdmin(req)) {
+      const memberResult = await pool
+        .request()
+        .input('member_id', sql.UniqueIdentifier, memberId)
+        .query<{ member_id: string; email: string | null }>(
+          `SELECT member_id, email
+           FROM member
+           WHERE member_id = @member_id`
+        );
+
+      const memberRecord = memberResult.recordset[0];
+      if (!memberRecord) {
+        res.status(404).json({ error: 'Member not found.' });
+        return;
+      }
+
+      if (!isSelfMember(req, memberId, memberRecord.email)) {
+        res.status(403).json({ error: 'Insufficient permissions.' });
+        return;
+      }
+    }
+
     const result = await pool
       .request()
-      .input('member_id', sql.UniqueIdentifier, req.params.id)
+      .input('member_id', sql.UniqueIdentifier, memberId)
       .query(
         `SELECT consent_log_id, member_id, action, source, recorded_at, notes
          FROM sms_consent_log
@@ -225,6 +286,44 @@ router.get('/:id/sms-consent-log', apiLimiter, authenticate, requireAdmin, async
          ORDER BY recorded_at DESC`
       );
     res.json(result.recordset);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/:id/sms-rollout-status', apiLimiter, authenticate, requireAnyAuthenticatedRole, async (req, res, next) => {
+  try {
+    const memberId = req.params.id;
+    const pool = await getPool();
+    const memberResult = await pool
+      .request()
+      .input('member_id', sql.UniqueIdentifier, memberId)
+      .query<{ member_id: string; email: string | null }>(
+        `SELECT member_id, email
+         FROM member
+         WHERE member_id = @member_id`
+      );
+
+    const memberRecord = memberResult.recordset[0];
+    if (!memberRecord) {
+      res.status(404).json({ error: 'Member not found.' });
+      return;
+    }
+
+    if (!isAdmin(req) && !isSelfMember(req, memberId, memberRecord.email)) {
+      res.status(403).json({ error: 'Insufficient permissions.' });
+      return;
+    }
+
+    const rolloutStatus = await getSmsRolloutStatus(memberId, memberRecord.email);
+    res.json({
+      member_id: memberId,
+      sms_rollout_enabled: rolloutStatus.enabled,
+      reason: rolloutStatus.reason,
+      configured_emails: rolloutStatus.configuredEmails,
+      configured_groups: rolloutStatus.configuredGroups,
+      matched_groups: rolloutStatus.matchedGroups,
+    });
   } catch (error) {
     next(error);
   }
@@ -492,6 +591,90 @@ function isSelfMember(req: { user?: { sub?: string; email?: string } }, memberId
   }
 
   return req.user.email.trim().toLowerCase() === memberEmail.trim().toLowerCase();
+}
+
+function parseLowercaseCsv(input: string | undefined): string[] {
+  if (!input) {
+    return [];
+  }
+
+  const parts = input
+    .split(',')
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean);
+
+  return [...new Set(parts)];
+}
+
+function getConfiguredSmsRolloutAllowlist(): { emails: string[]; groups: string[] } {
+  const emailsFromEnv = parseLowercaseCsv(process.env['SMS_CONSENT_ROLLOUT_EMAIL_ALLOWLIST']);
+  const groupsFromEnv = parseLowercaseCsv(process.env['SMS_CONSENT_ROLLOUT_GROUP_ALLOWLIST']);
+
+  if (emailsFromEnv.length > 0 || groupsFromEnv.length > 0) {
+    return { emails: emailsFromEnv, groups: groupsFromEnv };
+  }
+
+  return { emails: [DEFAULT_SMS_ROLLOUT_EMAIL_ALLOWLIST], groups: [] };
+}
+
+async function getSmsRolloutStatus(memberId: string, memberEmail: string | null): Promise<SmsRolloutStatus> {
+  const configured = getConfiguredSmsRolloutAllowlist();
+
+  if (configured.emails.length === 0 && configured.groups.length === 0) {
+    return {
+      enabled: true,
+      reason: 'open_rollout',
+      configuredEmails: configured.emails,
+      configuredGroups: configured.groups,
+      matchedGroups: [],
+    };
+  }
+
+  if (!memberEmail) {
+    return {
+      enabled: false,
+      reason: 'missing_member_email',
+      configuredEmails: configured.emails,
+      configuredGroups: configured.groups,
+      matchedGroups: [],
+    };
+  }
+
+  const normalizedEmail = memberEmail.trim().toLowerCase();
+  if (configured.emails.includes(normalizedEmail)) {
+    return {
+      enabled: true,
+      reason: 'email_allowlist',
+      configuredEmails: configured.emails,
+      configuredGroups: configured.groups,
+      matchedGroups: [],
+    };
+  }
+
+  if (configured.groups.length > 0) {
+    const memberGroups = await getMemberGroups(memberId);
+    const matchedGroups = memberGroups
+      .map((group) => group.group_name.trim().toLowerCase())
+      .filter((groupName) => configured.groups.includes(groupName));
+
+    if (matchedGroups.length > 0) {
+      return {
+        enabled: true,
+        reason: 'group_allowlist',
+        configuredEmails: configured.emails,
+        configuredGroups: configured.groups,
+        matchedGroups,
+      };
+    }
+  }
+
+  return {
+    enabled: false,
+    reason: 'not_in_rollout_cohort',
+    configuredEmails: configured.emails,
+    configuredGroups: configured.groups,
+    matchedGroups: [],
+  };
 }
 
 async function resolveSelfMemberId(

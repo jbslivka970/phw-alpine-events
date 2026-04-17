@@ -1,7 +1,8 @@
 import { Link } from 'react-router-dom'
 
 function SmsProgramPage() {
-  const consentArtifactPath = '/compliance/sms-consent-artifact.svg'
+  const consentArtifactPath = '/images/sms-consent.png'
+  const consentEnabledArtifactPath = '/images/sms-consent-enabled.png'
   const consentArtifactPagePath = '/compliance/sms-consent-artifact.html'
 
   return (
@@ -42,19 +43,49 @@ function SmsProgramPage() {
           </p>
 
           <p>
+            Web opt-in: The user navigates to https://app.phwcoloradoalpine.org and subscribes via
+            the SMS consent form during registration or in Notification Preferences. The form states:
+            "I agree to receive SMS messages from Project Healing Waters Colorado Alpine Program
+            related to event invitations, RSVP reminders, and program updates. Message frequency
+            varies. Message and data rates may apply. Reply STOP to opt out and HELP for help."
+            The checkbox is not preselected and consent is not a condition of registration.
+            Privacy Policy and Terms and Conditions links are displayed directly below the consent
+            checkbox. Mobile information will not be sold or shared with third parties for promotional
+            or marketing purposes.
+          </p>
+
+          <p>
+            Keyword opt-in: Users can text START to +1 (970) 771-0150. The confirmation message is:
+            "Project Healing Waters Alpine: You are subscribed to event notifications. Msg frequency
+            varies. Msg&amp;data rates may apply. Reply HELP for help, STOP to opt out. Your mobile
+            information will not be sold or shared with third parties for promotional or marketing
+            purposes."
+          </p>
+
+          <p>
             Existing members can manage their notification preferences after signing in at{' '}
             <Link to="/preferences">Notification Preferences</Link>.
           </p>
 
           <div className="artifact-card">
             <div className="artifact-card__header">
-              <h3>Screenshot-Ready Consent Example</h3>
-              <span>Use this exact artifact as verification support</span>
+              <h3>Live In-App Screenshot Path</h3>
+              <span>Primary evidence should come from the signed-in Notification Preferences screen</span>
             </div>
 
             <p>
-              Direct artifact URL for submission:{' '}
-              <a href={consentArtifactPath} target="_blank" rel="noreferrer">https://app.phwcoloradoalpine.org/compliance/sms-consent-artifact.svg</a>
+              Sign in, open <Link to="/preferences">Notification Preferences</Link>, check the SMS consent box,
+              click Save preferences, and capture the resulting in-app screenshot.
+            </p>
+
+            <p>
+              Backup static artifact URL (if a reviewer requests a direct public file):{' '}
+              <a href={consentEnabledArtifactPath} target="_blank" rel="noreferrer">https://app.phwcoloradoalpine.org/images/sms-consent-enabled.png</a>
+            </p>
+
+            <p>
+              Explicit pre-consent screenshot (checkbox not preselected):{' '}
+              <a href={consentArtifactPath} target="_blank" rel="noreferrer">https://app.phwcoloradoalpine.org/images/sms-consent.png</a>
             </p>
 
             <p>
@@ -63,8 +94,8 @@ function SmsProgramPage() {
             </p>
 
             <img
-              src={consentArtifactPath}
-              alt="SMS consent artifact showing unchecked opt-in language and Save preferences action"
+              src={consentEnabledArtifactPath}
+              alt="SMS consent screenshot showing user-enabled opt-in language and Save preferences action"
               style={{ width: '100%', height: 'auto', borderRadius: 12, border: '1px solid #d7dce5' }}
             />
 

@@ -1,6 +1,11 @@
 import { useEffect, useState } from 'react';
 import { reportsApi } from '../api/reports';
-import type { DeliveryFilters, DeliveryLogRow, DeliveryTrendRow } from '../api/reports';
+import type {
+  DeliveryFilters,
+  DeliveryLogRow,
+  DeliveryTrendRow,
+  EventDeliveryCoverageResponse,
+} from '../api/reports';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -49,6 +54,10 @@ function formatDateTime(isoDateTime: string): string {
 
 function formatShortDay(isoDate: string): string {
   return new Date(`${isoDate}T00:00:00`).toLocaleDateString('en-GB', { month: 'short', day: 'numeric' });
+}
+
+function isUuidV4(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value.trim())
 }
 
 function DeliveryTrendChart({ rows }: { rows: DeliveryTrendRow[] }) {
@@ -198,6 +207,9 @@ function ReportsPage() {
   const [deliveryStatus, setDeliveryStatus] = useState<'all' | 'queued' | 'sent' | 'delivered' | 'failed' | 'stubbed' | 'skipped'>('all');
   const [deliveryOperation, setDeliveryOperation] = useState('');
   const [deliveryEventId, setDeliveryEventId] = useState('');
+  const [coverageLoading, setCoverageLoading] = useState(false);
+  const [coverageError, setCoverageError] = useState<string | null>(null);
+  const [coverageData, setCoverageData] = useState<EventDeliveryCoverageResponse | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -321,6 +333,44 @@ function ReportsPage() {
       active = false;
     };
   }, [fromDate, toDate, deliveryChannel, deliveryStatus, deliveryOperation, deliveryEventId, deliveryPage, providerStatusEnabled, providerRefreshTick]);
+
+  useEffect(() => {
+    const eventId = deliveryEventId.trim();
+    if (!isUuidV4(eventId)) {
+      setCoverageData(null);
+      setCoverageError(null);
+      setCoverageLoading(false);
+      return;
+    }
+
+    let active = true;
+    setCoverageLoading(true);
+    setCoverageError(null);
+    reportsApi
+      .deliveryEventCoverage(eventId, 'event_published')
+      .then((data) => {
+        if (!active) {
+          return;
+        }
+        setCoverageData(data);
+      })
+      .catch((err: unknown) => {
+        if (!active) {
+          return;
+        }
+        setCoverageData(null);
+        setCoverageError(err instanceof Error ? err.message : 'Failed to load event coverage report.');
+      })
+      .finally(() => {
+        if (active) {
+          setCoverageLoading(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [deliveryEventId]);
 
   const trendTotals = deliveryTrends.reduce(
     (acc, row) => {
@@ -586,6 +636,72 @@ function ReportsPage() {
             Next
           </button>
         </div>
+      </div>
+
+      <div className="summary-table-wrapper">
+        <h2>Event Audit Coverage</h2>
+        <p className="card__body">
+          Enter an Event ID above to view per-member coverage for published notifications.
+        </p>
+        {!isUuidV4(deliveryEventId) && (
+          <p className="members-loading">Provide a valid Event ID to load audit coverage.</p>
+        )}
+        {isUuidV4(deliveryEventId) && coverageLoading && (
+          <p className="members-loading">Loading event audit coverage…</p>
+        )}
+        {coverageError && <p className="members-error">{coverageError}</p>}
+        {coverageData && (
+          <>
+            <div className="stat-grid" style={{ marginBottom: '0.75rem' }}>
+              <StatCard label="Targeted" value={coverageData.summary.targeted_members} />
+              <StatCard label="Attempted" value={coverageData.summary.attempted_members} />
+              <StatCard label="Delivered" value={coverageData.summary.delivered_members} />
+              <StatCard label="Failed" value={coverageData.summary.failed_members} />
+              <StatCard label="Skipped" value={coverageData.summary.skipped_members} />
+              <StatCard label="No Attempt" value={coverageData.summary.no_attempt_members} />
+            </div>
+            <table className="summary-table">
+              <thead>
+                <tr>
+                  <th>Email</th>
+                  <th>Phone</th>
+                  <th>Email Eligible</th>
+                  <th>SMS Eligible</th>
+                  <th>Attempted</th>
+                  <th>Delivered</th>
+                  <th>Failed</th>
+                  <th>Skipped</th>
+                  <th>Attempts</th>
+                  <th>Reason</th>
+                  <th>Last Attempt</th>
+                </tr>
+              </thead>
+              <tbody>
+                {coverageData.rows.length === 0 ? (
+                  <tr>
+                    <td colSpan={11} className="empty-state">No targeted members found for this event.</td>
+                  </tr>
+                ) : (
+                  coverageData.rows.map((row) => (
+                    <tr key={row.member_id}>
+                      <td>{row.email ?? '—'}</td>
+                      <td>{row.mobile_phone ?? '—'}</td>
+                      <td>{row.email_eligible ? 'yes' : 'no'}</td>
+                      <td>{row.sms_eligible ? 'yes' : 'no'}</td>
+                      <td>{row.attempted ? 'yes' : 'no'}</td>
+                      <td>{row.delivered ? 'yes' : 'no'}</td>
+                      <td>{row.failed ? 'yes' : 'no'}</td>
+                      <td>{row.skipped ? 'yes' : 'no'}</td>
+                      <td>{row.attempt_count}</td>
+                      <td>{row.inferred_reason}</td>
+                      <td>{row.latest_attempt_at ? formatDateTime(row.latest_attempt_at) : '—'}</td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </>
+        )}
       </div>
 
       {/* Export section */}

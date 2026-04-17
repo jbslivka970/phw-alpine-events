@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SMS Consent Capture - Enabled</title>
+    <style>
+      :root {
+        --bg: #f3f5f9;
+        --card-bg: #f7f8fb;
+        --border: #d8deea;
+        --text: #1d304f;
+        --muted: #5b6b84;
+        --link: #1f4fd7;
+        --button: #2454d8;
+        --success-bg: #eaf7ef;
+        --success-border: #9ccfb0;
+        --success-text: #1f6a3b;
+      }
+
+      body {
+        margin: 0;
+        font-family: "Segoe UI", Arial, Helvetica, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+      }
+
+      .frame {
+        width: 1220px;
+        margin: 28px auto;
+        padding: 46px 56px 42px;
+        border: 1px solid var(--border);
+        border-radius: 22px;
+        background: var(--card-bg);
+        box-sizing: border-box;
+      }
+
+      .notice {
+        margin: 0 0 22px;
+        padding: 14px 18px;
+        border: 1px solid var(--success-border);
+        border-radius: 10px;
+        background: var(--success-bg);
+        color: var(--success-text);
+        font-size: 20px;
+        font-weight: 700;
+      }
+
+      h1 {
+        margin: 0 0 10px;
+        font-size: 58px;
+        line-height: 1.08;
+        letter-spacing: -0.02em;
+      }
+
+      .subtitle {
+        margin: 0 0 34px;
+        font-size: 24px;
+        color: var(--muted);
+      }
+
+      .field-label {
+        display: block;
+        margin-bottom: 10px;
+        font-size: 24px;
+        font-weight: 700;
+      }
+
+      .field {
+        width: 100%;
+        height: 74px;
+        border: 2px solid var(--border);
+        border-radius: 14px;
+        background: #fff;
+        display: flex;
+        align-items: center;
+        padding: 0 24px;
+        box-sizing: border-box;
+        font-size: 50px;
+        color: #31445f;
+      }
+
+      .consent-row {
+        margin-top: 42px;
+        display: flex;
+        align-items: flex-start;
+        gap: 20px;
+      }
+
+      .consent-box {
+        width: 42px;
+        height: 42px;
+        margin-top: 2px;
+        border: 3px solid #1b5fd4;
+        border-radius: 6px;
+        background: #1f66e0;
+        color: #fff;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 30px;
+        line-height: 1;
+        font-weight: 700;
+        box-sizing: border-box;
+      }
+
+      .consent-copy {
+        margin: 0;
+        font-size: 25px;
+        line-height: 1.4;
+      }
+
+      .footnote {
+        margin: 24px 0 18px;
+        font-size: 21px;
+        color: var(--muted);
+        font-weight: 600;
+      }
+
+      .legal {
+        margin: 0;
+        font-size: 22px;
+        color: var(--text);
+      }
+
+      .legal a {
+        color: var(--link);
+        text-decoration: underline;
+      }
+
+      .save {
+        margin-top: 40px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 340px;
+        height: 92px;
+        border-radius: 16px;
+        border: none;
+        background: var(--button);
+        color: #fff;
+        font-size: 24px;
+        font-weight: 700;
+        line-height: 1;
+        white-space: nowrap;
+      }
+
+      .artifact {
+        margin-top: 52px;
+        font-size: 18px;
+        color: #6b788d;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="frame" aria-label="Notification Preferences SMS consent form with explicit enabled consent">
+      <p class="notice">Preferences saved: SMS consent enabled for this member account.</p>
+      <h1>Notification Preferences: SMS Consent</h1>
+      <p class="subtitle">Members can opt in to receive event invitation, RSVP reminder, and program update texts.</p>
+
+      <label class="field-label">Mobile phone number</label>
+      <div class="field">(970) 555-0123</div>
+
+      <div class="consent-row">
+        <div class="consent-box" aria-hidden="true">&#10003;</div>
+        <p class="consent-copy">
+          I agree to receive SMS messages from Project Healing Waters Colorado Alpine Program related to event invitations, RSVP reminders, and program updates. Message frequency varies. Message and data rates may apply. Reply STOP to opt out and HELP for help.
+        </p>
+      </div>
+
+      <p class="footnote">Consent is not a condition of registration.</p>
+      <p class="legal">
+        See our <a href="/privacy">Privacy Policy</a> and <a href="/terms">Terms and Conditions</a>. Your mobile information will not be sold or shared with third parties for promotional or marketing purposes.
+      </p>
+
+      <div class="save">Save preferences</div>
+
+      <p class="artifact">Artifact URL: https://app.phwcoloradoalpine.org/images/sms-consent-enabled.png</p>
+    </div>
+  </body>
+</html>

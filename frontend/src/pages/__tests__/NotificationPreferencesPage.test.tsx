@@ -10,6 +10,8 @@ vi.mock('../../api/members', () => ({
   membersApi: {
     list: vi.fn(),
     updateChannelPreference: vi.fn(),
+    consentLog: vi.fn(),
+    smsRolloutStatus: vi.fn(),
   },
 }));
 
@@ -20,6 +22,8 @@ vi.mock('../../hooks/useAuth', () => ({
 const mockedMembersApi = membersApi as unknown as {
   list: ReturnType<typeof vi.fn>;
   updateChannelPreference: ReturnType<typeof vi.fn>;
+  consentLog: ReturnType<typeof vi.fn>;
+  smsRolloutStatus: ReturnType<typeof vi.fn>;
 };
 
 const mockedUseAuth = useAuth as unknown as ReturnType<typeof vi.fn>;
@@ -77,15 +81,28 @@ describe('NotificationPreferencesPage regression coverage', () => {
       created_at: '2026-03-01T00:00:00.000Z',
       updated_at: '2026-03-31T00:00:00.000Z',
     }));
+
+    mockedMembersApi.consentLog.mockResolvedValue([]);
+    mockedMembersApi.smsRolloutStatus.mockResolvedValue({
+      member_id: '22222222-2222-4222-8222-222222222222',
+      sms_rollout_enabled: true,
+      reason: 'email_allowlist',
+      configured_emails: ['member@example.org'],
+      configured_groups: [],
+      matched_groups: [],
+    });
   });
 
-  it('matches member by email and updates channel preference using member UUID', async () => {
+  it('matches member by email and saves explicit SMS consent using member UUID', async () => {
     renderPage();
 
     await screen.findByText(/preferred channels:/i);
 
-    const channelSelect = screen.getByLabelText(/choose channels/i);
-    await userEvent.selectOptions(channelSelect, 'both');
+    const consentCheckbox = screen.getByLabelText(/I agree to receive SMS messages from Project Healing Waters Colorado Alpine Program/i);
+    await userEvent.click(consentCheckbox);
+
+    const saveButton = screen.getByRole('button', { name: /save preferences/i });
+    await userEvent.click(saveButton);
 
     await waitFor(() => {
       expect(mockedMembersApi.list).toHaveBeenCalledWith(

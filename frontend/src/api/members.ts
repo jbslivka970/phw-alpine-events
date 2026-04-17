@@ -42,6 +42,15 @@ interface MemberParticipation {
   participant_attended_prior_year: number;
 }
 
+interface SmsRolloutStatusResponse {
+  member_id: string;
+  sms_rollout_enabled: boolean;
+  reason: 'open_rollout' | 'email_allowlist' | 'group_allowlist' | 'not_in_rollout_cohort' | 'missing_member_email';
+  configured_emails: string[];
+  configured_groups: string[];
+  matched_groups: string[];
+}
+
 const membersApi = {
   list: (params?: { page?: number; pageSize?: number; search?: string; isActive?: boolean }) => {
     const query = new URLSearchParams();
@@ -60,6 +69,7 @@ const membersApi = {
     apiPatch<MemberRecord>(`/members/${id}/sms-consent`, { sms_opt_in }),
   updateChannelPreference: (id: string, channel_preference: 'email_only' | 'sms_only' | 'both') =>
     apiPatch<MemberRecord>(`/members/${id}/channel-preference`, { channel_preference }),
+  smsRolloutStatus: (id: string) => apiGet<SmsRolloutStatusResponse>(`/members/${id}/sms-rollout-status`),
   consentLog: (id: string) => apiGet<SmsConsentLogRow[]>(`/members/${id}/sms-consent-log`),
   participation: (id: string) => apiGet<MemberParticipation>(`/members/${id}/participation`),
   rsvps: (id: string) => apiGet<Array<{
@@ -86,4 +96,4 @@ const membersApi = {
 };
 
 export { membersApi };
-export type { MemberRecord, ListMembersResponse, SmsConsentLogRow, MemberParticipation };
+export type { MemberRecord, ListMembersResponse, SmsConsentLogRow, MemberParticipation, SmsRolloutStatusResponse };

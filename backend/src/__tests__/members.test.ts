@@ -2,6 +2,7 @@ import express from 'express';
 import request from 'supertest';
 import membersRouter from '../routes/members';
 import * as memberService from '../services/memberService';
+import * as groupService from '../services/groupService';
 import { getPool } from '../db';
 import { notificationService } from '../services/notifications';
 
@@ -67,9 +68,20 @@ describe('members routes', () => {
   const app = express();
   app.use(express.json());
   app.use('/api/members', membersRouter);
+  const originalEnv = { ...process.env };
 
   beforeEach(() => {
     jest.clearAllMocks();
+    process.env = {
+      ...originalEnv,
+      SMS_CONSENT_ROLLOUT_EMAIL_ALLOWLIST: 'admin@example.com,member@example.com',
+      SMS_CONSENT_ROLLOUT_GROUP_ALLOWLIST: '',
+    };
+    (groupService.getMemberGroups as jest.Mock).mockResolvedValue([]);
+  });
+
+  afterAll(() => {
+    process.env = originalEnv;
   });
 
   it('GET /api/members returns paged members', async () => {
@@ -150,6 +162,61 @@ describe('members routes', () => {
   });
 
   it('PATCH /api/members/:id/sms-consent allows same-email self-service even when sub differs', async () => {
+    const mockRequest = {
+      input: jest.fn().mockReturnThis(),
+      query: jest
+        .fn()
+        .mockResolvedValueOnce({ recordset: [{ member_id: 'member-2', email: 'member@example.com' }] })
+        .mockResolvedValueOnce({ recordset: [{ member_id: 'member-2', mobile_phone: '+13035550111', sms_opt_in: true }] }),
+    };
+    (getPool as jest.Mock).mockResolvedValue({ request: () => mockRequest });
+
+    const res = await request(app)
+      .patch('/api/members/member-2/sms-consent')
+      .set('x-test-roles', 'USER')
+      .set('x-test-sub', 'auth-subject-that-is-not-member-id')
+      .set('x-test-email', 'member@example.com')
+      .send({ sms_opt_in: true });
+
+    expect(res.status).toBe(200);
+  });
+
+  it('PATCH /api/members/:id/sms-consent blocks opt-in when member is outside rollout cohort', async () => {
+    process.env.SMS_CONSENT_ROLLOUT_EMAIL_ALLOWLIST = 'someone-else@example.com';
+    process.env.SMS_CONSENT_ROLLOUT_GROUP_ALLOWLIST = '';
+
+    const mockRequest = {
+      input: jest.fn().mockReturnThis(),
+      query: jest
+        .fn()
+        .mockResolvedValueOnce({ recordset: [{ member_id: 'member-2', email: 'member@example.com' }] }),
+    };
+    (getPool as jest.Mock).mockResolvedValue({ request: () => mockRequest });
+
+    const res = await request(app)
+      .patch('/api/members/member-2/sms-consent')
+      .set('x-test-roles', 'USER')
+      .set('x-test-sub', 'auth-subject-that-is-not-member-id')
+      .set('x-test-email', 'member@example.com')
+      .send({ sms_opt_in: true });
+
+    expect(res.status).toBe(403);
+    expect(res.body.error).toContain('SMS enrollment is not enabled for this account yet.');
+  });
+
+  it('PATCH /api/members/:id/sms-consent allows opt-in when rollout group matches', async () => {
+    process.env.SMS_CONSENT_ROLLOUT_EMAIL_ALLOWLIST = '';
+    process.env.SMS_CONSENT_ROLLOUT_GROUP_ALLOWLIST = 'Mentors';
+    (groupService.getMemberGroups as jest.Mock).mockResolvedValue([
+      {
+        group_id: 'group-1',
+        group_name: 'Mentors',
+        description: null,
+        is_system: false,
+        created_at: new Date(),
+      },
+    ]);
+
     const mockRequest = {
       input: jest.fn().mockReturnThis(),
       query: jest
