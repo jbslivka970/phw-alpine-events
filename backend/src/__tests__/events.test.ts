@@ -179,11 +179,15 @@ describe('events routes', () => {
     const updateRequest = createRequest(async () => ({
       recordset: [{ event_id: 'event-1', status: 'published' }],
     }));
+    const targetCountRequest = createRequest(async () => ({
+      recordset: [{ target_count: 1 }],
+    }));
 
     const pool = {
       request: jest
         .fn()
         .mockReturnValueOnce(selectRequest)
+        .mockReturnValueOnce(targetCountRequest)
         .mockReturnValueOnce(updateRequest),
     };
     (getPool as jest.Mock).mockResolvedValue(pool);
@@ -193,6 +197,46 @@ describe('events routes', () => {
     expect(res.status).toBe(200);
     expect(res.body.status).toBe('published');
     expect(res.body.notification_warning).toContain('publish notifications failed');
+  });
+
+  it('PUT /api/events/:id/status blocks publish when no target groups are configured', async () => {
+    const selectRequest = createRequest(async () => ({
+      recordset: [
+        {
+          event_id: 'event-1',
+          status: 'draft',
+          title: 'Fly Tying 101',
+          event_date: new Date().toISOString(),
+          location: null,
+          description: null,
+          photo_url: null,
+          invitation_stage: 'both',
+          event_lead_name: null,
+          event_lead_email: null,
+        },
+      ],
+    }));
+    const targetCountRequest = createRequest(async () => ({
+      recordset: [{ target_count: 0 }],
+    }));
+    const updateRequest = createRequest(async () => ({
+      recordset: [{ event_id: 'event-1', status: 'published' }],
+    }));
+
+    const pool = {
+      request: jest
+        .fn()
+        .mockReturnValueOnce(selectRequest)
+        .mockReturnValueOnce(targetCountRequest)
+        .mockReturnValueOnce(updateRequest),
+    };
+    (getPool as jest.Mock).mockResolvedValue(pool);
+
+    const res = await request(app).put('/api/events/event-1/status').send({ status: 'published' });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain('At least one target group is required');
+    expect(updateRequest.query).not.toHaveBeenCalled();
   });
 
   it('PUT /api/events/:id does not auto-send update notifications for published events', async () => {
@@ -278,10 +322,80 @@ describe('events routes', () => {
 
     const res = await request(app)
       .put('/api/events/event-1')
-      .send({ notification_targets: [{ group_id: '00000000-0000-0000-0000-000000000111' }] });
+      .send({ notification_targets: [{ group_id: '00000000-0000-4000-8000-000000000111' }] });
 
     expect(res.status).toBe(200);
     expect(sendEventUpdatedNotification).not.toHaveBeenCalled();
+  });
+
+  it('PUT /api/events/:id sends publish-style notifications only to newly added target groups for published events', async () => {
+    const queue = [
+      {
+        recordset: [
+          {
+            status: 'published',
+            title: 'Fly Tying 101',
+            description: 'Intro event',
+            location: 'Denver',
+            photo_url: null,
+            invitation_stage: 'both',
+            event_lead_name: 'Pat Lead',
+            event_lead_email: 'pat@example.com',
+            event_date: '2026-04-01T18:00:00.000Z',
+            end_date: null,
+            mentor_capacity: null,
+            participant_capacity: 12,
+            capacity: 12,
+          },
+        ],
+      },
+      {
+        recordset: [
+          {
+            event_id: 'event-1',
+            status: 'published',
+            title: 'Fly Tying 101',
+            description: 'Intro event',
+            location: 'Denver',
+            photo_url: null,
+            invitation_stage: 'both',
+            event_lead_name: 'Pat Lead',
+            event_lead_email: 'pat@example.com',
+            event_date: '2026-04-01T18:00:00.000Z',
+            end_date: null,
+            mentor_capacity: null,
+            participant_capacity: 12,
+            capacity: 12,
+          },
+        ],
+      },
+      {
+        recordset: [{ group_id: '00000000-0000-4000-8000-000000000111' }],
+      },
+      { recordset: [] },
+      { recordset: [] },
+      { recordset: [] },
+    ];
+    const mockRequest = {
+      input: jest.fn().mockReturnThis(),
+      query: jest.fn().mockImplementation(async () => queue.shift() ?? { recordset: [] }),
+    };
+    (getPool as jest.Mock).mockResolvedValue({ request: () => mockRequest });
+
+    const res = await request(app)
+      .put('/api/events/event-1')
+      .send({
+        notification_targets: [
+          { group_id: '00000000-0000-4000-8000-000000000111' },
+          { group_id: '00000000-0000-4000-8000-000000000222' },
+        ],
+      });
+
+    expect(res.status).toBe(200);
+    expect(sendEventPublishedNotification).toHaveBeenCalledWith(
+      expect.objectContaining({ event_id: 'event-1' }),
+      expect.objectContaining({ targetGroupIds: ['00000000-0000-4000-8000-000000000222'], skipCooldown: true })
+    );
   });
 
   it('POST /api/events/:id/send-update sends notifications explicitly for published events', async () => {

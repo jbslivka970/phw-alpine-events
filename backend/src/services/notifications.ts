@@ -76,6 +76,11 @@ interface EventUpdateNotificationPayload extends EventNotificationPayload {
 
 const EVENT_PUBLISH_COOLDOWN_MINUTES = 30;
 
+interface EventPublishSendOptions {
+  targetGroupIds?: string[];
+  skipCooldown?: boolean;
+}
+
 interface WaitlistPromotionNotificationPayload {
   event_id: string;
   title: string;
@@ -937,8 +942,11 @@ async function hasRecentPublishedNotification(eventId: string, cooldownMinutes: 
   return (result.recordset[0]?.hit_count ?? 0) > 0;
 }
 
-async function sendEventPublishedNotification(payload: EventNotificationPayload): Promise<void> {
-  if (await hasRecentPublishedNotification(payload.event_id, EVENT_PUBLISH_COOLDOWN_MINUTES)) {
+async function sendEventPublishedNotification(
+  payload: EventNotificationPayload,
+  options: EventPublishSendOptions = {}
+): Promise<void> {
+  if (!options.skipCooldown && await hasRecentPublishedNotification(payload.event_id, EVENT_PUBLISH_COOLDOWN_MINUTES)) {
     console.warn('[NotificationService] Skipping event_published send due to cooldown window', {
       eventId: payload.event_id,
       cooldownMinutes: EVENT_PUBLISH_COOLDOWN_MINUTES,
@@ -953,11 +961,22 @@ async function sendEventPublishedNotification(payload: EventNotificationPayload)
     getActiveTemplateOverride(eventInviteTemplate.displayName, 'sms'),
   ]);
 
+  const requestedTargetGroupIds = Array.from(
+    new Set((options.targetGroupIds ?? []).map((id) => id.trim()).filter(Boolean))
+  );
+
   const pool = await getPool();
-  const recipientsResult = await pool
+  const recipientsRequest = pool
     .request()
-    .input('event_id', sql.UniqueIdentifier, payload.event_id)
-    .query<{
+    .input('event_id', sql.UniqueIdentifier, payload.event_id);
+  const targetGroupPredicate = requestedTargetGroupIds.length > 0
+    ? requestedTargetGroupIds.map((_id, idx) => {
+      const param = `target_group_id_${idx}`;
+      recipientsRequest.input(param, sql.UniqueIdentifier, requestedTargetGroupIds[idx]);
+      return `@${param}`;
+    }).join(', ')
+    : null;
+  const recipientsResult = await recipientsRequest.query<{
       member_id: string;
       group_context_id: string | null;
       group_name: string | null;
@@ -981,8 +1000,9 @@ async function sendEventPublishedNotification(payload: EventNotificationPayload)
        LEFT JOIN [group] g ON g.group_id = ent.group_id
        LEFT JOIN member m ON m.member_id = COALESCE(ent.member_id, mg.member_id)
        WHERE ent.event_id = @event_id
+          ${targetGroupPredicate ? `AND ent.group_id IN (${targetGroupPredicate})` : ''}
          AND m.member_id IS NOT NULL`
-    );
+      );
 
   let sentEmailCount = 0;
   let sentSmsCount = 0;

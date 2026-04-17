@@ -1050,7 +1050,7 @@ function EventFormModal({ initial, groups, onSave, onGenerateAiDescriptionPrevie
                   <p className="form-field-hint">Provider: {aiDescriptionProvider ?? 'unknown'}</p>
                   {aiDescriptionProvider === 'fallback' && (
                     <p className="form-field-error">
-                      AI provider is not configured. This draft is deterministic fallback copy. Add AZURE_OPENAI_* or OPENAI_API_KEY on the backend to enable full AI generation.
+                      AI generation is currently unavailable, so this draft is deterministic fallback copy. Check backend AI provider configuration and runtime connectivity.
                     </p>
                   )}
                   <label className="form-label">Polished Description Draft (editable)</label>
@@ -1088,7 +1088,7 @@ function EventFormModal({ initial, groups, onSave, onGenerateAiDescriptionPrevie
                   <p className="form-field-hint">Provider: {aiDraftResult.provider}</p>
                   {aiDraftResult.provider === 'fallback' && (
                     <p className="form-field-error">
-                      AI provider is not configured. This invite is deterministic fallback copy. Add AZURE_OPENAI_* or OPENAI_API_KEY on the backend to enable full AI generation.
+                      AI generation is currently unavailable, so this invite is deterministic fallback copy. Check backend AI provider configuration and runtime connectivity.
                     </p>
                   )}
                   <label className="form-label">Subject</label>
@@ -1326,6 +1326,11 @@ function EventsPage() {
 
   async function handleStatusTransition(event: EventRecord, newStatus: EventRecord['status']) {
     if (newStatus === 'published') {
+      if ((event.target_count ?? 0) === 0) {
+        setErr('Select at least one target group before publishing this event.')
+        return
+      }
+
       const preview = [
         `Publish and send invites for "${event.title}"?`,
         '',

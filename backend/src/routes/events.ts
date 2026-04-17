@@ -882,22 +882,50 @@ router.put('/:id', writeLimiter, authenticate, requireEventCreatorOrAdmin, async
        WHERE event_id = @event_id`
     );
 
+    let addedTargetGroupIds: string[] = [];
     if (Array.isArray(req.body?.notification_targets)) {
+      const requestedGroupIds: string[] = [];
+      for (const target of req.body.notification_targets) {
+        if (!target || typeof target !== 'object') {
+          continue;
+        }
+        const parsedGroupId = asUuidOrNull((target as { group_id?: unknown }).group_id);
+        if (!parsedGroupId) {
+          res.status(400).json({ error: 'notification_targets must contain valid group_id UUIDs' });
+          return;
+        }
+        requestedGroupIds.push(parsedGroupId);
+      }
+
+      const requestedUniqueGroupIds = Array.from(new Set(requestedGroupIds));
+      const existingTargetsResult = await pool
+        .request()
+        .input('event_id', sql.UniqueIdentifier, req.params.id)
+        .query<{ group_id: string | null }>(
+          `SELECT DISTINCT group_id
+           FROM event_notification_target
+           WHERE event_id = @event_id
+             AND group_id IS NOT NULL`
+        );
+
+      const existingGroupIds = new Set(
+        existingTargetsResult.recordset
+          .map((row) => row.group_id)
+          .filter((groupId): groupId is string => Boolean(groupId))
+      );
+      addedTargetGroupIds = requestedUniqueGroupIds.filter((groupId) => !existingGroupIds.has(groupId));
+
       await pool
         .request()
         .input('event_id', sql.UniqueIdentifier, req.params.id)
         .query('DELETE FROM event_notification_target WHERE event_id = @event_id');
 
-      for (const target of req.body.notification_targets) {
-        if (!target || !target.group_id) {
-          continue;
-        }
-
+      for (const groupId of requestedUniqueGroupIds) {
         await pool
           .request()
           .input('target_id', sql.UniqueIdentifier, cryptoRandomUuid())
           .input('event_id', sql.UniqueIdentifier, req.params.id)
-          .input('group_id', sql.UniqueIdentifier, target.group_id)
+          .input('group_id', sql.UniqueIdentifier, groupId)
           .query(
             `INSERT INTO event_notification_target (target_id, event_id, group_id, member_id)
              VALUES (@target_id, @event_id, @group_id, NULL)`
@@ -905,7 +933,46 @@ router.put('/:id', writeLimiter, authenticate, requireEventCreatorOrAdmin, async
       }
     }
 
-    res.json(updated.recordset[0]);
+    let notificationWarning: string | null = null;
+    if (existing.status === 'published' && addedTargetGroupIds.length > 0) {
+      const updatedEvent = updated.recordset[0] as {
+        event_id?: string;
+        title?: string;
+        event_date?: Date | string;
+        location?: string | null;
+        description?: string | null;
+        photo_url?: string | null;
+        invitation_stage?: 'volunteer' | 'participant' | 'both' | null;
+        event_lead_name?: string | null;
+        event_lead_email?: string | null;
+      };
+
+      try {
+        await sendEventPublishedNotification({
+          event_id: updatedEvent.event_id ?? req.params.id,
+          title: updatedEvent.title ?? existing.title,
+          event_date: updatedEvent.event_date ?? existing.event_date,
+          location: updatedEvent.location ?? existing.location,
+          description: updatedEvent.description ?? existing.description,
+          photo_url: updatedEvent.photo_url ?? existing.photo_url,
+          invitation_stage: updatedEvent.invitation_stage ?? existing.invitation_stage,
+          event_lead_name: updatedEvent.event_lead_name ?? existing.event_lead_name,
+          event_lead_email: updatedEvent.event_lead_email ?? existing.event_lead_email,
+        }, {
+          targetGroupIds: addedTargetGroupIds,
+          skipCooldown: true,
+        });
+      } catch (error) {
+        if (isNotificationConfigurationError(error)) {
+          throw error;
+        }
+        notificationWarning = 'Event saved, but invite notifications to newly added target groups failed.';
+        console.error('PUT /events/:id new-target publish notification failed', error);
+      }
+    }
+
+    const responsePayload = updated.recordset[0];
+    res.json(notificationWarning ? { ...responsePayload, notification_warning: notificationWarning } : responsePayload);
   } catch (error) {
     if (isNotificationConfigurationError(error)) {
       res.status(503).json({ error: error.message });
@@ -1063,6 +1130,21 @@ router.put('/:id/status', writeLimiter, authenticate, requireAnyAuthenticatedRol
     let notificationWarning: string | null = null;
 
     if (newStatus === 'published') {
+      const targetCountResult = await pool
+        .request()
+        .input('event_id', sql.UniqueIdentifier, req.params.id)
+        .query<{ target_count: number }>(
+          `SELECT COUNT(*) AS target_count
+           FROM event_notification_target
+           WHERE event_id = @event_id
+             AND group_id IS NOT NULL`
+        );
+      const targetCount = targetCountResult.recordset[0]?.target_count ?? 0;
+      if (targetCount === 0) {
+        res.status(400).json({ error: 'At least one target group is required before publishing.' });
+        return;
+      }
+
       try {
         await assertEventPublishedNotificationReady(req.params.id);
       } catch (error) {
