@@ -190,6 +190,43 @@ function hasExplicitRegionQualifier(query: string): boolean {
     || /,\s*[A-Z]{2}\b/.test(query)
 }
 
+function normalizeGeoVariant(query: string): string {
+  return query
+    .replace(/\bcamp\s+ground\b/gi, 'campground')
+    .replace(/\bfs\s+rd\b/gi, 'forest road')
+    .replace(/\bfr\s+(\d+)/gi, 'forest road $1')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function buildGeoSearchCandidates(query: string): string[] {
+  const base = query.trim()
+  const normalized = normalizeGeoVariant(base)
+  const withRegion = hasExplicitRegionQualifier(normalized)
+    ? normalized
+    : `${normalized}, ${PROGRAM_GEO_CONFIG.state}, ${PROGRAM_GEO_CONFIG.country}`
+
+  return [...new Set([withRegion, normalized, base])].filter((value) => value.length > 0)
+}
+
+function scoreGeoCandidate(
+  query: string,
+  candidate: { display_name?: string; address?: { county?: string; state?: string; country_code?: string } }
+): number {
+  const display = (candidate.display_name ?? '').toLowerCase()
+  const queryTokens = query.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean)
+  const displayTokens = new Set(display.split(/[^a-z0-9]+/).filter(Boolean))
+  const tokenHits = queryTokens.filter((token) => displayTokens.has(token)).length
+
+  const county = candidate.address?.county?.replace(/\s+county$/i, '').trim().toLowerCase() ?? ''
+  const state = candidate.address?.state?.trim().toLowerCase() ?? ''
+  const countryCode = (candidate.address?.country_code ?? '').toLowerCase()
+  const inColorado = state === 'colorado' || (countryCode === 'us' && /\bco\b/i.test(state))
+  const inPrimaryCounty = county.length > 0 && PROGRAM_GEO_CONFIG.primaryCounties.includes(county)
+
+  return tokenHits * 3 + (inColorado ? 10 : 0) + (inPrimaryCounty ? 4 : 0)
+}
+
 function toLocalDateTimeInputValue(value: Date): string {
   const year = value.getFullYear()
   const month = String(value.getMonth() + 1).padStart(2, '0')
@@ -624,26 +661,47 @@ function EventFormModal({ initial, groups, onSave, onGenerateAiDescriptionPrevie
     setLocationValidationError(null)
 
     try {
-      const normalizedQuery = hasExplicitRegionQualifier(query) ? query : `${query}, ${PROGRAM_GEO_CONFIG.state}, ${PROGRAM_GEO_CONFIG.country}`
-      const params = new URLSearchParams({
-        format: 'jsonv2',
-        q: normalizedQuery,
-        limit: '1',
-        addressdetails: '1',
-        viewbox: PROGRAM_GEO_CONFIG.viewbox,
-        bounded: '0',
-      })
-      const response = await fetch(`https://nominatim.openstreetmap.org/search?${params.toString()}`)
-      if (!response.ok) {
-        throw new Error(`Validation request failed (${response.status})`)
-      }
-      const payload = (await response.json()) as Array<{
+      const searchQueries = buildGeoSearchCandidates(query)
+      const aggregated: Array<{
         display_name?: string
         lat?: string
         lon?: string
         address?: { county?: string; state?: string; country_code?: string }
-      }>
-      const first = payload[0]
+      }> = []
+
+      for (const searchQuery of searchQueries) {
+        const params = new URLSearchParams({
+          format: 'jsonv2',
+          q: searchQuery,
+          limit: '5',
+          addressdetails: '1',
+          viewbox: PROGRAM_GEO_CONFIG.viewbox,
+          bounded: '0',
+          countrycodes: 'us',
+        })
+        const response = await fetch(`https://nominatim.openstreetmap.org/search?${params.toString()}`)
+        if (!response.ok) {
+          throw new Error(`Validation request failed (${response.status})`)
+        }
+        const payload = (await response.json()) as Array<{
+          display_name?: string
+          lat?: string
+          lon?: string
+          address?: { county?: string; state?: string; country_code?: string }
+        }>
+        aggregated.push(...payload)
+      }
+
+      const deduped = Array.from(
+        new Map(
+          aggregated
+            .filter((row) => typeof row.display_name === 'string' && row.display_name.trim().length > 0)
+            .map((row) => [row.display_name!.toLowerCase(), row])
+        ).values()
+      )
+
+      const ranked = deduped.sort((a, b) => scoreGeoCandidate(query, b) - scoreGeoCandidate(query, a))
+      const first = ranked[0]
       if (!first?.display_name) {
         setLocationValidationError('No geocoding match found. Try a more specific address.')
         return
