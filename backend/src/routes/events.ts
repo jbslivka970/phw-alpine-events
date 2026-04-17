@@ -960,10 +960,10 @@ router.put('/:id', writeLimiter, authenticate, requireEventCreatorOrAdmin, async
       };
 
       // Send in background so event edits do not appear hung while notifications dispatch.
-      void sendEventPublishedNotification(publishPayload, {
+      void Promise.resolve(sendEventPublishedNotification(publishPayload, {
         targetGroupIds: addedTargetGroupIds,
         skipCooldown: true,
-      }).catch((error) => {
+      })).catch((error) => {
         if (isNotificationConfigurationError(error)) {
           console.error('PUT /events/:id new-target publish notification config error', error);
           return;
