@@ -109,6 +109,7 @@ interface RuntimeTemplateOverride {
 interface SendEmailOptions {
   to: string;
   cc?: string[];
+  replyTo?: string;
   subject: string;
   htmlBody: string;
   textBody?: string;
@@ -180,6 +181,7 @@ class AcsEmailService implements IEmailService {
       .map((address) => address.trim())
       .filter(Boolean)
       .map((address) => ({ address }));
+    const normalizedReplyTo = normalizeSingleEmail(options.replyTo);
 
     const poller = await this.client.beginSend({
       senderAddress: this.senderAddress,
@@ -193,6 +195,7 @@ class AcsEmailService implements IEmailService {
         ...(ccRecipients.length > 0 ? { cc: ccRecipients } : {}),
         ...(bccRecipients && { bcc: bccRecipients }),
       },
+      ...(normalizedReplyTo ? { replyTo: [{ address: normalizedReplyTo }] } : {}),
     });
 
     const timeout = new Promise<never>((_, reject) => {
@@ -227,6 +230,33 @@ function parseToLineAddresses(raw: string | undefined): string[] {
     .filter(Boolean);
 
   return entries;
+}
+
+function normalizeSingleEmail(value: string | undefined): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  const normalized = value.trim();
+  if (!normalized) {
+    return undefined;
+  }
+
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized) ? normalized : undefined;
+}
+
+function resolveReplyToAddress(): string | undefined {
+  const explicitReplyTo = normalizeSingleEmail(process.env['ACS_EMAIL_REPLY_TO']);
+  if (explicitReplyTo) {
+    return explicitReplyTo;
+  }
+
+  const inboundSupport = normalizeSingleEmail(process.env['SUPPORT_INBOUND_EMAIL']);
+  if (inboundSupport) {
+    return inboundSupport;
+  }
+
+  return normalizeSingleEmail(process.env['AUTH_DIAGNOSTICS_EMAIL']);
 }
 
 class AcsSmsService implements ISmsService {
@@ -357,7 +387,10 @@ class NotificationService {
     let status: NotificationStatus = this.isRealEmailService ? 'sent' : 'stubbed';
     let errorMessage: string | undefined;
     let providerId: string | undefined;
-    const preparedOptions = this.appendEmailPreferenceFooter(options);
+    const preparedOptions = this.appendEmailPreferenceFooter({
+      ...options,
+      replyTo: options.replyTo ?? resolveReplyToAddress(),
+    });
 
     try {
       providerId = await this.emailService.sendEmail(preparedOptions);
@@ -1607,7 +1640,7 @@ function buildEventVariables(
   let noUrl = defaultRsvpUrl;
   let maybeUrl = defaultRsvpUrl;
   let waitlistUrl = defaultRsvpUrl;
-  const replyAddress = process.env['ACS_EMAIL_FROM'] || 'Scheduler@mail.phwcoloradoalpine.org';
+  const replyAddress = resolveReplyToAddress() ?? (process.env['ACS_EMAIL_FROM'] || 'Scheduler@mail.phwcoloradoalpine.org');
   const createReplyMailto = (response: 'YES' | 'NO' | 'MAYBE' | 'WAITLIST'): string => {
     const subject = `RSVP ${response} - ${payload.title}`;
     const body = [
