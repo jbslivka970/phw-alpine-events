@@ -42,4 +42,10 @@ describe('eventsApi contract', () => {
     await eventsApi.remove('event-1');
     expect(mockedApiDelete).toHaveBeenCalledWith('/events/event-1');
   });
+
+  it('passes list request options to GET /events', async () => {
+    const controller = new AbortController();
+    await eventsApi.list('published', { signal: controller.signal });
+    expect(mockedApiGet).toHaveBeenCalledWith('/events?status=published', { signal: controller.signal });
+  });
 });

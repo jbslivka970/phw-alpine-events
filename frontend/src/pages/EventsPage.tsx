@@ -1252,10 +1252,11 @@ function EventsPage() {
   const loadEvents = useCallback(async () => {
     abortRef.current?.abort()
     abortRef.current = new AbortController()
+    const signal = abortRef.current.signal
     setLoading(true)
     setErr(null)
     try {
-      const data = await eventsApi.list(filter === 'all' ? undefined : filter)
+      const data = await eventsApi.list(filter === 'all' ? undefined : filter, { signal })
       setEvents(data)
     } catch (e: unknown) {
       if (e instanceof Error && e.name !== 'AbortError') setErr(toUserErrorMessage(e, 'Unable to load events.'))

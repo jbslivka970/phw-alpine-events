@@ -407,10 +407,22 @@ router.get('/', apiLimiter, authenticate, requireAnyAuthenticatedRole, async (re
     const status = (req.query.status as string | undefined)?.toLowerCase();
 
     let query = `
-      SELECT e.*,
-             (SELECT COUNT(*) FROM event_response er WHERE er.event_id = e.event_id AND er.response = 'yes') AS yes_count,
-             (SELECT COUNT(*) FROM event_notification_target ent WHERE ent.event_id = e.event_id) AS target_count
+      SELECT
+        e.*,
+        COALESCE(yes_counts.yes_count, 0) AS yes_count,
+        COALESCE(target_counts.target_count, 0) AS target_count
       FROM event e
+      LEFT JOIN (
+        SELECT er.event_id, COUNT(*) AS yes_count
+        FROM event_response er
+        WHERE er.response = 'yes'
+        GROUP BY er.event_id
+      ) AS yes_counts ON yes_counts.event_id = e.event_id
+      LEFT JOIN (
+        SELECT ent.event_id, COUNT(*) AS target_count
+        FROM event_notification_target ent
+        GROUP BY ent.event_id
+      ) AS target_counts ON target_counts.event_id = e.event_id
     `;
 
     const request = pool.request();
@@ -1182,25 +1194,28 @@ router.put('/:id/status', writeLimiter, authenticate, requireAnyAuthenticatedRol
       );
 
     if (newStatus === 'published') {
-      try {
-        await sendEventPublishedNotification({
-          event_id: existing.event_id,
-          title: existing.title,
-          event_date: existing.event_date,
-          location: existing.location,
-          description: existing.description,
-          photo_url: existing.photo_url,
-          invitation_stage: existing.invitation_stage ?? 'both',
-          event_lead_name: existing.event_lead_name,
-          event_lead_email: existing.event_lead_email,
-        });
-      } catch (error) {
+      const publishPayload = {
+        event_id: existing.event_id,
+        title: existing.title,
+        event_date: existing.event_date,
+        location: existing.location,
+        description: existing.description,
+        photo_url: existing.photo_url,
+        invitation_stage: existing.invitation_stage ?? 'both',
+        event_lead_name: existing.event_lead_name,
+        event_lead_email: existing.event_lead_email,
+      };
+
+      // Dispatch in background so publish does not block on provider latency.
+      void Promise.resolve(sendEventPublishedNotification(publishPayload)).catch((error) => {
         if (isNotificationConfigurationError(error)) {
-          throw error;
+          console.error('PUT /events/:id/status publish notification config error', error);
+          return;
         }
-        notificationWarning = 'Event status changed, but publish notifications failed.';
         console.error('PUT /events/:id/status publish notification failed', error);
-      }
+      });
+
+      notificationWarning = 'Event status changed. Publish notifications are being sent in the background.';
     }
     if (newStatus === 'cancelled') {
       try {

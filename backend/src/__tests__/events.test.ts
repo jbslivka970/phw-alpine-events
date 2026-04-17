@@ -196,7 +196,51 @@ describe('events routes', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.status).toBe('published');
-    expect(res.body.notification_warning).toContain('publish notifications failed');
+    expect(res.body.notification_warning).toContain('being sent in the background');
+  });
+
+  it('PUT /api/events/:id/status returns immediately while publish notifications send in background', async () => {
+    (sendEventPublishedNotification as jest.Mock).mockReturnValueOnce(new Promise(() => undefined));
+
+    const selectRequest = createRequest(async () => ({
+      recordset: [
+        {
+          event_id: 'event-1',
+          status: 'draft',
+          title: 'Fly Tying 101',
+          event_date: new Date().toISOString(),
+          location: null,
+          description: null,
+          photo_url: null,
+          invitation_stage: 'both',
+          event_lead_name: null,
+          event_lead_email: null,
+        },
+      ],
+    }));
+
+    const updateRequest = createRequest(async () => ({
+      recordset: [{ event_id: 'event-1', status: 'published' }],
+    }));
+    const targetCountRequest = createRequest(async () => ({
+      recordset: [{ target_count: 1 }],
+    }));
+
+    const pool = {
+      request: jest
+        .fn()
+        .mockReturnValueOnce(selectRequest)
+        .mockReturnValueOnce(targetCountRequest)
+        .mockReturnValueOnce(updateRequest),
+    };
+    (getPool as jest.Mock).mockResolvedValue(pool);
+
+    const res = await request(app).put('/api/events/event-1/status').send({ status: 'published' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('published');
+    expect(res.body.notification_warning).toContain('being sent in the background');
+    expect(sendEventPublishedNotification).toHaveBeenCalled();
   });
 
   it('PUT /api/events/:id/status blocks publish when no target groups are configured', async () => {

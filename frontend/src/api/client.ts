@@ -115,6 +115,18 @@ async function fetchWithAuthRetry(
   return response;
 }
 
+function mergeRequestInit(base: RequestInit, extra?: RequestInit): RequestInit {
+  if (!extra) {
+    return base;
+  }
+
+  return {
+    ...base,
+    ...extra,
+    headers: extra.headers ?? base.headers,
+  };
+}
+
 async function buildHeaders(extra?: HeadersInit): Promise<HeadersInit> {
   const token = await getCachedToken();
   const headers: Record<string, string> = {
@@ -161,10 +173,15 @@ async function parseResponse<T>(response: Response): Promise<T> {
   return (await response.json()) as T;
 }
 
-async function apiGet<T>(path: string): Promise<T> {
+async function apiGet<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetchWithAuthRetry(path, async () => ({
-    method: 'GET',
-    headers: await buildHeaders(),
+    ...mergeRequestInit(
+      {
+        method: 'GET',
+        headers: await buildHeaders(),
+      },
+      init
+    ),
   }));
   return parseResponse<T>(response);
 }

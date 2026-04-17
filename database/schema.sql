@@ -704,6 +704,10 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_event_status' AND obj
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_event_response_event' AND object_id = OBJECT_ID('dbo.event_response'))
     CREATE INDEX idx_event_response_event         ON dbo.event_response (event_id);
 
+-- event_notification_target
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_event_notification_target_event' AND object_id = OBJECT_ID('dbo.event_notification_target'))
+    CREATE INDEX idx_event_notification_target_event ON dbo.event_notification_target (event_id);
+
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_event_response_member' AND object_id = OBJECT_ID('dbo.event_response'))
     CREATE INDEX idx_event_response_member        ON dbo.event_response (member_id);
 

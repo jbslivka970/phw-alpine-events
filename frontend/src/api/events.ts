@@ -125,7 +125,8 @@ interface AssignmentRecommendationResponse {
 }
 
 const eventsApi = {
-  list: (status?: string) => apiGet<EventRecord[]>(status ? `/events?status=${encodeURIComponent(status)}` : '/events'),
+  list: (status?: string, options?: RequestInit) =>
+    apiGet<EventRecord[]>(status ? `/events?status=${encodeURIComponent(status)}` : '/events', options),
   get: (id: string) => apiGet<EventRecord & { notification_targets: unknown[] }>(`/events/${id}`),
   create: (data: {
     title: string;
