@@ -102,6 +102,24 @@ interface ReminderDuplicateRow {
   last_sent_at: string;
 }
 
+interface EventNotificationCoverageRow {
+  member_id: string;
+  email: string | null;
+  mobile_phone: string | null;
+  email_eligible: boolean;
+  sms_eligible: boolean;
+  attempted: boolean;
+  delivered: boolean;
+  failed: boolean;
+  skipped: boolean;
+  attempt_count: number;
+  latest_email_status: string | null;
+  latest_sms_status: string | null;
+  latest_attempt_at: string | null;
+  last_error_detail: string | null;
+  inferred_reason: string;
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -160,6 +178,18 @@ function parseUuidOrNull(value: string | null): string | null {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
     ? value
     : null;
+}
+
+function deriveNoAttemptReason(emailEligible: boolean, smsEligible: boolean): string {
+  if (!emailEligible && !smsEligible) {
+    return 'no_eligible_channel';
+  }
+
+  if (!emailEligible) {
+    return 'email_not_eligible';
+  }
+
+  return 'no_log_entry';
 }
 
 async function queryEventSummary(fromDate: Date, toDate: Date): Promise<EventSummaryRow[]> {
@@ -693,6 +723,134 @@ router.get('/reminders', apiLimiter, authenticate, requireAdmin, async (req: Req
     });
   } catch (error) {
     console.error('GET /reports/reminders failed', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.get('/delivery/event/:eventId/coverage', apiLimiter, authenticate, requireAdmin, async (req: Request, res: Response) => {
+  const eventId = parseUuidOrNull(req.params.eventId);
+  if (!eventId) {
+    res.status(400).json({ error: 'eventId must be a valid UUID.' });
+    return;
+  }
+
+  const operationType = optionalQueryValue(req.query.operation_type) ?? 'event_published';
+  if (operationType !== 'event_published') {
+    res.status(400).json({ error: 'Unsupported operation_type. Currently only event_published is supported.' });
+    return;
+  }
+
+  try {
+    const pool = await getPool();
+    const targetResult = await pool
+      .request()
+      .input('eventId', sql.UniqueIdentifier, eventId)
+      .query<{
+        member_id: string;
+        email: string | null;
+        mobile_phone: string | null;
+        email_opt_out: boolean;
+        sms_opt_in: boolean;
+      }>(
+        `SELECT DISTINCT
+            m.member_id,
+            m.email,
+            m.mobile_phone,
+            ISNULL(m.email_opt_out, 0) AS email_opt_out,
+            ISNULL(m.sms_opt_in, 0) AS sms_opt_in
+         FROM event_notification_target ent
+         LEFT JOIN member_group mg ON mg.group_id = ent.group_id
+         LEFT JOIN member m ON m.member_id = COALESCE(ent.member_id, mg.member_id)
+         WHERE ent.event_id = @eventId
+           AND m.member_id IS NOT NULL`
+      );
+
+    const logsResult = await pool
+      .request()
+      .input('eventId', sql.UniqueIdentifier, eventId)
+      .input('operationType', sql.NVarChar(64), operationType)
+      .query<{
+        member_id: string;
+        channel: string;
+        status: string;
+        error_detail: string | null;
+        sent_at: Date;
+      }>(
+        `SELECT
+            member_id,
+            channel,
+            status,
+            error_detail,
+            sent_at
+         FROM notification_log
+         WHERE event_id = @eventId
+           AND operation_type = @operationType
+           AND member_id IS NOT NULL
+         ORDER BY sent_at DESC`
+      );
+
+    const logsByMember = new Map<string, Array<{ channel: string; status: string; error_detail: string | null; sent_at: Date }>>();
+    for (const row of logsResult.recordset) {
+      const bucket = logsByMember.get(row.member_id) ?? [];
+      bucket.push(row);
+      logsByMember.set(row.member_id, bucket);
+    }
+
+    const rows: EventNotificationCoverageRow[] = targetResult.recordset.map((target) => {
+      const memberLogs = logsByMember.get(target.member_id) ?? [];
+      const emailEligible = Boolean(target.email && !target.email_opt_out);
+      const smsEligible = Boolean(target.mobile_phone && target.sms_opt_in);
+      const attempted = memberLogs.length > 0;
+      const delivered = memberLogs.some((entry) => ['sent', 'delivered', 'stubbed'].includes(entry.status));
+      const failed = memberLogs.some((entry) => entry.status === 'failed');
+      const skipped = memberLogs.some((entry) => entry.status === 'skipped');
+      const latestAttemptAt = memberLogs[0]?.sent_at ? memberLogs[0].sent_at.toISOString() : null;
+      const latestEmailStatus = memberLogs.find((entry) => entry.channel === 'email')?.status ?? null;
+      const latestSmsStatus = memberLogs.find((entry) => entry.channel === 'sms')?.status ?? null;
+      const lastError = memberLogs.find((entry) => Boolean(entry.error_detail))?.error_detail ?? null;
+      const inferredReason = attempted
+        ? (failed ? 'attempt_failed' : skipped ? 'attempt_skipped' : 'attempt_logged')
+        : deriveNoAttemptReason(emailEligible, smsEligible);
+
+      return {
+        member_id: target.member_id,
+        email: target.email,
+        mobile_phone: target.mobile_phone,
+        email_eligible: emailEligible,
+        sms_eligible: smsEligible,
+        attempted,
+        delivered,
+        failed,
+        skipped,
+        attempt_count: memberLogs.length,
+        latest_email_status: latestEmailStatus,
+        latest_sms_status: latestSmsStatus,
+        latest_attempt_at: latestAttemptAt,
+        last_error_detail: lastError,
+        inferred_reason: inferredReason,
+      };
+    });
+
+    const summary = {
+      targeted_members: rows.length,
+      email_eligible_members: rows.filter((row) => row.email_eligible).length,
+      sms_eligible_members: rows.filter((row) => row.sms_eligible).length,
+      attempted_members: rows.filter((row) => row.attempted).length,
+      delivered_members: rows.filter((row) => row.delivered).length,
+      failed_members: rows.filter((row) => row.failed).length,
+      skipped_members: rows.filter((row) => row.skipped).length,
+      no_attempt_members: rows.filter((row) => !row.attempted).length,
+    };
+
+    res.json({
+      event_id: eventId,
+      operation_type: operationType,
+      generated_at: new Date().toISOString(),
+      summary,
+      rows,
+    });
+  } catch (error) {
+    console.error('GET /reports/delivery/event/:eventId/coverage failed', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
