@@ -17,6 +17,15 @@ const RESPONSE_OPTIONS: Array<{ value: RsvpRecord['response']; label: string; cl
   { value: 'waitlist', label: 'Waitlist', className: 'public-rsvp__option--waitlist' },
 ]
 
+function toDirectRsvpRespondUrl(token: string, response: RsvpRecord['response'], role?: ResponseRole | null): string {
+  const base = ((import.meta.env.VITE_API_BASE_URL as string | undefined) ?? '/api/v1').replace(/\/$/, '')
+  const params = new URLSearchParams({ response })
+  if (role) {
+    params.set('role', role)
+  }
+  return `${base}/events/rsvp/${encodeURIComponent(token)}/respond?${params.toString()}`
+}
+
 function formatDate(value: string) {
   return new Date(value).toLocaleString('en-GB', {
     weekday: 'short',
@@ -43,6 +52,7 @@ function PublicRsvpPage() {
   const [notice, setNotice] = useState<string | null>(null)
   const [selectedRole, setSelectedRole] = useState<ResponseRole | ''>('')
   const autoSubmitted = useRef(false)
+  const directFallbackAttempted = useRef(false)
 
   const roleRequiredResponses: Array<RsvpRecord['response']> = ['yes', 'maybe', 'waitlist']
 
@@ -92,6 +102,11 @@ function PublicRsvpPage() {
         }
       } catch (requestError) {
         if (!cancelled) {
+          if (token && preset && RESPONSE_OPTIONS.some((option) => option.value === preset) && !directFallbackAttempted.current) {
+            directFallbackAttempted.current = true
+            window.location.assign(toDirectRsvpRespondUrl(token, preset, presetRole))
+            return
+          }
           setError(requestError instanceof Error ? requestError.message : 'Unable to load RSVP invite.')
         }
       } finally {
