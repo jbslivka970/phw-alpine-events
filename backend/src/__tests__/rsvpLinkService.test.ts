@@ -16,6 +16,8 @@ describe('rsvpLinkService', () => {
     expect(urls.yesUrl).toContain('?response=yes&role=PARTICIPANT');
     expect(urls.waitlistUrl).toContain('?response=waitlist&role=PARTICIPANT');
     expect(urls.noUrl).toContain('?response=no');
+    expect(urls.yesUrl).not.toContain('/api/v1/events/rsvp/');
+    expect(urls.yesUrl).not.toContain('/respond?');
   });
 
   it('builds role-aware one-click links when preferred role is provided', () => {

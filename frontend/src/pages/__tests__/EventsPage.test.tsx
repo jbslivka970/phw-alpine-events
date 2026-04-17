@@ -93,6 +93,15 @@ function setFieldByLabel(labelText: string, value: string) {
   });
 }
 
+function getFieldByLabel(labelText: string) {
+  const label = screen.getByText(labelText);
+  const field = label.parentElement?.querySelector('input, textarea') as HTMLInputElement | HTMLTextAreaElement | null;
+  if (!field) {
+    throw new Error(`Field not found for label: ${labelText}`);
+  }
+  return field;
+}
+
 describe('EventsPage flow pattern', () => {
   beforeEach(() => {
     mockedUseAuth.mockReturnValue({
@@ -180,5 +189,25 @@ describe('EventsPage flow pattern', () => {
     await waitFor(() => {
       expect(mockedEventsApi.updateStatus).toHaveBeenCalledWith('e-1111', 'cancelled');
     });
+  });
+
+  it('auto-syncs end date to event date until end date is manually edited', async () => {
+    renderPage();
+
+    await screen.findByRole('heading', { name: 'Events' });
+    await userEvent.click(screen.getByRole('button', { name: /\+ New Event/i }));
+
+    const endDateInput = getFieldByLabel('End Date') as HTMLInputElement;
+    const initialEndDate = endDateInput.value;
+    expect(initialEndDate).not.toBe('');
+
+    await setFieldByLabel('Event Date *', '2026-06-12');
+    expect(endDateInput.value).toBe('2026-06-12');
+
+    await setFieldByLabel('End Date', '2026-06-13');
+    expect(endDateInput.value).toBe('2026-06-13');
+
+    await setFieldByLabel('Event Date *', '2026-06-14');
+    expect(endDateInput.value).toBe('2026-06-13');
   });
 });
