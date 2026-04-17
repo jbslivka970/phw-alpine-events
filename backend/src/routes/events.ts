@@ -947,28 +947,31 @@ router.put('/:id', writeLimiter, authenticate, requireEventCreatorOrAdmin, async
         event_lead_email?: string | null;
       };
 
-      try {
-        await sendEventPublishedNotification({
-          event_id: updatedEvent.event_id ?? req.params.id,
-          title: updatedEvent.title ?? existing.title,
-          event_date: updatedEvent.event_date ?? existing.event_date,
-          location: updatedEvent.location ?? existing.location,
-          description: updatedEvent.description ?? existing.description,
-          photo_url: updatedEvent.photo_url ?? existing.photo_url,
-          invitation_stage: updatedEvent.invitation_stage ?? existing.invitation_stage,
-          event_lead_name: updatedEvent.event_lead_name ?? existing.event_lead_name,
-          event_lead_email: updatedEvent.event_lead_email ?? existing.event_lead_email,
-        }, {
-          targetGroupIds: addedTargetGroupIds,
-          skipCooldown: true,
-        });
-      } catch (error) {
+      const publishPayload = {
+        event_id: updatedEvent.event_id ?? req.params.id,
+        title: updatedEvent.title ?? existing.title,
+        event_date: updatedEvent.event_date ?? existing.event_date,
+        location: updatedEvent.location ?? existing.location,
+        description: updatedEvent.description ?? existing.description,
+        photo_url: updatedEvent.photo_url ?? existing.photo_url,
+        invitation_stage: updatedEvent.invitation_stage ?? existing.invitation_stage,
+        event_lead_name: updatedEvent.event_lead_name ?? existing.event_lead_name,
+        event_lead_email: updatedEvent.event_lead_email ?? existing.event_lead_email,
+      };
+
+      // Send in background so event edits do not appear hung while notifications dispatch.
+      void sendEventPublishedNotification(publishPayload, {
+        targetGroupIds: addedTargetGroupIds,
+        skipCooldown: true,
+      }).catch((error) => {
         if (isNotificationConfigurationError(error)) {
-          throw error;
+          console.error('PUT /events/:id new-target publish notification config error', error);
+          return;
         }
-        notificationWarning = 'Event saved, but invite notifications to newly added target groups failed.';
         console.error('PUT /events/:id new-target publish notification failed', error);
-      }
+      });
+
+      notificationWarning = 'Event saved. Invite notifications to newly added target groups are being sent in the background.';
     }
 
     const responsePayload = updated.recordset[0];

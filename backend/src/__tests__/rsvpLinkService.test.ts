@@ -2,7 +2,7 @@ import { buildMemberRsvpUrls, createRsvpToken, verifyRsvpToken } from '../servic
 
 describe('rsvpLinkService', () => {
   beforeEach(() => {
-    process.env['PUBLIC_API_BASE_URL'] = 'https://api.test.example';
+    process.env['FRONTEND_APP_URL'] = 'https://app.test.example';
   });
 
   it('builds one-click links with default participant role when role is not provided', () => {
@@ -11,10 +11,11 @@ describe('rsvpLinkService', () => {
       '00000000-0000-0000-0000-000000000202'
     );
 
-    expect(urls.yesUrl).toContain('/api/v1/events/rsvp/');
-    expect(urls.yesUrl).toContain('/respond?response=yes&role=PARTICIPANT');
-    expect(urls.waitlistUrl).toContain('/respond?response=waitlist&role=PARTICIPANT');
-    expect(urls.noUrl).toContain('/respond?response=no');
+    expect(urls.landingUrl).toContain('https://app.test.example/rsvp/');
+    expect(urls.yesUrl).toContain('/rsvp/');
+    expect(urls.yesUrl).toContain('?response=yes&role=PARTICIPANT');
+    expect(urls.waitlistUrl).toContain('?response=waitlist&role=PARTICIPANT');
+    expect(urls.noUrl).toContain('?response=no');
   });
 
   it('builds role-aware one-click links when preferred role is provided', () => {

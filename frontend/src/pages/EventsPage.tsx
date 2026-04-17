@@ -565,6 +565,7 @@ interface FormFieldErrors {
 
 function EventFormModal({ initial, groups, onSave, onGenerateAiDescriptionPreview, onGenerateAiDraftPreview, onCancel, saving, error, isEdit }: EventFormModalProps) {
   const [form, setForm] = useState<EventFormPayload>(initial)
+  const [endDateManuallyEdited, setEndDateManuallyEdited] = useState<boolean>(isEdit)
   const [fieldErrors, setFieldErrors] = useState<FormFieldErrors>({})
   const [aiTone, setAiTone] = useState<'friendly' | 'professional' | 'casual' | 'exciting'>('friendly')
   const [aiDescriptionLoading, setAiDescriptionLoading] = useState(false)
@@ -588,6 +589,26 @@ function EventFormModal({ initial, groups, onSave, onGenerateAiDescriptionPrevie
   function set(field: keyof EventFormPayload, value: string) {
     setForm(f => ({ ...f, [field]: value }))
     setFieldErrors(prev => ({ ...prev, [field]: undefined }))
+  }
+
+  function setDateTimeField(field: 'event_date' | 'end_date', date: string, time: string) {
+    const nextValue = joinDateTime(date, time)
+    if (field === 'end_date') {
+      setEndDateManuallyEdited(true)
+      set('end_date', nextValue)
+      return
+    }
+
+    setForm((current) => {
+      const next: EventFormPayload = { ...current, event_date: nextValue }
+      if (!endDateManuallyEdited) {
+        const currentEnd = splitDateTime(current.end_date)
+        const syncedEndTime = currentEnd.time || time
+        next.end_date = joinDateTime(date, syncedEndTime)
+      }
+      return next
+    })
+    setFieldErrors(prev => ({ ...prev, event_date: undefined, event_time: undefined, end_date: undefined }))
   }
 
   async function validateLocation(): Promise<void> {
@@ -763,12 +784,12 @@ function EventFormModal({ initial, groups, onSave, onGenerateAiDescriptionPrevie
 
   function handleTimeInput(field: 'event_date' | 'end_date', date: string, rawTime: string) {
     const typedTime = sanitizeTimeInput(rawTime)
-    set(field, joinDateTime(date, typedTime))
+    setDateTimeField(field, date, typedTime)
   }
 
   function handleDateInput(field: 'event_date' | 'end_date', rawDate: string, time: string) {
     const typedDate = normalizeDateInput(rawDate)
-    set(field, joinDateTime(typedDate, time))
+    setDateTimeField(field, typedDate, time)
   }
 
   function handleDateBlur(field: 'event_date' | 'end_date', rawDate: string, time: string) {
@@ -776,7 +797,7 @@ function EventFormModal({ initial, groups, onSave, onGenerateAiDescriptionPrevie
     if (!canonicalDate) {
       return
     }
-    set(field, joinDateTime(canonicalDate, time))
+    setDateTimeField(field, canonicalDate, time)
   }
 
   function handleTimeBlur(field: 'event_date' | 'end_date', date: string, rawTime: string) {
@@ -784,7 +805,7 @@ function EventFormModal({ initial, groups, onSave, onGenerateAiDescriptionPrevie
     if (!canonical) {
       return
     }
-    set(field, joinDateTime(date, canonical))
+    setDateTimeField(field, date, canonical)
   }
 
   async function handleSubmit() {
