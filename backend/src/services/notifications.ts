@@ -454,6 +454,30 @@ class NotificationService {
     });
   }
 
+  async writeNotificationAuditLog(entry: {
+    channel: NotificationChannel;
+    recipient: string;
+    eventId?: string;
+    memberId?: string;
+    templateId?: string;
+    operationType?: string;
+    operationReason?: string;
+    errorDetail?: string;
+    status?: NotificationStatus;
+  }): Promise<void> {
+    await this.writeNotificationLog({
+      channel: entry.channel,
+      recipient: entry.recipient,
+      status: entry.status ?? 'skipped',
+      eventId: entry.eventId,
+      memberId: entry.memberId,
+      templateId: entry.templateId,
+      operationType: entry.operationType,
+      operationReason: entry.operationReason,
+      errorDetail: entry.errorDetail,
+    });
+  }
+
   private async memberHasSmsOptIn(memberId: string): Promise<boolean> {
     try {
       const pool = await getPool();
@@ -1006,13 +1030,54 @@ async function sendEventPublishedNotification(
 
   let sentEmailCount = 0;
   let sentSmsCount = 0;
+  let skippedCount = 0;
+  const skipReasonCounts: Record<string, number> = {};
+
+  const recordSkip = async (
+    recipient: {
+      member_id: string;
+      email: string;
+      mobile_phone: string | null;
+    },
+    reason: string,
+    detail: string
+  ): Promise<void> => {
+    skippedCount += 1;
+    skipReasonCounts[reason] = (skipReasonCounts[reason] ?? 0) + 1;
+    const recipientValue = recipient.email?.trim() || recipient.mobile_phone?.trim() || `member:${recipient.member_id}`;
+    const channel: NotificationChannel = recipient.email?.trim() ? 'email' : 'sms';
+    await notificationService.writeNotificationAuditLog({
+      channel,
+      recipient: recipientValue,
+      eventId: payload.event_id,
+      memberId: recipient.member_id,
+      templateId: eventInviteTemplate.templateId,
+      operationType: 'event_published',
+      operationReason: `skip:${reason}`,
+      errorDetail: detail,
+      status: 'skipped',
+    });
+  };
 
   for (const recipient of recipientsResult.recordset) {
     const inferredRole = inferRoleFromGroupName(recipient.group_name);
     if (payload.invitation_stage === 'volunteer' && inferredRole !== 'MENTOR') {
+      await recordSkip(recipient, 'role_filter', 'Invitation stage is volunteer; recipient role is not mentor.');
       continue;
     }
     if (payload.invitation_stage === 'participant' && inferredRole !== 'PARTICIPANT') {
+      await recordSkip(recipient, 'role_filter', 'Invitation stage is participant; recipient role is not participant.');
+      continue;
+    }
+
+    const canEmail = Boolean(!recipient.email_opt_out && recipient.email);
+    const canSms = Boolean(recipient.mobile_phone && recipient.sms_opt_in);
+    if (!canEmail && !canSms) {
+      await recordSkip(
+        recipient,
+        'no_eligible_channel',
+        'Recipient has no eligible delivery channel (email opted out/missing and SMS not opted in or missing phone).'
+      );
       continue;
     }
 
@@ -1022,7 +1087,7 @@ async function sendEventPublishedNotification(
       recipient.group_context_id ?? undefined,
       inferredRole
     );
-    if (!recipient.email_opt_out && recipient.email) {
+    if (canEmail) {
       const renderedEmail = renderEmailTemplate(emailTemplateOverride, {
         subject: eventInviteTemplate.subjectTemplate ?? '',
         htmlBody: eventInviteTemplate.htmlBodyTemplate ?? '',
@@ -1041,9 +1106,9 @@ async function sendEventPublishedNotification(
       sentEmailCount += 1;
     }
 
-    if (recipient.mobile_phone && recipient.sms_opt_in) {
+    if (canSms) {
       await notificationService.sendSms({
-        to: recipient.mobile_phone,
+        to: recipient.mobile_phone as string,
         message: renderSmsTemplate(smsTemplateOverride, eventInviteTemplate.smsBodyTemplate ?? '', variables),
         templateId: eventInviteTemplate.templateId,
         memberId: recipient.member_id,
@@ -1053,6 +1118,11 @@ async function sendEventPublishedNotification(
       sentSmsCount += 1;
     }
   }
+
+  const skipSummary = Object.entries(skipReasonCounts)
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([reason, count]) => `${reason}:${count}`)
+    .join(', ');
 
   await sendCoordinatorSummaryEmail({
     eventLeadEmail: payload.event_lead_email,
@@ -1065,6 +1135,8 @@ async function sendEventPublishedNotification(
       `Invitation stage: ${payload.invitation_stage ?? 'both'}`,
       `Email recipients sent: ${sentEmailCount}`,
       `SMS recipients sent: ${sentSmsCount}`,
+      `Recipients skipped: ${skippedCount}`,
+      `Skip reasons: ${skipSummary || 'none'}`,
     ],
     operationType: 'event_published',
   });
