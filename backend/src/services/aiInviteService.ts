@@ -32,6 +32,19 @@ interface DescriptionPolishOutput {
   provider: 'azure-openai' | 'openai' | 'fallback';
 }
 
+interface AiInviteRuntimeStatus {
+  preferredProvider: 'azure-openai' | 'openai' | 'fallback';
+  azureConfigured: boolean;
+  openAiConfigured: boolean;
+  hasAnyProviderConfigured: boolean;
+  azureEndpointHost: string | null;
+  azureDeployment: string | null;
+  azureApiVersion: string;
+  openAiModel: string;
+  timeoutMs: number;
+  issues: string[];
+}
+
 interface OpenAiDraftResponse {
   subject?: unknown;
   email_body?: unknown;
@@ -53,6 +66,60 @@ interface AzureOpenAiChatResponse {
 const OPENAI_TIMEOUT_MS = 12_000;
 const MAX_DESCRIPTION_PROMPT_LENGTH = 1_500;
 const AZURE_OPENAI_API_VERSION = '2024-12-01-preview';
+
+function getAiInviteRuntimeStatus(): AiInviteRuntimeStatus {
+  const endpoint = process.env['AZURE_OPENAI_ENDPOINT']?.trim() || '';
+  const apiKey = process.env['AZURE_OPENAI_API_KEY']?.trim() || '';
+  const deployment = process.env['AZURE_OPENAI_DEPLOYMENT']?.trim() || '';
+  const apiVersion = process.env['AZURE_OPENAI_API_VERSION']?.trim() || AZURE_OPENAI_API_VERSION;
+  const openAiKey = process.env['OPENAI_API_KEY']?.trim() || '';
+  const openAiModel = process.env['OPENAI_MODEL']?.trim() || 'gpt-4.1-mini';
+
+  const azureConfigured = Boolean(endpoint && apiKey && deployment);
+  const openAiConfigured = Boolean(openAiKey);
+  const preferredProvider = azureConfigured
+    ? 'azure-openai'
+    : openAiConfigured
+      ? 'openai'
+      : 'fallback';
+
+  let azureEndpointHost: string | null = null;
+  if (endpoint) {
+    try {
+      azureEndpointHost = new URL(endpoint).host;
+    } catch {
+      azureEndpointHost = null;
+    }
+  }
+
+  const issues: string[] = [];
+  if (!azureConfigured) {
+    const missingAzure = [
+      !endpoint ? 'AZURE_OPENAI_ENDPOINT' : null,
+      !apiKey ? 'AZURE_OPENAI_API_KEY' : null,
+      !deployment ? 'AZURE_OPENAI_DEPLOYMENT' : null,
+    ].filter((value): value is string => Boolean(value));
+    if (missingAzure.length > 0) {
+      issues.push(`Missing Azure OpenAI settings: ${missingAzure.join(', ')}`);
+    }
+  }
+  if (!openAiConfigured) {
+    issues.push('OPENAI_API_KEY is not configured.');
+  }
+
+  return {
+    preferredProvider,
+    azureConfigured,
+    openAiConfigured,
+    hasAnyProviderConfigured: azureConfigured || openAiConfigured,
+    azureEndpointHost,
+    azureDeployment: deployment || null,
+    azureApiVersion: apiVersion,
+    openAiModel,
+    timeoutMs: OPENAI_TIMEOUT_MS,
+    issues,
+  };
+}
 
 function normalizeForComparison(value: string): string {
   return value
@@ -697,5 +764,5 @@ async function generateDescriptionDraft(input: DescriptionPolishInput): Promise<
   }
 }
 
-export { generateInviteDraft, generateDescriptionDraft };
-export type { InviteDraftInput, InviteDraftOutput, DescriptionPolishInput, DescriptionPolishOutput };
+export { generateInviteDraft, generateDescriptionDraft, getAiInviteRuntimeStatus };
+export type { InviteDraftInput, InviteDraftOutput, DescriptionPolishInput, DescriptionPolishOutput, AiInviteRuntimeStatus };

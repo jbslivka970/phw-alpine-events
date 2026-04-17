@@ -4,6 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import { getPool } from '../db';
 import { loadAcsConfig, loadAuthConfig, loadTelnyxSmsConfig, loadTwilioSmsConfig } from '../config';
+import { getAiInviteRuntimeStatus } from '../services/aiInviteService';
 import { getNotificationRuntimeStatus } from '../services/notifications';
 
 const router = Router();
@@ -209,6 +210,7 @@ router.get('/startup', async (_req: Request, res: Response) => {
   const acsConfig = loadAcsConfig();
   const telnyxSmsConfig = loadTelnyxSmsConfig();
   const twilioSmsConfig = loadTwilioSmsConfig();
+  const aiInviteRuntimeStatus = getAiInviteRuntimeStatus();
   const notificationStatus = getNotificationRuntimeStatus();
   const telemetryConfigured = Boolean(
     process.env['APPINSIGHTS_INSTRUMENTATIONKEY'] || process.env['APPLICATIONINSIGHTS_CONNECTION_STRING']
@@ -238,6 +240,16 @@ router.get('/startup', async (_req: Request, res: Response) => {
       notificationStrictModeEnabled: notificationStatus.strictModeEnabled,
       emailNotificationChannel: notificationStatus.emailServiceMode,
       smsNotificationChannel: notificationStatus.smsServiceMode,
+      aiInvitePreferredProvider: aiInviteRuntimeStatus.preferredProvider,
+      aiInviteAnyProviderConfigured: aiInviteRuntimeStatus.hasAnyProviderConfigured,
+      aiInviteAzureConfigured: aiInviteRuntimeStatus.azureConfigured,
+      aiInviteOpenAiConfigured: aiInviteRuntimeStatus.openAiConfigured,
+      aiInviteAzureEndpointHost: aiInviteRuntimeStatus.azureEndpointHost,
+      aiInviteAzureDeployment: aiInviteRuntimeStatus.azureDeployment,
+      aiInviteAzureApiVersion: aiInviteRuntimeStatus.azureApiVersion,
+      aiInviteOpenAiModel: aiInviteRuntimeStatus.openAiModel,
+      aiInviteTimeoutMs: aiInviteRuntimeStatus.timeoutMs,
+      aiInviteIssues: aiInviteRuntimeStatus.issues,
       telemetryConfigured,
       keyVaultReferencesConfigured,
       requireKeyVaultReferences,
@@ -254,6 +266,7 @@ router.get('/startup', async (_req: Request, res: Response) => {
           ? ['TELNYX_API_KEY/TELNYX_MESSAGING_PROFILE_ID_OR_TELNYX_FROM_NUMBER (or TWILIO_ACCOUNT_SID/TWILIO_AUTH_TOKEN/TWILIO_MESSAGING_SERVICE_SID)']
           : []),
         ...(!telemetryConfigured ? ['APPINSIGHTS_INSTRUMENTATIONKEY_OR_APPLICATIONINSIGHTS_CONNECTION_STRING'] : []),
+        ...(!aiInviteRuntimeStatus.hasAnyProviderConfigured ? ['AZURE_OPENAI_ENDPOINT/AZURE_OPENAI_API_KEY/AZURE_OPENAI_DEPLOYMENT or OPENAI_API_KEY'] : []),
       ],
       notifications: notificationStatus.reasons,
       keyVault: keyVaultCheck.missing,
