@@ -6,14 +6,30 @@ import { chromium } from 'playwright';
 const args = new Set(process.argv.slice(2));
 const softSkip = args.has('--soft-skip');
 const tokenEnvFile = (process.env.PW_TOKEN_ENV_FILE || '').trim();
-const perRoleTimeoutMs = Number.parseInt(process.env.PW_REFRESH_ROLE_TIMEOUT_MS || '120000', 10);
+const perRoleTimeoutMs = Number.parseInt(process.env.PW_REFRESH_ROLE_TIMEOUT_MS || '180000', 10);
 const maxRefreshAttempts = Number.parseInt(
-  process.env.PW_REFRESH_MAX_ATTEMPTS || (process.env.CI ? '1' : '2'),
+  process.env.PW_REFRESH_MAX_ATTEMPTS || (process.env.CI ? '2' : '2'),
   10,
 );
 const postLoginTimeoutMs = Number.isFinite(perRoleTimeoutMs) && perRoleTimeoutMs > 0
   ? Math.max(90_000, perRoleTimeoutMs - 10_000)
   : 90_000;
+
+/* ── ROPC (Resource Owner Password Credentials) configuration ─────────── */
+const ropcPolicy = (process.env.AZURE_B2C_ROPC_POLICY || '').trim();
+const azureTenantName = (
+  process.env.AZURE_EXTERNAL_TENANT_NAME ||
+  process.env.AZURE_AD_B2C_TENANT_NAME ||
+  ''
+).trim();
+const azureTenantId = (
+  process.env.AZURE_EXTERNAL_TENANT_ID ||
+  process.env.AZURE_TENANT_ID ||
+  ''
+).trim();
+const azureClientId = (process.env.AZURE_CLIENT_ID || '').trim();
+const azureAuthorityHost = (process.env.AZURE_AUTHORITY_HOST || 'b2clogin.com').trim();
+const ropcEnabled = Boolean(ropcPolicy && azureTenantName && azureClientId);
 
 const appUrl = (process.env.E2E_APP_URL || '').trim().replace(/\/$/, '');
 const authDir = path.resolve(process.cwd(), 'tests/e2e/.auth');
@@ -41,6 +57,150 @@ const roles = [
     statePath: path.join(authDir, 'admin.json'),
   },
 ];
+
+/* ── ROPC token acquisition (no browser, single HTTP POST) ────────────── */
+
+function decodeJwtPayload(jwt) {
+  try {
+    const parts = jwt.split('.');
+    if (parts.length !== 3) return {};
+    const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    return JSON.parse(Buffer.from(base64, 'base64').toString('utf8'));
+  } catch {
+    return {};
+  }
+}
+
+async function acquireTokenByROPC(role) {
+  if (!ropcEnabled) return null;
+
+  const isCiam = azureAuthorityHost.includes('ciamlogin');
+  const tokenUrl = isCiam
+    ? `https://${azureTenantName}.${azureAuthorityHost}/${azureTenantId}/oauth2/v2.0/token`
+    : `https://${azureTenantName}.${azureAuthorityHost}/${azureTenantName}.onmicrosoft.com/${ropcPolicy}/oauth2/v2.0/token`;
+
+  const body = new URLSearchParams({
+    grant_type: 'password',
+    client_id: azureClientId,
+    scope: `openid profile email ${azureClientId} offline_access`,
+    username: role.username,
+    password: role.password,
+  });
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 30_000);
+
+  try {
+    const resp = await fetch(tokenUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body.toString(),
+      signal: controller.signal,
+    });
+
+    if (!resp.ok) {
+      const text = await resp.text();
+      throw new Error(`ROPC ${resp.status}: ${text.slice(0, 500)}`);
+    }
+
+    const data = await resp.json();
+    return {
+      accessToken: data.access_token,
+      idToken: data.id_token ?? null,
+      expiresIn: data.expires_in ?? 3600,
+      scope: data.scope ?? '',
+    };
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+/**
+ * Build a Playwright storageState JSON with MSAL-compatible cache entries
+ * so that browser tests can start in an authenticated state without
+ * performing an interactive login.
+ */
+function buildSyntheticStorageState(ropcResult, appOrigin) {
+  const idClaims = ropcResult.idToken ? decodeJwtPayload(ropcResult.idToken) : {};
+  const accessClaims = decodeJwtPayload(ropcResult.accessToken);
+
+  const oid = idClaims.oid || accessClaims.oid || accessClaims.sub || 'unknown';
+  const tid = idClaims.tid || accessClaims.tid || azureTenantId || '';
+  const issuer = idClaims.iss || accessClaims.iss || '';
+  const environment = issuer ? (() => { try { return new URL(issuer).hostname; } catch { return azureAuthorityHost; } })() : azureAuthorityHost;
+  const username = idClaims.preferred_username || idClaims.email || idClaims.emails?.[0] || '';
+  const name = idClaims.name || '';
+
+  const homeAccountId = `${oid}.${tid}`;
+  const realm = tid;
+  const clientInfo = Buffer.from(JSON.stringify({ uid: oid, utid: tid })).toString('base64url');
+  const now = Math.floor(Date.now() / 1000);
+  const expiresOn = now + (ropcResult.expiresIn || 3600);
+  const target = ropcResult.scope || `openid profile email ${azureClientId}`;
+
+  const accountKey = `${homeAccountId}-${environment}-${realm}`;
+  const accessTokenKey = `${homeAccountId}-${environment}-accesstoken-${azureClientId}-${realm}-${target}`;
+  const idTokenKey = `${homeAccountId}-${environment}-idtoken-${azureClientId}-${realm}`;
+
+  const entries = [
+    {
+      name: accountKey,
+      value: JSON.stringify({
+        homeAccountId,
+        environment,
+        realm,
+        localAccountId: oid,
+        username,
+        name,
+        authorityType: 'MSSTS',
+        clientInfo,
+      }),
+    },
+    {
+      name: accessTokenKey,
+      value: JSON.stringify({
+        homeAccountId,
+        environment,
+        credentialType: 'AccessToken',
+        clientId: azureClientId,
+        secret: ropcResult.accessToken,
+        realm,
+        target,
+        cachedAt: String(now),
+        expiresOn: String(expiresOn),
+        extendedExpiresOn: String(expiresOn + 3600),
+        tokenType: 'Bearer',
+      }),
+    },
+  ];
+
+  if (ropcResult.idToken) {
+    entries.push({
+      name: idTokenKey,
+      value: JSON.stringify({
+        homeAccountId,
+        environment,
+        credentialType: 'IdToken',
+        clientId: azureClientId,
+        secret: ropcResult.idToken,
+        realm,
+      }),
+    });
+  }
+
+  // Active account marker so MSAL knows which account to use
+  entries.push({
+    name: `msal.${azureClientId}.active-account`,
+    value: accountKey,
+  });
+
+  return {
+    cookies: [],
+    origins: [{ origin: appOrigin, localStorage: entries }],
+  };
+}
+
+/* ── Browser-based login helpers (fallback when ROPC unavailable) ─────── */
 
 async function loginAndCaptureWithTimeout(role) {
   if (!Number.isFinite(perRoleTimeoutMs) || perRoleTimeoutMs <= 0) {
@@ -261,7 +421,7 @@ async function completePasswordStep(authPage, password) {
   return false;
 }
 
-async function loginAndCapture({ username, password, statePath }) {
+async function loginAndCapture({ username, password, name, statePath }) {
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext();
   const page = await context.newPage();
@@ -374,6 +534,16 @@ async function loginAndCapture({ username, password, statePath }) {
 
     await context.storageState({ path: statePath });
     return token;
+  } catch (loginError) {
+    // Capture debug screenshot on failure for CI artifact upload
+    const screenshotPath = path.join(authDir, `${name || 'unknown'}-failure.png`);
+    try {
+      await page.screenshot({ path: screenshotPath, fullPage: true });
+      console.warn(`[refresh-playwright-tokens] saved failure screenshot: ${screenshotPath}`);
+    } catch {
+      // Ignore screenshot capture failure
+    }
+    throw loginError;
   } finally {
     await context.close();
     await browser.close();
@@ -411,26 +581,56 @@ async function main() {
     return;
   }
 
+  if (ropcEnabled) {
+    console.log('[refresh-playwright-tokens] ROPC is configured — will try direct token acquisition first.');
+  } else {
+    console.log('[refresh-playwright-tokens] ROPC not configured — using browser login. Set AZURE_B2C_ROPC_POLICY, AZURE_CLIENT_ID, and AZURE_*_TENANT_NAME to enable ROPC.');
+  }
+
   let refreshedCount = 0;
   for (const role of configuredRoles) {
-    console.log(`[refresh-playwright-tokens] logging in ${role.name}...`);
-    try {
-      const token = await loginAndCaptureWithTimeout({
-        username: role.username,
-        password: role.password,
-        name: role.name,
-        statePath: role.statePath,
-      });
+    console.log(`[refresh-playwright-tokens] refreshing ${role.name}...`);
+
+    // ── Strategy 1: ROPC (fast, no browser) ──────────────────────────────
+    let token = null;
+    if (ropcEnabled) {
+      try {
+        const ropcResult = await acquireTokenByROPC(role);
+        if (ropcResult) {
+          token = ropcResult.accessToken;
+          const storageState = buildSyntheticStorageState(ropcResult, appUrl);
+          fs.writeFileSync(role.statePath, JSON.stringify(storageState, null, 2), 'utf8');
+          console.log(`[refresh-playwright-tokens] ${role.name}: acquired via ROPC (no browser needed)`);
+        }
+      } catch (ropcError) {
+        const reason = ropcError instanceof Error ? ropcError.message : String(ropcError);
+        console.warn(`[refresh-playwright-tokens] ${role.name}: ROPC failed, falling back to browser: ${reason}`);
+      }
+    }
+
+    // ── Strategy 2: Browser login (fallback) ─────────────────────────────
+    if (!token) {
+      try {
+        token = await loginAndCaptureWithTimeout({
+          username: role.username,
+          password: role.password,
+          name: role.name,
+          statePath: role.statePath,
+        });
+        console.log(`[refresh-playwright-tokens] ${role.name}: acquired via browser login`);
+      } catch (error) {
+        if (!softSkip) {
+          throw error;
+        }
+        const reason = error instanceof Error ? error.message : String(error);
+        console.warn(`[refresh-playwright-tokens] skipped ${role.name}: ${reason}`);
+      }
+    }
+
+    if (token) {
       exportToken(role.tokenEnv, token);
       refreshedCount += 1;
-      console.log(`[refresh-playwright-tokens] refreshed ${role.tokenEnv} and wrote ${path.relative(process.cwd(), role.statePath)}`);
-    } catch (error) {
-      if (!softSkip) {
-        throw error;
-      }
-
-      const reason = error instanceof Error ? error.message : String(error);
-      console.warn(`[refresh-playwright-tokens] skipped ${role.name}: ${reason}`);
+      console.log(`[refresh-playwright-tokens] refreshed ${role.tokenEnv} → ${path.relative(process.cwd(), role.statePath)}`);
     }
   }
 
