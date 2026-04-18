@@ -550,7 +550,7 @@ async function generateWithAzureOpenAi(input: InviteDraftInput): Promise<InviteD
       { role: 'system', content: prompt.system },
       { role: 'user', content: prompt.user },
     ],
-    max_tokens: 450,
+    max_completion_tokens: 450,
     temperature: 0.4,
     response_format: { type: 'json_object' },
   };
@@ -643,7 +643,7 @@ async function generateDescriptionWithAzureOpenAi(input: DescriptionPolishInput)
       { role: 'system', content: prompt.system },
       { role: 'user', content: prompt.user },
     ],
-    max_tokens: 450,
+    max_completion_tokens: 450,
     temperature: 0.45,
     response_format: { type: 'json_object' },
   };

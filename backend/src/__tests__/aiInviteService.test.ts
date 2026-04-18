@@ -1,4 +1,4 @@
-import { generateInviteDraft } from '../services/aiInviteService';
+import { generateDescriptionDraft, generateInviteDraft } from '../services/aiInviteService';
 
 describe('aiInviteService', () => {
   const originalEnv = process.env;
@@ -74,6 +74,10 @@ describe('aiInviteService', () => {
         }),
       })
     );
+    const fetchCall = (global.fetch as jest.Mock).mock.calls[0]?.[1] as { body?: string } | undefined;
+    const requestBody = fetchCall?.body ? JSON.parse(fetchCall.body) : null;
+    expect(requestBody?.max_completion_tokens).toBe(450);
+    expect(requestBody?.max_tokens).toBeUndefined();
     expect(draft).toMatchObject({
       subject: 'Casting Clinic Invitation',
       emailBody: 'Email body',
@@ -174,5 +178,40 @@ describe('aiInviteService', () => {
     });
 
     expect(draft.provider).toBe('fallback');
+  });
+
+  it('returns parsed Azure OpenAI JSON for description polish with completion token field', async () => {
+    process.env.AZURE_OPENAI_ENDPOINT = 'https://phw-openai.openai.azure.com';
+    process.env.AZURE_OPENAI_API_KEY = 'azure-test-key';
+    process.env.AZURE_OPENAI_DEPLOYMENT = 'gpt-4.1-mini';
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                polished_description: 'Polished river description.',
+              }),
+            },
+          },
+        ],
+      }),
+    }) as typeof fetch;
+
+    const draft = await generateDescriptionDraft({
+      eventTitle: 'Casting Clinic',
+      eventDate: '2026-06-01T18:00:00.000Z',
+      location: 'Boulder Creek',
+      description: 'rough notes',
+      tone: 'friendly',
+    });
+
+    const fetchCall = (global.fetch as jest.Mock).mock.calls[0]?.[1] as { body?: string } | undefined;
+    const requestBody = fetchCall?.body ? JSON.parse(fetchCall.body) : null;
+    expect(requestBody?.max_completion_tokens).toBe(450);
+    expect(requestBody?.max_tokens).toBeUndefined();
+    expect(draft.provider).toBe('azure-openai');
+    expect(draft.polishedDescription).toBe('Polished river description.');
   });
 });
