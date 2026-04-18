@@ -9,6 +9,9 @@ import { eventInviteTemplate } from '../templates/eventInvite';
 import { eventThankYouTemplate } from '../templates/eventThankYou';
 import { eventUpdateTemplate } from '../templates/eventUpdate';
 import { rsvpConfirmationTemplate } from '../templates/rsvpConfirmation';
+import { rsvpWaitlistedTemplate } from '../templates/rsvpWaitlisted';
+import { assignmentConfirmationTemplate } from '../templates/assignmentConfirmation';
+import { assignmentAdminAddedTemplate } from '../templates/assignmentAdminAdded';
 import { waitlistPromotionTemplate } from '../templates/waitlistPromotion';
 import { buildMemberEmailUnsubscribeUrl } from './emailPreferenceLinkService';
 import { buildMemberRsvpUrls, type ResponseRole } from './rsvpLinkService';
@@ -1505,12 +1508,8 @@ function sendRsvpConfirmation(payload: RsvpNotificationPayload): void {
         htmlBody: rsvpConfirmationTemplate.htmlBodyTemplate ?? '',
         textBody: rsvpConfirmationTemplate.textBodyTemplate ?? '',
       }, variables);
-      const coordinatorCc = shouldCcCoordinatorForRsvp(payload.rsvpStatus)
-        ? buildEventLeadCc(payload.eventLeadEmail, payload.recipientEmail)
-        : [];
       await notificationService.sendEmail({
         to: payload.recipientEmail,
-        cc: coordinatorCc,
         subject: renderedEmail.subject,
         htmlBody: renderedEmail.htmlBody,
         textBody: renderedEmail.textBody,
@@ -1533,6 +1532,147 @@ function sendRsvpConfirmation(payload: RsvpNotificationPayload): void {
     }
   })().catch((error) => {
     console.error('[NotificationService] Failed to send RSVP confirmation', {
+      memberId: payload.memberId,
+      eventId: payload.eventId,
+      error,
+    });
+  });
+}
+
+interface AssignmentNotificationPayload {
+  eventId: string;
+  eventTitle: string;
+  eventDate: string;
+  memberId: string;
+  firstName: string;
+  role: string;
+  recipientEmail?: string;
+  recipientPhone?: string;
+  smsOptIn?: boolean;
+  hadRsvp: boolean;
+}
+
+function sendAssignmentConfirmation(payload: AssignmentNotificationPayload): void {
+  void (async () => {
+    const template = payload.hadRsvp ? assignmentConfirmationTemplate : assignmentAdminAddedTemplate;
+    const variables = {
+      firstName: payload.firstName ?? 'Member',
+      eventName: payload.eventTitle,
+      eventDate: payload.eventDate ?? 'TBD',
+      role: payload.role === 'MENTOR' ? 'Mentor' : 'Participant',
+    };
+
+    if (!payload.recipientEmail && !payload.recipientPhone) {
+      console.log('[STUB] sendAssignmentConfirmation skipped (no recipient)', payload);
+      return;
+    }
+
+    const useRuntimeOverrides = process.env.NODE_ENV !== 'test';
+    const [emailTemplateOverride, smsTemplateOverride] = useRuntimeOverrides
+      ? await Promise.all([
+          getActiveTemplateOverride(template.displayName, 'email'),
+          getActiveTemplateOverride(template.displayName, 'sms'),
+        ])
+      : [null, null];
+
+    if (payload.recipientEmail) {
+      const renderedEmail = renderEmailTemplate(emailTemplateOverride, {
+        subject: template.subjectTemplate ?? '',
+        htmlBody: template.htmlBodyTemplate ?? '',
+        textBody: template.textBodyTemplate ?? '',
+      }, variables);
+      await notificationService.sendEmail({
+        to: payload.recipientEmail,
+        subject: renderedEmail.subject,
+        htmlBody: renderedEmail.htmlBody,
+        textBody: renderedEmail.textBody,
+        templateId: template.templateId,
+        memberId: payload.memberId,
+        eventId: payload.eventId,
+        operationType: 'assignment_confirmation',
+      });
+    }
+
+    if (payload.recipientPhone && payload.smsOptIn) {
+      await notificationService.sendSms({
+        to: payload.recipientPhone,
+        message: renderSmsTemplate(smsTemplateOverride, template.smsBodyTemplate ?? '', variables),
+        templateId: template.templateId,
+        memberId: payload.memberId,
+        eventId: payload.eventId,
+        operationType: 'assignment_confirmation',
+      });
+    }
+  })().catch((error) => {
+    console.error('[NotificationService] Failed to send assignment confirmation', {
+      memberId: payload.memberId,
+      eventId: payload.eventId,
+      error,
+    });
+  });
+}
+
+interface RsvpWaitlistedPayload {
+  eventId: string;
+  eventTitle: string;
+  eventDate: string;
+  memberId: string;
+  firstName: string;
+  recipientEmail?: string;
+  recipientPhone?: string;
+}
+
+function sendRsvpWaitlisted(payload: RsvpWaitlistedPayload): void {
+  void (async () => {
+    const variables = {
+      firstName: payload.firstName ?? 'Member',
+      eventName: payload.eventTitle,
+      eventDate: payload.eventDate ?? 'TBD',
+    };
+
+    if (!payload.recipientEmail && !payload.recipientPhone) {
+      console.log('[STUB] sendRsvpWaitlisted skipped (no recipient)', payload);
+      return;
+    }
+
+    const useRuntimeOverrides = process.env.NODE_ENV !== 'test';
+    const [emailTemplateOverride, smsTemplateOverride] = useRuntimeOverrides
+      ? await Promise.all([
+          getActiveTemplateOverride(rsvpWaitlistedTemplate.displayName, 'email'),
+          getActiveTemplateOverride(rsvpWaitlistedTemplate.displayName, 'sms'),
+        ])
+      : [null, null];
+
+    if (payload.recipientEmail) {
+      const renderedEmail = renderEmailTemplate(emailTemplateOverride, {
+        subject: rsvpWaitlistedTemplate.subjectTemplate ?? '',
+        htmlBody: rsvpWaitlistedTemplate.htmlBodyTemplate ?? '',
+        textBody: rsvpWaitlistedTemplate.textBodyTemplate ?? '',
+      }, variables);
+      await notificationService.sendEmail({
+        to: payload.recipientEmail,
+        subject: renderedEmail.subject,
+        htmlBody: renderedEmail.htmlBody,
+        textBody: renderedEmail.textBody,
+        templateId: rsvpWaitlistedTemplate.templateId,
+        memberId: payload.memberId,
+        eventId: payload.eventId,
+        operationType: 'rsvp_waitlisted',
+      });
+    }
+
+    if (payload.recipientPhone) {
+      await notificationService.sendSms({
+        to: payload.recipientPhone,
+        message: renderSmsTemplate(smsTemplateOverride, rsvpWaitlistedTemplate.smsBodyTemplate ?? '', variables),
+        templateId: rsvpWaitlistedTemplate.templateId,
+        memberId: payload.memberId,
+        eventId: payload.eventId,
+        operationType: 'rsvp_waitlisted',
+      });
+    }
+  })().catch((error) => {
+    console.error('[NotificationService] Failed to send RSVP waitlisted notification', {
       memberId: payload.memberId,
       eventId: payload.eventId,
       error,
@@ -2186,6 +2326,8 @@ export {
   sendEventPublishedNotification,
   sendEventUpdatedNotification,
   sendRsvpConfirmation,
+  sendRsvpWaitlisted,
+  sendAssignmentConfirmation,
   sendWaitlistPromotionNotification,
   StubEmailService,
   StubSmsService,

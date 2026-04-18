@@ -1,5 +1,5 @@
 import { getPool, sql } from '../db';
-import { sendRsvpConfirmation, sendWaitlistPromotionNotification } from './notifications';
+import { sendRsvpConfirmation, sendRsvpWaitlisted, sendWaitlistPromotionNotification } from './notifications';
 import { formatInProgramTimeZone } from '../utils/dateTime';
 
 const VALID_RESPONSES = ['yes', 'no', 'maybe', 'waitlist'] as const;
@@ -292,32 +292,16 @@ async function recordRsvpResponse(options: {
 
   if (finalResponse === 'yes' && roleCapacity && roleCapacity > 0) {
     if (!isDuplicateSubmission) {
-      const countResult = await pool
+      const assignedCountResult = await pool
         .request()
         .input('event_id', sql.UniqueIdentifier, options.eventId)
-        .input('member_id', sql.UniqueIdentifier, options.memberId)
-        .input('response_role', sql.NVarChar, responseRole)
-        .query<{ yes_count: number }>(
-          "SELECT COUNT(*) AS yes_count FROM event_response WHERE event_id = @event_id AND response = 'yes' AND response_role = @response_role AND member_id <> @member_id"
-        );
-      const yesCount = countResult.recordset[0]?.yes_count ?? 0;
-
-      const reservationResult = await pool
-        .request()
-        .input('event_id', sql.UniqueIdentifier, options.eventId)
-        .input('member_id', sql.UniqueIdentifier, options.memberId)
         .input('role', sql.NVarChar, responseRole)
-        .query<{ reserved_count: number; has_active_offer: number }>(
-          `SELECT
-          SUM(CASE WHEN status = 'offered' AND expires_at > GETUTCDATE() AND role = @role AND member_id <> @member_id THEN 1 ELSE 0 END) AS reserved_count,
-          SUM(CASE WHEN status = 'offered' AND expires_at > GETUTCDATE() AND role = @role AND member_id = @member_id THEN 1 ELSE 0 END) AS has_active_offer
-           FROM waitlist_promotion_offer
-           WHERE event_id = @event_id`
+        .query<{ assigned_count: number }>(
+          "SELECT COUNT(*) AS assigned_count FROM event_assignment WHERE event_id = @event_id AND role = @role"
         );
+      const assignedCount = assignedCountResult.recordset[0]?.assigned_count ?? 0;
 
-      const reservedCount = reservationResult.recordset[0]?.reserved_count ?? 0;
-      const hasActiveOffer = (reservationResult.recordset[0]?.has_active_offer ?? 0) > 0;
-      if (yesCount + reservedCount >= roleCapacity && !hasActiveOffer) {
+      if (assignedCount >= roleCapacity) {
         finalResponse = 'waitlist';
         isDuplicateSubmission = Boolean(
           existingResponse &&
@@ -388,17 +372,29 @@ async function recordRsvpResponse(options: {
 
   const member = memberResult.recordset[0];
   if (member && !isDuplicateSubmission) {
-    sendRsvpConfirmation({
-      eventId: event.event_id,
-      eventTitle: event.title,
-      eventDate: formatInProgramTimeZone(event.event_date),
-      firstName: member.first_name,
-      memberId: options.memberId,
-      rsvpStatus: finalResponse,
-      recipientEmail: member.email ?? undefined,
-      recipientPhone: member.sms_opt_in ? (member.mobile_phone ?? undefined) : undefined,
+    if (finalResponse === 'waitlist') {
+      sendRsvpWaitlisted({
+        eventId: event.event_id,
+        eventTitle: event.title,
+        eventDate: formatInProgramTimeZone(event.event_date),
+        firstName: member.first_name,
+        memberId: options.memberId,
+        recipientEmail: member.email ?? undefined,
+        recipientPhone: member.sms_opt_in ? (member.mobile_phone ?? undefined) : undefined,
+      });
+    } else {
+      sendRsvpConfirmation({
+        eventId: event.event_id,
+        eventTitle: event.title,
+        eventDate: formatInProgramTimeZone(event.event_date),
+        firstName: member.first_name,
+        memberId: options.memberId,
+        rsvpStatus: finalResponse,
+        recipientEmail: member.email ?? undefined,
+        recipientPhone: member.sms_opt_in ? (member.mobile_phone ?? undefined) : undefined,
         eventLeadEmail: event.event_lead_email ?? undefined,
-    });
+      });
+    }
   }
 
   await reconcileWaitlistOfferForMember(options.eventId, options.memberId, finalResponse, responseRole);

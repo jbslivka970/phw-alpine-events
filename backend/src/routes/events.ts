@@ -11,6 +11,7 @@ import {
   assertEventPublishedNotificationReady,
   assertEventUpdatedNotificationReady,
   notificationService,
+  sendAssignmentConfirmation,
   sendEventCancelledNotification,
   sendEventCompletedNotification,
   sendEventPublishedNotification,
@@ -19,6 +20,7 @@ import {
 import { inferResponseRoleForMember, recordRsvpResponse, RsvpError, VALID_RESPONSES, type RsvpResponse } from '../services/rsvpService';
 import { verifyRsvpToken } from '../services/rsvpLinkService';
 import { generateDescriptionDraft, generateInviteDraft } from '../services/aiInviteService';
+import { formatInProgramTimeZone } from '../utils/dateTime';
 
 const router = Router();
 
@@ -2107,6 +2109,41 @@ router.post('/:id/assignments', writeLimiter, authenticate, requireEventCreatorO
          OUTPUT INSERTED.*
          VALUES (NEWID(), @event_id, @member_id, @role, GETUTCDATE(), NULL)`
       );
+
+    // Send assignment confirmation notification
+    const [eventRow, memberRow, rsvpRow] = await Promise.all([
+      pool.request()
+        .input('event_id', sql.UniqueIdentifier, req.params.id)
+        .query<{ title: string; event_date: Date }>('SELECT title, event_date FROM event WHERE event_id = @event_id'),
+      pool.request()
+        .input('member_id', sql.UniqueIdentifier, memberId)
+        .query<{ first_name: string; email: string | null; mobile_phone: string | null; sms_opt_in: boolean }>(
+          'SELECT first_name, email, mobile_phone, sms_opt_in FROM member WHERE member_id = @member_id'
+        ),
+      pool.request()
+        .input('event_id', sql.UniqueIdentifier, req.params.id)
+        .input('member_id', sql.UniqueIdentifier, memberId)
+        .query<{ response: string }>('SELECT TOP 1 response FROM event_response WHERE event_id = @event_id AND member_id = @member_id'),
+    ]);
+
+    const event = eventRow.recordset[0];
+    const member = memberRow.recordset[0];
+    const hadRsvp = (rsvpRow.recordset[0]?.response ?? '') !== '';
+
+    if (event && member) {
+      sendAssignmentConfirmation({
+        eventId: req.params.id,
+        eventTitle: event.title,
+        eventDate: formatInProgramTimeZone(event.event_date),
+        memberId,
+        firstName: member.first_name,
+        role,
+        recipientEmail: member.email ?? undefined,
+        recipientPhone: member.mobile_phone ?? undefined,
+        smsOptIn: member.sms_opt_in,
+        hadRsvp,
+      });
+    }
 
     res.status(201).json(result.recordset[0]);
   } catch (error) {

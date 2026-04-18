@@ -16,7 +16,7 @@ const waitlistPromotionTemplate: NotificationTemplate = {
         <a href="{{noUrl}}" style="display:inline-block;padding:10px 14px;border-radius:999px;background:#721c24;color:#ffffff;text-decoration:none;">Pass</a>
       </p>
       <p>If we do not hear back by the deadline, we will offer the spot to the next person on the waitlist.</p>
-      <p style="margin-top:20px;">Project Healing Waters Fly Fishing - Colorado Alpine Chapter</p>
+      <p style="margin-top:20px;">PHW Colorado Alpine</p>
     </div>
   `,
   textBodyTemplate:

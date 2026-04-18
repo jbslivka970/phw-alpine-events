@@ -9,7 +9,7 @@ const eventThankYouTemplate: NotificationTemplate = {
     <div style="font-family:Segoe UI,Arial,sans-serif;line-height:1.6;color:#1f2937;max-width:640px;margin:0 auto;">
       <p>Hi {{firstName}},</p>
       <p>Thank you for taking part in <strong>{{eventTitle}}</strong>.</p>
-      <p>We appreciate your support and the time you gave to the chapter community.</p>
+      <p>We appreciate your support and the time you gave to the program community.</p>
       <div style="border:1px solid #dbe3ee;border-radius:10px;padding:12px 14px;background:#f8fbff;">
         <p style="margin:0 0 6px 0;"><strong>Event:</strong> {{eventTitle}}</p>
         <p style="margin:0 0 6px 0;"><strong>Date:</strong> {{eventDate}}</p>
@@ -18,11 +18,11 @@ const eventThankYouTemplate: NotificationTemplate = {
       <p style="margin:14px 0 0;">{{description}}</p>
       <p style="margin:16px 0 0;">You can review upcoming outings any time in the events calendar.</p>
       <p style="margin:16px 0 0;"><a href="{{rsvpUrl}}">View events</a></p>
-      <p style="margin:18px 0 0;">Project Healing Waters Fly Fishing - Colorado Alpine Chapter</p>
+      <p style="margin:18px 0 0;">PHW Colorado Alpine</p>
     </div>
   `,
   textBodyTemplate:
-    'Hi {{firstName}},\n\nThank you for joining {{eventTitle}}.\nDate: {{eventDate}}\nLocation: {{location}}\n\n{{description}}\n\nSee upcoming events: {{rsvpUrl}}\n\nProject Healing Waters Fly Fishing - Colorado Alpine Chapter',
+    'Hi {{firstName}},\n\nThank you for joining {{eventTitle}}.\nDate: {{eventDate}}\nLocation: {{location}}\n\n{{description}}\n\nSee upcoming events: {{rsvpUrl}}\n\nPHW Colorado Alpine',
   smsBodyTemplate:
     'PHW Alpine: Thanks for joining {{eventTitle}} at {{location}}. More events: {{rsvpUrl}} Reply STOP to opt out',
   variables: [

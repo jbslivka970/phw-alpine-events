@@ -11,7 +11,7 @@ const eventCancellationTemplate: NotificationTemplate = {
       <p>We need to let you know that <strong>{{eventTitle}}</strong> scheduled for <strong>{{eventDate}}</strong> has been cancelled.</p>
       <p>Location: {{location}}</p>
       <p>Please watch for updates on future events.</p>
-      <p style="margin-top:20px;">Project Healing Waters Fly Fishing — Colorado Alpine Chapter</p>
+      <p style="margin-top:20px;">PHW Colorado Alpine</p>
     </div>
   `,
   textBodyTemplate:

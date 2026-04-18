@@ -1,6 +1,6 @@
 import { getPool } from '../db';
 import { recordRsvpResponse } from '../services/rsvpService';
-import { sendRsvpConfirmation, sendWaitlistPromotionNotification } from '../services/notifications';
+import { sendRsvpConfirmation, sendRsvpWaitlisted, sendWaitlistPromotionNotification } from '../services/notifications';
 
 jest.mock('../db', () => ({
   getPool: jest.fn(),
@@ -14,6 +14,7 @@ jest.mock('../db', () => ({
 
 jest.mock('../services/notifications', () => ({
   sendRsvpConfirmation: jest.fn(),
+  sendRsvpWaitlisted: jest.fn(),
   sendWaitlistPromotionNotification: jest.fn(),
 }));
 
@@ -71,8 +72,7 @@ describe('rsvpService waitlist auto-promotion', () => {
       { recordset: [{ has_event_lead_email: 1 }] },
       { recordset: [{ event_id: 'event-2', title: 'Casting Clinic', status: 'published', mentor_capacity: null, participant_capacity: 3, capacity: 3, event_date: new Date('2026-06-02T18:00:00Z') }] },
       { recordset: [{ response: 'no', response_role: 'PARTICIPANT' }] },
-      { recordset: [{ yes_count: 2 }] },
-      { recordset: [{ reserved_count: 0, has_active_offer: 1 }] },
+      { recordset: [{ assigned_count: 2 }] },
       { recordset: [{ response_id: 'r2', event_id: 'event-2', member_id: 'member-offered', response: 'yes', responded_at: new Date('2026-05-01T00:00:00Z'), notes: null }] },
       { recordset: [{ first_name: 'Offered', email: 'offered@example.com', mobile_phone: null, sms_opt_in: false }] },
       { rowsAffected: [1] },
@@ -141,8 +141,7 @@ describe('rsvpService waitlist auto-promotion', () => {
       { recordset: [{ has_event_lead_email: 1 }] },
       { recordset: [{ event_id: 'event-cap', title: 'Capacity Event', status: 'published', mentor_capacity: null, participant_capacity: 1, capacity: 1, event_date: new Date('2026-06-04T18:00:00Z') }] },
       { recordset: [] },
-      { recordset: [{ yes_count: 1 }] },
-      { recordset: [{ reserved_count: 0, has_active_offer: 0 }] },
+      { recordset: [{ assigned_count: 1 }] },
       { recordset: [{ response_id: 'r-cap', event_id: 'event-cap', member_id: 'member-overflow', response: 'waitlist', responded_at: new Date('2026-05-01T00:00:00Z'), notes: null }] },
       { recordset: [{ first_name: 'Wait', email: 'wait@example.com', mobile_phone: null, sms_opt_in: false }] },
       { recordset: [{ event_id: 'event-cap', title: 'Capacity Event', event_date: new Date('2026-06-04T18:00:00Z'), location: 'Deck', description: 'Desc', status: 'published', mentor_capacity: null, participant_capacity: 1, capacity: 1 }] },
@@ -170,7 +169,7 @@ describe('rsvpService waitlist auto-promotion', () => {
 
     expect(result.response).toBe('waitlist');
     expect(mockRequest.input).toHaveBeenCalledWith('response', 'NVarChar', 'waitlist');
-    expect(sendRsvpConfirmation).toHaveBeenCalledWith(expect.objectContaining({ rsvpStatus: 'waitlist' }));
+    expect(sendRsvpWaitlisted).toHaveBeenCalledWith(expect.objectContaining({ eventId: 'event-cap' }));
   });
 
   it('rejects RSVP when requested role is outside member eligibility', async () => {

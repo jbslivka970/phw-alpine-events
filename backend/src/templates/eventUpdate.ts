@@ -18,7 +18,7 @@ const eventUpdateTemplate: NotificationTemplate = {
       <p style="margin-top:14px;"><strong>Reason:</strong> {{updateReason}}</p>
       <p style="margin-top:14px;">{{description}}</p>
       <p><a href="{{rsvpUrl}}">Review RSVP details</a></p>
-      <p style="margin-top:20px;">Project Healing Waters Fly Fishing - Colorado Alpine Chapter</p>
+      <p style="margin-top:20px;">PHW Colorado Alpine</p>
     </div>
   `,
   textBodyTemplate:

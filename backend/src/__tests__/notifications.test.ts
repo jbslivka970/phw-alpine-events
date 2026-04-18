@@ -28,7 +28,7 @@ describe('notifications service', () => {
     expect(smsSpy).not.toHaveBeenCalled();
   });
 
-  it('sendRsvpConfirmation CCs coordinator only for yes responses', async () => {
+  it('sendRsvpConfirmation does not CC coordinator (CC removed)', async () => {
     const emailSpy = jest.spyOn(notificationService, 'sendEmail').mockResolvedValue(undefined);
 
     sendRsvpConfirmation({
@@ -44,29 +44,28 @@ describe('notifications service', () => {
     await new Promise((resolve) => setImmediate(resolve));
 
     expect(emailSpy).toHaveBeenCalledTimes(1);
-    expect(emailSpy).toHaveBeenCalledWith(expect.objectContaining({
-      cc: ['lead@example.com'],
+    expect(emailSpy).toHaveBeenCalledWith(expect.not.objectContaining({
+      cc: expect.anything(),
     }));
   });
 
-  it('sendRsvpConfirmation does not CC coordinator for non-yes responses', async () => {
+  it('sendRsvpConfirmation sends RSVP received (not confirmed) subject', async () => {
     const emailSpy = jest.spyOn(notificationService, 'sendEmail').mockResolvedValue(undefined);
 
     sendRsvpConfirmation({
       eventId: '00000000-0000-0000-0000-000000000011',
       eventTitle: 'Casting Clinic',
       recipientEmail: 'member@example.com',
-      eventLeadEmail: 'lead@example.com',
       firstName: 'Taylor',
       eventDate: '2026-07-12',
-      rsvpStatus: 'no',
+      rsvpStatus: 'yes',
     });
 
     await new Promise((resolve) => setImmediate(resolve));
 
     expect(emailSpy).toHaveBeenCalledTimes(1);
     expect(emailSpy).toHaveBeenCalledWith(expect.objectContaining({
-      cc: [],
+      subject: expect.stringContaining('RSVP Received'),
     }));
   });
 
