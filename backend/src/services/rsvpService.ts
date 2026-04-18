@@ -283,13 +283,14 @@ async function recordRsvpResponse(options: {
 
   const existingResponse = existingResponseResult.recordset[0];
   const existingRole = existingResponse ? normalizeResponseRole(existingResponse.response_role) : undefined;
-  const isDuplicateSubmission = Boolean(
+  let finalResponse: RsvpResponse = options.response;
+  let isDuplicateSubmission = Boolean(
     existingResponse &&
-    existingResponse.response === options.response &&
+    existingResponse.response === finalResponse &&
     existingRole === responseRole
   );
 
-  if (options.response === 'yes' && roleCapacity && roleCapacity > 0) {
+  if (finalResponse === 'yes' && roleCapacity && roleCapacity > 0) {
     if (!isDuplicateSubmission) {
       const countResult = await pool
         .request()
@@ -317,7 +318,12 @@ async function recordRsvpResponse(options: {
       const reservedCount = reservationResult.recordset[0]?.reserved_count ?? 0;
       const hasActiveOffer = (reservationResult.recordset[0]?.has_active_offer ?? 0) > 0;
       if (yesCount + reservedCount >= roleCapacity && !hasActiveOffer) {
-        throw new RsvpError('Event is full. Use waitlist response.', 409);
+        finalResponse = 'waitlist';
+        isDuplicateSubmission = Boolean(
+          existingResponse &&
+          existingResponse.response === finalResponse &&
+          existingRole === responseRole
+        );
       }
     }
   }
@@ -326,7 +332,7 @@ async function recordRsvpResponse(options: {
     .request()
     .input('event_id', sql.UniqueIdentifier, options.eventId)
     .input('member_id', sql.UniqueIdentifier, options.memberId)
-    .input('response', sql.NVarChar, options.response)
+    .input('response', sql.NVarChar, finalResponse)
     .input('notes', sql.NVarChar, notes)
     .input('response_channel', sql.NVarChar, responseChannel)
     .input('group_context_id', sql.UniqueIdentifier, groupContextId)
@@ -388,14 +394,14 @@ async function recordRsvpResponse(options: {
       eventDate: formatInProgramTimeZone(event.event_date),
       firstName: member.first_name,
       memberId: options.memberId,
-      rsvpStatus: options.response,
+      rsvpStatus: finalResponse,
       recipientEmail: member.email ?? undefined,
       recipientPhone: member.sms_opt_in ? (member.mobile_phone ?? undefined) : undefined,
         eventLeadEmail: event.event_lead_email ?? undefined,
     });
   }
 
-  await reconcileWaitlistOfferForMember(options.eventId, options.memberId, options.response, responseRole);
+  await reconcileWaitlistOfferForMember(options.eventId, options.memberId, finalResponse, responseRole);
   await triggerWaitlistAutoPromotion(options.eventId);
 
   return upsert.recordset[0];

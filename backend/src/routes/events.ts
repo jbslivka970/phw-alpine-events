@@ -1099,6 +1099,97 @@ router.put('/:id/status', writeLimiter, authenticate, requireAnyAuthenticatedRol
     }
 
     const pool = await getPool();
+
+router.post('/:id/close-at-capacity', writeLimiter, authenticate, requireEventCreatorOrAdmin, async (req, res) => {
+  try {
+    const pool = await getPool();
+    const eventResult = await pool
+      .request()
+      .input('event_id', sql.UniqueIdentifier, req.params.id)
+      .query<{
+        event_id: string;
+        status: string;
+      }>(
+        `SELECT event_id, status
+         FROM event
+         WHERE event_id = @event_id`
+      );
+
+    const event = eventResult.recordset[0];
+    if (!event) {
+      res.status(404).json({ error: 'Event not found' });
+      return;
+    }
+
+    if (event.status !== 'published') {
+      res.status(409).json({ error: 'Only published events can be closed at capacity.' });
+      return;
+    }
+
+    const countsResult = await pool
+      .request()
+      .input('event_id', sql.UniqueIdentifier, req.params.id)
+      .query<{
+        assigned_mentor_count: number;
+        assigned_participant_count: number;
+        yes_mentor_count: number;
+        yes_participant_count: number;
+      }>(
+        `SELECT
+            (SELECT COUNT(*) FROM event_assignment WHERE event_id = @event_id AND role = 'MENTOR') AS assigned_mentor_count,
+            (SELECT COUNT(*) FROM event_assignment WHERE event_id = @event_id AND role = 'PARTICIPANT') AS assigned_participant_count,
+            (SELECT COUNT(*) FROM event_response WHERE event_id = @event_id AND response = 'yes' AND response_role = 'MENTOR') AS yes_mentor_count,
+            (SELECT COUNT(*) FROM event_response WHERE event_id = @event_id AND response = 'yes' AND response_role = 'PARTICIPANT') AS yes_participant_count`
+      );
+
+    const counts = countsResult.recordset[0] ?? {
+      assigned_mentor_count: 0,
+      assigned_participant_count: 0,
+      yes_mentor_count: 0,
+      yes_participant_count: 0,
+    };
+
+    const mentorCapacity = Math.max(counts.assigned_mentor_count ?? 0, counts.yes_mentor_count ?? 0, 0);
+    const participantCapacity = Math.max(counts.assigned_participant_count ?? 0, counts.yes_participant_count ?? 0, 0);
+    const totalCapacity = mentorCapacity + participantCapacity;
+
+    const updatedResult = await pool
+      .request()
+      .input('event_id', sql.UniqueIdentifier, req.params.id)
+      .input('mentor_capacity', sql.Int, mentorCapacity)
+      .input('participant_capacity', sql.Int, participantCapacity)
+      .input('capacity', sql.Int, totalCapacity)
+      .query<{
+        event_id: string;
+        mentor_capacity: number | null;
+        participant_capacity: number | null;
+        capacity: number | null;
+        status: string;
+      }>(
+        `UPDATE event
+         SET mentor_capacity = @mentor_capacity,
+             participant_capacity = @participant_capacity,
+             capacity = @capacity,
+             updated_at = GETUTCDATE()
+         OUTPUT INSERTED.event_id, INSERTED.mentor_capacity, INSERTED.participant_capacity, INSERTED.capacity, INSERTED.status
+         WHERE event_id = @event_id`
+      );
+
+    res.status(200).json({
+      event: updatedResult.recordset[0],
+      snapshot: {
+        assigned_mentor_count: counts.assigned_mentor_count ?? 0,
+        assigned_participant_count: counts.assigned_participant_count ?? 0,
+        yes_mentor_count: counts.yes_mentor_count ?? 0,
+        yes_participant_count: counts.yes_participant_count ?? 0,
+      },
+      message: 'Event capacity has been locked at current assigned/confirmed counts. New yes RSVPs will be routed to waitlist when full.',
+    });
+  } catch (error) {
+    console.error('POST /events/:id/close-at-capacity failed', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
     const eventColumns = await getEventColumnSupport(pool);
     const existingResult = await pool
       .request()

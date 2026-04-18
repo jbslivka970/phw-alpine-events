@@ -135,6 +135,44 @@ describe('rsvpService waitlist auto-promotion', () => {
     expect(sendRsvpConfirmation).not.toHaveBeenCalled();
   });
 
+  it('routes yes RSVP to waitlist when role capacity is full', async () => {
+    const queue: Array<{ recordset?: unknown[]; rowsAffected?: number[] }> = [
+      { recordset: [{ group_name: 'PARTICIPANTS' }] },
+      { recordset: [{ has_event_lead_email: 1 }] },
+      { recordset: [{ event_id: 'event-cap', title: 'Capacity Event', status: 'published', mentor_capacity: null, participant_capacity: 1, capacity: 1, event_date: new Date('2026-06-04T18:00:00Z') }] },
+      { recordset: [] },
+      { recordset: [{ yes_count: 1 }] },
+      { recordset: [{ reserved_count: 0, has_active_offer: 0 }] },
+      { recordset: [{ response_id: 'r-cap', event_id: 'event-cap', member_id: 'member-overflow', response: 'waitlist', responded_at: new Date('2026-05-01T00:00:00Z'), notes: null }] },
+      { recordset: [{ first_name: 'Wait', email: 'wait@example.com', mobile_phone: null, sms_opt_in: false }] },
+      { recordset: [{ event_id: 'event-cap', title: 'Capacity Event', event_date: new Date('2026-06-04T18:00:00Z'), location: 'Deck', description: 'Desc', status: 'published', mentor_capacity: null, participant_capacity: 1, capacity: 1 }] },
+      { rowsAffected: [0] },
+      { recordset: [{ yes_count: 1, active_offers: 0 }] },
+      { recordset: [] },
+    ];
+
+    const mockRequest = {
+      input: jest.fn().mockReturnThis(),
+      query: jest.fn().mockImplementation(async () => {
+        return queue.shift() ?? { recordset: [] };
+      }),
+    };
+
+    (getPool as jest.Mock).mockResolvedValue({ request: () => mockRequest });
+
+    const result = await recordRsvpResponse({
+      eventId: 'event-cap',
+      memberId: 'member-overflow',
+      response: 'yes',
+      responseChannel: 'web',
+      responseRole: 'PARTICIPANT',
+    });
+
+    expect(result.response).toBe('waitlist');
+    expect(mockRequest.input).toHaveBeenCalledWith('response', 'NVarChar', 'waitlist');
+    expect(sendRsvpConfirmation).toHaveBeenCalledWith(expect.objectContaining({ rsvpStatus: 'waitlist' }));
+  });
+
   it('rejects RSVP when requested role is outside member eligibility', async () => {
     const queue: Array<{ recordset?: unknown[]; rowsAffected?: number[] }> = [
       { recordset: [{ group_name: 'PARTICIPANTS' }] },

@@ -124,6 +124,23 @@ interface AssignmentRecommendationResponse {
   rows: AssignmentRecommendationRow[];
 }
 
+interface CloseAtCapacityResponse {
+  event: {
+    event_id: string;
+    mentor_capacity: number | null;
+    participant_capacity: number | null;
+    capacity: number | null;
+    status: 'draft' | 'published' | 'completed' | 'cancelled';
+  };
+  snapshot: {
+    assigned_mentor_count: number;
+    assigned_participant_count: number;
+    yes_mentor_count: number;
+    yes_participant_count: number;
+  };
+  message: string;
+}
+
 const eventsApi = {
   list: (status?: string, options?: RequestInit) =>
     apiGet<EventRecord[]>(status ? `/events?status=${encodeURIComponent(status)}` : '/events', options),
@@ -205,6 +222,8 @@ const assignmentsApi = {
     apiPatch<EventAssignmentRecord>(`/events/${eventId}/assignments/${assignmentId}/attendance`, payload),
   recommendations: (eventId: string, role: 'MENTOR' | 'PARTICIPANT', limit = 20) =>
     apiGet<AssignmentRecommendationResponse>(`/events/${eventId}/assignment-recommendations?role=${role}&limit=${limit}`),
+  closeAtCapacity: (eventId: string) =>
+    apiPost<CloseAtCapacityResponse>(`/events/${eventId}/close-at-capacity`, {}),
 };
 
 export { assignmentsApi, emailRsvpApi, eventsApi, rsvpApi };
@@ -214,6 +233,7 @@ export type {
   EventAssignmentRecord,
   AssignmentRecommendationResponse,
   AssignmentRecommendationRow,
+  CloseAtCapacityResponse,
   PublicRsvpContext,
   UpdateEventPayload,
   EventAiDraftResponse,

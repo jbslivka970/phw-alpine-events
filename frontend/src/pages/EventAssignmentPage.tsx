@@ -15,6 +15,13 @@ type Assignment = {
   attendance_notes?: string | null
 }
 
+type MemberSearchRow = {
+  member_id: string
+  first_name: string
+  last_name: string
+  email: string
+}
+
 function EventAssignmentPage() {
   const navigate = useNavigate()
   const { id } = useParams<{ id: string }>()
@@ -32,6 +39,11 @@ function EventAssignmentPage() {
   const [priorityRole, setPriorityRole] = useState<'MENTOR' | 'PARTICIPANT'>('PARTICIPANT')
   const [recommendations, setRecommendations] = useState<AssignmentRecommendationRow[]>([])
   const [recommendationsLoading, setRecommendationsLoading] = useState(false)
+  const [manualSearch, setManualSearch] = useState('')
+  const [manualResults, setManualResults] = useState<MemberSearchRow[]>([])
+  const [manualLoading, setManualLoading] = useState(false)
+  const [closingAtCapacity, setClosingAtCapacity] = useState(false)
+  const [closeAtCapacityNotice, setCloseAtCapacityNotice] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const assignedMemberIds = useMemo(() => new Set(assignments.map((a) => a.member_id)), [assignments])
@@ -123,6 +135,48 @@ function EventAssignmentPage() {
     }
   }, [eventId, priorityRole])
 
+  useEffect(() => {
+    if (!eventId) {
+      return
+    }
+
+    const term = manualSearch.trim()
+    if (term.length < 2) {
+      setManualResults([])
+      setManualLoading(false)
+      return
+    }
+
+    let active = true
+    setManualLoading(true)
+    membersApi.list({ page: 1, pageSize: 20, search: term, isActive: true })
+      .then((result) => {
+        if (!active) {
+          return
+        }
+        setManualResults(result.data.map((row) => ({
+          member_id: row.member_id,
+          first_name: row.first_name,
+          last_name: row.last_name,
+          email: row.email,
+        })))
+      })
+      .catch(() => {
+        if (active) {
+          setManualResults([])
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setManualLoading(false)
+        }
+      })
+
+    return () => {
+      active = false
+    }
+  }, [eventId, manualSearch])
+
   async function assignMember(memberId: string, role: 'MENTOR' | 'PARTICIPANT') {
     if (!eventId) {
       return
@@ -131,8 +185,29 @@ function EventAssignmentPage() {
       await assignmentsApi.create(eventId, { member_id: memberId, role })
       const asns = await assignmentsApi.list(eventId)
       setAssignments(asns as Assignment[])
+      setCloseAtCapacityNotice(null)
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to assign member')
+    }
+  }
+
+  async function closeEventAtCapacity() {
+    if (!eventId) {
+      return
+    }
+
+    setClosingAtCapacity(true)
+    setError(null)
+    setCloseAtCapacityNotice(null)
+    try {
+      const result = await assignmentsApi.closeAtCapacity(eventId)
+      setCloseAtCapacityNotice(
+        `${result.message} Volunteer cap: ${result.event.mentor_capacity ?? 0}. Participant cap: ${result.event.participant_capacity ?? 0}.`
+      )
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to close event at capacity')
+    } finally {
+      setClosingAtCapacity(false)
     }
   }
 
@@ -207,6 +282,61 @@ function EventAssignmentPage() {
       <p className="page__subtitle">Assign members from the RSVP pool and track attendance.</p>
       <button className="btn btn--outline btn--sm" onClick={() => navigate('/events')}>Back to Events</button>
       {error && <p className="members-error">{error}</p>}
+
+      <section className="card members-table-wrap" style={{ marginTop: 12 }}>
+        <h2>Capacity Controls</h2>
+        <p className="page__subtitle" style={{ marginBottom: 8 }}>
+          Lock this event at its current assigned/confirmed seats. Future "Yes" RSVP submissions will be stored as waitlist when full.
+        </p>
+        <button className="btn btn--sm" disabled={closingAtCapacity} onClick={() => void closeEventAtCapacity()}>
+          {closingAtCapacity ? 'Closing…' : 'Close Event At Capacity'}
+        </button>
+        {closeAtCapacityNotice && <p className="members-loading" style={{ marginTop: 8 }}>{closeAtCapacityNotice}</p>}
+      </section>
+
+      <section className="card members-table-wrap" style={{ marginTop: 12 }}>
+        <h2>Manual Association</h2>
+        <p className="page__subtitle" style={{ marginBottom: 8 }}>
+          Search active members and assign directly, even if they did not RSVP yet.
+        </p>
+        <input
+          className="members-search"
+          value={manualSearch}
+          onChange={(e) => setManualSearch(e.target.value)}
+          placeholder="Search member name or email"
+        />
+        {manualLoading && <p className="members-loading">Searching members…</p>}
+        {!manualLoading && manualSearch.trim().length >= 2 && manualResults.length === 0 && (
+          <p className="members-loading">No active members found.</p>
+        )}
+        {!manualLoading && manualResults.length > 0 && (
+          <table className="members-table" style={{ marginTop: 8 }}>
+            <thead>
+              <tr><th>Name</th><th>Email</th><th>Assign</th></tr>
+            </thead>
+            <tbody>
+              {manualResults.map((member) => {
+                const alreadyAssigned = assignedMemberIds.has(member.member_id)
+                const name = `${member.first_name ?? ''} ${member.last_name ?? ''}`.trim()
+                return (
+                  <tr key={member.member_id}>
+                    <td>{name || member.member_id}</td>
+                    <td>{member.email}</td>
+                    <td>
+                      {alreadyAssigned ? 'Assigned' : (
+                        <>
+                          <button className="btn btn--sm" onClick={() => assignMember(member.member_id, 'PARTICIPANT')}>Assign Participant</button>
+                          <button className="btn btn--sm btn--outline" onClick={() => assignMember(member.member_id, 'MENTOR')}>Assign Volunteer</button>
+                        </>
+                      )}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        )}
+      </section>
 
       <section className="card members-table-wrap" style={{ marginTop: 12 }}>
         <h2>RSVP Pool</h2>
