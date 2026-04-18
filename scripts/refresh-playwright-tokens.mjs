@@ -7,6 +7,10 @@ const args = new Set(process.argv.slice(2));
 const softSkip = args.has('--soft-skip');
 const tokenEnvFile = (process.env.PW_TOKEN_ENV_FILE || '').trim();
 const perRoleTimeoutMs = Number.parseInt(process.env.PW_REFRESH_ROLE_TIMEOUT_MS || '120000', 10);
+const maxRefreshAttempts = Number.parseInt(
+  process.env.PW_REFRESH_MAX_ATTEMPTS || (process.env.CI ? '1' : '2'),
+  10,
+);
 const postLoginTimeoutMs = Number.isFinite(perRoleTimeoutMs) && perRoleTimeoutMs > 0
   ? Math.max(90_000, perRoleTimeoutMs - 10_000)
   : 90_000;
@@ -55,7 +59,10 @@ async function loginAndCaptureWithTimeout(role) {
 
 async function loginAndCaptureWithRetries(role) {
   let lastError = null;
-  for (let attempt = 1; attempt <= 2; attempt += 1) {
+  const attemptLimit = Number.isFinite(maxRefreshAttempts) && maxRefreshAttempts > 0
+    ? maxRefreshAttempts
+    : 1;
+  for (let attempt = 1; attempt <= attemptLimit; attempt += 1) {
     try {
       return await loginAndCapture(role);
     } catch (error) {
@@ -127,7 +134,7 @@ async function waitForPostLoginReady(page, timeoutMs) {
   const loginUrlPattern = /\/dashboard|\/events|\/tavf|\/$/;
 
   await Promise.race([
-    page.waitForURL(loginUrlPattern, { timeout: timeoutMs }),
+    page.waitForURL(loginUrlPattern, { timeout: timeoutMs, waitUntil: 'domcontentloaded' }),
     page.waitForFunction(() => {
       const pathname = window.location.pathname || '/';
       if (/\/dashboard|\/events|\/tavf|\/$/.test(pathname)) {

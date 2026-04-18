@@ -99,6 +99,7 @@ jobs:
         E2E_API_BASE_URL: ${{ vars.E2E_API_BASE_URL }}
         E2E_APP_URL: ${{ vars.E2E_APP_URL }}
         PW_REFRESH_ROLE_TIMEOUT_MS: '90000'
+        PW_REFRESH_MAX_ATTEMPTS: '1'
         PW_ADMIN_USER: ${{ secrets.PW_ADMIN_USER }}
         PW_ADMIN_PASS: ${{ secrets.PW_ADMIN_PASS }}
         PW_EVENT_CREATOR_USER: ${{ secrets.PW_EVENT_CREATOR_USER }}
@@ -113,7 +114,10 @@ jobs:
         PW_ADMIN_TOKEN: ${{ secrets.PW_ADMIN_TOKEN }}
         PW_EVENT_CREATOR_TOKEN: ${{ secrets.PW_EVENT_CREATOR_TOKEN }}
         PW_MEMBER_TOKEN: ${{ secrets.PW_MEMBER_TOKEN }}
-      run: npm run test:e2e:role-matrix
+        PW_WORKERS: '3'
+        PW_RETRIES: '0'
+        PW_MAX_FAILURES: '3'
+      run: npx playwright test tests/e2e/api-role-matrix.spec.ts --workers=3 --max-failures=3
 
     - name: Upload Playwright artifacts on failure
       if: ${{ failure() || cancelled() }}
@@ -126,9 +130,9 @@ jobs:
           playwright-report/**
           test-results/**
 
-  e2e_full_suite:
+  e2e_refresh_auth_state:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 15
     needs: build
     if: ${{ ((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.run_full_e2e == 'true')) && vars.E2E_API_BASE_URL != '' && vars.E2E_APP_URL != '' }}
 
@@ -148,36 +152,212 @@ jobs:
     - name: Install Playwright Chromium
       run: npx playwright install --with-deps chromium
 
-    - name: Refresh Playwright tokens and storage state
+    - name: Refresh Playwright tokens and storage state (fail-fast)
       env:
         E2E_API_BASE_URL: ${{ vars.E2E_API_BASE_URL }}
         E2E_APP_URL: ${{ vars.E2E_APP_URL }}
-        PW_REFRESH_ROLE_TIMEOUT_MS: '240000'
+        PW_REFRESH_ROLE_TIMEOUT_MS: '90000'
+        PW_REFRESH_MAX_ATTEMPTS: '1'
         PW_ADMIN_USER: ${{ secrets.PW_ADMIN_USER }}
         PW_ADMIN_PASS: ${{ secrets.PW_ADMIN_PASS }}
         PW_EVENT_CREATOR_USER: ${{ secrets.PW_EVENT_CREATOR_USER }}
         PW_EVENT_CREATOR_PASS: ${{ secrets.PW_EVENT_CREATOR_PASS }}
         PW_MEMBER_USER: ${{ secrets.PW_MEMBER_USER }}
         PW_MEMBER_PASS: ${{ secrets.PW_MEMBER_PASS }}
-      run: npm run e2e:refresh-tokens -- --soft-skip
+      run: npm run e2e:refresh-tokens
 
-    - name: Run full Playwright suite
+    - name: Upload Playwright auth state
+      uses: actions/upload-artifact@v4
+      with:
+        name: playwright-auth-state-${{ github.run_id }}
+        if-no-files-found: error
+        retention-days: 2
+        path: tests/e2e/.auth/**
+
+  e2e_api_notification_lifecycle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: build
+    if: ${{ ((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.run_full_e2e == 'true')) && vars.E2E_API_BASE_URL != '' && vars.E2E_APP_URL != '' }}
+
+    steps:
+    - uses: actions/checkout@v5
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v5
+      with:
+        node-version: '22'
+        cache: 'npm'
+        cache-dependency-path: package-lock.json
+
+    - name: Install Playwright dependencies
+      run: npm ci
+
+    - name: Run API notification lifecycle e2e
       env:
         E2E_API_BASE_URL: ${{ vars.E2E_API_BASE_URL }}
-        E2E_APP_URL: ${{ vars.E2E_APP_URL }}
-        PW_ADMIN_USER: ${{ secrets.PW_ADMIN_USER }}
-        PW_ADMIN_PASS: ${{ secrets.PW_ADMIN_PASS }}
-        PW_EVENT_CREATOR_USER: ${{ secrets.PW_EVENT_CREATOR_USER }}
-        PW_EVENT_CREATOR_PASS: ${{ secrets.PW_EVENT_CREATOR_PASS }}
-        PW_MEMBER_USER: ${{ secrets.PW_MEMBER_USER }}
-        PW_MEMBER_PASS: ${{ secrets.PW_MEMBER_PASS }}
-      run: npm run test:e2e
+        PW_ADMIN_TOKEN: ${{ secrets.PW_ADMIN_TOKEN }}
+        PW_WORKERS: '3'
+        PW_RETRIES: '0'
+        PW_MAX_FAILURES: '2'
+      run: npx playwright test tests/e2e/api-notification-lifecycle.spec.ts --workers=3 --max-failures=2
 
     - name: Upload Playwright artifacts on failure
       if: ${{ failure() || cancelled() }}
       uses: actions/upload-artifact@v4
       with:
-        name: playwright-full-suite-artifacts-${{ github.run_id }}
+        name: playwright-api-notification-lifecycle-artifacts-${{ github.run_id }}
+        if-no-files-found: ignore
+        retention-days: 14
+        path: |
+          playwright-report/**
+          test-results/**
+
+  e2e_browser_auth_flows:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: e2e_refresh_auth_state
+    if: ${{ ((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.run_full_e2e == 'true')) && vars.E2E_API_BASE_URL != '' && vars.E2E_APP_URL != '' }}
+
+    steps:
+    - uses: actions/checkout@v5
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v5
+      with:
+        node-version: '22'
+        cache: 'npm'
+        cache-dependency-path: package-lock.json
+
+    - name: Install Playwright dependencies
+      run: npm ci
+
+    - name: Install Playwright Chromium
+      run: npx playwright install --with-deps chromium
+
+    - name: Download Playwright auth state
+      uses: actions/download-artifact@v4
+      with:
+        name: playwright-auth-state-${{ github.run_id }}
+        path: tests/e2e/.auth
+
+    - name: Run browser auth flow tests (fail-fast)
+      env:
+        E2E_API_BASE_URL: ${{ vars.E2E_API_BASE_URL }}
+        E2E_APP_URL: ${{ vars.E2E_APP_URL }}
+        PW_ADMIN_USER: ${{ secrets.PW_ADMIN_USER }}
+        PW_ADMIN_PASS: ${{ secrets.PW_ADMIN_PASS }}
+        PW_EVENT_CREATOR_USER: ${{ secrets.PW_EVENT_CREATOR_USER }}
+        PW_EVENT_CREATOR_PASS: ${{ secrets.PW_EVENT_CREATOR_PASS }}
+        PW_MEMBER_USER: ${{ secrets.PW_MEMBER_USER }}
+        PW_MEMBER_PASS: ${{ secrets.PW_MEMBER_PASS }}
+        PW_WORKERS: '3'
+        PW_RETRIES: '0'
+        PW_MAX_FAILURES: '4'
+      run: npx playwright test tests/e2e/browser-auth-flows.spec.ts --workers=3 --max-failures=4
+
+    - name: Upload Playwright artifacts on failure
+      if: ${{ failure() || cancelled() }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: playwright-browser-auth-flows-artifacts-${{ github.run_id }}
+        if-no-files-found: ignore
+        retention-days: 14
+        path: |
+          playwright-report/**
+          test-results/**
+
+  e2e_browser_persona_matrix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: e2e_refresh_auth_state
+    if: ${{ ((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.run_full_e2e == 'true')) && vars.E2E_API_BASE_URL != '' && vars.E2E_APP_URL != '' }}
+
+    steps:
+    - uses: actions/checkout@v5
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v5
+      with:
+        node-version: '22'
+        cache: 'npm'
+        cache-dependency-path: package-lock.json
+
+    - name: Install Playwright dependencies
+      run: npm ci
+
+    - name: Install Playwright Chromium
+      run: npx playwright install --with-deps chromium
+
+    - name: Download Playwright auth state
+      uses: actions/download-artifact@v4
+      with:
+        name: playwright-auth-state-${{ github.run_id }}
+        path: tests/e2e/.auth
+
+    - name: Run browser persona matrix
+      env:
+        E2E_APP_URL: ${{ vars.E2E_APP_URL }}
+        PW_WORKERS: '3'
+        PW_RETRIES: '0'
+        PW_MAX_FAILURES: '3'
+      run: npx playwright test tests/e2e/browser-persona-flow-matrix.spec.ts --workers=3 --max-failures=3
+
+    - name: Upload Playwright artifacts on failure
+      if: ${{ failure() || cancelled() }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: playwright-browser-persona-artifacts-${{ github.run_id }}
+        if-no-files-found: ignore
+        retention-days: 14
+        path: |
+          playwright-report/**
+          test-results/**
+
+  e2e_browser_postdeploy_smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: e2e_refresh_auth_state
+    if: ${{ ((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.run_full_e2e == 'true')) && vars.E2E_API_BASE_URL != '' && vars.E2E_APP_URL != '' }}
+
+    steps:
+    - uses: actions/checkout@v5
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v5
+      with:
+        node-version: '22'
+        cache: 'npm'
+        cache-dependency-path: package-lock.json
+
+    - name: Install Playwright dependencies
+      run: npm ci
+
+    - name: Install Playwright Chromium
+      run: npx playwright install --with-deps chromium
+
+    - name: Download Playwright auth state
+      uses: actions/download-artifact@v4
+      with:
+        name: playwright-auth-state-${{ github.run_id }}
+        path: tests/e2e/.auth
+
+    - name: Run postdeploy browser smoke
+      env:
+        E2E_APP_URL: ${{ vars.E2E_APP_URL }}
+        E2E_API_BASE_URL: ${{ vars.E2E_API_BASE_URL }}
+        PW_MEMBER_USER: ${{ secrets.PW_MEMBER_USER }}
+        PW_MEMBER_PASS: ${{ secrets.PW_MEMBER_PASS }}
+        PW_WORKERS: '3'
+        PW_RETRIES: '0'
+        PW_MAX_FAILURES: '2'
+      run: npx playwright test tests/e2e/browser-postdeploy-smoke.spec.ts --workers=3 --max-failures=2
+
+    - name: Upload Playwright artifacts on failure
+      if: ${{ failure() || cancelled() }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: playwright-browser-postdeploy-smoke-artifacts-${{ github.run_id }}
         if-no-files-found: ignore
         retention-days: 14
         path: |
