@@ -605,7 +605,22 @@ function authenticate(req: Request, res: Response, next: NextFunction): void {
       }
 
       const claims = decoded as JwtPayload;
-      const emailClaim = extractEmail(claims);
+      let emailClaim = extractEmail(claims);
+
+      // CIAM access tokens for custom API audiences may not contain email claims.
+      // Fall back to the X-Id-Token-Email header sent by the frontend from the
+      // id_token which does include the email.
+      if (!emailClaim) {
+        const headerEmail = req.headers['x-id-token-email'];
+        if (typeof headerEmail === 'string' && headerEmail.includes('@')) {
+          emailClaim = headerEmail.trim();
+          console.info('[auth] email resolved from X-Id-Token-Email header (not in access token)', {
+            email: emailClaim,
+            oid: claims['oid'] ?? claims['sub'],
+          });
+        }
+      }
+
       const roles = extractRoles(claims);
       const normalizedEmail = emailClaim?.toLowerCase();
 

@@ -29,6 +29,7 @@ const resolvedBase = rawBase;
 const BASE_URL = resolvedBase.endsWith('/') ? resolvedBase.slice(0, -1) : resolvedBase;
 
 let getToken: TokenGetter = async () => getLocalE2EToken();
+let emailHint: string | null = null;
 const AUTH_RETRY_DELAY_MS = 250;
 const TOKEN_CACHE_TTL_MS = 30_000;
 let cachedToken: string | null | undefined;
@@ -44,6 +45,10 @@ function clearTokenCache(): void {
 function setTokenGetter(fn: TokenGetter): void {
   getToken = fn;
   clearTokenCache();
+}
+
+function setEmailHint(email: string | null): void {
+  emailHint = email;
 }
 
 async function getCachedToken(): Promise<string | null> {
@@ -136,6 +141,10 @@ async function buildHeaders(extra?: HeadersInit): Promise<HeadersInit> {
 
   if (token) {
     headers.Authorization = `Bearer ${token}`;
+  }
+
+  if (emailHint) {
+    headers['X-Id-Token-Email'] = emailHint;
   }
 
   return headers;
@@ -254,4 +263,4 @@ async function apiGetBlob(path: string): Promise<{ blob: Blob; headers: Headers 
   return { blob: await response.blob(), headers: response.headers };
 }
 
-export { BASE_URL, setTokenGetter, apiDelete, apiGet, apiGetBlob, apiPatch, apiPost, apiPostForm, apiPut };
+export { BASE_URL, setEmailHint, setTokenGetter, apiDelete, apiGet, apiGetBlob, apiPatch, apiPost, apiPostForm, apiPut };

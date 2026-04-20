@@ -3,7 +3,7 @@ import { useIsAuthenticated, useMsal } from '@azure/msal-react'
 import { InteractionStatus } from '@azure/msal-browser'
 import { hasAuthConfig, loginRequest, popupRedirectUri, ROLES } from '../authConfig'
 import type { AppRole } from '../authConfig'
-import { setTokenGetter } from '../api/client'
+import { setEmailHint, setTokenGetter } from '../api/client'
 import { authDebugLog, authDebugWarn } from '../utils/authDebug'
 
 const LOGIN_POPUP_TIMEOUT_MS = 240_000
@@ -377,8 +377,11 @@ function useAuth() {
   useEffect(() => {
     if (localE2EAuth) {
       setTokenGetter(async () => localRoleToken(localE2ERole))
+      setEmailHint(null)
       return
     }
+
+    setEmailHint(account?.username ?? null)
 
     setTokenGetter(async () => {
       if (!account) return null
