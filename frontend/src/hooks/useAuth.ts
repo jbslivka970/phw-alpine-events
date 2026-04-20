@@ -190,12 +190,13 @@ function useAuth() {
   const subjectClaim = typeof account?.idTokenClaims?.sub === 'string'
     ? account.idTokenClaims.sub
     : null
+  const resolvedEmail = resolveEmailHint(accountClaims, account?.username)
 
   const user: AuthUser | null = account
     ? {
         id: subjectClaim ?? account.localAccountId,
         name: account.name ?? account.username ?? 'User',
-        email: account.username,
+        email: resolvedEmail,
         roles: resolvedRoles,
       }
     : null
@@ -381,7 +382,7 @@ function useAuth() {
       return
     }
 
-    setEmailHint(account?.username ?? null)
+    setEmailHint(resolveEmailHint(accountClaims, account?.username))
 
     setTokenGetter(async () => {
       if (!account) return null
@@ -536,7 +537,7 @@ function useAuth() {
         tokenRequestInFlightRef.current = null
       }
     })
-  }, [account, instance, interactionBusy, localE2EAuth, localE2ERole])
+  }, [account, accountClaims, instance, interactionBusy, localE2EAuth, localE2ERole])
 
   const localUser: AuthUser = {
     id: `e2e-${localE2ERole.toLowerCase()}`,
@@ -640,6 +641,34 @@ function extractRoleValues(claims: Record<string, unknown> | undefined): string[
   }
 
   return values
+}
+
+function resolveEmailHint(claims: Record<string, unknown> | undefined, fallback: string | null | undefined): string {
+  const directKeys = ['email', 'preferred_username', 'upn']
+  if (claims) {
+    for (const key of directKeys) {
+      const raw = claims[key]
+      if (typeof raw === 'string') {
+        const value = raw.trim()
+        if (value.includes('@')) {
+          return value.toLowerCase()
+        }
+      }
+    }
+
+    const arrayKeys = ['emails', 'otherMails']
+    for (const key of arrayKeys) {
+      const raw = claims[key]
+      if (Array.isArray(raw)) {
+        const first = raw.find((value): value is string => typeof value === 'string' && value.includes('@'))
+        if (first) {
+          return first.trim().toLowerCase()
+        }
+      }
+    }
+  }
+
+  return (fallback ?? '').trim().toLowerCase()
 }
 
 function mapRoles(claims: Record<string, unknown> | undefined): AppRole[] {
