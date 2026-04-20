@@ -7,6 +7,7 @@
     "test:e2e:local": "E2E_LOCAL_AUTH_ENABLED=1 E2E_API_BASE_URL=http://localhost:3001 E2E_APP_URL=http://localhost:5173 npm run test:e2e",
     "test:e2e": "playwright test",
     "test:e2e:role-matrix": "playwright test tests/e2e/api-role-matrix.spec.ts",
+    "test:e2e:auth-email-hint": "playwright test tests/e2e/browser-auth-email-hint.spec.ts",
     "test:e2e:browser": "playwright test tests/e2e/browser-auth-flows.spec.ts",
     "test:e2e:postdeploy": "playwright test tests/e2e/browser-postdeploy-smoke.spec.ts",
     "e2e:refresh-tokens": "node scripts/refresh-playwright-tokens.mjs",
