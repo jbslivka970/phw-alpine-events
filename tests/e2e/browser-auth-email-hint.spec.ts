@@ -156,7 +156,18 @@ async function loginWithCredentials(page: Page, username: string, password: stri
     await popup.waitForEvent('close', { timeout: 90_000 }).catch(() => {});
   }
 
-  await expect(page).not.toHaveURL(/\/login(\?|$)/i, { timeout: 90_000 });
+  // After popup auth, the opener can remain on its pre-auth URL depending on browser/MSAL timing.
+  // Force navigation to a protected page and then verify we are not bounced back to login.
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    await page.goto(`${appBaseUrl}/dashboard`, { waitUntil: 'domcontentloaded' }).catch(() => {});
+    const onLogin = /\/login(\?|$)/i.test(page.url());
+    if (!onLogin) {
+      return;
+    }
+    await page.waitForTimeout(2_500);
+  }
+
+  await expect(page).not.toHaveURL(/\/login(\?|$)/i, { timeout: 10_000 });
 }
 
 test.describe('Auth Email Hint Regression', () => {
