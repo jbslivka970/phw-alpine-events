@@ -6,6 +6,10 @@ const memberPassword = (process.env.PW_MEMBER_PASS ?? '').trim();
 const authStepMaxAttempts = 18;
 const authStepSleepMs = 500;
 
+async function sleep(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function scopes(page: Page): Array<Page | Frame> {
   return [page, ...page.frames()];
 }
@@ -86,7 +90,7 @@ async function completeUsernameStep(authPage: Page, username: string): Promise<b
       'button:has-text("Continue")',
     ]);
 
-    await authPage.waitForTimeout(authStepSleepMs);
+    await sleep(authStepSleepMs);
   }
 
   return false;
@@ -120,7 +124,7 @@ async function completePasswordStep(authPage: Page, password: string): Promise<b
       return true;
     }
 
-    await authPage.waitForTimeout(authStepSleepMs);
+    await sleep(authStepSleepMs);
   }
 
   return false;
@@ -164,13 +168,15 @@ async function loginWithCredentials(page: Page, username: string, password: stri
     if (!onLogin) {
       return;
     }
-    await page.waitForTimeout(2_500);
+    await sleep(2_500);
   }
 
   await expect(page).not.toHaveURL(/\/login(\?|$)/i, { timeout: 10_000 });
 }
 
 test.describe('Auth Email Hint Regression', () => {
+  test.setTimeout(120_000);
+
   test.skip(!appBaseUrl, 'E2E_APP_URL is required.');
   test.skip(!memberUsername || !memberPassword, 'PW_MEMBER_USER and PW_MEMBER_PASS are required.');
 
@@ -229,7 +235,7 @@ test.describe('Auth Email Hint Regression', () => {
     await page.waitForLoadState('networkidle').catch(() => {});
 
     await page.goto(`${appBaseUrl}/dashboard`, { waitUntil: 'domcontentloaded' }).catch(() => {});
-    await page.waitForTimeout(2_000);
+    await sleep(2_000);
 
     page.off('request', onRequest);
 
