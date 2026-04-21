@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom'
 
 function SmsProgramPage() {
   const consentArtifactPath = '/images/sms-consent.png'
-  const consentEnabledArtifactPath = '/images/sms-consent-enabled.png'
+  const consentEnabledArtifactPath = '/images/sms-consent-actual.png'
   const consentArtifactPagePath = '/compliance/sms-consent-artifact.html'
 
   return (
@@ -80,7 +80,7 @@ function SmsProgramPage() {
 
             <p>
               Backup static artifact URL (if a reviewer requests a direct public file):{' '}
-              <a href={consentEnabledArtifactPath} target="_blank" rel="noreferrer">https://app.phwcoloradoalpine.org/images/sms-consent-enabled.png</a>
+              <a href={consentEnabledArtifactPath} target="_blank" rel="noreferrer">https://app.phwcoloradoalpine.org/images/sms-consent-actual.png</a>
             </p>
 
             <p>
