@@ -3,8 +3,8 @@ import { expect, test, type Frame, type Page, type Request } from '@playwright/t
 const appBaseUrl = (process.env.E2E_APP_URL ?? '').trim().replace(/\/$/, '');
 const memberUsername = (process.env.PW_MEMBER_USER ?? '').trim();
 const memberPassword = (process.env.PW_MEMBER_PASS ?? '').trim();
-const authStepMaxAttempts = 18;
-const authStepSleepMs = 500;
+const authStepMaxAttempts = 30;
+const authStepSleepMs = 800;
 
 async function sleep(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
@@ -97,14 +97,21 @@ async function completeUsernameStep(authPage: Page, username: string): Promise<b
 }
 
 async function completePasswordStep(authPage: Page, password: string): Promise<boolean> {
+  await authPage.waitForLoadState('domcontentloaded').catch(() => {});
   for (let i = 0; i < authStepMaxAttempts; i += 1) {
     await clickInAnyScope(authPage, [
       'a:has-text("Use password")',
       'button:has-text("Use password")',
+      'a:has-text("Sign in with a password")',
+      'button:has-text("Sign in with a password")',
       'a:has-text("Sign-in options")',
       'button:has-text("Sign-in options")',
       'a:has-text("Other ways to sign in")',
       'button:has-text("Other ways to sign in")',
+      'a:has-text("Use a different sign-in method")',
+      'button:has-text("Use a different sign-in method")',
+      'a:has-text("Sign in another way")',
+      'button:has-text("Sign in another way")',
     ]);
 
     const entered = await fillInAnyScope(authPage, [
@@ -143,6 +150,10 @@ async function loginWithCredentials(page: Page, username: string, password: stri
 
   const userFilled = await completeUsernameStep(authPage, username);
   expect(userFilled, 'username input should be reachable in auth flow').toBeTruthy();
+
+  // Give CIAM time to transition from the username/next screen to the password screen.
+  await authPage.waitForLoadState('domcontentloaded').catch(() => {});
+  await sleep(2_000);
 
   const passFilled = await completePasswordStep(authPage, password);
   expect(passFilled, 'password input should be reachable in auth flow').toBeTruthy();
