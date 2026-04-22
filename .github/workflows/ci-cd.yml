@@ -254,6 +254,7 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: playwright-auth-debug-${{ github.run_id }}
+        include-hidden-files: true
         if-no-files-found: ignore
         retention-days: 7
         path: tests/e2e/.auth/*-failure.png
@@ -262,6 +263,7 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: playwright-auth-state-${{ github.run_id }}
+        include-hidden-files: true
         if-no-files-found: warn
         retention-days: 2
         path: tests/e2e/.auth/**
