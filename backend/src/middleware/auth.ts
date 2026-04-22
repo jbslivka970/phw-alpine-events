@@ -1,7 +1,7 @@
 import { NextFunction, Request, Response } from 'express';
 import jwt, { JwtPayload, VerifyErrors } from 'jsonwebtoken';
 import jwksRsa, { JwksClient } from 'jwks-rsa';
-import { loadAuthConfig } from '../config';
+import { loadAuthConfig, loadEntraProvisioningConfig } from '../config';
 import { getPool, sql } from '../db';
 
 type AppRole = 'ADMIN' | 'EVENT_CREATOR' | 'USER' | 'TAVF_CREATOR';
@@ -24,6 +24,74 @@ declare global {
 
 let jwksClient: JwksClient | null = null;
 let authDiagnosticEventsEmitted = 0;
+
+/**
+ * Attempt to retrieve a user's email from Microsoft Graph using their Entra OID.
+ * Uses the provisioning service-principal credentials (client_credentials grant).
+ * Returns null if provisioning is not configured or the lookup fails.
+ * Only called as a last resort when no email claim is present in the token.
+ */
+async function lookupEmailFromGraph(entraObjectId: string): Promise<string | null> {
+  const cfg = loadEntraProvisioningConfig();
+  if (!cfg.isConfigured) {
+    return null;
+  }
+
+  try {
+    const tokenParams = new URLSearchParams({
+      grant_type: 'client_credentials',
+      client_id: cfg.clientId,
+      client_secret: cfg.clientSecret,
+      scope: 'https://graph.microsoft.com/.default',
+    });
+
+    const tokenRes = await fetch(
+      `https://login.microsoftonline.com/${cfg.tenantId}/oauth2/v2.0/token`,
+      { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: tokenParams.toString() }
+    );
+    if (!tokenRes.ok) {
+      return null;
+    }
+    const { access_token: graphToken } = (await tokenRes.json()) as { access_token: string };
+
+    const userRes = await fetch(
+      `https://graph.microsoft.com/v1.0/users/${entraObjectId}?$select=mail,otherMails,identities`,
+      { headers: { Authorization: `Bearer ${graphToken}` } }
+    );
+    if (!userRes.ok) {
+      return null;
+    }
+
+    const user = (await userRes.json()) as {
+      mail?: string;
+      otherMails?: string[];
+      identities?: Array<{ issuer?: string; issuerAssignedId?: string }>;
+    };
+
+    // Prefer mail, then otherMails, then the identity issuerAssignedId that looks like an email.
+    if (user.mail?.includes('@')) {
+      return user.mail.toLowerCase();
+    }
+    if (Array.isArray(user.otherMails)) {
+      const found = user.otherMails.find((m) => typeof m === 'string' && m.includes('@'));
+      if (found) {
+        return found.toLowerCase();
+      }
+    }
+    if (Array.isArray(user.identities)) {
+      const found = user.identities.find(
+        (id) => typeof id.issuerAssignedId === 'string' && id.issuerAssignedId.includes('@')
+      );
+      if (found?.issuerAssignedId) {
+        return found.issuerAssignedId.toLowerCase();
+      }
+    }
+  } catch {
+    // Non-fatal — auth continues without the email.
+  }
+
+  return null;
+}
 
 function authDiagnosticsEnabled(): boolean {
   return /^(1|true|yes|on)$/i.test(process.env['AUTH_DIAGNOSTICS_ENABLED'] ?? '');
@@ -465,14 +533,29 @@ async function upsertMemberIdentityLink(claims: JwtPayload, email: string | unde
     return linkedMemberId;
   }
 
-  if (!normalizedEmail) {
+  // No existing link found. If we have no email from the token, attempt a one-time Graph API
+  // lookup using the Entra OID so that Google-federated CIAM users whose access tokens omit
+  // the email claim can still be auto-linked on their very first sign-in.
+  let resolvedEmail = normalizedEmail;
+  if (!resolvedEmail && entraObjectId) {
+    const graphEmail = await lookupEmailFromGraph(entraObjectId).catch(() => null);
+    if (graphEmail) {
+      console.info('[auth] email resolved via Graph API fallback for unlinked OID', {
+        oid: entraObjectId,
+        email: graphEmail,
+      });
+      resolvedEmail = graphEmail;
+    }
+  }
+
+  if (!resolvedEmail) {
     return null;
   }
 
-  const { memberId: matchedMemberId, matchCount } = await resolveUniqueActiveMemberByEmail(normalizedEmail);
+  const { memberId: matchedMemberId, matchCount } = await resolveUniqueActiveMemberByEmail(resolvedEmail);
   if (matchCount > 1) {
     console.warn('[auth] duplicate active member email detected; refusing auto-link', {
-      email: normalizedEmail,
+      email: resolvedEmail,
       matchCount,
     });
   }
@@ -488,7 +571,7 @@ async function upsertMemberIdentityLink(claims: JwtPayload, email: string | unde
     .input('issuer', sql.NVarChar(255), issuer ?? null)
     .input('issuer_assigned_id', sql.NVarChar(255), issuerAssignedId ?? null)
     .input('identity_provider', sql.NVarChar(100), identityProvider)
-    .input('last_seen_email', sql.NVarChar(255), normalizedEmail)
+    .input('last_seen_email', sql.NVarChar(255), resolvedEmail)
     .query(
       `MERGE member_identity_link AS target
        USING (SELECT @member_id AS member_id) AS source
