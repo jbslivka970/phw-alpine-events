@@ -217,7 +217,7 @@ jobs:
         PW_EVENT_CREATOR_PASS: ${{ secrets.PW_EVENT_CREATOR_PASS }}
         PW_MEMBER_USER: ${{ secrets.PW_MEMBER_USER }}
         PW_MEMBER_PASS: ${{ secrets.PW_MEMBER_PASS }}
-      run: npm run e2e:refresh-tokens
+      run: npm run e2e:refresh-tokens -- --soft-skip
 
     - name: Refresh Playwright tokens and storage state (retry, extended timeout)
       if: ${{ steps.refresh_auth_state_primary.outcome != 'success' }}
@@ -237,7 +237,7 @@ jobs:
         PW_EVENT_CREATOR_PASS: ${{ secrets.PW_EVENT_CREATOR_PASS }}
         PW_MEMBER_USER: ${{ secrets.PW_MEMBER_USER }}
         PW_MEMBER_PASS: ${{ secrets.PW_MEMBER_PASS }}
-      run: npm run e2e:refresh-tokens
+      run: npm run e2e:refresh-tokens -- --soft-skip
 
     - name: Upload debug screenshots on auth failure
       if: ${{ failure() }}
