@@ -3,6 +3,7 @@ import jwt, { JwtPayload, VerifyErrors } from 'jsonwebtoken';
 import jwksRsa, { JwksClient } from 'jwks-rsa';
 import { loadAuthConfig, loadEntraProvisioningConfig } from '../config';
 import { getPool, sql } from '../db';
+import { resolveRolesForRequest } from './authRoleResolver';
 
 type AppRole = 'ADMIN' | 'EVENT_CREATOR' | 'USER' | 'TAVF_CREATOR';
 
@@ -269,6 +270,55 @@ function extractRoles(claims: JwtPayload): AppRole[] {
   }
 
   return normalizedRoles;
+}
+
+function isTokenRoleFallbackEnabled(): boolean {
+  const raw = process.env['AUTH_ALLOW_TOKEN_ROLE_FALLBACK'];
+  if (!raw) {
+    return true;
+  }
+
+  return /^(1|true|yes|on)$/i.test(raw);
+}
+
+async function resolveAppAccountRole(claims: JwtPayload, email: string | undefined): Promise<string | null> {
+  const oid = getStringClaim(claims, 'oid') ?? getStringClaim(claims, 'sub');
+  const normalizedEmail = email?.trim().toLowerCase();
+
+  if (!oid && !normalizedEmail) {
+    return null;
+  }
+
+  try {
+    const pool = await getPool();
+    const result = await pool
+      .request()
+      .input('oid', sql.NVarChar(255), oid ?? null)
+      .input('email', sql.NVarChar(255), normalizedEmail ?? null)
+      .query<{ role: string }>(
+        `SELECT TOP 1 role
+         FROM [user]
+         WHERE is_active = 1
+           AND (
+             (@oid IS NOT NULL AND azure_oid = @oid)
+             OR (@email IS NOT NULL AND LOWER(email) = @email)
+           )
+         ORDER BY CASE role
+           WHEN 'superadmin' THEN 0
+           WHEN 'admin' THEN 1
+           WHEN 'event_creator' THEN 2
+           WHEN 'tavf_creator' THEN 3
+           WHEN 'user' THEN 4
+           ELSE 9
+         END`
+      );
+
+    return result.recordset[0]?.role ?? null;
+  } catch (error) {
+    // Do not fail auth if app role lookup cannot be completed.
+    console.warn('[auth] app role lookup failed', error);
+    return null;
+  }
 }
 
 function extractEmail(claims: JwtPayload): string | undefined {
@@ -745,15 +795,21 @@ function authenticate(req: Request, res: Response, next: NextFunction): void {
         });
       }
 
-      if (roles.length === 0 && (linkedMemberId || uniqueMemberByEmail)) {
-        roles.push('USER');
-      }
+      const appAccountRole = await resolveAppAccountRole(claims, emailClaim);
+      const allowTokenRoleFallback = isTokenRoleFallbackEnabled();
+      const resolvedRoles = resolveRolesForRequest({
+        appAccountRole,
+        linkedMemberId,
+        uniqueMemberByEmail,
+        tokenRoles: roles,
+        allowTokenRoleFallback,
+      });
 
-      if (roles.length === 0) {
+      if (resolvedRoles.length === 0) {
         maybeEmitAuthDiagnostic({
           reason: 'no_roles_after_member_resolution',
           email: emailClaim,
-          roles,
+          roles: resolvedRoles,
           linkedMemberId,
           uniqueMemberByEmail,
           matchCount,
@@ -766,7 +822,7 @@ function authenticate(req: Request, res: Response, next: NextFunction): void {
         sub: String(claims['oid'] ?? claims['sub'] ?? ''),
         email: emailClaim,
         name: typeof claims['name'] === 'string' ? claims['name'] : undefined,
-        roles,
+        roles: resolvedRoles,
         rawClaims: claims,
       };
 
