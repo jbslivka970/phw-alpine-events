@@ -198,12 +198,34 @@ jobs:
     - name: Install Playwright Chromium
       run: npx playwright install --with-deps chromium
 
-    - name: Refresh Playwright tokens and storage state
+    - name: Refresh Playwright tokens and storage state (primary)
+      id: refresh_auth_state_primary
+      continue-on-error: true
       env:
         E2E_API_BASE_URL: ${{ vars.E2E_API_BASE_URL }}
         E2E_APP_URL: ${{ vars.E2E_APP_URL }}
         PW_REFRESH_ROLE_TIMEOUT_MS: '180000'
         PW_REFRESH_MAX_ATTEMPTS: '2'
+        AZURE_B2C_ROPC_POLICY: ${{ vars.AZURE_B2C_ROPC_POLICY }}
+        AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+        AZURE_EXTERNAL_TENANT_NAME: ${{ vars.AZURE_EXTERNAL_TENANT_NAME }}
+        AZURE_EXTERNAL_TENANT_ID: ${{ vars.AZURE_EXTERNAL_TENANT_ID }}
+        AZURE_AUTHORITY_HOST: ${{ vars.AZURE_AUTHORITY_HOST }}
+        PW_ADMIN_USER: ${{ secrets.PW_ADMIN_USER }}
+        PW_ADMIN_PASS: ${{ secrets.PW_ADMIN_PASS }}
+        PW_EVENT_CREATOR_USER: ${{ secrets.PW_EVENT_CREATOR_USER }}
+        PW_EVENT_CREATOR_PASS: ${{ secrets.PW_EVENT_CREATOR_PASS }}
+        PW_MEMBER_USER: ${{ secrets.PW_MEMBER_USER }}
+        PW_MEMBER_PASS: ${{ secrets.PW_MEMBER_PASS }}
+      run: npm run e2e:refresh-tokens
+
+    - name: Refresh Playwright tokens and storage state (retry, extended timeout)
+      if: ${{ steps.refresh_auth_state_primary.outcome != 'success' }}
+      env:
+        E2E_API_BASE_URL: ${{ vars.E2E_API_BASE_URL }}
+        E2E_APP_URL: ${{ vars.E2E_APP_URL }}
+        PW_REFRESH_ROLE_TIMEOUT_MS: '300000'
+        PW_REFRESH_MAX_ATTEMPTS: '4'
         AZURE_B2C_ROPC_POLICY: ${{ vars.AZURE_B2C_ROPC_POLICY }}
         AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
         AZURE_EXTERNAL_TENANT_NAME: ${{ vars.AZURE_EXTERNAL_TENANT_NAME }}
