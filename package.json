@@ -10,6 +10,10 @@
     "test:e2e:auth-email-hint": "playwright test tests/e2e/browser-auth-email-hint.spec.ts",
     "test:e2e:browser": "playwright test tests/e2e/browser-auth-flows.spec.ts",
     "test:e2e:postdeploy": "playwright test tests/e2e/browser-postdeploy-smoke.spec.ts",
+    "test:e2e:authz-smoke": "playwright test tests/e2e/api-authz-smoke.spec.ts",
+    "test:e2e:authz-smoke:local": "E2E_LOCAL_AUTH_ENABLED=1 E2E_API_BASE_URL=http://localhost:3001 E2E_APP_URL=http://localhost:5173 playwright test tests/e2e/api-authz-smoke.spec.ts",
+    "test:e2e:launch-smoke": "playwright test tests/e2e/browser-launch-smoke.spec.ts",
+    "test:e2e:launch-smoke:local": "E2E_LOCAL_AUTH_ENABLED=1 E2E_API_BASE_URL=http://localhost:3001 E2E_APP_URL=http://localhost:5173 playwright test tests/e2e/browser-launch-smoke.spec.ts",
     "e2e:refresh-tokens": "node scripts/refresh-playwright-tokens.mjs",
     "uat:create-test-event": "node scripts/create-test-event-for-recipient.mjs"
   },
