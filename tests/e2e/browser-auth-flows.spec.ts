@@ -260,11 +260,13 @@ async function appearsAuthenticated(page: Page): Promise<boolean> {
 
 async function clearBrowserSession(page: Page): Promise<void> {
   await page.context().clearCookies().catch(() => {});
-  await page.goto('about:blank', { waitUntil: 'domcontentloaded' }).catch(() => {});
+  // Clear app-origin storage while still on the app domain; navigating to about:blank
+  // first would make the evaluate() target the wrong origin and leave MSAL state intact.
   await page.evaluate(() => {
     window.localStorage.clear();
     window.sessionStorage.clear();
   }).catch(() => {});
+  await page.goto('about:blank', { waitUntil: 'domcontentloaded' }).catch(() => {});
 }
 
 async function ensureAuthenticatedSession(page: Page, account: BrowserAccount): Promise<boolean> {

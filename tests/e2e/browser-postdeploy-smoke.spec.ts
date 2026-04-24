@@ -223,11 +223,13 @@ async function seedLocalMemberAuth(page: Page): Promise<void> {
 
 async function clearBrowserSession(page: Page): Promise<void> {
   await page.context().clearCookies().catch(() => {});
-  await page.goto('about:blank', { waitUntil: 'domcontentloaded' }).catch(() => {});
+  // Clear app-origin storage while still on the app domain; navigating to about:blank
+  // first would make the evaluate() target the wrong origin and leave MSAL state intact.
   await page.evaluate(() => {
     window.localStorage.clear();
     window.sessionStorage.clear();
   }).catch(() => {});
+  await page.goto('about:blank', { waitUntil: 'domcontentloaded' }).catch(() => {});
 }
 
 async function hasStableDashboardAccess(page: Page): Promise<boolean> {
