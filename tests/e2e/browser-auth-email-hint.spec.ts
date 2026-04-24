@@ -160,7 +160,33 @@ async function loginWithCredentials(page: Page, username: string, password: stri
   await sleep(2_000);
 
   const passFilled = await completePasswordStep(authPage, password);
-  expect(passFilled, 'password input should be reachable in auth flow').toBeTruthy();
+
+  if (!passFilled) {
+    // Some CIAM account-tile/session-resume paths complete sign-in without rendering
+    // a password field. Try to finalize and validate authenticated app navigation.
+    await clickInAnyScope(authPage, [
+      'button:has-text("No")',
+      'button:has-text("Yes")',
+      'button:has-text("Accept")',
+      'button:has-text("Continue")',
+      'input[type="submit"]#idSIButton9',
+      'button[type="submit"]',
+    ]);
+
+    if (popup) {
+      await popup.waitForEvent('close', { timeout: 15_000 }).catch(() => {});
+    }
+
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      await page.goto(`${appBaseUrl}/dashboard`, { waitUntil: 'domcontentloaded' }).catch(() => {});
+      if (!/\/login(\?|$)/i.test(page.url())) {
+        return;
+      }
+      await sleep(2_500);
+    }
+
+    expect(passFilled, 'password input should be reachable in auth flow when CIAM does not complete sign-in without password UI').toBeTruthy();
+  }
 
   await clickInAnyScope(authPage, [
     'button:has-text("No")',
