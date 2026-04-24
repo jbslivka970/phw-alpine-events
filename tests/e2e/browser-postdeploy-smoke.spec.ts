@@ -142,102 +142,76 @@ async function completePasswordStep(authPage: Page, password: string): Promise<b
 }
 
 async function loginWithCredentials(page: Page): Promise<void> {
-  let lastError: Error | null = null;
+  // Simplified login matching auth_email_hint — no inner retry loop, no Promise.race.
+  // auth_email_hint uses the same credentials and passes consistently in CI headless.
+  await page.goto(`${appBaseUrl}/login`, { waitUntil: 'domcontentloaded' });
 
-  for (let attempt = 1; attempt <= 2; attempt += 1) {
-    try {
-      await page.goto(`${appBaseUrl}/login`, { waitUntil: 'domcontentloaded' });
-      const onIdentityProvider = () => /login\.microsoftonline\.com|b2clogin\.com|ciamlogin\.com/i.test(page.url());
-      const signInButton = page.getByRole('button', { name: /sign in/i });
-      let popup: Page | null = null;
+  const signInButton = page.getByRole('button', { name: /sign in/i });
+  await expect(signInButton).toBeVisible({ timeout: 20_000 });
 
-      if (!onIdentityProvider()) {
-        await signInButton.waitFor({ state: 'visible', timeout: 25_000 }).catch(() => null);
-        if (await signInButton.isVisible().catch(() => false)) {
-          const popupPromise = page.waitForEvent('popup', { timeout: 12_000 }).catch(() => null);
-          await signInButton.click();
-          popup = await popupPromise;
-        } else {
-          await clickInAnyScope(page, [
-            'button:has-text("Sign in")',
-            'button:has-text("Continue")',
-            'a:has-text("Sign in")',
-            'a:has-text("Continue")',
-          ]);
-          await page.waitForTimeout(1_500);
-        }
-      }
+  const popupPromise = page.waitForEvent('popup', { timeout: 12_000 }).catch(() => null);
+  await signInButton.click();
+  const popup = await popupPromise;
+  const authPage = popup ?? page;
 
-      const authPage = popup ?? page;
+  await authPage.waitForLoadState('domcontentloaded').catch(() => {});
+  const userFilled = await completeUsernameStep(authPage, memberUsername);
+  expect(userFilled, 'username input should be reachable in auth flow').toBeTruthy();
 
-      await authPage.waitForLoadState('domcontentloaded').catch(() => {});
-      const userFilled = await completeUsernameStep(authPage, memberUsername);
-      expect(userFilled, 'username input should be reachable in auth flow').toBeTruthy();
+  // Give CIAM time to transition from the username/next screen to the password screen.
+  await authPage.waitForLoadState('domcontentloaded').catch(() => {});
+  await authPage.waitForTimeout(2_000);
+  const passFilled = await completePasswordStep(authPage, memberPassword);
 
-      await authPage.waitForLoadState('domcontentloaded').catch(() => {});
-      await page.waitForTimeout(2_000);
-      const passFilled = await completePasswordStep(authPage, memberPassword);
+  if (!passFilled) {
+    // Some CIAM account-tile/session-resume paths complete sign-in without rendering
+    // a password field. Try to finalize and validate authenticated app navigation.
+    await clickInAnyScope(authPage, [
+      'button:has-text("No")',
+      'button:has-text("Yes")',
+      'button:has-text("Accept")',
+      'button:has-text("Continue")',
+      'input[type="submit"]#idSIButton9',
+      'button[type="submit"]',
+    ]);
 
-      if (!passFilled) {
-        // Some CIAM account-tile/session-resume paths complete sign-in without rendering
-        // a password field. Try to finalize and validate authenticated app navigation.
-        await clickInAnyScope(authPage, [
-          'button:has-text("No")',
-          'button:has-text("Yes")',
-          'button:has-text("Accept")',
-          'button:has-text("Continue")',
-          'input[type="submit"]#idSIButton9',
-          'button[type="submit"]',
-        ]);
-
-        if (popup) {
-          await popup.waitForEvent('close', { timeout: 15_000 }).catch(() => {});
-        }
-
-        for (let authAttempt = 1; authAttempt <= 3; authAttempt += 1) {
-          await page.goto(`${appBaseUrl}/dashboard`, { waitUntil: 'domcontentloaded' }).catch(() => {});
-          if (!/\/login(\?|$)/i.test(page.url())) {
-            return;
-          }
-          await page.waitForTimeout(2_500);
-        }
-
-        expect(passFilled, 'password input should be reachable in auth flow when CIAM does not complete sign-in without password UI').toBeTruthy();
-      }
-
-      await authPage.waitForLoadState('domcontentloaded').catch(() => {});
-      await clickInAnyScope(authPage, [
-        'button:has-text("No")',
-        'button:has-text("Yes")',
-        'button:has-text("Accept")',
-        'button:has-text("Continue")',
-        'input[type="submit"]#idSIButton9',
-        'button[type="submit"]',
-      ]);
-
-      if (popup) {
-        await popup.waitForEvent('close', { timeout: 90_000 }).catch(() => {});
-      }
-
-      for (let authAttempt = 1; authAttempt <= 3; authAttempt += 1) {
-        await page.goto(`${appBaseUrl}/dashboard`, { waitUntil: 'domcontentloaded' });
-        const onLogin = /\/login(\?|$)/i.test(page.url());
-        if (!onLogin) {
-          return;
-        }
-        await page.waitForTimeout(2_500);
-      }
-
-      await expect(page).not.toHaveURL(/\/login(\?|$)/, { timeout: 5_000 });
-      return;
-    } catch (error) {
-      lastError = error instanceof Error ? error : new Error(String(error));
-      await page.context().clearCookies().catch(() => {});
-      await page.goto('about:blank').catch(() => {});
+    if (popup) {
+      await popup.waitForEvent('close', { timeout: 15_000 }).catch(() => {});
     }
+
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      await page.goto(`${appBaseUrl}/dashboard`, { waitUntil: 'domcontentloaded' }).catch(() => {});
+      if (!/\/login(\?|$)/i.test(page.url())) {
+        return;
+      }
+      await page.waitForTimeout(2_500);
+    }
+
+    expect(passFilled, 'password input should be reachable in auth flow when CIAM does not complete sign-in without password UI').toBeTruthy();
   }
 
-  throw lastError ?? new Error('Failed to log in with credentials.');
+  await clickInAnyScope(authPage, [
+    'button:has-text("No")',
+    'button:has-text("Yes")',
+    'button:has-text("Accept")',
+    'button:has-text("Continue")',
+    'input[type="submit"]#idSIButton9',
+    'button[type="submit"]',
+  ]);
+
+  if (popup) {
+    await popup.waitForEvent('close', { timeout: 90_000 }).catch(() => {});
+  }
+
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    await page.goto(`${appBaseUrl}/dashboard`, { waitUntil: 'domcontentloaded' }).catch(() => {});
+    if (!/\/login(\?|$)/i.test(page.url())) {
+      return;
+    }
+    await page.waitForTimeout(2_500);
+  }
+
+  await expect(page).not.toHaveURL(/\/login(\?|$)/, { timeout: 10_000 });
 }
 
 async function seedLocalMemberAuth(page: Page): Promise<void> {
@@ -298,26 +272,11 @@ async function ensureMemberAuthenticatedSession(page: Page): Promise<boolean> {
   }
 
   await clearBrowserSession(page);
-
-  for (let attempt = 1; attempt <= 2; attempt += 1) {
-    await Promise.race([
-      loginWithCredentials(page),
-      new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error(`Login attempt timed out after ${loginAttemptTimeoutMs}ms`)), loginAttemptTimeoutMs);
-      }),
-    ]).catch(() => {});
-
-    if (page.isClosed()) {
-      return false;
-    }
-
-    if (await hasStableDashboardAccess(page)) {
-      return true;
-    }
-    await clearBrowserSession(page);
-  }
-
-  return false;
+  // Direct login — mirrors auth_email_hint which uses the same credentials and passes.
+  // Avoid Promise.race: it cancels the timer but leaves loginWithCredentials running,
+  // which exhausts steps in the background and hits the Playwright test timeout.
+  await loginWithCredentials(page).catch(() => {});
+  return hasStableDashboardAccess(page);
 }
 
 test.describe('Post-deploy browser smoke (member)', () => {
