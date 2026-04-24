@@ -4,9 +4,8 @@ const appBaseUrl = (process.env.E2E_APP_URL ?? '').trim().replace(/\/$/, '');
 const localE2EAuthEnabled = /^(1|true|yes|on)$/i.test(process.env.E2E_LOCAL_AUTH_ENABLED ?? '');
 const memberUsername = (process.env.PW_MEMBER_USER ?? '').trim();
 const memberPassword = (process.env.PW_MEMBER_PASS ?? '').trim();
-const authStepMaxAttempts = 60;
+const authStepMaxAttempts = 30;
 const authStepSleepMs = 800;
-const loginAttemptTimeoutMs = Number.parseInt(process.env.PW_LOGIN_ATTEMPT_TIMEOUT_MS || '180000', 10);
 
 function scopes(page: Page): Array<Page | Frame> {
   return [page, ...page.frames()];
@@ -270,16 +269,11 @@ async function ensureMemberAuthenticatedSession(page: Page): Promise<boolean> {
     return false;
   }
 
-  for (let attempt = 1; attempt <= 2; attempt += 1) {
-    await clearBrowserSession(page);
-    // Direct login — mirrors auth_email_hint which uses the same credentials and passes.
-    await loginWithCredentials(page).catch(() => {});
-    if (await hasStableDashboardAccess(page)) {
-      return true;
-    }
-  }
-
-  return false;
+  // Use a single establishment attempt to stay inside the test timeout budget.
+  // Playwright already retries this whole test once on failure.
+  await clearBrowserSession(page);
+  await loginWithCredentials(page).catch(() => {});
+  return hasStableDashboardAccess(page);
 }
 
 test.describe('Post-deploy browser smoke (member)', () => {
