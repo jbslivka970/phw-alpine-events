@@ -412,10 +412,16 @@ async function completePasswordStep(authPage, password) {
     await clickInAnyScope(authPage, [
       'a:has-text("Use password")',
       'button:has-text("Use password")',
+      'a:has-text("Sign in with a password")',
+      'button:has-text("Sign in with a password")',
       'a:has-text("Sign-in options")',
       'button:has-text("Sign-in options")',
       'a:has-text("Other ways to sign in")',
       'button:has-text("Other ways to sign in")',
+      'a:has-text("Use a different sign-in method")',
+      'button:has-text("Use a different sign-in method")',
+      'a:has-text("Sign in another way")',
+      'button:has-text("Sign in another way")',
     ]);
 
     const entered = await fillInAnyScope(
@@ -494,6 +500,7 @@ async function loginAndCapture({ username, password, name, statePath }) {
     }
 
     await authPage.waitForLoadState('domcontentloaded').catch(() => {});
+    await authPage.waitForTimeout(2_000);
     const passFilled = await completePasswordStep(authPage, password);
     if (!passFilled) {
       throw new Error('Could not find password input in auth flow.');
@@ -510,11 +517,20 @@ async function loginAndCapture({ username, password, name, statePath }) {
     ]);
 
     if (popup) {
-      await popup.waitForEvent('close', { timeout: 30_000 }).catch(() => {});
+      await popup.waitForEvent('close', { timeout: 90_000 }).catch(() => {});
+    }
+
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      await page.goto(`${appUrl}/dashboard`, { waitUntil: 'domcontentloaded' }).catch(() => {});
+      const onLogin = /\/login(\?|$)/i.test(page.url());
+      if (!onLogin) {
+        break;
+      }
+      await page.waitForTimeout(2_500);
     }
 
     await waitForPostLoginReady(page, postLoginTimeoutMs);
-    await page.waitForTimeout(1200);
+    await page.waitForTimeout(1_200);
 
     const storageToken = await page.evaluate(() => {
       const sources = [window.sessionStorage, window.localStorage];
@@ -614,13 +630,12 @@ async function main() {
 
     // ── Strategy 1: ROPC (fast, no browser) ──────────────────────────────
     let token = null;
+    let hasBrowserStorageState = false;
     if (ropcEnabled) {
       try {
         const ropcResult = await acquireTokenByROPC(role);
         if (ropcResult) {
           token = ropcResult.accessToken;
-          const storageState = buildSyntheticStorageState(ropcResult, appUrl);
-          fs.writeFileSync(role.statePath, JSON.stringify(storageState, null, 2), 'utf8');
           console.log(`[refresh-playwright-tokens] ${role.name}: acquired via ROPC (no browser needed)`);
         }
       } catch (ropcError) {
@@ -629,22 +644,38 @@ async function main() {
       }
     }
 
-    // ── Strategy 2: Browser login (fallback) ─────────────────────────────
-    if (!token) {
-      try {
-        token = await loginAndCaptureWithTimeout({
-          username: role.username,
-          password: role.password,
-          name: role.name,
-          statePath: role.statePath,
-        });
-        console.log(`[refresh-playwright-tokens] ${role.name}: acquired via browser login`);
-      } catch (error) {
+    // ── Strategy 2: Browser login for real storageState (preferred for browser suites) ──
+    try {
+      const browserToken = await loginAndCaptureWithTimeout({
+        username: role.username,
+        password: role.password,
+        name: role.name,
+        statePath: role.statePath,
+      });
+      hasBrowserStorageState = true;
+      if (!token) {
+        token = browserToken;
+      }
+      console.log(`[refresh-playwright-tokens] ${role.name}: captured browser storage state`);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      if (!token) {
         if (!softSkip) {
           throw error;
         }
-        const reason = error instanceof Error ? error.message : String(error);
         console.warn(`[refresh-playwright-tokens] skipped ${role.name}: ${reason}`);
+      } else {
+        console.warn(`[refresh-playwright-tokens] ${role.name}: browser storage capture failed, retaining token-only auth state path: ${reason}`);
+      }
+    }
+
+    if (!hasBrowserStorageState && token) {
+      try {
+        const storageState = buildSyntheticStorageState({ accessToken: token, idToken: null, expiresIn: 3600, scope: configuredApiScope || azureClientId }, appUrl);
+        fs.writeFileSync(role.statePath, JSON.stringify(storageState, null, 2), 'utf8');
+      } catch (writeError) {
+        const reason = writeError instanceof Error ? writeError.message : String(writeError);
+        console.warn(`[refresh-playwright-tokens] ${role.name}: failed to write fallback synthetic state: ${reason}`);
       }
     }
 
