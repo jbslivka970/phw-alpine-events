@@ -279,8 +279,13 @@ async function ensureMemberAuthenticatedSession(page: Page): Promise<boolean> {
   // Use a single establishment attempt to stay inside the test timeout budget.
   // Playwright already retries this whole test once on failure.
   await clearBrowserSession(page);
-  await loginWithCredentials(page).catch(() => {});
-  return hasStableDashboardAccess(page);
+  try {
+    // loginWithCredentials already validates that the session is no longer on /login.
+    await loginWithCredentials(page);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 test.describe('Post-deploy browser smoke (member)', () => {
