@@ -1,5 +1,3 @@
-import fs from 'node:fs';
-import path from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 
 const appBaseUrl = (process.env.E2E_APP_URL ?? '').trim().replace(/\/$/, '');
@@ -27,11 +25,6 @@ const accounts: BrowserAccount[] = [
 ];
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const authStateByLabel: Record<string, string> = {
-  event_creator: path.resolve(process.cwd(), 'tests/e2e/.auth/event-creator.json'),
-  member: path.resolve(process.cwd(), 'tests/e2e/.auth/member.json'),
-};
-
 function scopes(page: Page) {
   return [page, ...page.frames()];
 }
@@ -307,14 +300,9 @@ async function ensureAuthenticatedSession(page: Page, account: BrowserAccount): 
     return appearsAuthenticated(page);
   }
 
-  const statePath = authStateByLabel[account.label] ?? '';
-  const hasStateFile = Boolean(statePath) && fs.existsSync(statePath);
-
-  if (hasStateFile) {
-    await page.goto(`${appBaseUrl}/dashboard`, { waitUntil: 'domcontentloaded' });
-    if (await appearsAuthenticated(page)) {
-      return true;
-    }
+  await page.goto(`${appBaseUrl}/dashboard`, { waitUntil: 'domcontentloaded' }).catch(() => {});
+  if (await appearsAuthenticated(page)) {
+    return true;
   }
 
   if (!account.username || !account.password) {
@@ -341,15 +329,8 @@ test.describe('Browser role flows (credential login)', () => {
   test.setTimeout(300_000);
 
   for (const account of accounts) {
-    const storageStatePath = authStateByLabel[account.label] ?? '';
-    const hasStorageState = Boolean(storageStatePath) && fs.existsSync(storageStatePath);
-
     test.describe(account.label, () => {
-      if (hasStorageState) {
-        test.use({ storageState: storageStatePath });
-      }
-
-      test.skip(!localE2EAuthEnabled && !hasStorageState && (!account.username || !account.password), `${account.label} credentials are required when storage state is missing.`);
+      test.skip(!localE2EAuthEnabled && (!account.username || !account.password), `${account.label} credentials are required when local auth is disabled.`);
 
       test('preferences page loads without GUID/500 errors', async ({ page }) => {
 

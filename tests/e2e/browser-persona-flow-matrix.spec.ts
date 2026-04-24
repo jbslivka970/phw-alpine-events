@@ -1,5 +1,3 @@
-import fs from 'node:fs';
-import path from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 
 const appBaseUrl = (process.env.E2E_APP_URL ?? '').trim().replace(/\/$/, '');
@@ -7,7 +5,6 @@ const localE2EAuthEnabled = /^(1|true|yes|on)$/i.test(process.env.E2E_LOCAL_AUTH
 
 type Persona = {
   label: 'admin' | 'event_creator' | 'member';
-  statePath: string;
   username: string;
   password: string;
   canAccessAdmin: boolean;
@@ -18,7 +15,6 @@ type Persona = {
 const personas: Persona[] = [
   {
     label: 'admin',
-    statePath: path.resolve(process.cwd(), 'tests/e2e/.auth/admin.json'),
     username: process.env.PW_ADMIN_USER ?? '',
     password: process.env.PW_ADMIN_PASS ?? '',
     canAccessAdmin: true,
@@ -27,7 +23,6 @@ const personas: Persona[] = [
   },
   {
     label: 'event_creator',
-    statePath: path.resolve(process.cwd(), 'tests/e2e/.auth/event-creator.json'),
     username: process.env.PW_EVENT_CREATOR_USER ?? '',
     password: process.env.PW_EVENT_CREATOR_PASS ?? '',
     canAccessAdmin: false,
@@ -36,7 +31,6 @@ const personas: Persona[] = [
   },
   {
     label: 'member',
-    statePath: path.resolve(process.cwd(), 'tests/e2e/.auth/member.json'),
     username: process.env.PW_MEMBER_USER ?? '',
     password: process.env.PW_MEMBER_PASS ?? '',
     canAccessAdmin: false,
@@ -314,10 +308,7 @@ test.describe('Browser persona flow matrix', () => {
 
   for (const persona of personas) {
     test.describe(persona.label, () => {
-      if (!localE2EAuthEnabled) {
-        test.use({ storageState: persona.statePath });
-        test.skip(!fs.existsSync(persona.statePath), `${persona.label} storage state is missing.`);
-      }
+      test.skip(!localE2EAuthEnabled && (!persona.username || !persona.password), `${persona.label} credentials are required when local auth is disabled.`);
 
       test('base protected routes stay authenticated', async ({ page }) => {
         await seedLocalAuthRole(page, persona.label);

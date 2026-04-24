@@ -1,10 +1,7 @@
-import fs from 'node:fs';
-import path from 'node:path';
 import { expect, test, type Frame, type Page } from '@playwright/test';
 
 const appBaseUrl = (process.env.E2E_APP_URL ?? '').trim().replace(/\/$/, '');
 const localE2EAuthEnabled = /^(1|true|yes|on)$/i.test(process.env.E2E_LOCAL_AUTH_ENABLED ?? '');
-const memberStatePath = path.resolve(process.cwd(), 'tests/e2e/.auth/member.json');
 const memberUsername = (process.env.PW_MEMBER_USER ?? '').trim();
 const memberPassword = (process.env.PW_MEMBER_PASS ?? '').trim();
 const authStepMaxAttempts = 60;
@@ -284,11 +281,9 @@ test.describe('Post-deploy browser smoke (member)', () => {
 
   test('dashboard, events RSVP, and TAVF preference flow', async ({ browser }) => {
     test.setTimeout(210_000);
-    test.skip(!localE2EAuthEnabled && !fs.existsSync(memberStatePath) && (!memberUsername || !memberPassword), 'Member storage state or PW_MEMBER_USER/PW_MEMBER_PASS are required.');
+    test.skip(!localE2EAuthEnabled && (!memberUsername || !memberPassword), 'PW_MEMBER_USER/PW_MEMBER_PASS are required when local auth is disabled.');
 
-    const context = fs.existsSync(memberStatePath)
-      ? await browser.newContext({ storageState: memberStatePath })
-      : await browser.newContext();
+    const context = await browser.newContext();
     const page = await context.newPage();
     const memberRsvp403s: string[] = [];
 
