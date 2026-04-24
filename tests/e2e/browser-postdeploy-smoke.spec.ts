@@ -7,7 +7,7 @@ const localE2EAuthEnabled = /^(1|true|yes|on)$/i.test(process.env.E2E_LOCAL_AUTH
 const memberStatePath = path.resolve(process.cwd(), 'tests/e2e/.auth/member.json');
 const memberUsername = (process.env.PW_MEMBER_USER ?? '').trim();
 const memberPassword = (process.env.PW_MEMBER_PASS ?? '').trim();
-const authStepMaxAttempts = 30;
+const authStepMaxAttempts = 60;
 const authStepSleepMs = 800;
 const loginAttemptTimeoutMs = Number.parseInt(process.env.PW_LOGIN_ATTEMPT_TIMEOUT_MS || '180000', 10);
 
@@ -108,10 +108,14 @@ async function completePasswordStep(authPage: Page, password: string): Promise<b
     await clickInAnyScope(authPage, [
       'a:has-text("Use password")',
       'button:has-text("Use password")',
+      'a:has-text("Use your password")',
+      'button:has-text("Use your password")',
       'a:has-text("Sign-in options")',
       'button:has-text("Sign-in options")',
       'a:has-text("Other ways to sign in")',
       'button:has-text("Other ways to sign in")',
+      'a:has-text("Try another way")',
+      'button:has-text("Try another way")',
     ]);
 
     const entered = await fillInAnyScope(authPage, [
@@ -223,8 +227,9 @@ async function seedLocalMemberAuth(page: Page): Promise<void> {
 
 async function clearBrowserSession(page: Page): Promise<void> {
   await page.context().clearCookies().catch(() => {});
-  // Clear app-origin storage while still on the app domain; navigating to about:blank
-  // first would make the evaluate() target the wrong origin and leave MSAL state intact.
+  // Ensure we are on app origin before clearing storage; otherwise localStorage.clear()
+  // would run against about:blank and leave MSAL state intact.
+  await page.goto(`${appBaseUrl}/login`, { waitUntil: 'domcontentloaded' }).catch(() => {});
   await page.evaluate(() => {
     window.localStorage.clear();
     window.sessionStorage.clear();
@@ -313,7 +318,7 @@ test.describe('Post-deploy browser smoke (member)', () => {
 
     try {
       const isAuthenticated = await ensureMemberAuthenticatedSession(page);
-      test.skip(!isAuthenticated, 'Member session could not be established in this environment — skipping postdeploy member smoke.');
+      expect(isAuthenticated, 'Member session could not be established in this environment for postdeploy member smoke.').toBeTruthy();
 
       await page.goto(`${appBaseUrl}/dashboard`, { waitUntil: 'domcontentloaded' });
       await expect(page).not.toHaveURL(/\/login(\?|$)/, { timeout: 20_000 });

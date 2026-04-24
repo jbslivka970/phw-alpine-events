@@ -63,7 +63,7 @@ const adminRoutes = [
 ] as const;
 
 const assignmentRoute = '/events/00000000-0000-0000-0000-000000000001/assign';
-const authStepMaxAttempts = 30;
+const authStepMaxAttempts = 60;
 const authStepSleepMs = 800;
 
 function scopes(page: Page) {
@@ -157,12 +157,16 @@ async function completePasswordStep(authPage: Page, password: string): Promise<b
     await clickInAnyScope(authPage, [
       'a:has-text("Use password")',
       'button:has-text("Use password")',
+      'a:has-text("Use your password")',
+      'button:has-text("Use your password")',
       'a:has-text("Sign in with a password")',
       'button:has-text("Sign in with a password")',
       'a:has-text("Sign-in options")',
       'button:has-text("Sign-in options")',
       'a:has-text("Other ways to sign in")',
       'button:has-text("Other ways to sign in")',
+      'a:has-text("Try another way")',
+      'button:has-text("Try another way")',
       'a:has-text("Use a different sign-in method")',
       'button:has-text("Use a different sign-in method")',
       'a:has-text("Sign in another way")',
@@ -194,8 +198,9 @@ async function completePasswordStep(authPage: Page, password: string): Promise<b
 
 async function clearBrowserSession(page: Page): Promise<void> {
   await page.context().clearCookies().catch(() => {});
-  // Clear app-origin storage while still on the app domain; navigating to about:blank
-  // first would make the evaluate() target the wrong origin and leave MSAL state intact.
+  // Ensure we are on app origin before clearing storage; otherwise localStorage.clear()
+  // would run against about:blank and leave MSAL state intact.
+  await page.goto(`${appBaseUrl}/login`, { waitUntil: 'domcontentloaded' }).catch(() => {});
   await page.evaluate(() => {
     window.localStorage.clear();
     window.sessionStorage.clear();
@@ -244,9 +249,19 @@ async function ensureAuthenticatedSession(page: Page, persona: Persona): Promise
     return false;
   }
 
-  await clearBrowserSession(page);
-  await loginWithCredentials(page, persona.username, persona.password).catch(() => {});
-  return hasAuthenticatedSession(page, appBaseUrl);
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    await clearBrowserSession(page);
+    try {
+      await loginWithCredentials(page, persona.username, persona.password);
+      if (await hasAuthenticatedSession(page, appBaseUrl)) {
+        return true;
+      }
+    } catch {
+      // Continue to one more retry because CIAM UI can be transient in headless CI.
+    }
+  }
+
+  return false;
 }
 
 async function hasAuthenticatedSession(page: Page, appBaseUrlValue: string): Promise<boolean> {
@@ -285,7 +300,7 @@ test.describe('Browser persona flow matrix', () => {
       test('base protected routes stay authenticated', async ({ page }) => {
         await seedLocalAuthRole(page, persona.label);
         const isAuthenticated = await ensureAuthenticatedSession(page, persona);
-        test.skip(!isAuthenticated, `${persona.label} storage state is present but not authenticated for this environment.`);
+        expect(isAuthenticated, `${persona.label} storage state is present but not authenticated for this environment.`).toBeTruthy();
 
         for (const route of protectedRoutes) {
           await page.goto(`${appBaseUrl}${route}`, { waitUntil: 'domcontentloaded' });
@@ -297,7 +312,7 @@ test.describe('Browser persona flow matrix', () => {
       test('admin route access follows role policy', async ({ page }) => {
         await seedLocalAuthRole(page, persona.label);
         const isAuthenticated = await ensureAuthenticatedSession(page, persona);
-        test.skip(!isAuthenticated, `${persona.label} storage state is present but not authenticated for this environment.`);
+        expect(isAuthenticated, `${persona.label} storage state is present but not authenticated for this environment.`).toBeTruthy();
 
         for (const route of adminRoutes) {
           await page.goto(`${appBaseUrl}${route}`, { waitUntil: 'domcontentloaded' });
@@ -313,7 +328,7 @@ test.describe('Browser persona flow matrix', () => {
       test('event assignment route respects admin gate', async ({ page }) => {
         await seedLocalAuthRole(page, persona.label);
         const isAuthenticated = await ensureAuthenticatedSession(page, persona);
-        test.skip(!isAuthenticated, `${persona.label} storage state is present but not authenticated for this environment.`);
+        expect(isAuthenticated, `${persona.label} storage state is present but not authenticated for this environment.`).toBeTruthy();
 
         await page.goto(`${appBaseUrl}${assignmentRoute}`, { waitUntil: 'domcontentloaded' });
         if (persona.canAccessAdmin) {
@@ -326,7 +341,7 @@ test.describe('Browser persona flow matrix', () => {
       test('tavf new route follows disallowed admin rule', async ({ page }) => {
         await seedLocalAuthRole(page, persona.label);
         const isAuthenticated = await ensureAuthenticatedSession(page, persona);
-        test.skip(!isAuthenticated, `${persona.label} storage state is present but not authenticated for this environment.`);
+        expect(isAuthenticated, `${persona.label} storage state is present but not authenticated for this environment.`).toBeTruthy();
 
         await page.goto(`${appBaseUrl}/tavf/new`, { waitUntil: 'domcontentloaded' });
         if (persona.tavfNewAllowed) {
@@ -339,7 +354,7 @@ test.describe('Browser persona flow matrix', () => {
       test('events page action visibility follows persona capability', async ({ page }) => {
         await seedLocalAuthRole(page, persona.label);
         const isAuthenticated = await ensureAuthenticatedSession(page, persona);
-        test.skip(!isAuthenticated, `${persona.label} storage state is present but not authenticated for this environment.`);
+        expect(isAuthenticated, `${persona.label} storage state is present but not authenticated for this environment.`).toBeTruthy();
 
         await page.goto(`${appBaseUrl}/events`, { waitUntil: 'domcontentloaded' });
         await expect(page.getByRole('heading', { name: 'Events' })).toBeVisible({ timeout: 15_000 });

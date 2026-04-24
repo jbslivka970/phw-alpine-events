@@ -4,7 +4,7 @@ import { expect, test, type Page } from '@playwright/test';
 
 const appBaseUrl = (process.env.E2E_APP_URL ?? '').trim().replace(/\/$/, '');
 const localE2EAuthEnabled = /^(1|true|yes|on)$/i.test(process.env.E2E_LOCAL_AUTH_ENABLED ?? '');
-const authStepMaxAttempts = 30;
+const authStepMaxAttempts = 60;
 const authStepSleepMs = 800;
 
 type BrowserAccount = {
@@ -127,12 +127,16 @@ async function completePasswordStep(authPage: Page, password: string): Promise<b
     await clickInAnyScope(authPage, [
       'a:has-text("Use password")',
       'button:has-text("Use password")',
+      'a:has-text("Use your password")',
+      'button:has-text("Use your password")',
       'a:has-text("Sign in with a password")',
       'button:has-text("Sign in with a password")',
       'a:has-text("Sign-in options")',
       'button:has-text("Sign-in options")',
       'a:has-text("Other ways to sign in")',
       'button:has-text("Other ways to sign in")',
+      'a:has-text("Try another way")',
+      'button:has-text("Try another way")',
       'a:has-text("Use a different sign-in method")',
       'button:has-text("Use a different sign-in method")',
       'a:has-text("Sign in another way")',
@@ -260,8 +264,9 @@ async function appearsAuthenticated(page: Page): Promise<boolean> {
 
 async function clearBrowserSession(page: Page): Promise<void> {
   await page.context().clearCookies().catch(() => {});
-  // Clear app-origin storage while still on the app domain; navigating to about:blank
-  // first would make the evaluate() target the wrong origin and leave MSAL state intact.
+  // Ensure we are on app origin before clearing storage; otherwise localStorage.clear()
+  // would run against about:blank and leave MSAL state intact.
+  await page.goto(`${appBaseUrl}/login`, { waitUntil: 'domcontentloaded' }).catch(() => {});
   await page.evaluate(() => {
     window.localStorage.clear();
     window.sessionStorage.clear();
@@ -286,9 +291,23 @@ async function ensureAuthenticatedSession(page: Page, account: BrowserAccount): 
     }
   }
 
-  await clearBrowserSession(page);
-  await loginWithCredentials(page, account.username, account.password).catch(() => {});
-  return appearsAuthenticated(page);
+  if (!account.username || !account.password) {
+    return false;
+  }
+
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    await clearBrowserSession(page);
+    try {
+      await loginWithCredentials(page, account.username, account.password);
+      if (await appearsAuthenticated(page)) {
+        return true;
+      }
+    } catch {
+      // Continue to one more retry because CIAM UI can be transient in headless CI.
+    }
+  }
+
+  return false;
 }
 
 test.describe('Browser role flows (credential login)', () => {
@@ -337,7 +356,7 @@ test.describe('Browser role flows (credential login)', () => {
         page.on('response', responseListener);
         try {
           const isAuthenticated = await ensureAuthenticatedSession(page, account);
-          test.skip(!isAuthenticated, `${account.label} could not establish an authenticated browser session in this environment — skipping.`);
+          expect(isAuthenticated, `${account.label} could not establish an authenticated browser session in this environment.`).toBeTruthy();
 
           await page.goto(`${appBaseUrl}/preferences`, { waitUntil: 'domcontentloaded' });
           await expect(page.getByRole('heading', { name: /notification preferences/i })).toBeVisible({ timeout: 15_000 });
@@ -356,7 +375,7 @@ test.describe('Browser role flows (credential login)', () => {
       test('tavf new route respects non-admin access rule', async ({ page }) => {
 
         const isAuthenticated = await ensureAuthenticatedSession(page, account);
-        test.skip(!isAuthenticated, `${account.label} could not establish an authenticated browser session in this environment — skipping.`);
+        expect(isAuthenticated, `${account.label} could not establish an authenticated browser session in this environment.`).toBeTruthy();
 
         const isAdmin = await hasAdminRoleInSession(page);
         await page.goto(`${appBaseUrl}/tavf/new`, { waitUntil: 'domcontentloaded' });
