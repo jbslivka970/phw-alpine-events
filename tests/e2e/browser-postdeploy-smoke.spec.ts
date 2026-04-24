@@ -4,7 +4,7 @@ const appBaseUrl = (process.env.E2E_APP_URL ?? '').trim().replace(/\/$/, '');
 const localE2EAuthEnabled = /^(1|true|yes|on)$/i.test(process.env.E2E_LOCAL_AUTH_ENABLED ?? '');
 const memberUsername = (process.env.PW_MEMBER_USER ?? '').trim();
 const memberPassword = (process.env.PW_MEMBER_PASS ?? '').trim();
-const authStepMaxAttempts = 30;
+const authStepMaxAttempts = 60;
 const authStepSleepMs = 800;
 
 function scopes(page: Page): Array<Page | Frame> {
@@ -100,18 +100,25 @@ async function completeUsernameStep(authPage: Page, username: string): Promise<b
 }
 
 async function completePasswordStep(authPage: Page, password: string): Promise<boolean> {
+  await authPage.waitForLoadState('domcontentloaded').catch(() => {});
   for (let i = 0; i < authStepMaxAttempts; i += 1) {
     await clickInAnyScope(authPage, [
       'a:has-text("Use password")',
       'button:has-text("Use password")',
       'a:has-text("Use your password")',
       'button:has-text("Use your password")',
+      'a:has-text("Sign in with a password")',
+      'button:has-text("Sign in with a password")',
       'a:has-text("Sign-in options")',
       'button:has-text("Sign-in options")',
       'a:has-text("Other ways to sign in")',
       'button:has-text("Other ways to sign in")',
       'a:has-text("Try another way")',
       'button:has-text("Try another way")',
+      'a:has-text("Use a different sign-in method")',
+      'button:has-text("Use a different sign-in method")',
+      'a:has-text("Sign in another way")',
+      'button:has-text("Sign in another way")',
     ]);
 
     const entered = await fillInAnyScope(authPage, [
