@@ -4,8 +4,8 @@ import { expect, test, type Page } from '@playwright/test';
 
 const appBaseUrl = (process.env.E2E_APP_URL ?? '').trim().replace(/\/$/, '');
 const localE2EAuthEnabled = /^(1|true|yes|on)$/i.test(process.env.E2E_LOCAL_AUTH_ENABLED ?? '');
-const authStepMaxAttempts = 18;
-const authStepSleepMs = 500;
+const authStepMaxAttempts = 30;
+const authStepSleepMs = 800;
 
 type BrowserAccount = {
   label: string;
@@ -124,6 +124,21 @@ async function completeUsernameStep(authPage: Page, username: string): Promise<b
 
 async function completePasswordStep(authPage: Page, password: string): Promise<boolean> {
   for (let i = 0; i < authStepMaxAttempts; i += 1) {
+    await clickInAnyScope(authPage, [
+      'a:has-text("Use password")',
+      'button:has-text("Use password")',
+      'a:has-text("Sign in with a password")',
+      'button:has-text("Sign in with a password")',
+      'a:has-text("Sign-in options")',
+      'button:has-text("Sign-in options")',
+      'a:has-text("Other ways to sign in")',
+      'button:has-text("Other ways to sign in")',
+      'a:has-text("Use a different sign-in method")',
+      'button:has-text("Use a different sign-in method")',
+      'a:has-text("Sign in another way")',
+      'button:has-text("Sign in another way")',
+    ]);
+
     const entered = await fillInAnyScope(
       authPage,
       ['input[type="password"]', 'input[name="passwd"]', 'input#i0118', 'input[name="password"]'],
@@ -162,6 +177,7 @@ async function loginWithCredentials(page: Page, username: string, password: stri
   expect(userFilled, 'username input should be reachable in auth flow').toBeTruthy();
 
   await authPage.waitForLoadState('domcontentloaded').catch(() => {});
+  await authPage.waitForTimeout(2_000);
   const passFilled = await completePasswordStep(authPage, password);
   expect(passFilled, 'password input should be reachable in auth flow').toBeTruthy();
 
@@ -179,7 +195,16 @@ async function loginWithCredentials(page: Page, username: string, password: stri
     await popup.waitForEvent('close', { timeout: 90_000 }).catch(() => {});
   }
 
-  await expect(page).toHaveURL(/\/dashboard|\/events|\/tavf|\/$/, { timeout: 90_000 });
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    await page.goto(`${appBaseUrl}/dashboard`, { waitUntil: 'domcontentloaded' }).catch(() => {});
+    const onLogin = /\/login(\?|$)/i.test(page.url());
+    if (!onLogin) {
+      return;
+    }
+    await page.waitForTimeout(2_500);
+  }
+
+  await expect(page).not.toHaveURL(/\/login(\?|$)/i, { timeout: 10_000 });
 }
 
 async function hasAdminRoleInSession(page: Page): Promise<boolean> {

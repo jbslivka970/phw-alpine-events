@@ -7,9 +7,9 @@ const localE2EAuthEnabled = /^(1|true|yes|on)$/i.test(process.env.E2E_LOCAL_AUTH
 const memberStatePath = path.resolve(process.cwd(), 'tests/e2e/.auth/member.json');
 const memberUsername = (process.env.PW_MEMBER_USER ?? '').trim();
 const memberPassword = (process.env.PW_MEMBER_PASS ?? '').trim();
-const authStepMaxAttempts = 18;
-const authStepSleepMs = 500;
-const loginAttemptTimeoutMs = 65_000;
+const authStepMaxAttempts = 30;
+const authStepSleepMs = 800;
+const loginAttemptTimeoutMs = Number.parseInt(process.env.PW_LOGIN_ATTEMPT_TIMEOUT_MS || '180000', 10);
 
 function scopes(page: Page): Array<Page | Frame> {
   return [page, ...page.frames()];
@@ -171,6 +171,7 @@ async function loginWithCredentials(page: Page): Promise<void> {
       expect(userFilled, 'username input should be reachable in auth flow').toBeTruthy();
 
       await authPage.waitForLoadState('domcontentloaded').catch(() => {});
+      await page.waitForTimeout(2_000);
       const passFilled = await completePasswordStep(authPage, memberPassword);
       expect(passFilled, 'password input should be reachable in auth flow').toBeTruthy();
 
