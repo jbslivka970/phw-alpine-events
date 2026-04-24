@@ -8,6 +8,8 @@ const localE2EAuthEnabled = /^(1|true|yes|on)$/i.test(process.env.E2E_LOCAL_AUTH
 type Persona = {
   label: 'admin' | 'event_creator' | 'member';
   statePath: string;
+  username: string;
+  password: string;
   canAccessAdmin: boolean;
   canCreateEvents: boolean;
   tavfNewAllowed: boolean;
@@ -17,6 +19,8 @@ const personas: Persona[] = [
   {
     label: 'admin',
     statePath: path.resolve(process.cwd(), 'tests/e2e/.auth/admin.json'),
+    username: process.env.PW_ADMIN_USER ?? '',
+    password: process.env.PW_ADMIN_PASS ?? '',
     canAccessAdmin: true,
     canCreateEvents: true,
     tavfNewAllowed: true,
@@ -24,6 +28,8 @@ const personas: Persona[] = [
   {
     label: 'event_creator',
     statePath: path.resolve(process.cwd(), 'tests/e2e/.auth/event-creator.json'),
+    username: process.env.PW_EVENT_CREATOR_USER ?? '',
+    password: process.env.PW_EVENT_CREATOR_PASS ?? '',
     canAccessAdmin: false,
     canCreateEvents: true,
     tavfNewAllowed: true,
@@ -31,6 +37,8 @@ const personas: Persona[] = [
   {
     label: 'member',
     statePath: path.resolve(process.cwd(), 'tests/e2e/.auth/member.json'),
+    username: process.env.PW_MEMBER_USER ?? '',
+    password: process.env.PW_MEMBER_PASS ?? '',
     canAccessAdmin: false,
     canCreateEvents: false,
     tavfNewAllowed: true,
@@ -55,6 +63,189 @@ const adminRoutes = [
 ] as const;
 
 const assignmentRoute = '/events/00000000-0000-0000-0000-000000000001/assign';
+const authStepMaxAttempts = 30;
+const authStepSleepMs = 800;
+
+function scopes(page: Page) {
+  return [page, ...page.frames()];
+}
+
+async function fillIfVisible(page: Page, selectors: string[], value: string): Promise<boolean> {
+  for (const selector of selectors) {
+    const locator = page.locator(selector).first();
+    if (await locator.isVisible().catch(() => false)) {
+      await locator.fill(value);
+      return true;
+    }
+  }
+  return false;
+}
+
+async function clickIfVisible(page: Page, selectors: string[]): Promise<boolean> {
+  for (const selector of selectors) {
+    const locator = page.locator(selector).first();
+    if (await locator.isVisible().catch(() => false)) {
+      await locator.click();
+      return true;
+    }
+  }
+  return false;
+}
+
+async function fillInAnyScope(page: Page, selectors: string[], value: string): Promise<boolean> {
+  for (const scope of scopes(page)) {
+    if (await fillIfVisible(scope as unknown as Page, selectors, value)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+async function clickInAnyScope(page: Page, selectors: string[]): Promise<boolean> {
+  for (const scope of scopes(page)) {
+    if (await clickIfVisible(scope as unknown as Page, selectors)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+async function completeUsernameStep(authPage: Page, username: string): Promise<boolean> {
+  for (let i = 0; i < authStepMaxAttempts; i += 1) {
+    await clickInAnyScope(authPage, [
+      `text="${username}"`,
+      '[data-test-id="displayName"]',
+      'div[role="button"]:has-text("Use another account")',
+      'div[role="button"]:has-text("Sign in")',
+    ]);
+
+    const entered = await fillInAnyScope(authPage, [
+      'input[type="email"]',
+      'input[type="text"]',
+      'input[name="loginfmt"]',
+      'input[name="identifier"]',
+      'input#i0116',
+      'input[name="signInName"]',
+      'input[placeholder*="Email"]',
+      'input[placeholder*="email"]',
+    ], username);
+
+    if (entered) {
+      await clickInAnyScope(authPage, [
+        'button:has-text("Next")',
+        'input[type="submit"]#idSIButton9',
+        'button[type="submit"]',
+      ]);
+      return true;
+    }
+
+    await clickInAnyScope(authPage, [
+      'button:has-text("Use another account")',
+      'a:has-text("Use another account")',
+      'button:has-text("Sign in")',
+      'button:has-text("Continue")',
+    ]);
+
+    await authPage.waitForTimeout(authStepSleepMs);
+  }
+
+  return false;
+}
+
+async function completePasswordStep(authPage: Page, password: string): Promise<boolean> {
+  for (let i = 0; i < authStepMaxAttempts; i += 1) {
+    await clickInAnyScope(authPage, [
+      'a:has-text("Use password")',
+      'button:has-text("Use password")',
+      'a:has-text("Sign in with a password")',
+      'button:has-text("Sign in with a password")',
+      'a:has-text("Sign-in options")',
+      'button:has-text("Sign-in options")',
+      'a:has-text("Other ways to sign in")',
+      'button:has-text("Other ways to sign in")',
+      'a:has-text("Use a different sign-in method")',
+      'button:has-text("Use a different sign-in method")',
+      'a:has-text("Sign in another way")',
+      'button:has-text("Sign in another way")',
+    ]);
+
+    const entered = await fillInAnyScope(authPage, [
+      'input[type="password"]',
+      'input[name="passwd"]',
+      'input#i0118',
+      'input[name="password"]',
+    ], password);
+
+    if (entered) {
+      await clickInAnyScope(authPage, [
+        'button:has-text("Sign in")',
+        'button:has-text("Continue")',
+        'input[type="submit"]#idSIButton9',
+        'button[type="submit"]',
+      ]);
+      return true;
+    }
+
+    await authPage.waitForTimeout(authStepSleepMs);
+  }
+
+  return false;
+}
+
+async function clearBrowserSession(page: Page): Promise<void> {
+  await page.context().clearCookies().catch(() => {});
+  await page.goto('about:blank', { waitUntil: 'domcontentloaded' }).catch(() => {});
+  await page.evaluate(() => {
+    window.localStorage.clear();
+    window.sessionStorage.clear();
+  }).catch(() => {});
+}
+
+async function loginWithCredentials(page: Page, username: string, password: string): Promise<void> {
+  await page.goto(`${appBaseUrl}/login`, { waitUntil: 'domcontentloaded' });
+  const signInButton = page.getByRole('button', { name: /sign in/i });
+  await expect(signInButton).toBeVisible({ timeout: 20_000 });
+
+  const popupPromise = page.waitForEvent('popup', { timeout: 12_000 }).catch(() => null);
+  await signInButton.click();
+  const popup = await popupPromise;
+  const authPage = popup ?? page;
+
+  const userFilled = await completeUsernameStep(authPage, username);
+  expect(userFilled, 'username input should be reachable in auth flow').toBeTruthy();
+
+  await authPage.waitForLoadState('domcontentloaded').catch(() => {});
+  await authPage.waitForTimeout(2_000);
+  const passFilled = await completePasswordStep(authPage, password);
+  expect(passFilled, 'password input should be reachable in auth flow').toBeTruthy();
+
+  await clickInAnyScope(authPage, [
+    'button:has-text("No")',
+    'button:has-text("Yes")',
+    'button:has-text("Accept")',
+    'button:has-text("Continue")',
+    'input[type="submit"]#idSIButton9',
+    'button[type="submit"]',
+  ]);
+
+  if (popup) {
+    await popup.waitForEvent('close', { timeout: 90_000 }).catch(() => {});
+  }
+}
+
+async function ensureAuthenticatedSession(page: Page, persona: Persona): Promise<boolean> {
+  if (await hasAuthenticatedSession(page, appBaseUrl)) {
+    return true;
+  }
+
+  if (!persona.username || !persona.password) {
+    return false;
+  }
+
+  await clearBrowserSession(page);
+  await loginWithCredentials(page, persona.username, persona.password).catch(() => {});
+  return hasAuthenticatedSession(page, appBaseUrl);
+}
 
 async function hasAuthenticatedSession(page: Page, appBaseUrlValue: string): Promise<boolean> {
   await page.goto(`${appBaseUrlValue}/dashboard`, { waitUntil: 'domcontentloaded' });
@@ -91,7 +282,7 @@ test.describe('Browser persona flow matrix', () => {
 
       test('base protected routes stay authenticated', async ({ page }) => {
         await seedLocalAuthRole(page, persona.label);
-        const isAuthenticated = await hasAuthenticatedSession(page, appBaseUrl);
+        const isAuthenticated = await ensureAuthenticatedSession(page, persona);
         test.skip(!isAuthenticated, `${persona.label} storage state is present but not authenticated for this environment.`);
 
         for (const route of protectedRoutes) {
@@ -103,7 +294,7 @@ test.describe('Browser persona flow matrix', () => {
 
       test('admin route access follows role policy', async ({ page }) => {
         await seedLocalAuthRole(page, persona.label);
-        const isAuthenticated = await hasAuthenticatedSession(page, appBaseUrl);
+        const isAuthenticated = await ensureAuthenticatedSession(page, persona);
         test.skip(!isAuthenticated, `${persona.label} storage state is present but not authenticated for this environment.`);
 
         for (const route of adminRoutes) {
@@ -119,7 +310,7 @@ test.describe('Browser persona flow matrix', () => {
 
       test('event assignment route respects admin gate', async ({ page }) => {
         await seedLocalAuthRole(page, persona.label);
-        const isAuthenticated = await hasAuthenticatedSession(page, appBaseUrl);
+        const isAuthenticated = await ensureAuthenticatedSession(page, persona);
         test.skip(!isAuthenticated, `${persona.label} storage state is present but not authenticated for this environment.`);
 
         await page.goto(`${appBaseUrl}${assignmentRoute}`, { waitUntil: 'domcontentloaded' });
@@ -132,7 +323,7 @@ test.describe('Browser persona flow matrix', () => {
 
       test('tavf new route follows disallowed admin rule', async ({ page }) => {
         await seedLocalAuthRole(page, persona.label);
-        const isAuthenticated = await hasAuthenticatedSession(page, appBaseUrl);
+        const isAuthenticated = await ensureAuthenticatedSession(page, persona);
         test.skip(!isAuthenticated, `${persona.label} storage state is present but not authenticated for this environment.`);
 
         await page.goto(`${appBaseUrl}/tavf/new`, { waitUntil: 'domcontentloaded' });
@@ -145,7 +336,7 @@ test.describe('Browser persona flow matrix', () => {
 
       test('events page action visibility follows persona capability', async ({ page }) => {
         await seedLocalAuthRole(page, persona.label);
-        const isAuthenticated = await hasAuthenticatedSession(page, appBaseUrl);
+        const isAuthenticated = await ensureAuthenticatedSession(page, persona);
         test.skip(!isAuthenticated, `${persona.label} storage state is present but not authenticated for this environment.`);
 
         await page.goto(`${appBaseUrl}/events`, { waitUntil: 'domcontentloaded' });

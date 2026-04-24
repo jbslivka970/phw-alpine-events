@@ -258,6 +258,15 @@ async function appearsAuthenticated(page: Page): Promise<boolean> {
   return !signInVisible;
 }
 
+async function clearBrowserSession(page: Page): Promise<void> {
+  await page.context().clearCookies().catch(() => {});
+  await page.goto('about:blank', { waitUntil: 'domcontentloaded' }).catch(() => {});
+  await page.evaluate(() => {
+    window.localStorage.clear();
+    window.sessionStorage.clear();
+  }).catch(() => {});
+}
+
 async function ensureAuthenticatedSession(page: Page, account: BrowserAccount): Promise<boolean> {
   if (localE2EAuthEnabled) {
     await seedLocalAuthRole(page, account.label);
@@ -275,6 +284,7 @@ async function ensureAuthenticatedSession(page: Page, account: BrowserAccount): 
     }
   }
 
+  await clearBrowserSession(page);
   await loginWithCredentials(page, account.username, account.password).catch(() => {});
   return appearsAuthenticated(page);
 }

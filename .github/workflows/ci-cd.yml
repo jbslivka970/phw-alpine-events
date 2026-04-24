@@ -398,6 +398,12 @@ jobs:
     - name: Run browser persona matrix
       env:
         E2E_APP_URL: ${{ vars.E2E_APP_URL }}
+        PW_ADMIN_USER: ${{ secrets.PW_ADMIN_USER }}
+        PW_ADMIN_PASS: ${{ secrets.PW_ADMIN_PASS }}
+        PW_EVENT_CREATOR_USER: ${{ secrets.PW_EVENT_CREATOR_USER }}
+        PW_EVENT_CREATOR_PASS: ${{ secrets.PW_EVENT_CREATOR_PASS }}
+        PW_MEMBER_USER: ${{ secrets.PW_MEMBER_USER }}
+        PW_MEMBER_PASS: ${{ secrets.PW_MEMBER_PASS }}
         PW_WORKERS: '3'
         PW_RETRIES: '0'
         PW_MAX_FAILURES: '3'
