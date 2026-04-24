@@ -28,8 +28,20 @@ const azureTenantId = (
   ''
 ).trim();
 const azureClientId = (process.env.AZURE_CLIENT_ID || '').trim();
+const azureClientSecret = (process.env.AZURE_CLIENT_SECRET || '').trim();
+const configuredApiScope = (
+  process.env.AZURE_API_SCOPE ||
+  process.env.VITE_API_SCOPE ||
+  process.env.E2E_API_SCOPE ||
+  ''
+).trim();
 const azureAuthorityHost = (process.env.AZURE_AUTHORITY_HOST || 'b2clogin.com').trim();
-const ropcEnabled = Boolean(ropcPolicy && azureTenantName && azureClientId);
+const isCiamAuthority = azureAuthorityHost.includes('ciamlogin');
+const ropcEnabled = Boolean(
+  azureTenantName
+  && azureClientId
+  && (isCiamAuthority ? azureTenantId : ropcPolicy)
+);
 
 const appUrl = (process.env.E2E_APP_URL || '').trim().replace(/\/$/, '');
 const authDir = path.resolve(process.cwd(), 'tests/e2e/.auth');
@@ -75,6 +87,7 @@ async function acquireTokenByROPC(role) {
   if (!ropcEnabled) return null;
 
   const isCiam = azureAuthorityHost.includes('ciamlogin');
+  const requestedScope = configuredApiScope || azureClientId;
   const tokenUrl = isCiam
     ? `https://${azureTenantName}.${azureAuthorityHost}/${azureTenantId}/oauth2/v2.0/token`
     : `https://${azureTenantName}.${azureAuthorityHost}/${azureTenantName}.onmicrosoft.com/${ropcPolicy}/oauth2/v2.0/token`;
@@ -82,10 +95,13 @@ async function acquireTokenByROPC(role) {
   const body = new URLSearchParams({
     grant_type: 'password',
     client_id: azureClientId,
-    scope: `openid profile email ${azureClientId} offline_access`,
+    scope: `openid profile email ${requestedScope} offline_access`,
     username: role.username,
     password: role.password,
   });
+  if (azureClientSecret) {
+    body.set('client_secret', azureClientSecret);
+  }
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 30_000);
@@ -100,6 +116,9 @@ async function acquireTokenByROPC(role) {
 
     if (!resp.ok) {
       const text = await resp.text();
+      if (!azureClientSecret && /AADSTS7000218|invalid_client/i.test(text)) {
+        throw new Error(`ROPC ${resp.status}: ${text.slice(0, 500)} (hint: AZURE_CLIENT_SECRET is required for confidential clients)`);
+      }
       throw new Error(`ROPC ${resp.status}: ${text.slice(0, 500)}`);
     }
 
@@ -582,7 +601,9 @@ async function main() {
   }
 
   if (ropcEnabled) {
-    console.log('[refresh-playwright-tokens] ROPC is configured — will try direct token acquisition first.');
+    const effectiveScope = configuredApiScope || azureClientId;
+    const secretMode = azureClientSecret ? 'set' : 'not-set';
+    console.log(`[refresh-playwright-tokens] ROPC is configured — will try direct token acquisition first (scope=${effectiveScope}, client_secret=${secretMode}).`);
   } else {
     console.log('[refresh-playwright-tokens] ROPC not configured — using browser login. Set AZURE_B2C_ROPC_POLICY, AZURE_CLIENT_ID, and AZURE_*_TENANT_NAME to enable ROPC.');
   }
