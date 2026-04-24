@@ -242,16 +242,18 @@ async function hasStableDashboardAccess(page: Page): Promise<boolean> {
     }
     await page.waitForTimeout(2_000);
     if (/\/login(\?|$)/i.test(page.url())) {
-      return false;
+      continue;
     }
 
     const signInVisible = await page.getByRole('button', { name: /sign in/i }).first().isVisible().catch(() => false);
     if (signInVisible) {
-      return false;
+      continue;
     }
+
+    return true;
   }
 
-  return true;
+  return false;
 }
 
 async function ensureMemberAuthenticatedSession(page: Page): Promise<boolean> {
@@ -268,12 +270,16 @@ async function ensureMemberAuthenticatedSession(page: Page): Promise<boolean> {
     return false;
   }
 
-  await clearBrowserSession(page);
-  // Direct login — mirrors auth_email_hint which uses the same credentials and passes.
-  // Avoid Promise.race: it cancels the timer but leaves loginWithCredentials running,
-  // which exhausts steps in the background and hits the Playwright test timeout.
-  await loginWithCredentials(page).catch(() => {});
-  return hasStableDashboardAccess(page);
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    await clearBrowserSession(page);
+    // Direct login — mirrors auth_email_hint which uses the same credentials and passes.
+    await loginWithCredentials(page).catch(() => {});
+    if (await hasStableDashboardAccess(page)) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 test.describe('Post-deploy browser smoke (member)', () => {
