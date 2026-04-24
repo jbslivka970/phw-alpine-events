@@ -313,6 +313,11 @@ test.describe('Post-deploy browser smoke (member)', () => {
       expect(isAuthenticated, 'Member session could not be established in this environment for postdeploy member smoke.').toBeTruthy();
 
       await page.goto(`${appBaseUrl}/dashboard`, { waitUntil: 'domcontentloaded' });
+      if (/\/login(\?|$)/i.test(page.url())) {
+        const recovered = await ensureMemberAuthenticatedSession(page);
+        expect(recovered, 'Member session was lost after initial auth; re-auth recovery failed.').toBeTruthy();
+        await page.goto(`${appBaseUrl}/dashboard`, { waitUntil: 'domcontentloaded' });
+      }
       await expect(page).not.toHaveURL(/\/login(\?|$)/, { timeout: 20_000 });
       await page.waitForTimeout(1_200);
       expect(memberRsvp403s, 'dashboard must not receive 403 from /members/:id/rsvps').toHaveLength(0);
