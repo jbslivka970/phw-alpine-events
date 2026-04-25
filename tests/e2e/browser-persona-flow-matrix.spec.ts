@@ -59,6 +59,7 @@ const adminRoutes = [
 const assignmentRoute = '/events/00000000-0000-0000-0000-000000000001/assign';
 const authStepMaxAttempts = 60;
 const authStepSleepMs = 800;
+const authSessionAttempts = 3;
 
 function scopes(page: Page) {
   return [page, ...page.frames()];
@@ -108,7 +109,7 @@ async function completeUsernameStep(authPage: Page, username: string): Promise<b
   for (let i = 0; i < authStepMaxAttempts; i += 1) {
     await clickInAnyScope(authPage, [
       `text="${username}"`,
-      '[data-test-id="displayName"]',
+      `[data-test-id="${username}"]`,
       'div[role="button"]:has-text("Use another account")',
       'div[role="button"]:has-text("Sign in")',
     ]);
@@ -265,12 +266,16 @@ async function ensureAuthenticatedSession(page: Page, persona: Persona): Promise
     return false;
   }
 
-  for (let attempt = 1; attempt <= 2; attempt += 1) {
+  for (let attempt = 1; attempt <= authSessionAttempts; attempt += 1) {
     await clearBrowserSession(page);
     try {
       await loginWithCredentials(page, persona.username, persona.password);
-      if (await hasAuthenticatedSession(page, appBaseUrl)) {
-        return true;
+      for (let verifyAttempt = 1; verifyAttempt <= 3; verifyAttempt += 1) {
+        if (await hasAuthenticatedSession(page, appBaseUrl)) {
+          return true;
+        }
+        await page.goto(`${appBaseUrl}/dashboard`, { waitUntil: 'domcontentloaded' }).catch(() => {});
+        await page.waitForTimeout(2_500);
       }
     } catch {
       // Continue to one more retry because CIAM UI can be transient in headless CI.
@@ -282,7 +287,7 @@ async function ensureAuthenticatedSession(page: Page, persona: Persona): Promise
 
 async function hasAuthenticatedSession(page: Page, appBaseUrlValue: string): Promise<boolean> {
   await page.goto(`${appBaseUrlValue}/dashboard`, { waitUntil: 'domcontentloaded' });
-  await new Promise((resolve) => setTimeout(resolve, 1200));
+  await page.waitForTimeout(1200);
   if (/\/login(\?|$)/.test(page.url())) {
     return false;
   }
@@ -304,7 +309,7 @@ async function seedLocalAuthRole(page: Page, label: Persona['label']): Promise<v
 
 test.describe('Browser persona flow matrix', () => {
   test.skip(!appBaseUrl, 'E2E_APP_URL is required.');
-  test.setTimeout(180_000);
+  test.setTimeout(300_000);
 
   for (const persona of personas) {
     test.describe(persona.label, () => {

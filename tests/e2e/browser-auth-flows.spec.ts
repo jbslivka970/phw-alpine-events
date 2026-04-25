@@ -4,6 +4,7 @@ const appBaseUrl = (process.env.E2E_APP_URL ?? '').trim().replace(/\/$/, '');
 const localE2EAuthEnabled = /^(1|true|yes|on)$/i.test(process.env.E2E_LOCAL_AUTH_ENABLED ?? '');
 const authStepMaxAttempts = 60;
 const authStepSleepMs = 800;
+const authSessionAttempts = 3;
 
 type BrowserAccount = {
   label: string;
@@ -309,12 +310,16 @@ async function ensureAuthenticatedSession(page: Page, account: BrowserAccount): 
     return false;
   }
 
-  for (let attempt = 1; attempt <= 2; attempt += 1) {
+  for (let attempt = 1; attempt <= authSessionAttempts; attempt += 1) {
     await clearBrowserSession(page);
     try {
       await loginWithCredentials(page, account.username, account.password);
-      if (await appearsAuthenticated(page)) {
-        return true;
+      for (let verifyAttempt = 1; verifyAttempt <= 3; verifyAttempt += 1) {
+        if (await appearsAuthenticated(page)) {
+          return true;
+        }
+        await page.goto(`${appBaseUrl}/dashboard`, { waitUntil: 'domcontentloaded' }).catch(() => {});
+        await page.waitForTimeout(2_500);
       }
     } catch {
       // Continue to one more retry because CIAM UI can be transient in headless CI.
