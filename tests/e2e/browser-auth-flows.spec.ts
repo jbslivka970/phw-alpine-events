@@ -1,5 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
+declare const process: { env: Record<string, string | undefined> };
+
 const appBaseUrl = (process.env.E2E_APP_URL ?? '').trim().replace(/\/$/, '');
 const localE2EAuthEnabled = /^(1|true|yes|on)$/i.test(process.env.E2E_LOCAL_AUTH_ENABLED ?? '');
 const authStepMaxAttempts = 30;
@@ -10,6 +12,7 @@ type BrowserAccount = {
   label: string;
   username: string;
   password: string;
+  statePath: string;
 };
 
 const accounts: BrowserAccount[] = [
@@ -17,11 +20,13 @@ const accounts: BrowserAccount[] = [
     label: 'event_creator',
     username: process.env.PW_EVENT_CREATOR_USER ?? '',
     password: process.env.PW_EVENT_CREATOR_PASS ?? '',
+    statePath: 'tests/e2e/.auth/event-creator.json',
   },
   {
     label: 'member',
     username: process.env.PW_MEMBER_USER ?? '',
     password: process.env.PW_MEMBER_PASS ?? '',
+    statePath: 'tests/e2e/.auth/member.json',
   },
 ];
 
@@ -331,6 +336,8 @@ test.describe('Browser role flows (credential login)', () => {
 
   for (const account of accounts) {
     test.describe(account.label, () => {
+      test.use({ storageState: account.statePath });
+
       test.skip(!localE2EAuthEnabled && (!account.username || !account.password), `${account.label} credentials are required when local auth is disabled.`);
 
       test('preferences page loads without GUID/500 errors', async ({ page }) => {

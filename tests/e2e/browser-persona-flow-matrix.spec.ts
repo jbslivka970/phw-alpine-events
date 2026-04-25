@@ -7,6 +7,7 @@ type Persona = {
   label: 'admin' | 'event_creator' | 'member';
   username: string;
   password: string;
+  statePath: string;
   canAccessAdmin: boolean;
   canCreateEvents: boolean;
   tavfNewAllowed: boolean;
@@ -17,6 +18,7 @@ const personas: Persona[] = [
     label: 'admin',
     username: process.env.PW_ADMIN_USER ?? '',
     password: process.env.PW_ADMIN_PASS ?? '',
+    statePath: 'tests/e2e/.auth/admin.json',
     canAccessAdmin: true,
     canCreateEvents: true,
     tavfNewAllowed: true,
@@ -25,6 +27,7 @@ const personas: Persona[] = [
     label: 'event_creator',
     username: process.env.PW_EVENT_CREATOR_USER ?? '',
     password: process.env.PW_EVENT_CREATOR_PASS ?? '',
+    statePath: 'tests/e2e/.auth/event-creator.json',
     canAccessAdmin: false,
     canCreateEvents: true,
     tavfNewAllowed: true,
@@ -33,6 +36,7 @@ const personas: Persona[] = [
     label: 'member',
     username: process.env.PW_MEMBER_USER ?? '',
     password: process.env.PW_MEMBER_PASS ?? '',
+    statePath: 'tests/e2e/.auth/member.json',
     canAccessAdmin: false,
     canCreateEvents: false,
     tavfNewAllowed: true,
@@ -309,6 +313,8 @@ test.describe('Browser persona flow matrix', () => {
 
   for (const persona of personas) {
     test.describe(persona.label, () => {
+      test.use({ storageState: persona.statePath });
+
       test.skip(!localE2EAuthEnabled && (!persona.username || !persona.password), `${persona.label} credentials are required when local auth is disabled.`);
 
       test('base protected routes stay authenticated', async ({ page }) => {
