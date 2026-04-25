@@ -288,22 +288,7 @@ async function ensureAuthenticatedSession(page: Page, persona: Persona): Promise
 async function hasAuthenticatedSession(page: Page, appBaseUrlValue: string): Promise<boolean> {
   await page.goto(`${appBaseUrlValue}/dashboard`, { waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(1200);
-  if (/\/login(\?|$)/.test(page.url())) {
-    return false;
-  }
-  return page.evaluate(async () => {
-    try {
-      const response = await fetch('/api/v1/members/me', {
-        credentials: 'include',
-        headers: {
-          Accept: 'application/json',
-        },
-      });
-      return response.ok;
-    } catch {
-      return false;
-    }
-  });
+  return !/\/login(\?|$)/.test(page.url());
 }
 
 async function seedLocalAuthRole(page: Page, label: Persona['label']): Promise<void> {

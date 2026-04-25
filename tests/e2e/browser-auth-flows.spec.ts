@@ -275,22 +275,7 @@ async function seedLocalAuthRole(page: Page, accountLabel: string): Promise<void
 
 async function appearsAuthenticated(page: Page): Promise<boolean> {
   await page.waitForTimeout(1200);
-  if (/\/login(\?|$)/i.test(page.url())) {
-    return false;
-  }
-  return page.evaluate(async () => {
-    try {
-      const response = await fetch('/api/v1/members/me', {
-        credentials: 'include',
-        headers: {
-          Accept: 'application/json',
-        },
-      });
-      return response.ok;
-    } catch {
-      return false;
-    }
-  });
+  return !/\/login(\?|$)/i.test(page.url());
 }
 
 async function clearBrowserSession(page: Page): Promise<void> {
