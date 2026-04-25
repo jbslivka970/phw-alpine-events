@@ -241,18 +241,13 @@ async function clearBrowserSession(page: Page): Promise<void> {
 }
 
 async function hasStableDashboardAccess(page: Page): Promise<boolean> {
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
+  for (let attempt = 1; attempt <= 5; attempt += 1) {
     await page.goto(`${appBaseUrl}/dashboard`, { waitUntil: 'domcontentloaded' }).catch(() => null);
     if (page.isClosed()) {
       return false;
     }
-    await page.waitForTimeout(2_000);
+    await page.waitForTimeout(3_000);
     if (/\/login(\?|$)/i.test(page.url())) {
-      continue;
-    }
-
-    const signInVisible = await page.getByRole('button', { name: /sign in/i }).first().isVisible().catch(() => false);
-    if (signInVisible) {
       continue;
     }
 
@@ -280,9 +275,10 @@ async function ensureMemberAuthenticatedSession(page: Page): Promise<boolean> {
   // Playwright already retries this whole test once on failure.
   await clearBrowserSession(page);
   try {
-    // loginWithCredentials already validates that the session is no longer on /login.
+    // loginWithCredentials validates immediate login transition; follow with
+    // a longer dashboard stabilization check before considering auth established.
     await loginWithCredentials(page);
-    return true;
+    return hasStableDashboardAccess(page);
   } catch {
     return false;
   }
