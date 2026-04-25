@@ -278,8 +278,19 @@ async function appearsAuthenticated(page: Page): Promise<boolean> {
   if (/\/login(\?|$)/i.test(page.url())) {
     return false;
   }
-  const signInVisible = await page.getByRole('button', { name: /sign in/i }).first().isVisible().catch(() => false);
-  return !signInVisible;
+  return page.evaluate(async () => {
+    try {
+      const response = await fetch('/api/v1/members/me', {
+        credentials: 'include',
+        headers: {
+          Accept: 'application/json',
+        },
+      });
+      return response.ok;
+    } catch {
+      return false;
+    }
+  });
 }
 
 async function clearBrowserSession(page: Page): Promise<void> {
