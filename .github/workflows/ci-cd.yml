@@ -22,7 +22,7 @@ jobs:
     timeout-minutes: 30
     concurrency:
       group: build-${{ github.ref }}-${{ github.event_name }}
-      cancel-in-progress: true
+      cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
 
     steps:
     - uses: actions/checkout@v5
