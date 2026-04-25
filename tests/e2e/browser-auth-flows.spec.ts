@@ -2,9 +2,9 @@ import { expect, test, type Page } from '@playwright/test';
 
 const appBaseUrl = (process.env.E2E_APP_URL ?? '').trim().replace(/\/$/, '');
 const localE2EAuthEnabled = /^(1|true|yes|on)$/i.test(process.env.E2E_LOCAL_AUTH_ENABLED ?? '');
-const authStepMaxAttempts = 60;
+const authStepMaxAttempts = 30;
 const authStepSleepMs = 800;
-const authSessionAttempts = 3;
+const authSessionAttempts = 2;
 
 type BrowserAccount = {
   label: string;

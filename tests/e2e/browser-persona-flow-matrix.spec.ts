@@ -57,9 +57,9 @@ const adminRoutes = [
 ] as const;
 
 const assignmentRoute = '/events/00000000-0000-0000-0000-000000000001/assign';
-const authStepMaxAttempts = 60;
+const authStepMaxAttempts = 30;
 const authStepSleepMs = 800;
-const authSessionAttempts = 3;
+const authSessionAttempts = 2;
 
 function scopes(page: Page) {
   return [page, ...page.frames()];
@@ -309,7 +309,7 @@ async function seedLocalAuthRole(page: Page, label: Persona['label']): Promise<v
 
 test.describe('Browser persona flow matrix', () => {
   test.skip(!appBaseUrl, 'E2E_APP_URL is required.');
-  test.setTimeout(300_000);
+  test.setTimeout(180_000);
 
   for (const persona of personas) {
     test.describe(persona.label, () => {
