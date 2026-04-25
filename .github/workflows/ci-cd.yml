@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     concurrency:
-      group: build-${{ github.ref }}
+      group: build-${{ github.ref }}-${{ github.event_name }}
       cancel-in-progress: true
 
     steps:
