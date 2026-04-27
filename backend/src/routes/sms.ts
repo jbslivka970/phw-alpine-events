@@ -279,7 +279,7 @@ async function processInboundMessage(from: string, rawMessage: string, source: I
   }
 
   if (normalized === 'help') {
-    const reply = "PHW Alpine: Reply Y, N, M, or W to event texts. For multiple invites, include the event number like 'Y 1' or '1 Y'. Add role when needed: 'Y M 1' or '1 Y P'. Reply STOP to opt out.";
+    const reply = "PHW Alpine: Y=yes, N=no, M=maybe, W=waitlist. If you have multiple invites, add the number: Y 1. If role is needed: Y V or Y P (V=volunteer, P=participant). Reply STOP to opt out.";
     await notificationService.sendSms({
       to: member.mobile_phone,
       message: reply,
@@ -296,8 +296,8 @@ async function processInboundMessage(from: string, rawMessage: string, source: I
   const parsed = parseRsvpKeyword(normalized);
   if (!parsed) {
     const reply = pendingEvents.length > 1
-      ? `PHW Alpine: Didn't understand. Reply Y, N, M, or W and include an event number like 'Y 1' or '1 Y'. ${formatPendingEvents(pendingEvents)}`
-      : "PHW Alpine: Didn't understand. Reply Y, N, M, or W. If you have multiple invites, reply like 'Y 1'. Reply STOP to opt out.";
+      ? `PHW Alpine: Didn't understand. Reply Y, N, M, or W with the event number (e.g. Y 1). ${formatPendingEvents(pendingEvents)}`
+      : "PHW Alpine: Didn't understand. Reply Y, N, M, or W. Reply HELP for instructions or STOP to opt out.";
     await notificationService.sendSms({
       to: member.mobile_phone,
       message: reply,
@@ -343,7 +343,7 @@ async function processInboundMessage(from: string, rawMessage: string, source: I
     const inferredResponseRole = parsed.responseRole ?? (await inferResponseRoleForMember({ memberId: member.member_id }));
 
     if (requiresExplicitRole(parsed.response) && !inferredResponseRole) {
-      const reply = "PHW Alpine: Please include role. Reply like 'Y M', 'MAYBE PARTICIPANT', or 'W M 1'. (M=mentor, P=participant)";
+      const reply = "PHW Alpine: Please include your role. Reply like 'Y V' or 'Y P' (V=volunteer, P=participant). Add event number if needed: Y V 1.";
       await notificationService.sendSms({
         to: member.mobile_phone,
         message: reply,
@@ -521,7 +521,7 @@ function parseResponseRole(value: unknown): 'MENTOR' | 'PARTICIPANT' | undefined
   }
 
   const normalized = value.trim().toUpperCase();
-  if (normalized === 'MENTOR' || normalized === 'M') {
+  if (normalized === 'MENTOR' || normalized === 'VOLUNTEER' || normalized === 'V') {
     return 'MENTOR';
   }
   if (normalized === 'PARTICIPANT' || normalized === 'P') {
@@ -551,10 +551,10 @@ function buildAmbiguityReply(pendingEvents: PendingEvent[], attemptedIndex?: num
   const eventList = formatPendingEvents(pendingEvents);
 
   if (attemptedIndex !== undefined && (attemptedIndex < 1 || attemptedIndex > pendingEvents.length)) {
-    return `PHW Alpine: That event number is out of range. Reply like 'Y 1', 'N 1', 'M 1', or 'W 1'. You can also reply '1 Y'. ${eventList}`;
+    return `PHW Alpine: That event number is out of range. Reply with Y, N, M, or W and a number (e.g. Y 1). ${eventList}`;
   }
 
-  return `PHW Alpine: You have multiple open invites. Reply like 'Y 1', 'N 1', 'M 1', or 'W 1'. You can also reply '1 Y'. ${eventList}`;
+  return `PHW Alpine: You have multiple open invites. Reply with Y, N, M, or W and the event number (e.g. Y 1). ${eventList}`;
 }
 
 function formatPendingEvents(pendingEvents: PendingEvent[]): string {

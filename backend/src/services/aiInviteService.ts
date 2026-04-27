@@ -103,7 +103,7 @@ function getAiInviteRuntimeStatus(): AiInviteRuntimeStatus {
       issues.push(`Missing Azure OpenAI settings: ${missingAzure.join(', ')}`);
     }
   }
-  if (!openAiConfigured) {
+  if (!openAiConfigured && !azureConfigured) {
     issues.push('OPENAI_API_KEY is not configured.');
   }
 
