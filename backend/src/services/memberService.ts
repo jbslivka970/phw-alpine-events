@@ -250,25 +250,40 @@ async function hardDeleteMember(memberId: string): Promise<Member | null> {
   try {
     const req = () => tx.request().input('member_id', sql.UniqueIdentifier, memberId);
 
-    // Remove child rows that have no CASCADE on member_id
-    await req().query(`DELETE FROM dbo.event_notification_target WHERE member_id = @member_id`);
-    await req().query(`DELETE FROM dbo.event_response WHERE member_id = @member_id`);
-    await req().query(`DELETE FROM dbo.event_assignment WHERE member_id = @member_id`);
-
-    // Nullify nullable audit-log references so history is preserved
-    await req().query(`UPDATE dbo.notification_log SET member_id = NULL WHERE member_id = @member_id`);
-    await req().query(`UPDATE dbo.inbound_sms_log SET member_id = NULL WHERE member_id = @member_id`);
-    await req().query(`UPDATE dbo.email_preference_log SET member_id = NULL WHERE member_id = @member_id`);
-
-    // TAVF: remove vet applications, then postings (and their remaining applications)
-    await req().query(`DELETE FROM dbo.tavf_application WHERE vet_member_id = @member_id`);
+    // Guard optional tables for compatibility with environments on older schema revisions.
     await req().query(`
-      DELETE FROM dbo.tavf_application
-      WHERE posting_id IN (
-        SELECT posting_id FROM dbo.tavf_posting WHERE guide_member_id = @member_id
-      )
+      IF OBJECT_ID(N'dbo.event_notification_target', N'U') IS NOT NULL
+        DELETE FROM dbo.event_notification_target WHERE member_id = @member_id;
+
+      IF OBJECT_ID(N'dbo.event_response', N'U') IS NOT NULL
+        DELETE FROM dbo.event_response WHERE member_id = @member_id;
+
+      IF OBJECT_ID(N'dbo.event_assignment', N'U') IS NOT NULL
+        DELETE FROM dbo.event_assignment WHERE member_id = @member_id;
+
+      IF OBJECT_ID(N'dbo.notification_log', N'U') IS NOT NULL
+        UPDATE dbo.notification_log SET member_id = NULL WHERE member_id = @member_id;
+
+      IF OBJECT_ID(N'dbo.inbound_sms_log', N'U') IS NOT NULL
+        UPDATE dbo.inbound_sms_log SET member_id = NULL WHERE member_id = @member_id;
+
+      IF OBJECT_ID(N'dbo.email_preference_log', N'U') IS NOT NULL
+        UPDATE dbo.email_preference_log SET member_id = NULL WHERE member_id = @member_id;
+
+      IF OBJECT_ID(N'dbo.tavf_application', N'U') IS NOT NULL
+        DELETE FROM dbo.tavf_application WHERE vet_member_id = @member_id;
+
+      IF OBJECT_ID(N'dbo.tavf_posting', N'U') IS NOT NULL
+      BEGIN
+        IF OBJECT_ID(N'dbo.tavf_application', N'U') IS NOT NULL
+          DELETE FROM dbo.tavf_application
+          WHERE posting_id IN (
+            SELECT posting_id FROM dbo.tavf_posting WHERE guide_member_id = @member_id
+          );
+
+        DELETE FROM dbo.tavf_posting WHERE guide_member_id = @member_id;
+      END
     `);
-    await req().query(`DELETE FROM dbo.tavf_posting WHERE guide_member_id = @member_id`);
 
     // Delete member (cascades: member_group, sms_consent_log, member_identity_link, waitlist_promotion_offer)
     const result = await req().query<Member>(
