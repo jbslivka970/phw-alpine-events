@@ -283,6 +283,96 @@ async function hardDeleteMember(memberId: string): Promise<Member | null> {
 
         DELETE FROM dbo.tavf_posting WHERE guide_member_id = @member_id;
       END
+
+      -- Safety pass for schema drift: clean any remaining non-cascade foreign keys to dbo.member.
+      DECLARE @memberTableId INT = OBJECT_ID(N'dbo.member', N'U');
+      IF @memberTableId IS NOT NULL
+      BEGIN
+        DECLARE @memberRefs TABLE (
+          schema_name SYSNAME NOT NULL,
+          table_name SYSNAME NOT NULL,
+          column_name SYSNAME NOT NULL,
+          delete_action TINYINT NOT NULL,
+          is_nullable BIT NOT NULL
+        );
+
+        INSERT INTO @memberRefs (schema_name, table_name, column_name, delete_action, is_nullable)
+        SELECT
+          s.name,
+          t.name,
+          c.name,
+          fk.delete_referential_action,
+          c.is_nullable
+        FROM sys.foreign_key_columns fkc
+        INNER JOIN sys.foreign_keys fk
+          ON fk.object_id = fkc.constraint_object_id
+        INNER JOIN sys.tables t
+          ON t.object_id = fkc.parent_object_id
+        INNER JOIN sys.schemas s
+          ON s.schema_id = t.schema_id
+        INNER JOIN sys.columns c
+          ON c.object_id = fkc.parent_object_id
+         AND c.column_id = fkc.parent_column_id
+        WHERE fkc.referenced_object_id = @memberTableId
+          AND NOT (s.name = N'dbo' AND t.name = N'member');
+
+        DECLARE @schemaName SYSNAME;
+        DECLARE @tableName SYSNAME;
+        DECLARE @columnName SYSNAME;
+        DECLARE @isNullable BIT;
+        DECLARE @sql NVARCHAR(MAX);
+
+        -- Preserve history where possible by nulling member references instead of deleting rows.
+        DECLARE preserve_cursor CURSOR LOCAL FAST_FORWARD FOR
+          SELECT schema_name, table_name, column_name, is_nullable
+          FROM @memberRefs
+          WHERE delete_action <> 1
+            AND schema_name = N'dbo'
+            AND table_name IN (N'notification_log', N'inbound_sms_log', N'email_preference_log', N'tavf_match');
+
+        OPEN preserve_cursor;
+        FETCH NEXT FROM preserve_cursor INTO @schemaName, @tableName, @columnName, @isNullable;
+        WHILE @@FETCH_STATUS = 0
+        BEGIN
+          SET @sql =
+            CASE
+              WHEN @isNullable = 1 THEN
+                N'UPDATE ' + QUOTENAME(@schemaName) + N'.' + QUOTENAME(@tableName) +
+                N' SET ' + QUOTENAME(@columnName) + N' = NULL WHERE ' + QUOTENAME(@columnName) + N' = @member_id;'
+              ELSE
+                N'DELETE FROM ' + QUOTENAME(@schemaName) + N'.' + QUOTENAME(@tableName) +
+                N' WHERE ' + QUOTENAME(@columnName) + N' = @member_id;'
+            END;
+
+          EXEC sp_executesql @sql, N'@member_id UNIQUEIDENTIFIER', @member_id = @member_id;
+          FETCH NEXT FROM preserve_cursor INTO @schemaName, @tableName, @columnName, @isNullable;
+        END
+        CLOSE preserve_cursor;
+        DEALLOCATE preserve_cursor;
+
+        -- Remove remaining blockers for hard-delete when FK does not cascade.
+        DECLARE delete_cursor CURSOR LOCAL FAST_FORWARD FOR
+          SELECT schema_name, table_name, column_name
+          FROM @memberRefs
+          WHERE delete_action <> 1
+            AND NOT (
+              schema_name = N'dbo' AND table_name IN (N'notification_log', N'inbound_sms_log', N'email_preference_log', N'tavf_match')
+            );
+
+        OPEN delete_cursor;
+        FETCH NEXT FROM delete_cursor INTO @schemaName, @tableName, @columnName;
+        WHILE @@FETCH_STATUS = 0
+        BEGIN
+          SET @sql =
+            N'DELETE FROM ' + QUOTENAME(@schemaName) + N'.' + QUOTENAME(@tableName) +
+            N' WHERE ' + QUOTENAME(@columnName) + N' = @member_id;';
+
+          EXEC sp_executesql @sql, N'@member_id UNIQUEIDENTIFIER', @member_id = @member_id;
+          FETCH NEXT FROM delete_cursor INTO @schemaName, @tableName, @columnName;
+        END
+        CLOSE delete_cursor;
+        DEALLOCATE delete_cursor;
+      END
     `);
 
     // Delete member (cascades: member_group, sms_consent_log, member_identity_link, waitlist_promotion_offer)
