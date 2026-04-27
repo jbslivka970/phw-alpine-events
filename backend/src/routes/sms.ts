@@ -262,7 +262,7 @@ async function processInboundMessage(from: string, rawMessage: string, source: I
 
   const message = rawMessage.trim();
   const normalized = message.toLowerCase().replace(/\s+/g, ' ');
-  const smokeTestMatch = normalized.match(/^phw scheduler smoke test comi?t ([a-z0-9._-]+)$/i);
+  const smokeTestMatch = normalized.match(/^phw scheduler smoke test commit ([a-z0-9._-]+)$/i);
 
   if (smokeTestMatch) {
     const commitRef = smokeTestMatch[1];
