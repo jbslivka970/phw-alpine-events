@@ -200,10 +200,6 @@ router.get('/users', async (req, res) => {
       ? undefined
       : (isActiveRaw === 'true' || isActiveRaw === '1');
 
-    if (role && !['admin', 'superadmin'].includes(role)) {
-      res.status(400).json({ error: 'role must be admin or superadmin' });
-      return;
-    }
 
     const pool = await getPool();
     const whereClauses: string[] = [];
@@ -265,10 +261,6 @@ router.post('/users', writeLimiter, async (req, res) => {
       res.status(400).json({ error: 'email is required' });
       return;
     }
-    if (!['admin', 'superadmin'].includes(role)) {
-      res.status(400).json({ error: 'role must be admin or superadmin' });
-      return;
-    }
 
     const pool = await getPool();
     const existing = await pool
@@ -307,10 +299,6 @@ router.patch('/users/:id', writeLimiter, async (req, res) => {
     const isActive = req.body?.is_active;
     const azureOid = req.body?.azure_oid;
 
-    if (role !== undefined && !['admin', 'superadmin'].includes(role)) {
-      res.status(400).json({ error: 'role must be admin or superadmin' });
-      return;
-    }
     if (
       displayName !== undefined &&
       displayName !== null &&

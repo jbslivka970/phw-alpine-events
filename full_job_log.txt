@@ -1,0 +1,422 @@
+e2e_browser_auth_flows	Set up job	﻿2026-04-22T20:10:42.4645120Z Current runner version: '2.333.1'
+e2e_browser_auth_flows	Set up job	2026-04-22T20:10:42.4671251Z ##[group]Runner Image Provisioner
+e2e_browser_auth_flows	Set up job	2026-04-22T20:10:42.4672163Z Hosted Compute Agent
+e2e_browser_auth_flows	Set up job	2026-04-22T20:10:42.4672760Z Version: 20260415.520
+e2e_browser_auth_flows	Set up job	2026-04-22T20:10:42.4673381Z Commit: af089020f5f67b61ccc91db6c07980876c02bf7b
+e2e_browser_auth_flows	Set up job	2026-04-22T20:10:42.4674179Z Build Date: 2026-04-15T18:07:08Z
+e2e_browser_auth_flows	Set up job	2026-04-22T20:10:42.4674914Z Worker ID: {1e791cc7-29ec-4118-abef-02b909988876}
+e2e_browser_auth_flows	Set up job	2026-04-22T20:10:42.4675746Z Azure Region: eastus
+e2e_browser_auth_flows	Set up job	2026-04-22T20:10:42.4676337Z ##[endgroup]
+e2e_browser_auth_flows	Set up job	2026-04-22T20:10:42.4677793Z ##[group]Operating System
+e2e_browser_auth_flows	Set up job	2026-04-22T20:10:42.4678531Z Ubuntu
+e2e_browser_auth_flows	Set up job	2026-04-22T20:10:42.4679056Z 24.04.4
+e2e_browser_auth_flows	Set up job	2026-04-22T20:10:42.4679624Z LTS
+e2e_browser_auth_flows	Set up job	2026-04-22T20:10:42.4680155Z ##[endgroup]
+e2e_browser_auth_flows	Set up job	2026-04-22T20:10:42.4681232Z ##[group]Runner Image
+e2e_browser_auth_flows	Set up job	2026-04-22T20:10:42.4681954Z Image: ubuntu-24.04
+e2e_browser_auth_flows	Set up job	2026-04-22T20:10:42.4682512Z Version: 20260420.95.1
+e2e_browser_auth_flows	Set up job	2026-04-22T20:10:42.4683644Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20260420.95/images/ubuntu/Ubuntu2404-Readme.md
+e2e_browser_auth_flows	Set up job	2026-04-22T20:10:42.4685505Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20260420.95
+e2e_browser_auth_flows	Set up job	2026-04-22T20:10:42.4686623Z ##[endgroup]
+e2e_browser_auth_flows	Set up job	2026-04-22T20:10:42.4687861Z ##[group]GITHUB_TOKEN Permissions
+e2e_browser_auth_flows	Set up job	2026-04-22T20:10:42.4690349Z Contents: read
+e2e_browser_auth_flows	Set up job	2026-04-22T20:10:42.4691341Z Metadata: read
+e2e_browser_auth_flows	Set up job	2026-04-22T20:10:42.4691889Z Packages: read
+e2e_browser_auth_flows	Set up job	2026-04-22T20:10:42.4692521Z ##[endgroup]
+e2e_browser_auth_flows	Set up job	2026-04-22T20:10:42.4696123Z Secret source: Actions
+e2e_browser_auth_flows	Set up job	2026-04-22T20:10:42.4697770Z Prepare workflow directory
+e2e_browser_auth_flows	Set up job	2026-04-22T20:10:42.5025666Z Prepare all required actions
+e2e_browser_auth_flows	Set up job	2026-04-22T20:10:42.5063657Z Getting action download info
+e2e_browser_auth_flows	Set up job	2026-04-22T20:10:42.8673560Z Download action repository 'actions/checkout@v5' (SHA:93cb6efe18208431cddfb8368fd83d5badbf9bfd)
+e2e_browser_auth_flows	Set up job	2026-04-22T20:10:43.0166329Z Download action repository 'actions/setup-node@v5' (SHA:a0853c24544627f65ddf259abe73b1d18a591444)
+e2e_browser_auth_flows	Set up job	2026-04-22T20:10:43.1669843Z Download action repository 'actions/download-artifact@v4' (SHA:d3f86a106a0bac45b974a628896c90dbdf5c8093)
+e2e_browser_auth_flows	Set up job	2026-04-22T20:10:43.4149726Z Download action repository 'actions/upload-artifact@v4' (SHA:ea165f8d65b6e75b540449e92b4886f43607fa02)
+e2e_browser_auth_flows	Set up job	2026-04-22T20:10:43.6352905Z Complete job name: e2e_browser_auth_flows
+e2e_browser_auth_flows	Run actions/checkout@v5	﻿2026-04-22T20:10:43.7104630Z ##[group]Run actions/checkout@v5
+e2e_browser_auth_flows	Run actions/checkout@v5	2026-04-22T20:10:43.7105613Z with:
+e2e_browser_auth_flows	Run actions/checkout@v5	2026-04-22T20:10:43.7106138Z   repository: jbslivka970/phw-alpine-events
+e2e_browser_auth_flows	Run actions/checkout@v5	2026-04-22T20:10:43.7106956Z   token: ***
+e2e_browser_auth_flows	Run actions/checkout@v5	2026-04-22T20:10:43.7107419Z   ssh-strict: true
+e2e_browser_auth_flows	Run actions/checkout@v5	2026-04-22T20:10:43.7107903Z   ssh-user: git
+e2e_browser_auth_flows	Run actions/checkout@v5	2026-04-22T20:10:43.7108385Z   persist-credentials: true
+e2e_browser_auth_flows	Run actions/checkout@v5	2026-04-22T20:10:43.7108935Z   clean: true
+e2e_browser_auth_flows	Run actions/checkout@v5	2026-04-22T20:10:43.7109420Z   sparse-checkout-cone-mode: true
+e2e_browser_auth_flows	Run actions/checkout@v5	2026-04-22T20:10:43.7109997Z   fetch-depth: 1
+e2e_browser_auth_flows	Run actions/checkout@v5	2026-04-22T20:10:43.7110701Z   fetch-tags: false
+e2e_browser_auth_flows	Run actions/checkout@v5	2026-04-22T20:10:43.7111205Z   show-progress: true
+e2e_browser_auth_flows	Run actions/checkout@v5	2026-04-22T20:10:43.7111701Z   lfs: false
+e2e_browser_auth_flows	Run actions/checkout@v5	2026-04-22T20:10:43.7112154Z   submodules: false
+e2e_browser_auth_flows	Run actions/checkout@v5	2026-04-22T20:10:43.7112641Z   set-safe-directory: true
+e2e_browser_auth_flows	Run actions/checkout@v5	2026-04-22T20:10:43.7113448Z ##[endgroup]
+e2e_browser_auth_flows	Run actions/checkout@v5	2026-04-22T20:10:43.8028554Z Syncing repository: jbslivka970/phw-alpine-events
+e2e_browser_auth_flows	Run actions/checkout@v5	2026-04-22T20:10:43.8031268Z ##[group]Getting Git version info
+e2e_browser_auth_flows	Run actions/checkout@v5	2026-04-22T20:10:43.8032302Z Working directory is '/home/runner/work/phw-alpine-events/phw-alpine-events'
+e2e_browser_auth_flows	Run actions/checkout@v5	2026-04-22T20:10:43.8033694Z [command]/usr/bin/git version
+e2e_browser_auth_flows	Run actions/checkout@v5	2026-04-22T20:10:43.8125079Z git version 2.53.0
+e2e_browser_auth_flows	Run actions/checkout@v5	2026-04-22T20:10:43.8146716Z ##[endgroup]
+e2e_browser_auth_flows	Run actions/checkout@v5	2026-04-22T20:10:43.8160985Z Temporarily overriding HOME='/home/runner/work/_temp/3f3756a9-c9b8-489e-9f0a-2af05591233a' before making global git config changes
+e2e_browser_auth_flows	Run actions/checkout@v5	2026-04-22T20:10:43.8163773Z Adding repository directory to the temporary git global config as a safe directory
+e2e_browser_auth_flows	Run actions/checkout@v5	2026-04-22T20:10:43.8166153Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/phw-alpine-events/phw-alpine-events
+e2e_browser_auth_flows	Run actions/checkout@v5	2026-04-22T20:10:43.8223332Z Deleting the contents of '/home/runner/work/phw-alpine-events/phw-alpine-events'
+e2e_browser_auth_flows	Run actions/checkout@v5	2026-04-22T20:10:43.8227509Z ##[group]Initializing the repository
+e2e_browser_auth_flows	Run actions/checkout@v5	2026-04-22T20:10:43.8232672Z [command]/usr/bin/git init /home/runner/work/phw-alpine-events/phw-alpine-events
+e2e_browser_auth_flows	Run actions/checkout@v5	2026-04-22T20:10:43.8332147Z hint: Using 'master' as the name for the initial branch. This default branch name
+e2e_browser_auth_flows	Run actions/checkout@v5	2026-04-22T20:10:43.8334092Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+e2e_browser_auth_flows	Run actions/checkout@v5	2026-04-22T20:10:43.8335779Z hint: to use in all of your new repositories, which will suppress this warning,
+e2e_browser_auth_flows	Run actions/checkout@v5	2026-04-22T20:10:43.8337131Z hint: call:
+e2e_browser_auth_flows	Run actions/checkout@v5	2026-04-22T20:10:43.8337936Z hint:
+e2e_browser_auth_flows	Run actions/checkout@v5	2026-04-22T20:10:43.8339129Z hint: 	git config --global init.defaultBranch <name>
+e2e_browser_auth_flows	Run actions/checkout@v5	2026-04-22T20:10:43.8340284Z hint:
+e2e_browser_auth_flows	Run actions/checkout@v5	2026-04-22T20:10:43.8341612Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+e2e_browser_auth_flows	Run actions/checkout@v5	2026-04-22T20:10:43.8343292Z hint: 'development'. The just-created branch can be renamed via this command:
+e2e_browser_auth_flows	Run actions/checkout@v5	2026-04-22T20:10:43.8344705Z hint:
+e2e_browser_auth_flows	Run actions/checkout@v5	2026-04-22T20:10:43.8345469Z hint: 	git branch -m <name>
+e2e_browser_auth_flows	Run actions/checkout@v5	2026-04-22T20:10:43.8346346Z hint:
+e2e_browser_auth_flows	Run actions/checkout@v5	2026-04-22T20:10:43.8347065Z hint: Disable this message with "git config set advice.defaultBranchName false"
+e2e_browser_auth_flows	Run actions/checkout@v5	2026-04-22T20:10:43.8348470Z Initialized empty Git repository in /home/runner/work/phw-alpine-events/phw-alpine-events/.git/
+e2e_browser_auth_flows	Run actions/checkout@v5	2026-04-22T20:10:43.8350726Z [command]/usr/bin/git remote add origin https://github.com/jbslivka970/phw-alpine-events
+e2e_browser_auth_flows	Run actions/checkout@v5	2026-04-22T20:10:43.8394671Z ##[endgroup]
+e2e_browser_auth_flows	Run actions/checkout@v5	2026-04-22T20:10:43.8396081Z ##[group]Disabling automatic garbage collection
+e2e_browser_auth_flows	Run actions/checkout@v5	2026-04-22T20:10:43.8397570Z [command]/usr/bin/git config --local gc.auto 0
+e2e_browser_auth_flows	Run actions/checkout@v5	2026-04-22T20:10:43.8426681Z ##[endgroup]
+e2e_browser_auth_flows	Run actions/checkout@v5	2026-04-22T20:10:43.8428013Z ##[group]Setting up auth
+e2e_browser_auth_flows	Run actions/checkout@v5	2026-04-22T20:10:43.8433152Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+e2e_browser_auth_flows	Run actions/checkout@v5	2026-04-22T20:10:43.8463100Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+e2e_browser_auth_flows	Run actions/checkout@v5	2026-04-22T20:10:43.8865633Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+e2e_browser_auth_flows	Run actions/checkout@v5	2026-04-22T20:10:43.8894840Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+e2e_browser_auth_flows	Run actions/checkout@v5	2026-04-22T20:10:43.9106055Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+e2e_browser_auth_flows	Run actions/checkout@v5	2026-04-22T20:10:43.9135451Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+e2e_browser_auth_flows	Run actions/checkout@v5	2026-04-22T20:10:43.9346407Z [command]/usr/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
+e2e_browser_auth_flows	Run actions/checkout@v5	2026-04-22T20:10:43.9380103Z ##[endgroup]
+e2e_browser_auth_flows	Run actions/checkout@v5	2026-04-22T20:10:43.9381339Z ##[group]Fetching the repository
+e2e_browser_auth_flows	Run actions/checkout@v5	2026-04-22T20:10:43.9388857Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +2d536422ed7df5ecfbfe0cb425b9f6d5869ac0d7:refs/remotes/origin/main
+e2e_browser_auth_flows	Run actions/checkout@v5	2026-04-22T20:10:47.3203936Z From https://github.com/jbslivka970/phw-alpine-events
+e2e_browser_auth_flows	Run actions/checkout@v5	2026-04-22T20:10:47.3205466Z  * [new ref]         2d536422ed7df5ecfbfe0cb425b9f6d5869ac0d7 -> origin/main
+e2e_browser_auth_flows	Run actions/checkout@v5	2026-04-22T20:10:47.3237055Z ##[endgroup]
+e2e_browser_auth_flows	Run actions/checkout@v5	2026-04-22T20:10:47.3237979Z ##[group]Determining the checkout info
+e2e_browser_auth_flows	Run actions/checkout@v5	2026-04-22T20:10:47.3241076Z ##[endgroup]
+e2e_browser_auth_flows	Run actions/checkout@v5	2026-04-22T20:10:47.3246462Z [command]/usr/bin/git sparse-checkout disable
+e2e_browser_auth_flows	Run actions/checkout@v5	2026-04-22T20:10:47.3298226Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+e2e_browser_auth_flows	Run actions/checkout@v5	2026-04-22T20:10:47.3324059Z ##[group]Checking out the ref
+e2e_browser_auth_flows	Run actions/checkout@v5	2026-04-22T20:10:47.3327493Z [command]/usr/bin/git checkout --progress --force -B main refs/remotes/origin/main
+e2e_browser_auth_flows	Run actions/checkout@v5	2026-04-22T20:10:47.7025646Z Switched to a new branch 'main'
+e2e_browser_auth_flows	Run actions/checkout@v5	2026-04-22T20:10:47.7026980Z branch 'main' set up to track 'origin/main'.
+e2e_browser_auth_flows	Run actions/checkout@v5	2026-04-22T20:10:47.7095111Z ##[endgroup]
+e2e_browser_auth_flows	Run actions/checkout@v5	2026-04-22T20:10:47.7141812Z [command]/usr/bin/git log -1 --format=%H
+e2e_browser_auth_flows	Run actions/checkout@v5	2026-04-22T20:10:47.7165097Z 2d536422ed7df5ecfbfe0cb425b9f6d5869ac0d7
+e2e_browser_auth_flows	Setup Node.js	﻿2026-04-22T20:10:47.7482462Z ##[group]Run actions/setup-node@v5
+e2e_browser_auth_flows	Setup Node.js	2026-04-22T20:10:47.7482831Z with:
+e2e_browser_auth_flows	Setup Node.js	2026-04-22T20:10:47.7483044Z   node-version: 22
+e2e_browser_auth_flows	Setup Node.js	2026-04-22T20:10:47.7483556Z   cache: npm
+e2e_browser_auth_flows	Setup Node.js	2026-04-22T20:10:47.7483807Z   cache-dependency-path: package-lock.json
+e2e_browser_auth_flows	Setup Node.js	2026-04-22T20:10:47.7484120Z   always-auth: false
+e2e_browser_auth_flows	Setup Node.js	2026-04-22T20:10:47.7484353Z   check-latest: false
+e2e_browser_auth_flows	Setup Node.js	2026-04-22T20:10:47.7484736Z   token: ***
+e2e_browser_auth_flows	Setup Node.js	2026-04-22T20:10:47.7484972Z   package-manager-cache: true
+e2e_browser_auth_flows	Setup Node.js	2026-04-22T20:10:47.7485235Z ##[endgroup]
+e2e_browser_auth_flows	Setup Node.js	2026-04-22T20:10:47.8892578Z Found in cache @ /opt/hostedtoolcache/node/22.22.2/x64
+e2e_browser_auth_flows	Setup Node.js	2026-04-22T20:10:47.8897817Z (node:2311) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+e2e_browser_auth_flows	Setup Node.js	2026-04-22T20:10:47.8899210Z (Use `node --trace-deprecation ...` to show where the warning was created)
+e2e_browser_auth_flows	Setup Node.js	2026-04-22T20:10:47.8901147Z ##[group]Environment details
+e2e_browser_auth_flows	Setup Node.js	2026-04-22T20:10:50.7523673Z node: v22.22.2
+e2e_browser_auth_flows	Setup Node.js	2026-04-22T20:10:50.7524361Z npm: 10.9.7
+e2e_browser_auth_flows	Setup Node.js	2026-04-22T20:10:50.7524784Z yarn: 1.22.22
+e2e_browser_auth_flows	Setup Node.js	2026-04-22T20:10:50.7526294Z ##[endgroup]
+e2e_browser_auth_flows	Setup Node.js	2026-04-22T20:10:50.7550885Z [command]/opt/hostedtoolcache/node/22.22.2/x64/bin/npm config get cache
+e2e_browser_auth_flows	Setup Node.js	2026-04-22T20:10:51.0695472Z /home/runner/.npm
+e2e_browser_auth_flows	Setup Node.js	2026-04-22T20:10:51.1407019Z Cache hit for: node-cache-Linux-x64-npm-1e5769253a32bb138350baf363d74aab9abb643bc52355d1c367bd0f59e86509
+e2e_browser_auth_flows	Setup Node.js	2026-04-22T20:10:51.1516029Z (node:2311) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+e2e_browser_auth_flows	Setup Node.js	2026-04-22T20:10:51.3204058Z Received 3237158 of 3237158 (100.0%), 27.8 MBs/sec
+e2e_browser_auth_flows	Setup Node.js	2026-04-22T20:10:51.3204821Z Cache Size: ~3 MB (3237158 B)
+e2e_browser_auth_flows	Setup Node.js	2026-04-22T20:10:51.3236016Z [command]/usr/bin/tar -xf /home/runner/work/_temp/093e9322-0fd9-46ea-9415-036998e8a587/cache.tzst -P -C /home/runner/work/phw-alpine-events/phw-alpine-events --use-compress-program unzstd
+e2e_browser_auth_flows	Setup Node.js	2026-04-22T20:10:51.3357921Z Cache restored successfully
+e2e_browser_auth_flows	Setup Node.js	2026-04-22T20:10:51.3367141Z Cache restored from key: node-cache-Linux-x64-npm-1e5769253a32bb138350baf363d74aab9abb643bc52355d1c367bd0f59e86509
+e2e_browser_auth_flows	Install Playwright dependencies	﻿2026-04-22T20:10:51.3551663Z ##[group]Run npm ci
+e2e_browser_auth_flows	Install Playwright dependencies	2026-04-22T20:10:51.3551996Z [36;1mnpm ci[0m
+e2e_browser_auth_flows	Install Playwright dependencies	2026-04-22T20:10:51.3691747Z shell: /usr/bin/bash -e {0}
+e2e_browser_auth_flows	Install Playwright dependencies	2026-04-22T20:10:51.3692076Z ##[endgroup]
+e2e_browser_auth_flows	Install Playwright dependencies	2026-04-22T20:10:53.4427885Z 
+e2e_browser_auth_flows	Install Playwright dependencies	2026-04-22T20:10:53.4438066Z added 3 packages, and audited 4 packages in 2s
+e2e_browser_auth_flows	Install Playwright dependencies	2026-04-22T20:10:53.4438629Z 
+e2e_browser_auth_flows	Install Playwright dependencies	2026-04-22T20:10:53.4438912Z found 0 vulnerabilities
+e2e_browser_auth_flows	Install Playwright Chromium	﻿2026-04-22T20:10:53.4849850Z ##[group]Run npx playwright install --with-deps chromium
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:10:53.4850339Z [36;1mnpx playwright install --with-deps chromium[0m
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:10:53.4904882Z shell: /usr/bin/bash -e {0}
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:10:53.4905172Z ##[endgroup]
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:10:54.0446448Z Installing dependencies...
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:10:54.0531754Z Switching to root user to install dependencies...
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:10:54.1372687Z Get:1 file:/etc/apt/apt-mirrors.txt Mirrorlist [144 B]
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:10:54.1787071Z Hit:6 https://packages.microsoft.com/repos/azure-cli noble InRelease
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:10:54.1792225Z Get:7 https://packages.microsoft.com/ubuntu/24.04/prod noble InRelease [3600 B]
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:10:54.2449543Z Hit:2 http://azure.archive.ubuntu.com/ubuntu noble InRelease
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:10:54.2510833Z Get:3 http://azure.archive.ubuntu.com/ubuntu noble-updates InRelease [126 kB]
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:10:54.2745242Z Get:4 http://azure.archive.ubuntu.com/ubuntu noble-backports InRelease [126 kB]
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:10:54.2862497Z Get:5 http://azure.archive.ubuntu.com/ubuntu noble-security InRelease [126 kB]
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:10:54.3007816Z Get:8 https://dl.google.com/linux/chrome-stable/deb stable InRelease [1825 B]
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:10:54.3013298Z Get:9 https://packages.microsoft.com/ubuntu/24.04/prod noble/main amd64 Packages [122 kB]
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:10:54.3181935Z Get:10 https://packages.microsoft.com/ubuntu/24.04/prod noble/main arm64 Packages [98.3 kB]
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:10:54.3985142Z Get:11 http://azure.archive.ubuntu.com/ubuntu noble-updates/main amd64 Packages [1919 kB]
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:10:54.4442047Z Get:12 http://azure.archive.ubuntu.com/ubuntu noble-updates/main Translation-en [345 kB]
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:10:54.4479935Z Get:13 http://azure.archive.ubuntu.com/ubuntu noble-updates/main amd64 Components [177 kB]
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:10:54.4536756Z Get:14 http://azure.archive.ubuntu.com/ubuntu noble-updates/main amd64 c-n-f Metadata [17.1 kB]
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:10:54.4598314Z Get:15 http://azure.archive.ubuntu.com/ubuntu noble-updates/universe amd64 Packages [1684 kB]
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:10:54.4784164Z Get:16 http://azure.archive.ubuntu.com/ubuntu noble-updates/universe Translation-en [324 kB]
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:10:54.4868562Z Get:17 http://azure.archive.ubuntu.com/ubuntu noble-updates/universe amd64 Components [387 kB]
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:10:54.4961762Z Get:18 http://azure.archive.ubuntu.com/ubuntu noble-updates/universe amd64 c-n-f Metadata [34.5 kB]
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:10:54.4995673Z Get:19 http://azure.archive.ubuntu.com/ubuntu noble-updates/restricted amd64 Packages [2981 kB]
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:10:54.5193630Z Get:20 http://azure.archive.ubuntu.com/ubuntu noble-updates/restricted Translation-en [697 kB]
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:10:54.5647056Z Get:43 https://dl.google.com/linux/chrome-stable/deb stable/main amd64 Packages [1218 B]
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:10:54.5739443Z Get:21 http://azure.archive.ubuntu.com/ubuntu noble-updates/multiverse amd64 Packages [32.5 kB]
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:10:54.5801276Z Get:22 http://azure.archive.ubuntu.com/ubuntu noble-updates/multiverse Translation-en [8180 B]
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:10:54.5859598Z Get:23 http://azure.archive.ubuntu.com/ubuntu noble-updates/multiverse amd64 Components [940 B]
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:10:54.5918836Z Get:24 http://azure.archive.ubuntu.com/ubuntu noble-backports/main amd64 Packages [40.6 kB]
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:10:54.5979015Z Get:25 http://azure.archive.ubuntu.com/ubuntu noble-backports/main Translation-en [9172 B]
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:10:54.6038306Z Get:26 http://azure.archive.ubuntu.com/ubuntu noble-backports/main amd64 Components [7368 B]
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:10:54.6097450Z Get:27 http://azure.archive.ubuntu.com/ubuntu noble-backports/universe amd64 Packages [30.6 kB]
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:10:54.6158432Z Get:28 http://azure.archive.ubuntu.com/ubuntu noble-backports/universe Translation-en [18.2 kB]
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:10:54.6218230Z Get:29 http://azure.archive.ubuntu.com/ubuntu noble-backports/universe amd64 Components [10.5 kB]
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:10:54.6277477Z Get:30 http://azure.archive.ubuntu.com/ubuntu noble-backports/multiverse amd64 Packages [748 B]
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:10:54.6335921Z Get:31 http://azure.archive.ubuntu.com/ubuntu noble-security/main amd64 Packages [1620 kB]
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:10:54.6461874Z Get:32 http://azure.archive.ubuntu.com/ubuntu noble-security/main Translation-en [259 kB]
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:10:54.6530713Z Get:33 http://azure.archive.ubuntu.com/ubuntu noble-security/main amd64 Components [21.9 kB]
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:10:54.6591819Z Get:34 http://azure.archive.ubuntu.com/ubuntu noble-security/main amd64 c-n-f Metadata [11.0 kB]
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:10:54.7148202Z Get:35 http://azure.archive.ubuntu.com/ubuntu noble-security/universe amd64 Packages [1182 kB]
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:10:54.7254846Z Get:36 http://azure.archive.ubuntu.com/ubuntu noble-security/universe Translation-en [227 kB]
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:10:54.7324321Z Get:37 http://azure.archive.ubuntu.com/ubuntu noble-security/universe amd64 Components [74.2 kB]
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:10:54.7389777Z Get:38 http://azure.archive.ubuntu.com/ubuntu noble-security/universe amd64 c-n-f Metadata [23.1 kB]
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:10:54.7454636Z Get:39 http://azure.archive.ubuntu.com/ubuntu noble-security/restricted amd64 Packages [2833 kB]
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:10:54.7646559Z Get:40 http://azure.archive.ubuntu.com/ubuntu noble-security/restricted Translation-en [666 kB]
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:10:54.7732967Z Get:41 http://azure.archive.ubuntu.com/ubuntu noble-security/multiverse amd64 Packages [28.8 kB]
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:10:54.7795066Z Get:42 http://azure.archive.ubuntu.com/ubuntu noble-security/multiverse Translation-en [7172 B]
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:00.1947306Z Fetched 16.3 MB in 2s (8750 kB/s)
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:00.9760320Z Reading package lists...
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:01.0007793Z Reading package lists...
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:01.1812526Z Building dependency tree...
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:01.1820514Z Reading state information...
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:01.3343816Z libasound2t64 is already the newest version (1.2.11-1ubuntu0.2).
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:01.3344937Z libasound2t64 set to manually installed.
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:01.3345940Z libatk-bridge2.0-0t64 is already the newest version (2.52.0-1build1).
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:01.3347001Z libatk-bridge2.0-0t64 set to manually installed.
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:01.3347933Z libatk1.0-0t64 is already the newest version (2.52.0-1build1).
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:01.3348768Z libatk1.0-0t64 set to manually installed.
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:01.3349523Z libatspi2.0-0t64 is already the newest version (2.52.0-1build1).
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:01.3350236Z libatspi2.0-0t64 set to manually installed.
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:01.3351068Z libcairo2 is already the newest version (1.18.0-3build1).
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:01.3351476Z libcairo2 set to manually installed.
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:01.3351944Z libcups2t64 is already the newest version (2.4.7-1.2ubuntu7.9).
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:01.3352388Z libcups2t64 set to manually installed.
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:01.3352874Z libdbus-1-3 is already the newest version (1.14.10-4ubuntu4.1).
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:01.3353290Z libdbus-1-3 set to manually installed.
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:01.3353737Z libdrm2 is already the newest version (2.4.125-1ubuntu0.1~24.04.1).
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:01.3354162Z libdrm2 set to manually installed.
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:01.3354807Z libgbm1 is already the newest version (25.2.8-0ubuntu0.24.04.1).
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:01.3355238Z libgbm1 set to manually installed.
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:01.3355676Z libglib2.0-0t64 is already the newest version (2.80.0-6ubuntu3.8).
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:01.3356119Z libglib2.0-0t64 set to manually installed.
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:01.3356562Z libnspr4 is already the newest version (2:4.35-1.1build1).
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:01.3356974Z libnspr4 set to manually installed.
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:01.3357392Z libnss3 is already the newest version (2:3.98-1ubuntu0.1).
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:01.3357779Z libnss3 set to manually installed.
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:01.3358214Z libpango-1.0-0 is already the newest version (1.52.1+ds-1build1).
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:01.3358667Z libpango-1.0-0 set to manually installed.
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:01.3359096Z libx11-6 is already the newest version (2:1.8.7-1build1).
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:01.3359485Z libx11-6 set to manually installed.
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:01.3359871Z libxcb1 is already the newest version (1.15-1ubuntu2).
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:01.3360257Z libxcb1 set to manually installed.
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:01.3361509Z libxcomposite1 is already the newest version (1:0.4.5-1build3).
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:01.3361962Z libxcomposite1 set to manually installed.
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:01.3362652Z libxdamage1 is already the newest version (1:1.1.6-1build1).
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:01.3363088Z libxdamage1 set to manually installed.
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:01.3363512Z libxext6 is already the newest version (2:1.3.4-1build2).
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:01.3363905Z libxext6 set to manually installed.
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:01.3364317Z libxfixes3 is already the newest version (1:6.0.0-2build1).
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:01.3364718Z libxfixes3 set to manually installed.
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:01.3365342Z libxkbcommon0 is already the newest version (1.6.0-1build1).
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:01.3365769Z libxkbcommon0 set to manually installed.
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:01.3366190Z libxrandr2 is already the newest version (2:1.5.2-2build1).
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:01.3366600Z libxrandr2 set to manually installed.
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:01.3367027Z xvfb is already the newest version (2:21.1.12-1ubuntu1.5).
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:01.3367592Z fonts-noto-color-emoji is already the newest version (2.047-0ubuntu0.24.04.1).
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:01.3368175Z libfontconfig1 is already the newest version (2.15.0-1.1ubuntu2).
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:01.3368611Z libfontconfig1 set to manually installed.
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:01.3369359Z libfreetype6 is already the newest version (2.13.2+dfsg-1ubuntu0.1).
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:01.3370129Z libfreetype6 set to manually installed.
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:01.3371208Z fonts-liberation is already the newest version (1:2.1.5-3).
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:01.3371981Z fonts-liberation set to manually installed.
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:01.3372662Z The following additional packages will be installed:
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:01.3373053Z   xfonts-encodings xfonts-utils
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:01.3373354Z Recommended packages:
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:01.3373647Z   fonts-ipafont-mincho fonts-tlwg-loma
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:01.3675435Z The following NEW packages will be installed:
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:01.3676491Z   fonts-freefont-ttf fonts-ipafont-gothic fonts-tlwg-loma-otf fonts-unifont
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:01.3683781Z   fonts-wqy-zenhei xfonts-cyrillic xfonts-encodings xfonts-scalable
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:01.3684508Z   xfonts-utils
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:01.3860237Z 0 upgraded, 9 newly installed, 0 to remove and 22 not upgraded.
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:01.3861315Z Need to get 21.1 MB of archives.
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:01.3862144Z After this operation, 79.5 MB of additional disk space will be used.
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:01.3863066Z Get:1 file:/etc/apt/apt-mirrors.txt Mirrorlist [144 B]
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:01.4127101Z Get:2 http://azure.archive.ubuntu.com/ubuntu noble/universe amd64 fonts-ipafont-gothic all 00303-21ubuntu1 [3513 kB]
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:01.4926811Z Get:3 http://azure.archive.ubuntu.com/ubuntu noble/main amd64 fonts-freefont-ttf all 20211204+svn4273-2 [5641 kB]
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:01.6179881Z Get:4 http://azure.archive.ubuntu.com/ubuntu noble/universe amd64 fonts-tlwg-loma-otf all 1:0.7.3-1 [107 kB]
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:01.6269843Z Get:5 http://azure.archive.ubuntu.com/ubuntu noble/universe amd64 fonts-unifont all 1:15.1.01-1build1 [2993 kB]
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:01.6911022Z Get:6 http://azure.archive.ubuntu.com/ubuntu noble/universe amd64 fonts-wqy-zenhei all 0.9.45-8 [7472 kB]
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:01.7657762Z Get:7 http://azure.archive.ubuntu.com/ubuntu noble/main amd64 xfonts-encodings all 1:1.0.5-0ubuntu2 [578 kB]
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:01.7839122Z Get:8 http://azure.archive.ubuntu.com/ubuntu noble/main amd64 xfonts-utils amd64 1:7.7+6build3 [94.4 kB]
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:01.7934436Z Get:9 http://azure.archive.ubuntu.com/ubuntu noble/universe amd64 xfonts-cyrillic all 1:1.0.5+nmu1 [384 kB]
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:01.8085542Z Get:10 http://azure.archive.ubuntu.com/ubuntu noble/main amd64 xfonts-scalable all 1:1.0.3-1.3 [304 kB]
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:02.0714777Z Fetched 21.1 MB in 0s (48.1 MB/s)
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:02.0957142Z Selecting previously unselected package fonts-ipafont-gothic.
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:02.1243730Z (Reading database ... 
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:02.1244361Z (Reading database ... 5%
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:02.1244815Z (Reading database ... 10%
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:02.1245565Z (Reading database ... 15%
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:02.1245920Z (Reading database ... 20%
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:02.1246487Z (Reading database ... 25%
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:02.1246976Z (Reading database ... 30%
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:02.1247449Z (Reading database ... 35%
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:02.1247840Z (Reading database ... 40%
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:02.1248154Z (Reading database ... 45%
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:02.1248459Z (Reading database ... 50%
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:02.1330787Z (Reading database ... 55%
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:02.2553160Z (Reading database ... 60%
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:02.3717330Z (Reading database ... 65%
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:02.4237783Z (Reading database ... 70%
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:02.4626281Z (Reading database ... 75%
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:02.5971700Z (Reading database ... 80%
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:02.8017049Z (Reading database ... 85%
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:03.0092417Z (Reading database ... 90%
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:03.2003658Z (Reading database ... 95%
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:03.2004469Z (Reading database ... 100%
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:03.2005288Z (Reading database ... 221863 files and directories currently installed.)
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:03.2049491Z Preparing to unpack .../0-fonts-ipafont-gothic_00303-21ubuntu1_all.deb ...
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:03.2139770Z Unpacking fonts-ipafont-gothic (00303-21ubuntu1) ...
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:03.4446414Z Selecting previously unselected package fonts-freefont-ttf.
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:03.4583105Z Preparing to unpack .../1-fonts-freefont-ttf_20211204+svn4273-2_all.deb ...
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:03.4593902Z Unpacking fonts-freefont-ttf (20211204+svn4273-2) ...
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:03.5443027Z Selecting previously unselected package fonts-tlwg-loma-otf.
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:03.5579555Z Preparing to unpack .../2-fonts-tlwg-loma-otf_1%3a0.7.3-1_all.deb ...
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:03.5589986Z Unpacking fonts-tlwg-loma-otf (1:0.7.3-1) ...
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:03.5815010Z Selecting previously unselected package fonts-unifont.
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:03.5950295Z Preparing to unpack .../3-fonts-unifont_1%3a15.1.01-1build1_all.deb ...
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:03.5961194Z Unpacking fonts-unifont (1:15.1.01-1build1) ...
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:03.7072127Z Selecting previously unselected package fonts-wqy-zenhei.
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:03.7211679Z Preparing to unpack .../4-fonts-wqy-zenhei_0.9.45-8_all.deb ...
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:03.7314431Z Unpacking fonts-wqy-zenhei (0.9.45-8) ...
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:04.1945551Z Selecting previously unselected package xfonts-encodings.
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:04.2083176Z Preparing to unpack .../5-xfonts-encodings_1%3a1.0.5-0ubuntu2_all.deb ...
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:04.2094749Z Unpacking xfonts-encodings (1:1.0.5-0ubuntu2) ...
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:04.2398520Z Selecting previously unselected package xfonts-utils.
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:04.2534778Z Preparing to unpack .../6-xfonts-utils_1%3a7.7+6build3_amd64.deb ...
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:04.2564198Z Unpacking xfonts-utils (1:7.7+6build3) ...
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:04.3972084Z Selecting previously unselected package xfonts-cyrillic.
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:04.4108713Z Preparing to unpack .../7-xfonts-cyrillic_1%3a1.0.5+nmu1_all.deb ...
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:04.4120973Z Unpacking xfonts-cyrillic (1:1.0.5+nmu1) ...
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:04.4484194Z Selecting previously unselected package xfonts-scalable.
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:04.4619370Z Preparing to unpack .../8-xfonts-scalable_1%3a1.0.3-1.3_all.deb ...
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:04.4630897Z Unpacking xfonts-scalable (1:1.0.3-1.3) ...
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:04.5048926Z Setting up fonts-wqy-zenhei (0.9.45-8) ...
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:04.5185429Z Setting up fonts-freefont-ttf (20211204+svn4273-2) ...
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:04.5214132Z Setting up fonts-tlwg-loma-otf (1:0.7.3-1) ...
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:04.5242779Z Setting up xfonts-encodings (1:1.0.5-0ubuntu2) ...
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:04.5271258Z Setting up fonts-ipafont-gothic (00303-21ubuntu1) ...
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:04.5341641Z update-alternatives: using /usr/share/fonts/opentype/ipafont-gothic/ipag.ttf to provide /usr/share/fonts/truetype/fonts-japanese-gothic.ttf (fonts-japanese-gothic.ttf) in auto mode
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:04.5362276Z Setting up fonts-unifont (1:15.1.01-1build1) ...
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:04.5420291Z Setting up xfonts-utils (1:7.7+6build3) ...
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:04.5468717Z Setting up xfonts-cyrillic (1:1.0.5+nmu1) ...
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:04.5812641Z Setting up xfonts-scalable (1:1.0.3-1.3) ...
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:04.6091746Z Processing triggers for man-db (2.12.0-4build2) ...
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:04.6165643Z Not building database; man-db/auto-update is not 'true'.
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:04.6182685Z Processing triggers for fontconfig (2.15.0-1.1ubuntu2) ...
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:05.3328384Z 
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:05.3329098Z Running kernel seems to be up-to-date.
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:05.3329645Z 
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:05.3329874Z No services need to be restarted.
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:05.3330163Z 
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:05.3330729Z No containers need to be restarted.
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:05.3331034Z 
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:05.3331292Z No user sessions are running outdated binaries.
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:05.3331607Z 
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:05.3331999Z No VM guests are running outdated hypervisor (qemu) binaries on this host.
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:06.2068646Z Downloading Chrome for Testing 147.0.7727.15 (playwright chromium v1217) from https://cdn.playwright.dev/builds/cft/147.0.7727.15/linux64/chrome-linux64.zip
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:06.9688147Z |                                                                                |   0% of 170.4 MiB
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:07.2348445Z |■■■■■■■■                                                                        |  10% of 170.4 MiB
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:07.3772249Z |■■■■■■■■■■■■■■■■                                                                |  20% of 170.4 MiB
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:07.5551829Z |■■■■■■■■■■■■■■■■■■■■■■■■                                                        |  30% of 170.4 MiB
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:07.6631471Z |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■                                                |  40% of 170.4 MiB
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:07.7730304Z |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■                                        |  50% of 170.4 MiB
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:07.8645345Z |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■                                |  60% of 170.4 MiB
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:07.9802511Z |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■                        |  70% of 170.4 MiB
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:08.1366681Z |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■                |  80% of 170.4 MiB
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:08.2444928Z |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■        |  90% of 170.4 MiB
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:08.3620147Z |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■| 100% of 170.4 MiB
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:11.0143352Z Chrome for Testing 147.0.7727.15 (playwright chromium v1217) downloaded to /home/runner/.cache/ms-playwright/chromium-1217
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:11.0146526Z Downloading FFmpeg (playwright ffmpeg v1011) from https://cdn.playwright.dev/dbazure/download/playwright/builds/ffmpeg/1011/ffmpeg-linux.zip
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:11.7601102Z |                                                                                |   0% of 2.3 MiB
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:11.7639471Z |■■■■■■■■                                                                        |  10% of 2.3 MiB
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:11.7675344Z |■■■■■■■■■■■■■■■■                                                                |  20% of 2.3 MiB
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:11.7703006Z |■■■■■■■■■■■■■■■■■■■■■■■■                                                        |  30% of 2.3 MiB
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:11.7725519Z |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■                                                |  40% of 2.3 MiB
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:11.7787721Z |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■                                        |  50% of 2.3 MiB
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:11.7805492Z |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■                                |  60% of 2.3 MiB
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:11.7837726Z |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■                        |  70% of 2.3 MiB
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:11.7852346Z |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■                |  80% of 2.3 MiB
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:11.8083181Z |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■        |  90% of 2.3 MiB
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:11.8102638Z |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■| 100% of 2.3 MiB
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:11.8725707Z FFmpeg (playwright ffmpeg v1011) downloaded to /home/runner/.cache/ms-playwright/ffmpeg-1011
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:11.8728469Z Downloading Chrome Headless Shell 147.0.7727.15 (playwright chromium-headless-shell v1217) from https://cdn.playwright.dev/builds/cft/147.0.7727.15/linux64/chrome-headless-shell-linux64.zip
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:12.6279258Z |                                                                                |   0% of 112 MiB
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:12.7478525Z |■■■■■■■■                                                                        |  10% of 112 MiB
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:12.8159938Z |■■■■■■■■■■■■■■■■                                                                |  20% of 112 MiB
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:12.8682675Z |■■■■■■■■■■■■■■■■■■■■■■■■                                                        |  30% of 112 MiB
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:12.9366433Z |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■                                                |  40% of 112 MiB
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:12.9854040Z |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■                                        |  50% of 112 MiB
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:13.0512218Z |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■                                |  60% of 112 MiB
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:13.1005214Z |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■                        |  70% of 112 MiB
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:13.1526124Z |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■                |  80% of 112 MiB
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:13.1956548Z |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■        |  90% of 112 MiB
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:13.2378126Z |■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■| 100% of 112 MiB
+e2e_browser_auth_flows	Install Playwright Chromium	2026-04-22T20:11:15.1707605Z Chrome Headless Shell 147.0.7727.15 (playwright chromium-headless-shell v1217) downloaded to /home/runner/.cache/ms-playwright/chromium_headless_shell-1217
+e2e_browser_auth_flows	Download Playwright auth state	﻿2026-04-22T20:11:15.1999153Z ##[group]Run actions/download-artifact@v4
+e2e_browser_auth_flows	Download Playwright auth state	2026-04-22T20:11:15.1999513Z with:
+e2e_browser_auth_flows	Download Playwright auth state	2026-04-22T20:11:15.1999767Z   name: playwright-auth-state-24799595560
+e2e_browser_auth_flows	Download Playwright auth state	2026-04-22T20:11:15.2000073Z   path: tests/e2e/.auth
+e2e_browser_auth_flows	Download Playwright auth state	2026-04-22T20:11:15.2000334Z   merge-multiple: false
+e2e_browser_auth_flows	Download Playwright auth state	2026-04-22T20:11:15.2000989Z   repository: jbslivka970/phw-alpine-events
+e2e_browser_auth_flows	Download Playwright auth state	2026-04-22T20:11:15.2001297Z   run-id: 24799595560
+e2e_browser_auth_flows	Download Playwright auth state	2026-04-22T20:11:15.2001537Z ##[endgroup]
+e2e_browser_auth_flows	Download Playwright auth state	2026-04-22T20:11:15.3964623Z Downloading single artifact
+e2e_browser_auth_flows	Download Playwright auth state	2026-04-22T20:11:15.5164622Z ##[error]Unable to download artifact(s): Artifact not found for name: playwright-auth-state-24799595560
+e2e_browser_auth_flows	Download Playwright auth state	        Please ensure that your artifact is not expired and the artifact was uploaded using a compatible version of toolkit/upload-artifact.
+e2e_browser_auth_flows	Download Playwright auth state	        For more information, visit the GitHub Artifacts FAQ: https://github.com/actions/toolkit/blob/main/packages/artifact/docs/faq.md
+e2e_browser_auth_flows	Upload Playwright artifacts on failure	﻿2026-04-22T20:11:15.5268331Z ##[group]Run actions/upload-artifact@v4
+e2e_browser_auth_flows	Upload Playwright artifacts on failure	2026-04-22T20:11:15.5268650Z with:
+e2e_browser_auth_flows	Upload Playwright artifacts on failure	2026-04-22T20:11:15.5268948Z   name: playwright-browser-auth-flows-artifacts-24799595560
+e2e_browser_auth_flows	Upload Playwright artifacts on failure	2026-04-22T20:11:15.5269329Z   if-no-files-found: ignore
+e2e_browser_auth_flows	Upload Playwright artifacts on failure	2026-04-22T20:11:15.5269587Z   retention-days: 14
+e2e_browser_auth_flows	Upload Playwright artifacts on failure	2026-04-22T20:11:15.5269859Z   path: playwright-report/**
+e2e_browser_auth_flows	Upload Playwright artifacts on failure	test-results/**
+e2e_browser_auth_flows	Upload Playwright artifacts on failure	
+e2e_browser_auth_flows	Upload Playwright artifacts on failure	2026-04-22T20:11:15.5270167Z   compression-level: 6
+e2e_browser_auth_flows	Upload Playwright artifacts on failure	2026-04-22T20:11:15.5270642Z   overwrite: false
+e2e_browser_auth_flows	Upload Playwright artifacts on failure	2026-04-22T20:11:15.5270945Z   include-hidden-files: false
+e2e_browser_auth_flows	Upload Playwright artifacts on failure	2026-04-22T20:11:15.5271205Z ##[endgroup]
+e2e_browser_auth_flows	Upload Playwright artifacts on failure	2026-04-22T20:11:15.7456828Z Multiple search paths detected. Calculating the least common ancestor of all paths
+e2e_browser_auth_flows	Upload Playwright artifacts on failure	2026-04-22T20:11:15.7460261Z The least common ancestor is /home/runner/work/phw-alpine-events/phw-alpine-events. This will be the root directory of the artifact
+e2e_browser_auth_flows	Upload Playwright artifacts on failure	2026-04-22T20:11:15.7461968Z No files were found with the provided path: playwright-report/**
+e2e_browser_auth_flows	Upload Playwright artifacts on failure	2026-04-22T20:11:15.7462798Z test-results/**. No artifacts will be uploaded.
+e2e_browser_auth_flows	Post Run actions/checkout@v5	﻿2026-04-22T20:11:15.7641662Z Post job cleanup.
+e2e_browser_auth_flows	Post Run actions/checkout@v5	2026-04-22T20:11:15.8435169Z [command]/usr/bin/git version
+e2e_browser_auth_flows	Post Run actions/checkout@v5	2026-04-22T20:11:15.8503718Z git version 2.53.0
+e2e_browser_auth_flows	Post Run actions/checkout@v5	2026-04-22T20:11:15.8542138Z Temporarily overriding HOME='/home/runner/work/_temp/e6a3e258-812b-4b21-80d0-08bc71fe6053' before making global git config changes
+e2e_browser_auth_flows	Post Run actions/checkout@v5	2026-04-22T20:11:15.8543808Z Adding repository directory to the temporary git global config as a safe directory
+e2e_browser_auth_flows	Post Run actions/checkout@v5	2026-04-22T20:11:15.8548315Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/phw-alpine-events/phw-alpine-events
+e2e_browser_auth_flows	Post Run actions/checkout@v5	2026-04-22T20:11:15.8583774Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+e2e_browser_auth_flows	Post Run actions/checkout@v5	2026-04-22T20:11:15.8618091Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+e2e_browser_auth_flows	Post Run actions/checkout@v5	2026-04-22T20:11:15.8839116Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+e2e_browser_auth_flows	Post Run actions/checkout@v5	2026-04-22T20:11:15.8861776Z http.https://github.com/.extraheader
+e2e_browser_auth_flows	Post Run actions/checkout@v5	2026-04-22T20:11:15.8873488Z [command]/usr/bin/git config --local --unset-all http.https://github.com/.extraheader
+e2e_browser_auth_flows	Post Run actions/checkout@v5	2026-04-22T20:11:15.8903773Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+e2e_browser_auth_flows	Post Run actions/checkout@v5	2026-04-22T20:11:15.9122255Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+e2e_browser_auth_flows	Post Run actions/checkout@v5	2026-04-22T20:11:15.9154103Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+e2e_browser_auth_flows	Complete job	﻿2026-04-22T20:11:15.9495963Z Cleaning up orphan processes
+e2e_browser_auth_flows	Complete job	2026-04-22T20:11:15.9786517Z ##[warning]Node.js 20 actions are deprecated. The following actions are running on Node.js 20 and may not work as expected: actions/download-artifact@v4, actions/upload-artifact@v4. Actions will be forced to run with Node.js 24 by default starting June 2nd, 2026. Node.js 20 will be removed from the runner on September 16th, 2026. Please check if updated versions of these actions are available that support Node.js 24. To opt into Node.js 24 now, set the FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true environment variable on the runner or in your workflow file. Once Node.js 24 becomes the default, you can temporarily opt out by setting ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/

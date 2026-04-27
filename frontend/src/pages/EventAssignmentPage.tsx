@@ -221,6 +221,22 @@ function EventAssignmentPage() {
       setAssignments(asns as Assignment[])
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to update attendance')
+
+      async function deleteAssignment(assignmentId: string) {
+        if (!eventId) {
+          return
+        }
+        if (!window.confirm('Are you sure you want to remove this person from the event?')) {
+          return
+        }
+        try {
+          await assignmentsApi.remove(eventId, assignmentId)
+          const asns = await assignmentsApi.list(eventId)
+          setAssignments(asns as Assignment[])
+        } catch (err: unknown) {
+          setError(err instanceof Error ? err.message : 'Failed to remove assignment')
+        }
+      }
     }
   }
 
@@ -401,11 +417,12 @@ function EventAssignmentPage() {
         <h2>Current Assignments</h2>
         <table className="members-table">
           <thead>
-            <tr><th>Name</th><th>Role</th><th>Role Y/PY</th><th>Total Y/PY</th><th>Attended</th></tr>
+            <tr><th>Name</th><th>Role</th><th>Role Y/PY</th><th>Total Y/PY</th><th>Attended</th><th>Action</th></tr>
           </thead>
           <tbody>
             {assignments.length === 0 ? (
               <tr><td colSpan={5}>No assignments yet.</td></tr>
+                          <tr><td colSpan={6}>No assignments yet.</td></tr>
             ) : assignments.map((row) => {
               const p = participation[row.member_id] ?? {
                 events_attended: 0,
@@ -428,6 +445,9 @@ function EventAssignmentPage() {
                       type="checkbox"
                       checked={Boolean(row.attended)}
                       onChange={(e) => updateAttendance(row.assignment_id, e.target.checked)}
+                                      <td>
+                                        <button className="btn btn--sm btn--outline" onClick={() => deleteAssignment(row.assignment_id)}>Remove</button>
+                                      </td>
                     />
                   </td>
                 </tr>

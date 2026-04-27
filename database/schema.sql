@@ -525,7 +525,7 @@ CREATE TABLE dbo.[user] (
     email          NVARCHAR(255)    NOT NULL,
     display_name   NVARCHAR(200)    NULL,
     role           NVARCHAR(20)     NOT NULL DEFAULT 'admin'
-        CHECK (role IN ('admin', 'superadmin')),
+        CHECK (role IN ('admin', 'superadmin', 'event_creator', 'tavf_creator', 'user')),
     is_active      BIT              NOT NULL DEFAULT 1,
     last_login     DATETIME         NULL,
     created_at     DATETIME         NOT NULL DEFAULT GETUTCDATE(),
