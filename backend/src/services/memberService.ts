@@ -1,5 +1,6 @@
 import { getPool, sql } from '../db';
 import { toE164 } from '../utils/phone';
+import { isGraphRoleManagementConfigured, deleteEntraUser } from './graphRoleService';
 
 interface Member {
   member_id: string;
@@ -245,8 +246,45 @@ async function deactivateMember(memberId: string): Promise<Member | null> {
 
 async function hardDeleteMember(memberId: string): Promise<Member | null> {
   const pool = await getPool();
+
+  // Capture the linked Entra object ID BEFORE the transaction, because the CASCADE
+  // on member_identity_link will remove it when the member row is deleted.
+  // Also guard against deleting the CIAM identity of an active admin user — if this
+  // member's email is still an active admin account we skip the Entra deletion so the
+  // admin does not get locked out.
+  let entraObjectIdToDelete: string | null = null;
+  if (isGraphRoleManagementConfigured()) {
+    const linkResult = await pool
+      .request()
+      .input('member_id', sql.UniqueIdentifier, memberId)
+      .query<{ entra_object_id: string | null; last_seen_email: string | null }>(
+        `SELECT TOP 1 entra_object_id, last_seen_email
+         FROM dbo.member_identity_link
+         WHERE member_id = @member_id`
+      );
+    const link = linkResult.recordset[0];
+    if (link?.entra_object_id) {
+      const adminCheck = await pool
+        .request()
+        .input('email', sql.NVarChar(255), (link.last_seen_email ?? '').toLowerCase())
+        .query<{ user_id: string }>(
+          `SELECT TOP 1 user_id FROM [user]
+           WHERE email = @email AND is_active = 1`
+        );
+      if (adminCheck.recordset[0]) {
+        console.info(
+          '[hardDelete] skipping Entra user deletion for member %s — email is an active admin user',
+          memberId
+        );
+      } else {
+        entraObjectIdToDelete = link.entra_object_id;
+      }
+    }
+  }
+
   const tx = pool.transaction();
   await tx.begin();
+  let deletedMember: Member | null = null;
   try {
     const req = () => tx.request().input('member_id', sql.UniqueIdentifier, memberId);
 
@@ -381,11 +419,28 @@ async function hardDeleteMember(memberId: string): Promise<Member | null> {
     );
 
     await tx.commit();
-    return result.recordset[0] ?? null;
+    deletedMember = result.recordset[0] ?? null;
   } catch (err) {
     await tx.rollback();
     throw err;
   }
+
+  // Best-effort Entra user deletion — runs after the DB transaction so a Graph failure
+  // does not roll back the already-committed purge.
+  if (entraObjectIdToDelete) {
+    try {
+      await deleteEntraUser(entraObjectIdToDelete);
+      console.info('[hardDelete] Entra user deleted: %s', entraObjectIdToDelete);
+    } catch (entraErr) {
+      console.warn('[hardDelete] Entra user deletion failed (non-fatal)', {
+        entraObjectId: entraObjectIdToDelete,
+        memberId,
+        error: entraErr instanceof Error ? entraErr.message : String(entraErr),
+      });
+    }
+  }
+
+  return deletedMember;
 }
 
 export {

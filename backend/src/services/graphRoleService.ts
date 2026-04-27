@@ -199,3 +199,31 @@ export async function removeAppRole(assignmentId: string): Promise<void> {
     throw new Error(`Role removal failed (${response.status})`);
   }
 }
+
+/**
+ * Permanently deletes a user from the Entra External ID (CIAM) tenant by object ID.
+ * Requires the provisioning app to have User.ReadWrite.All (application permission) with admin consent.
+ * A 404 is treated as success (already deleted or never existed).
+ */
+export async function deleteEntraUser(entraObjectId: string): Promise<void> {
+  const token = await getGraphToken();
+
+  const response = await fetch(
+    `https://graph.microsoft.com/v1.0/users/${entraObjectId}`,
+    {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` },
+    }
+  );
+
+  if (response.status === 404) {
+    return; // Already gone — acceptable.
+  }
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    throw new Error(
+      `Entra user deletion failed for ${entraObjectId} (${response.status}): ${text.slice(0, 200)}`
+    );
+  }
+}
