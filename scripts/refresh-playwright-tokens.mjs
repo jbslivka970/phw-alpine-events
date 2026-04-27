@@ -669,15 +669,13 @@ async function main() {
       }
     }
 
-    if (!hasBrowserStorageState && token) {
-      try {
-        const storageState = buildSyntheticStorageState({ accessToken: token, idToken: null, expiresIn: 3600, scope: configuredApiScope || azureClientId }, appUrl);
-        fs.writeFileSync(role.statePath, JSON.stringify(storageState, null, 2), 'utf8');
-      } catch (writeError) {
-        const reason = writeError instanceof Error ? writeError.message : String(writeError);
-        console.warn(`[refresh-playwright-tokens] ${role.name}: failed to write fallback synthetic state: ${reason}`);
-      }
-    }
+    // Skip synthetic state fallback: ROPC-only state lacks MSAL session context needed for browser tests.
+    // Browser tests have credential fallback; failing to capture browser session surfaces the auth issue
+    // rather than masking it with incomplete synthetic state.
+    // if (!hasBrowserStorageState && token) {
+    //   const storageState = buildSyntheticStorageState(...);
+    //   fs.writeFileSync(...);
+    // }
 
     if (token) {
       exportToken(role.tokenEnv, token);

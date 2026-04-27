@@ -336,7 +336,9 @@ test.describe('Browser role flows (credential login)', () => {
 
   for (const account of accounts) {
     test.describe(account.label, () => {
-      test.use({ storageState: account.statePath });
+      // Note: storageState loading disabled. Browser tests fall back to credential login
+      // via ensureAuthenticatedSession(), which is the reliable auth path for deployed environments.
+      // test.use({ storageState: account.statePath });
 
       test.skip(!localE2EAuthEnabled && (!account.username || !account.password), `${account.label} credentials are required when local auth is disabled.`);
 
