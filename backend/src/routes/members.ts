@@ -9,6 +9,7 @@ import {
   createMember,
   deactivateMember,
   getMemberById,
+  hardDeleteMember,
   listMembers,
   updateMember,
 } from '../services/memberService';
@@ -568,6 +569,20 @@ router.delete('/:id', writeLimiter, authenticate, requireAdmin, async (req, res,
     }
 
     res.json({ message: 'Member deactivated.', member });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.delete('/:id/purge', writeLimiter, authenticate, requireAdmin, async (req, res, next) => {
+  try {
+    const member = await hardDeleteMember(req.params.id);
+    if (!member) {
+      res.status(404).json({ error: 'Member not found.' });
+      return;
+    }
+
+    res.json({ message: 'Member permanently deleted.', member });
   } catch (error) {
     next(error);
   }

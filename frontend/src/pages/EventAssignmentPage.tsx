@@ -449,8 +449,10 @@ function EventAssignmentPage() {
                     />
                   </td>
                   <td>
-                    <button className="btn btn--sm btn--outline" onClick={() => void deleteAssignment(row.assignment_id)}>Remove</button>
-                    <button className="btn btn--sm" onClick={() => void setRsvpNoAndRemove(row)}>RSVP No + Remove</button>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <button className="btn btn--sm btn--outline" onClick={() => void deleteAssignment(row.assignment_id)}>Remove</button>
+                      <button className="btn btn--sm" onClick={() => void setRsvpNoAndRemove(row)}>RSVP No + Remove</button>
+                    </div>
                   </td>
                 </tr>
               )

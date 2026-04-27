@@ -372,6 +372,37 @@ function MembersPage() {
     }
   }
 
+  async function handleDeactivate(memberId: string, displayName: string) {
+    if (!window.confirm(`Deactivate ${displayName}? They will be hidden from active lists but their data is preserved.`)) {
+      return
+    }
+    setError(null)
+    try {
+      await membersApi.remove(memberId)
+      setMembers((cur) => cur.filter((m) => m.member_id !== memberId))
+    } catch (err: unknown) {
+      setError(toUserErrorMessage(err, 'Deactivate failed.'))
+    }
+  }
+
+  async function handleHardDelete(memberId: string, displayName: string) {
+    const confirmed = window.prompt(
+      `PERMANENT DELETE — this cannot be undone.\n\nType "${displayName}" to confirm.`
+    )
+    if (confirmed === null) return
+    if (confirmed.trim() !== displayName.trim()) {
+      setError('Name did not match. Delete cancelled.')
+      return
+    }
+    setError(null)
+    try {
+      await membersApi.hardDelete(memberId)
+      setMembers((cur) => cur.filter((m) => m.member_id !== memberId))
+    } catch (err: unknown) {
+      setError(toUserErrorMessage(err, 'Delete failed.'))
+    }
+  }
+
   function describeIdentityStatus(memberId: string): string {
     const status = identityByMemberId[memberId]?.status
     if (!status) {
@@ -471,6 +502,25 @@ function MembersPage() {
                       {isAdminUser && (
                         <button className="btn btn--outline btn--sm" type="button" onClick={() => handleRelink(m)}>
                           Relink
+                        </button>
+                      )}
+                      {isAdminUser && (
+                        <button
+                          className="btn btn--outline btn--sm"
+                          type="button"
+                          onClick={() => void handleDeactivate(m.member_id, `${m.first_name} ${m.last_name}`)}
+                        >
+                          Deactivate
+                        </button>
+                      )}
+                      {isAdminUser && (
+                        <button
+                          className="btn btn--sm"
+                          type="button"
+                          style={{ background: '#b91c1c', borderColor: '#b91c1c', color: '#fff' }}
+                          onClick={() => void handleHardDelete(m.member_id, `${m.first_name} ${m.last_name}`)}
+                        >
+                          Delete
                         </button>
                       )}
                     </div>

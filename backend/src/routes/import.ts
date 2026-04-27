@@ -53,6 +53,7 @@ router.post('/preview', writeLimiter, authenticate, requireAdmin, upload.single(
         errorRows: preview.errorRows,
       },
       rows: preview.rows,
+      absentMembers: preview.absentMembers,
     });
   } catch (error: unknown) {
     res.status(500).json({ error: error instanceof Error ? error.message : 'Preview failed' });

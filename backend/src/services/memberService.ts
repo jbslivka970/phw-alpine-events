@@ -243,11 +243,52 @@ async function deactivateMember(memberId: string): Promise<Member | null> {
   return result.recordset[0] ?? null;
 }
 
+async function hardDeleteMember(memberId: string): Promise<Member | null> {
+  const pool = await getPool();
+  const tx = pool.transaction();
+  await tx.begin();
+  try {
+    const req = () => tx.request().input('member_id', sql.UniqueIdentifier, memberId);
+
+    // Remove child rows that have no CASCADE on member_id
+    await req().query(`DELETE FROM dbo.event_notification_target WHERE member_id = @member_id`);
+    await req().query(`DELETE FROM dbo.event_response WHERE member_id = @member_id`);
+    await req().query(`DELETE FROM dbo.event_assignment WHERE member_id = @member_id`);
+
+    // Nullify nullable audit-log references so history is preserved
+    await req().query(`UPDATE dbo.notification_log SET member_id = NULL WHERE member_id = @member_id`);
+    await req().query(`UPDATE dbo.inbound_sms_log SET member_id = NULL WHERE member_id = @member_id`);
+    await req().query(`UPDATE dbo.email_preference_log SET member_id = NULL WHERE member_id = @member_id`);
+
+    // TAVF: remove vet applications, then postings (and their remaining applications)
+    await req().query(`DELETE FROM dbo.tavf_application WHERE vet_member_id = @member_id`);
+    await req().query(`
+      DELETE FROM dbo.tavf_application
+      WHERE posting_id IN (
+        SELECT posting_id FROM dbo.tavf_posting WHERE guide_member_id = @member_id
+      )
+    `);
+    await req().query(`DELETE FROM dbo.tavf_posting WHERE guide_member_id = @member_id`);
+
+    // Delete member (cascades: member_group, sms_consent_log, member_identity_link, waitlist_promotion_offer)
+    const result = await req().query<Member>(
+      `DELETE FROM dbo.member OUTPUT DELETED.* WHERE member_id = @member_id`
+    );
+
+    await tx.commit();
+    return result.recordset[0] ?? null;
+  } catch (err) {
+    await tx.rollback();
+    throw err;
+  }
+}
+
 export {
   createMember,
   deactivateMember,
   findByComposite,
   getMemberById,
+  hardDeleteMember,
   listMembers,
   updateMember,
 };

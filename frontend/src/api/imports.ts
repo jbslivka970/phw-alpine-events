@@ -48,6 +48,14 @@ interface ImportPreviewResult {
   fileName: string;
   summary: ImportPreviewSummary;
   rows: ImportPreviewRow[];
+  absentMembers: AbsentMember[];
+}
+
+interface AbsentMember {
+  member_id: string;
+  first_name: string;
+  last_name: string;
+  email: string;
 }
 
 interface ImportCommitResult {
@@ -123,6 +131,7 @@ const importApi = {
 
 export { importApi };
 export type {
+  AbsentMember,
   ImportCommitResult,
   ImportLog,
   ImportLogFilters,

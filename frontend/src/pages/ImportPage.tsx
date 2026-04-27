@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { importApi } from '../api/imports'
-import type { ImportCommitResult, ImportLog, ImportPreviewResult, ImportPreviewRow } from '../api/imports'
+import type { AbsentMember, ImportCommitResult, ImportLog, ImportPreviewResult, ImportPreviewRow } from '../api/imports'
+import { membersApi } from '../api/members'
 
 type Phase = 'idle' | 'previewing' | 'preview' | 'committing' | 'done' | 'error'
 
@@ -135,6 +136,38 @@ function ImportPage() {
   }
 
   const conflictRows = (preview?.rows ?? []).filter(isConflictRow)
+  const [absentDismissed, setAbsentDismissed] = useState<Set<string>>(new Set())
+  const [absentActionError, setAbsentActionError] = useState<string | null>(null)
+
+  async function handleAbsentDeactivate(member: AbsentMember) {
+    if (!window.confirm(`Deactivate ${member.first_name} ${member.last_name}? They will be hidden from active lists but their data is preserved.`)) return
+    try {
+      await membersApi.remove(member.member_id)
+      setAbsentDismissed((prev) => new Set([...prev, member.member_id]))
+    } catch (err) {
+      setAbsentActionError(err instanceof Error ? err.message : 'Deactivate failed.')
+    }
+  }
+
+  async function handleAbsentHardDelete(member: AbsentMember) {
+    const fullName = `${member.first_name} ${member.last_name}`
+    const confirmed = window.prompt(`PERMANENT DELETE — cannot be undone.\n\nType "${fullName}" to confirm.`)
+    if (confirmed === null) return
+    if (confirmed.trim() !== fullName.trim()) {
+      setAbsentActionError('Name did not match. Delete cancelled.')
+      return
+    }
+    try {
+      await membersApi.hardDelete(member.member_id)
+      setAbsentDismissed((prev) => new Set([...prev, member.member_id]))
+    } catch (err) {
+      setAbsentActionError(err instanceof Error ? err.message : 'Delete failed.')
+    }
+  }
+
+  const visibleAbsentMembers = (preview?.absentMembers ?? []).filter(
+    (m) => !absentDismissed.has(m.member_id)
+  )
 
   return (
     <div className="import-page">
@@ -225,6 +258,54 @@ function ImportPage() {
                               <option value="skip">Skip</option>
                               <option value="create">Create New Member</option>
                             </select>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {visibleAbsentMembers.length > 0 && (
+              <div className="import-conflicts" style={{ marginTop: 16 }}>
+                <h3 className="import-conflicts__title">Members Not in This CSV ({visibleAbsentMembers.length})</h3>
+                <p className="import-conflicts__hint">
+                  These active members are not present in the uploaded file. Salesforce is the source of truth — review and deactivate or delete as needed.
+                </p>
+                {absentActionError && <p className="import-error">{absentActionError}</p>}
+                <div className="import-conflicts__table-wrapper">
+                  <table className="import-conflicts__table">
+                    <thead>
+                      <tr>
+                        <th>Name</th>
+                        <th>Email</th>
+                        <th>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {visibleAbsentMembers.map((member) => (
+                        <tr key={member.member_id}>
+                          <td>{member.first_name} {member.last_name}</td>
+                          <td>{member.email}</td>
+                          <td>
+                            <div style={{ display: 'flex', gap: 6 }}>
+                              <button
+                                className="btn btn--sm btn--outline"
+                                type="button"
+                                onClick={() => void handleAbsentDeactivate(member)}
+                              >
+                                Deactivate
+                              </button>
+                              <button
+                                className="btn btn--sm"
+                                type="button"
+                                style={{ background: '#b91c1c', borderColor: '#b91c1c', color: '#fff' }}
+                                onClick={() => void handleAbsentHardDelete(member)}
+                              >
+                                Delete
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))}

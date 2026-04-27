@@ -93,6 +93,7 @@ const membersApi = {
     status: string;
   }>>('/members/me/rsvps'),
   remove: (id: string) => apiDelete<{ message: string; member: MemberRecord }>(`/members/${id}`),
+  hardDelete: (id: string) => apiDelete<{ message: string; member: MemberRecord }>(`/members/${id}/purge`),
 };
 
 export { membersApi };

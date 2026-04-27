@@ -49,7 +49,15 @@ interface ImportPreview {
   skippedRows: number;
   errorRows: number;
   rows: PreviewRow[];
+  absentMembers: AbsentMember[];
   createdAt: Date;
+}
+
+interface AbsentMember {
+  member_id: string;
+  first_name: string;
+  last_name: string;
+  email: string;
 }
 
 interface CommitResult {
@@ -465,6 +473,25 @@ async function generatePreview(buffer: Buffer, fileName: string, sessionId: stri
     updatedRows++;
   }
 
+  // Find active members in DB whose email is not present in the CSV
+  const csvEmailSet = new Set(rows.map((r) => r.email.toLowerCase().trim()).filter(Boolean));
+  let absentMembers: AbsentMember[] = [];
+  try {
+    const pool = await getPool();
+    const allActiveResult = await pool
+      .request()
+      .query<AbsentMember>(
+        `SELECT member_id, first_name, last_name, email
+         FROM dbo.member
+         WHERE is_active = 1`
+      );
+    absentMembers = allActiveResult.recordset.filter(
+      (m) => !csvEmailSet.has(m.email.toLowerCase().trim())
+    );
+  } catch {
+    // non-fatal — absent list stays empty on DB error
+  }
+
   return {
     sessionId,
     fileName,
@@ -476,6 +503,7 @@ async function generatePreview(buffer: Buffer, fileName: string, sessionId: stri
     skippedRows,
     errorRows,
     rows: previewRows,
+    absentMembers,
     createdAt: new Date(),
   };
 }
