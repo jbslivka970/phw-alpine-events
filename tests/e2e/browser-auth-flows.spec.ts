@@ -164,7 +164,22 @@ async function completePasswordStep(authPage: Page, password: string): Promise<b
   return false;
 }
 
-async function loginWithCredentials(page: Page, username: string, password: string): Promise<void> {
+async function captureCiamDebug(authPage: Page, label: string, stage: string): Promise<void> {
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const safeLabel = label.replace(/[^a-z0-9_-]/gi, '_').toLowerCase();
+  const safeStage = stage.replace(/[^a-z0-9_-]/gi, '_').toLowerCase();
+  const outDir = 'tests/e2e/.auth';
+  const outFile = `${outDir}/${safeLabel}-${safeStage}-${timestamp}.png`;
+
+  await authPage.screenshot({ path: outFile, fullPage: true }).catch(() => {});
+
+  const url = authPage.url();
+  const title = await authPage.title().catch(() => 'unknown');
+  // Keep a minimal breadcrumb in CI logs for rapid screen-type triage.
+  console.warn(`[CIAM][${safeLabel}] stage=${safeStage} url=${url} title=${title} screenshot=${outFile}`);
+}
+
+async function loginWithCredentials(page: Page, username: string, password: string, label: string): Promise<void> {
   await page.goto(`${appBaseUrl}/login`, { waitUntil: 'domcontentloaded' });
 
   const signInButton = page.getByRole('button', { name: /sign in/i });
@@ -184,16 +199,30 @@ async function loginWithCredentials(page: Page, username: string, password: stri
   const passFilled = await completePasswordStep(authPage, password);
 
   if (!passFilled) {
+    await captureCiamDebug(authPage, label, 'password-ui-not-found');
     // Some CIAM account-tile/session-resume paths complete sign-in without rendering
     // a password field. Try to finalize and validate authenticated app navigation.
-    await clickInAnyScope(authPage, [
-      'button:has-text("No")',
-      'button:has-text("Yes")',
-      'button:has-text("Accept")',
-      'button:has-text("Continue")',
-      'input[type="submit"]#idSIButton9',
-      'button[type="submit"]',
-    ]);
+    for (let clickAttempt = 1; clickAttempt <= 5; clickAttempt += 1) {
+      await clickInAnyScope(authPage, [
+        'button:has-text("No")',
+        'button:has-text("Yes")',
+        'button:has-text("Accept")',
+        'button:has-text("Continue")',
+        'button:has-text("Confirm")',
+        'button:has-text("Submit")',
+        'button:has-text("Sign in")',
+        'button:has-text("Next")',
+        'input[type="submit"]#idSIButton9',
+        'button[type="submit"]',
+        'button[role="button"][type="button"]',
+        'a[role="button"]',
+        '[role="button"]',
+      ]);
+      if (popup && popup.isClosed()) {
+        break;
+      }
+      await authPage.waitForTimeout(6_000);
+    }
 
     if (popup) {
       await popup.waitForEvent('close', { timeout: 15_000 }).catch(() => {});
@@ -207,22 +236,40 @@ async function loginWithCredentials(page: Page, username: string, password: stri
       await page.waitForTimeout(2_500);
     }
 
+    await captureCiamDebug(authPage, label, 'post-password-ui-stall');
+
     expect(passFilled, 'password input should be reachable in auth flow when CIAM does not complete sign-in without password UI').toBeTruthy();
   }
 
   await authPage.waitForLoadState('domcontentloaded').catch(() => {});
-  await clickInAnyScope(authPage, [
-    'button:has-text("No")',
-    'button:has-text("Yes")',
-    'button:has-text("Accept")',
-    'button:has-text("Continue")',
-    'input[type="submit"]#idSIButton9',
-    'button[type="submit"]',
-  ]);
+  // CIAM can show multiple intermediate prompts after password entry.
+  for (let clickAttempt = 1; clickAttempt <= 5; clickAttempt += 1) {
+    await clickInAnyScope(authPage, [
+      'button:has-text("No")',
+      'button:has-text("Yes")',
+      'button:has-text("Accept")',
+      'button:has-text("Continue")',
+      'button:has-text("Confirm")',
+      'button:has-text("Submit")',
+      'button:has-text("Sign in")',
+      'button:has-text("Next")',
+      'input[type="submit"]#idSIButton9',
+      'button[type="submit"]',
+      'button[role="button"][type="button"]',
+      'a[role="button"]',
+      '[role="button"]',
+    ]);
+    if (popup && popup.isClosed()) {
+      break;
+    }
+    await authPage.waitForTimeout(6_000);
+  }
 
   if (popup) {
     await popup.waitForEvent('close', { timeout: 90_000 }).catch(() => {});
   }
+
+  await captureCiamDebug(authPage, label, 'post-click-state');
 
   for (let attempt = 1; attempt <= 3; attempt += 1) {
     await page.goto(`${appBaseUrl}/dashboard`, { waitUntil: 'domcontentloaded' }).catch(() => {});
@@ -314,7 +361,7 @@ async function ensureAuthenticatedSession(page: Page, account: BrowserAccount): 
   for (let attempt = 1; attempt <= authSessionAttempts; attempt += 1) {
     await clearBrowserSession(page);
     try {
-      await loginWithCredentials(page, account.username, account.password);
+      await loginWithCredentials(page, account.username, account.password, account.label);
       for (let verifyAttempt = 1; verifyAttempt <= 3; verifyAttempt += 1) {
         if (await appearsAuthenticated(page)) {
           return true;
