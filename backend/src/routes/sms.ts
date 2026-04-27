@@ -262,6 +262,22 @@ async function processInboundMessage(from: string, rawMessage: string, source: I
 
   const message = rawMessage.trim();
   const normalized = message.toLowerCase().replace(/\s+/g, ' ');
+  const smokeTestMatch = normalized.match(/^phw scheduler smoke test comi?t ([a-z0-9._-]+)$/i);
+
+  if (smokeTestMatch) {
+    const commitRef = smokeTestMatch[1];
+    const reply = `PHW Alpine: Scheduler smoke test recorded for commit ${commitRef}.`;
+    await notificationService.sendSms({
+      to: member.mobile_phone,
+      message: reply,
+      memberId: member.member_id,
+      bypassOptInCheck: true,
+    });
+    return logAndReturn(
+      { status: 'smoke_test_ack', member_id: member.member_id, reply },
+      { memberId: member.member_id, parsedResponse: `smoke:${commitRef}` }
+    );
+  }
 
   if (normalized === 'stop') {
     await optOutMember(member.member_id);
