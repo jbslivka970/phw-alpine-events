@@ -22,20 +22,32 @@ type MemberSearchRow = {
   email: string
 }
 
+type ParticipationSummary = {
+  events_attended: number
+  events_attended_prior_year: number
+  mentor_attended: number
+  mentor_attended_prior_year: number
+  participant_attended: number
+  participant_attended_prior_year: number
+}
+
+const EMPTY_PARTICIPATION: ParticipationSummary = {
+  events_attended: 0,
+  events_attended_prior_year: 0,
+  mentor_attended: 0,
+  mentor_attended_prior_year: 0,
+  participant_attended: 0,
+  participant_attended_prior_year: 0,
+}
+
 function EventAssignmentPage() {
   const navigate = useNavigate()
   const { id } = useParams<{ id: string }>()
   const eventId = id ?? ''
+
   const [assignments, setAssignments] = useState<Assignment[]>([])
   const [rsvps, setRsvps] = useState<Array<{ member_id: string; first_name?: string; last_name?: string; response: string }>>([])
-  const [participation, setParticipation] = useState<Record<string, {
-    events_attended: number
-    events_attended_prior_year: number
-    mentor_attended: number
-    mentor_attended_prior_year: number
-    participant_attended: number
-    participant_attended_prior_year: number
-  }>>({})
+  const [participation, setParticipation] = useState<Record<string, ParticipationSummary>>({})
   const [priorityRole, setPriorityRole] = useState<'MENTOR' | 'PARTICIPANT'>('PARTICIPANT')
   const [recommendations, setRecommendations] = useState<AssignmentRecommendationRow[]>([])
   const [recommendationsLoading, setRecommendationsLoading] = useState(false)
@@ -48,52 +60,47 @@ function EventAssignmentPage() {
 
   const assignedMemberIds = useMemo(() => new Set(assignments.map((a) => a.member_id)), [assignments])
 
+  async function refreshEventData(targetEventId: string): Promise<void> {
+    const [asns, eventRsvps] = await Promise.all([
+      assignmentsApi.list(targetEventId),
+      rsvpApi.list(targetEventId),
+    ])
+
+    setAssignments(asns as Assignment[])
+    const relevantRsvps = eventRsvps.filter((row) => ['yes', 'maybe', 'waitlist'].includes(row.response))
+    setRsvps(relevantRsvps)
+
+    const uniqueMemberIds = Array.from(new Set([
+      ...asns.map((row) => row.member_id),
+      ...relevantRsvps.map((row) => row.member_id),
+    ]))
+
+    const participationRows = await Promise.all(uniqueMemberIds.map(async (memberId) => {
+      try {
+        const row = await membersApi.participation(memberId)
+        return [memberId, {
+          events_attended: row.events_attended,
+          events_attended_prior_year: row.events_attended_prior_year,
+          mentor_attended: row.mentor_attended,
+          mentor_attended_prior_year: row.mentor_attended_prior_year,
+          participant_attended: row.participant_attended,
+          participant_attended_prior_year: row.participant_attended_prior_year,
+        }] as const
+      } catch {
+        return [memberId, EMPTY_PARTICIPATION] as const
+      }
+    }))
+
+    setParticipation(Object.fromEntries(participationRows))
+  }
+
   useEffect(() => {
     if (!eventId) {
       return
     }
+
     let active = true
-    Promise.all([
-      assignmentsApi.list(eventId),
-      rsvpApi.list(eventId),
-    ])
-      .then(async ([asns, eventRsvps]) => {
-        if (!active) {
-          return
-        }
-        setAssignments(asns as Assignment[])
-        const relevantRsvps = eventRsvps.filter((row) => ['yes', 'maybe', 'waitlist'].includes(row.response))
-        setRsvps(relevantRsvps)
-        const uniqueMemberIds = Array.from(new Set([
-          ...asns.map((row) => row.member_id),
-          ...relevantRsvps.map((row) => row.member_id),
-        ]))
-        const participationRows = await Promise.all(uniqueMemberIds.map(async (memberId) => {
-          try {
-            const row = await membersApi.participation(memberId)
-            return [memberId, {
-              events_attended: row.events_attended,
-              events_attended_prior_year: row.events_attended_prior_year,
-              mentor_attended: row.mentor_attended,
-              mentor_attended_prior_year: row.mentor_attended_prior_year,
-              participant_attended: row.participant_attended,
-              participant_attended_prior_year: row.participant_attended_prior_year,
-            }] as const
-          } catch {
-            return [memberId, {
-              events_attended: 0,
-              events_attended_prior_year: 0,
-              mentor_attended: 0,
-              mentor_attended_prior_year: 0,
-              participant_attended: 0,
-              participant_attended_prior_year: 0,
-            }] as const
-          }
-        }))
-        if (active) {
-          setParticipation(Object.fromEntries(participationRows))
-        }
-      })
+    refreshEventData(eventId)
       .catch((err: unknown) => {
         if (active) {
           setError(err instanceof Error ? err.message : 'Failed to load assignments')
@@ -109,6 +116,7 @@ function EventAssignmentPage() {
     if (!eventId) {
       return
     }
+
     let active = true
     setRecommendationsLoading(true)
     assignmentsApi.recommendations(eventId, priorityRole)
@@ -183,8 +191,7 @@ function EventAssignmentPage() {
     }
     try {
       await assignmentsApi.create(eventId, { member_id: memberId, role })
-      const asns = await assignmentsApi.list(eventId)
-      setAssignments(asns as Assignment[])
+      await refreshEventData(eventId)
       setCloseAtCapacityNotice(null)
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to assign member')
@@ -217,27 +224,50 @@ function EventAssignmentPage() {
     }
     try {
       await assignmentsApi.setAttendance(eventId, assignmentId, { attended })
-      const asns = await assignmentsApi.list(eventId)
-      setAssignments(asns as Assignment[])
+      await refreshEventData(eventId)
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to update attendance')
-
-      async function deleteAssignment(assignmentId: string) {
-        if (!eventId) {
-          return
-        }
-        if (!window.confirm('Are you sure you want to remove this person from the event?')) {
-          return
-        }
-        try {
-          await assignmentsApi.remove(eventId, assignmentId)
-          const asns = await assignmentsApi.list(eventId)
-          setAssignments(asns as Assignment[])
-        } catch (err: unknown) {
-          setError(err instanceof Error ? err.message : 'Failed to remove assignment')
-        }
-      }
     }
+  }
+
+  async function deleteAssignment(assignmentId: string) {
+    if (!eventId) {
+      return
+    }
+    if (!window.confirm('Are you sure you want to remove this person from assignments?')) {
+      return
+    }
+
+    try {
+      await assignmentsApi.remove(eventId, assignmentId)
+      await refreshEventData(eventId)
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to remove assignment')
+    }
+  }
+
+  async function setRsvpNoAndRemove(assignment: Assignment) {
+    if (!eventId) {
+      return
+    }
+    if (!window.confirm('Set RSVP to No and remove this person from assignments?')) {
+      return
+    }
+
+    try {
+      await rsvpApi.upsert(eventId, {
+        member_id: assignment.member_id,
+        response: 'no',
+      })
+      await assignmentsApi.remove(eventId, assignment.assignment_id)
+      await refreshEventData(eventId)
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to set RSVP to No and remove assignment')
+    }
+  }
+
+  function participationFor(memberId: string): ParticipationSummary {
+    return participation[memberId] ?? EMPTY_PARTICIPATION
   }
 
   const rankedRsvps = useMemo(() => {
@@ -250,22 +280,8 @@ function EventAssignmentPage() {
         return aRank - bRank
       }
 
-      const aPart = participation[a.member_id] ?? {
-        events_attended: 0,
-        events_attended_prior_year: 0,
-        mentor_attended: 0,
-        mentor_attended_prior_year: 0,
-        participant_attended: 0,
-        participant_attended_prior_year: 0,
-      }
-      const bPart = participation[b.member_id] ?? {
-        events_attended: 0,
-        events_attended_prior_year: 0,
-        mentor_attended: 0,
-        mentor_attended_prior_year: 0,
-        participant_attended: 0,
-        participant_attended_prior_year: 0,
-      }
+      const aPart = participationFor(a.member_id)
+      const bPart = participationFor(b.member_id)
 
       const aCurrent = priorityRole === 'MENTOR' ? aPart.mentor_attended : aPart.participant_attended
       const bCurrent = priorityRole === 'MENTOR' ? bPart.mentor_attended : bPart.participant_attended
@@ -378,14 +394,7 @@ function EventAssignmentPage() {
             ) : rankedRsvps.map((row) => {
               const name = `${row.first_name ?? ''} ${row.last_name ?? ''}`.trim()
               const alreadyAssigned = assignedMemberIds.has(row.member_id)
-              const p = participation[row.member_id] ?? {
-                events_attended: 0,
-                events_attended_prior_year: 0,
-                mentor_attended: 0,
-                mentor_attended_prior_year: 0,
-                participant_attended: 0,
-                participant_attended_prior_year: 0,
-              }
+              const p = participationFor(row.member_id)
               const recommendation = recommendationByMember.get(row.member_id)
               return (
                 <tr key={`${row.member_id}-${row.response}`}>
@@ -421,17 +430,9 @@ function EventAssignmentPage() {
           </thead>
           <tbody>
             {assignments.length === 0 ? (
-              <tr><td colSpan={5}>No assignments yet.</td></tr>
-                          <tr><td colSpan={6}>No assignments yet.</td></tr>
+              <tr><td colSpan={6}>No assignments yet.</td></tr>
             ) : assignments.map((row) => {
-              const p = participation[row.member_id] ?? {
-                events_attended: 0,
-                events_attended_prior_year: 0,
-                mentor_attended: 0,
-                mentor_attended_prior_year: 0,
-                participant_attended: 0,
-                participant_attended_prior_year: 0,
-              }
+              const p = participationFor(row.member_id)
               const roleCurrent = row.role === 'MENTOR' ? p.mentor_attended : p.participant_attended
               const rolePrior = row.role === 'MENTOR' ? p.mentor_attended_prior_year : p.participant_attended_prior_year
               return (
@@ -445,10 +446,11 @@ function EventAssignmentPage() {
                       type="checkbox"
                       checked={Boolean(row.attended)}
                       onChange={(e) => updateAttendance(row.assignment_id, e.target.checked)}
-                                      <td>
-                                        <button className="btn btn--sm btn--outline" onClick={() => deleteAssignment(row.assignment_id)}>Remove</button>
-                                      </td>
                     />
+                  </td>
+                  <td>
+                    <button className="btn btn--sm btn--outline" onClick={() => void deleteAssignment(row.assignment_id)}>Remove</button>
+                    <button className="btn btn--sm" onClick={() => void setRsvpNoAndRemove(row)}>RSVP No + Remove</button>
                   </td>
                 </tr>
               )

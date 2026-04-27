@@ -110,7 +110,7 @@ interface AdminUser {
   azure_oid: string | null;
   email: string;
   display_name: string | null;
-  role: 'admin' | 'superadmin';
+  role: 'admin' | 'superadmin' | 'event_creator' | 'tavf_creator' | 'user';
   is_active: boolean;
   last_login: string | null;
   created_at: string;
@@ -178,7 +178,13 @@ const adminApi = {
     relay_to: string[];
     enabled: boolean;
   }) => apiPut<SupportEmailRelayConfig>('/support/relay-config', payload),
-  listAdminUsers: (params?: { page?: number; pageSize?: number; search?: string; role?: 'admin' | 'superadmin'; isActive?: boolean }) => {
+  listAdminUsers: (params?: {
+    page?: number;
+    pageSize?: number;
+    search?: string;
+    role?: 'admin' | 'superadmin' | 'event_creator' | 'tavf_creator' | 'user';
+    isActive?: boolean;
+  }) => {
     const query = new URLSearchParams();
     if (params?.page !== undefined) query.set('page', String(params.page));
     if (params?.pageSize !== undefined) query.set('pageSize', String(params.pageSize));

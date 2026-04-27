@@ -18,6 +18,7 @@ import { notificationService } from '../services/notifications';
 import { runRetentionJob } from '../jobs/retentionJob';
 
 const router = Router();
+const APP_DB_ROLES = ['admin', 'superadmin', 'event_creator', 'tavf_creator', 'user'] as const;
 
 type InviteTone = 'friendly' | 'professional';
 
@@ -200,6 +201,11 @@ router.get('/users', async (req, res) => {
       ? undefined
       : (isActiveRaw === 'true' || isActiveRaw === '1');
 
+    if (role && !APP_DB_ROLES.includes(role as (typeof APP_DB_ROLES)[number])) {
+      res.status(400).json({ error: `role must be one of: ${APP_DB_ROLES.join(', ')}` });
+      return;
+    }
+
 
     const pool = await getPool();
     const whereClauses: string[] = [];
@@ -261,6 +267,10 @@ router.post('/users', writeLimiter, async (req, res) => {
       res.status(400).json({ error: 'email is required' });
       return;
     }
+    if (!APP_DB_ROLES.includes(role as (typeof APP_DB_ROLES)[number])) {
+      res.status(400).json({ error: `role must be one of: ${APP_DB_ROLES.join(', ')}` });
+      return;
+    }
 
     const pool = await getPool();
     const existing = await pool
@@ -313,6 +323,10 @@ router.patch('/users/:id', writeLimiter, async (req, res) => {
     }
     if (azureOid !== undefined && azureOid !== null && typeof azureOid !== 'string') {
       res.status(400).json({ error: 'azure_oid must be a string or null' });
+      return;
+    }
+    if (role !== undefined && !APP_DB_ROLES.includes(role as (typeof APP_DB_ROLES)[number])) {
+      res.status(400).json({ error: `role must be one of: ${APP_DB_ROLES.join(', ')}` });
       return;
     }
 

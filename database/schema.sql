@@ -534,6 +534,32 @@ CREATE TABLE dbo.[user] (
     CONSTRAINT UQ_user_email  UNIQUE      (email)
 );
 
+-- Keep role constraint aligned on existing databases created before event_creator/tavf_creator/user existed.
+IF OBJECT_ID(N'dbo.[user]', N'U') IS NOT NULL
+BEGIN
+    DECLARE @userRoleColumnId INT = COLUMNPROPERTY(OBJECT_ID(N'dbo.[user]'), 'role', 'ColumnId');
+    DECLARE @dropUserRoleChecksSql NVARCHAR(MAX) = N'';
+
+    SELECT @dropUserRoleChecksSql = @dropUserRoleChecksSql
+        + N'ALTER TABLE dbo.[user] DROP CONSTRAINT [' + cc.name + N'];'
+    FROM sys.check_constraints cc
+    WHERE cc.parent_object_id = OBJECT_ID(N'dbo.[user]')
+      AND cc.parent_column_id = @userRoleColumnId;
+
+    IF LEN(@dropUserRoleChecksSql) > 0
+        EXEC sp_executesql @dropUserRoleChecksSql;
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM sys.check_constraints
+        WHERE parent_object_id = OBJECT_ID(N'dbo.[user]')
+          AND name = N'CK_user_role'
+    )
+        ALTER TABLE dbo.[user]
+            ADD CONSTRAINT CK_user_role
+                CHECK (role IN ('admin', 'superadmin', 'event_creator', 'tavf_creator', 'user'));
+END
+
 -- Now that dbo.[user] exists, add the FK from dbo.event.created_by
 IF NOT EXISTS (
     SELECT 1 FROM sys.foreign_keys WHERE name = 'FK_event_created_by'
