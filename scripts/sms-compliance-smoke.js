@@ -131,10 +131,15 @@ async function runLiveChecks() {
 
   const checks = [];
 
-  const help = await postJson('/api/v1/sms/inbound', { from: testPhone, message: 'HELP' });
-  checks.push(['live_help_status', help.status]);
-  checks.push(['live_help_body', JSON.stringify(help.body)]);
-  assert(help.status === 200, 'Live HELP should return 200.');
+  const smokeCommitRef = process.env.SMS_TEST_COMMIT_REF || process.env.GITHUB_SHA || 'local-smoke';
+  const normalizedCommitRef = String(smokeCommitRef).slice(0, 12).toLowerCase();
+  const smokeMessage = `PHW Scheduler Smoke test commit ${normalizedCommitRef}`;
+
+  const smoke = await postJson('/api/v1/sms/inbound', { from: testPhone, message: smokeMessage });
+  checks.push(['live_smoke_status', smoke.status]);
+  checks.push(['live_smoke_body', JSON.stringify(smoke.body)]);
+  assert(smoke.status === 200, 'Live smoke message should return 200.');
+  assert(smoke.body.status === 'smoke_test_ack', 'Live smoke message should return smoke_test_ack status.');
 
   const rsvp = await postJson('/api/v1/sms/inbound', { from: testPhone, message: 'Y 1' });
   checks.push(['live_rsvp_status', rsvp.status]);
