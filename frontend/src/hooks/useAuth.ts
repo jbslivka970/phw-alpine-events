@@ -12,6 +12,7 @@ const LOGIN_ACCOUNT_RECOVERY_POLL_MS = 500
 const TOKEN_EXPIRY_SAFETY_WINDOW_MS = 60_000
 const TOKEN_BUSY_RETRY_MS = 400
 const TOKEN_BUSY_RETRY_ATTEMPTS = 5
+const TOKEN_INTERACTIVE_COOLDOWN_MS = 30_000
 
 interface CachedAccessToken {
   token: string
@@ -86,6 +87,7 @@ function useAuth() {
   const account = accounts[0] ?? null
   const loginRequestRef = useRef<Promise<void> | null>(null)
   const tokenInteractiveInFlightRef = useRef(false)
+  const tokenInteractiveCooldownUntilRef = useRef(0)
   const tokenRequestInFlightRef = useRef<Promise<string | null> | null>(null)
   const tokenCacheRef = useRef<CachedAccessToken | null>(null)
 
@@ -422,7 +424,9 @@ function useAuth() {
 
           return tokenResponse.accessToken
         } catch (error: unknown) {
-          if (!isInteractionRequired(error)) {
+          const shouldTreatAsInteractionRequired = isInteractionRequired(error) || isSilentTimeoutLikeError(error)
+
+          if (!shouldTreatAsInteractionRequired) {
             const code = (error as { errorCode?: string } | null)?.errorCode
             authDebugWarn('token:silent:non-interaction-error', {
               code,
@@ -431,6 +435,15 @@ function useAuth() {
             if (code !== 'interaction_in_progress') {
               console.error('[MSAL] Silent token acquisition failed:', error)
             }
+            return null
+          }
+
+          const now = Date.now()
+          if (now < tokenInteractiveCooldownUntilRef.current) {
+            authDebugWarn('token:popup:cooldown:active', {
+              account: account.username,
+              retryInMs: tokenInteractiveCooldownUntilRef.current - now,
+            })
             return null
           }
 
@@ -515,6 +528,7 @@ function useAuth() {
                 // Avoid full-page redirect fallback here to prevent auth bounce loops on browsers
                 // that block popup/cookie access during background token refresh.
                 setLoginError('Your browser blocked the sign-in popup. Please allow popups/cookies for this site and sign in again.')
+                tokenInteractiveCooldownUntilRef.current = Date.now() + TOKEN_INTERACTIVE_COOLDOWN_MS
                 tokenInteractiveInFlightRef.current = false
                 return null
               }
@@ -609,6 +623,18 @@ function isInteractionRequired(error: unknown): boolean {
     || code.includes('consent_required')
     || code.includes('login_required')
     || code.includes('no_tokens_found')
+}
+
+function isSilentTimeoutLikeError(error: unknown): boolean {
+  const errorLike = error as { errorCode?: string; message?: string } | null
+  const code = errorLike?.errorCode?.toLowerCase() ?? ''
+  const message = errorLike?.message?.toLowerCase() ?? ''
+
+  return code.includes('timed_out')
+    || code.includes('monitor_window_timeout')
+    || code.includes('iframe_closed_prematurely')
+    || message.includes('timed_out')
+    || message.includes('monitor_window_timeout')
 }
 
 function wait(ms: number): Promise<void> {

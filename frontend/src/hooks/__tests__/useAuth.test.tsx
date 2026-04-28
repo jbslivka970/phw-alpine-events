@@ -3,9 +3,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useAuth } from '../useAuth'
 
 const mockSetTokenGetter = vi.fn()
+const mockSetEmailHint = vi.fn()
 
 vi.mock('../../api/client', () => ({
   setTokenGetter: (...args: unknown[]) => mockSetTokenGetter(...args),
+  setEmailHint: (...args: unknown[]) => mockSetEmailHint(...args),
 }))
 
 vi.mock('../../authConfig', () => ({
@@ -112,6 +114,22 @@ describe('useAuth auth flow regression coverage', () => {
 
   it('registers token getter and falls back to popup token acquisition on interaction-required', async () => {
     msalInstance.acquireTokenSilent.mockRejectedValue({ errorCode: 'interaction_required' })
+
+    renderHook(() => useAuth())
+
+    await waitFor(() => {
+      expect(mockSetTokenGetter).toHaveBeenCalled()
+    })
+
+    const getter = mockSetTokenGetter.mock.calls.at(-1)?.[0] as (() => Promise<string | null>)
+    const token = await getter()
+
+    expect(msalInstance.acquireTokenPopup).toHaveBeenCalledTimes(1)
+    expect(token).toBe('popup-token')
+  })
+
+  it('treats timed_out silent token failures as interactive fallback', async () => {
+    msalInstance.acquireTokenSilent.mockRejectedValue({ errorCode: 'timed_out' })
 
     renderHook(() => useAuth())
 
