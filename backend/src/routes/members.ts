@@ -13,6 +13,13 @@ import {
   listMembers,
   updateMember,
 } from '../services/memberService';
+import {
+  SUPPORTED_PERSONAS,
+  listPersonasForMember,
+  normalizePersona,
+  setPersonasForMember,
+  type Persona,
+} from '../services/personaService';
 
 const router = Router();
 const DEFAULT_SMS_ROLLOUT_EMAIL_ALLOWLIST = 'sarnitro@gmail.com';
@@ -61,14 +68,96 @@ router.get('/me', apiLimiter, authenticate, requireAnyAuthenticatedRole, async (
       return;
     }
 
+    const personas = await listPersonasForMember(memberId);
+
     res.json({
       ...member,
       auth_roles: req.user?.roles ?? [],
+      personas,
     });
   } catch (error) {
     next(error);
   }
 });
+
+// ---------------------------------------------------------------------------
+// Personas (orthogonal to [user].role; describe what a member signs up for).
+// Read: any authenticated role (or self).  Write: admin only.
+// ---------------------------------------------------------------------------
+
+router.get(
+  '/:id/personas',
+  apiLimiter,
+  authenticate,
+  requireAnyAuthenticatedRole,
+  async (req, res, next) => {
+    try {
+      const personas = await listPersonasForMember(req.params.id);
+      res.json({ personas, supported: SUPPORTED_PERSONAS });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+router.put(
+  '/:id/personas',
+  writeLimiter,
+  authenticate,
+  requireAdmin,
+  async (req, res, next) => {
+    try {
+      const raw = (req.body && Array.isArray((req.body as { personas?: unknown }).personas))
+        ? (req.body as { personas: unknown[] }).personas
+        : null;
+      if (!raw) {
+        res.status(400).json({ error: 'Body must include "personas": string[]' });
+        return;
+      }
+
+      const normalized: Persona[] = [];
+      const invalid: unknown[] = [];
+      for (const value of raw) {
+        const persona = normalizePersona(value);
+        if (persona) normalized.push(persona);
+        else invalid.push(value);
+      }
+      if (invalid.length > 0) {
+        res.status(400).json({
+          error: 'Invalid persona value(s).',
+          invalid,
+          supported: SUPPORTED_PERSONAS,
+        });
+        return;
+      }
+
+      // granted_by is recorded only when the caller has a [user] row
+      // (best-effort lookup by email).  If unavailable we record null.
+      let grantedByUserId: string | null = null;
+      const callerEmail = req.user?.email?.trim().toLowerCase();
+      if (callerEmail) {
+        try {
+          const pool = await getPool();
+          const lookup = await pool
+            .request()
+            .input('email', sql.NVarChar(255), callerEmail)
+            .query<{ user_id: string }>(
+              `SELECT TOP 1 user_id FROM dbo.[user]
+               WHERE LOWER(email) = @email AND is_active = 1;`,
+            );
+          grantedByUserId = lookup.recordset[0]?.user_id ?? null;
+        } catch {
+          // non-fatal
+        }
+      }
+
+      const personas = await setPersonasForMember(req.params.id, normalized, grantedByUserId);
+      res.json({ personas });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
 
 router.get('/:id', apiLimiter, authenticate, requireAnyAuthenticatedRole, async (req, res, next) => {
   try {

@@ -783,6 +783,29 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_member_identity_link_
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_member_identity_link_issuer_subject' AND object_id = OBJECT_ID('dbo.member_identity_link'))
     CREATE INDEX idx_member_identity_link_issuer_subject ON dbo.member_identity_link (issuer, issuer_assigned_id);
 
+-- ---------------------------------------------------------------------------
+-- 15. MemberPersona  (orthogonal to [user].role; describes WHAT a member can
+--     sign up for — Participant, Volunteer, Mentor, Guide — NOT what they
+--     can administer.  Multi-valued: a member can hold several personas.)
+-- ---------------------------------------------------------------------------
+IF OBJECT_ID(N'dbo.member_persona', N'U') IS NULL
+CREATE TABLE dbo.member_persona (
+    member_id   UNIQUEIDENTIFIER NOT NULL,
+    persona     NVARCHAR(40)     NOT NULL
+        CHECK (persona IN ('participant', 'volunteer', 'mentor', 'guide', 'staff')),
+    granted_at  DATETIME         NOT NULL DEFAULT GETUTCDATE(),
+    granted_by  UNIQUEIDENTIFIER NULL,
+    notes       NVARCHAR(500)    NULL,
+    CONSTRAINT PK_member_persona PRIMARY KEY (member_id, persona),
+    CONSTRAINT FK_member_persona_member FOREIGN KEY (member_id)
+        REFERENCES dbo.member (member_id) ON DELETE CASCADE,
+    CONSTRAINT FK_member_persona_user FOREIGN KEY (granted_by)
+        REFERENCES dbo.[user] (user_id)
+);
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_member_persona_persona' AND object_id = OBJECT_ID('dbo.member_persona'))
+    CREATE INDEX idx_member_persona_persona ON dbo.member_persona (persona, member_id);
+
 -- ===========================================================================
 -- Seed: System groups
 -- ALL members are added here automatically; other groups are managed manually.

@@ -16,6 +16,7 @@ vi.mock('../../api/events', () => ({
 vi.mock('../../api/members', () => ({
   membersApi: {
     list: vi.fn(),
+    me: vi.fn(),
     rsvps: vi.fn(),
     myRsvps: vi.fn(),
   },
@@ -37,6 +38,7 @@ const mockedEventsApi = eventsApi as unknown as {
 
 const mockedMembersApi = membersApi as unknown as {
   list: ReturnType<typeof vi.fn>;
+  me: ReturnType<typeof vi.fn>;
   rsvps: ReturnType<typeof vi.fn>;
   myRsvps: ReturnType<typeof vi.fn>;
 };
@@ -99,6 +101,19 @@ describe('DashboardPage regression coverage', () => {
       pageSize: 10,
     });
 
+    mockedMembersApi.me.mockResolvedValue({
+      member_id: '11111111-1111-4111-8111-111111111111',
+      first_name: 'Member',
+      last_name: 'User',
+      email: 'member@example.org',
+      mobile_phone: null,
+      sms_opt_in: false,
+      email_opt_out: false,
+      is_active: true,
+      created_at: '2026-03-01T00:00:00.000Z',
+      updated_at: '2026-03-01T00:00:00.000Z',
+    });
+
     mockedMembersApi.myRsvps.mockResolvedValue([]);
     mockedTavfApi.listPostings.mockResolvedValue([]);
   });
@@ -109,6 +124,7 @@ describe('DashboardPage regression coverage', () => {
     await screen.findByRole('heading', { name: /upcoming events/i });
 
     await waitFor(() => {
+      expect(mockedMembersApi.me).toHaveBeenCalled();
       expect(mockedMembersApi.myRsvps).toHaveBeenCalled();
     });
   });

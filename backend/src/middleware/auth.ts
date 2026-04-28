@@ -4,6 +4,7 @@ import jwksRsa, { JwksClient } from 'jwks-rsa';
 import { loadAuthConfig, loadEntraProvisioningConfig } from '../config';
 import { getPool, sql } from '../db';
 import { resolveRolesForRequest } from './authRoleResolver';
+import { backfillAzureOidByEmail } from '../services/adminBootstrapService';
 
 type AppRole = 'ADMIN' | 'EVENT_CREATOR' | 'USER' | 'TAVF_CREATOR';
 
@@ -274,11 +275,16 @@ function extractRoles(claims: JwtPayload): AppRole[] {
 
 function isTokenRoleFallbackEnabled(): boolean {
   const raw = process.env['AUTH_ALLOW_TOKEN_ROLE_FALLBACK'];
-  if (!raw) {
-    return true;
+  if (raw && raw.trim().length > 0) {
+    return /^(1|true|yes|on)$/i.test(raw);
   }
 
-  return /^(1|true|yes|on)$/i.test(raw);
+  // Default policy: in production the [user] table is the single source of
+  // truth for authorization (token-claim roles are NOT trusted).  In any
+  // other environment (dev / test / integration) we keep the permissive
+  // fallback so local workflows and unit tests can mint synthetic tokens
+  // without seeding the database.
+  return (process.env['NODE_ENV'] ?? '').toLowerCase() !== 'production';
 }
 
 async function resolveAppAccountRole(claims: JwtPayload, email: string | undefined): Promise<string | null> {
@@ -313,7 +319,16 @@ async function resolveAppAccountRole(claims: JwtPayload, email: string | undefin
          END`
       );
 
-    return result.recordset[0]?.role ?? null;
+    const role = result.recordset[0]?.role ?? null;
+
+    // Self-healing: if we matched by email but the row has no azure_oid yet,
+    // backfill it now so future lookups resolve by OID (immune to email
+    // casing/whitespace drift).  Fire-and-forget — do not block auth.
+    if (role && oid && normalizedEmail) {
+      void backfillAzureOidByEmail(normalizedEmail, oid);
+    }
+
+    return role;
   } catch (error) {
     // Do not fail auth if app role lookup cannot be completed.
     console.warn('[auth] app role lookup failed', error);

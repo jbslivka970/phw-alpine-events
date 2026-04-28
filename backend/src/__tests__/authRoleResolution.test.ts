@@ -46,4 +46,16 @@ describe('auth app role resolution', () => {
 
     expect(roles).toEqual(['ADMIN', 'USER', 'EVENT_CREATOR']);
   });
+
+  it('returns DB-only roles when fallback is disabled, even with token claims present', () => {
+    const roles = resolveRolesForRequest({
+      appAccountRole: 'event_creator',
+      linkedMemberId: 'member-3',
+      uniqueMemberByEmail: null,
+      tokenRoles: ['ADMIN'], // token tries to claim ADMIN
+      allowTokenRoleFallback: false,
+    });
+
+    expect(roles).toEqual(['EVENT_CREATOR', 'USER']); // ADMIN ignored
+  });
 });

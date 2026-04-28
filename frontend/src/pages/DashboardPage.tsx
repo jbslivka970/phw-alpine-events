@@ -121,6 +121,7 @@ function DashboardPage() {
     totalRsvps: 0,
   });
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const [memberDisplayName, setMemberDisplayName] = useState<string | undefined>(undefined);
 
   const now = useMemo(() => new Date(), []);
 
@@ -149,6 +150,16 @@ function DashboardPage() {
           totalRsvps,
           upcomingEvents: next.length,
         }));
+
+        try {
+          const me = await membersApi.me();
+          if (active) {
+            const preferredName = `${me.first_name ?? ''}`.trim();
+            setMemberDisplayName(preferredName || undefined);
+          }
+        } catch {
+          if (active) setMemberDisplayName(undefined);
+        }
 
         try {
           const responses = await membersApi.myRsvps();
@@ -193,6 +204,7 @@ function DashboardPage() {
             upcomingEvents: 0,
             totalRsvps: 0,
           });
+          setMemberDisplayName(undefined);
         }
       } finally {
         if (active) setLoading(false);
@@ -234,7 +246,7 @@ function DashboardPage() {
     setShowOnboarding(false);
   }
 
-  const displayName = user?.name?.split(' ')[0] ?? undefined;
+  const displayName = memberDisplayName ?? user?.name?.split(' ')[0] ?? undefined;
 
   function parseDispositionFilename(headerValue: string | null): string | null {
     if (!headerValue) {

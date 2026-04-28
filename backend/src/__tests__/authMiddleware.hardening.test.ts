@@ -147,12 +147,13 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 describe('authenticate middleware – hardening scenarios', () => {
-  it('H1: ADMIN from token roles when fallback is enabled (default=true) and no DB entry exists', async () => {
-    // This test documents the DANGEROUS DEFAULT.
-    // When AUTH_ALLOW_TOKEN_ROLE_FALLBACK is not set (defaults true), a token
-    // with an ADMIN claim in `roles` will grant ADMIN even with no [user] row.
-    // Production MUST set AUTH_ALLOW_TOKEN_ROLE_FALLBACK=false.
+  it('H1: ADMIN from token roles when fallback is enabled (default in non-prod) and no DB entry exists', async () => {
+    // Documents the dev/E2E default: in non-production environments
+    // AUTH_ALLOW_TOKEN_ROLE_FALLBACK defaults to TRUE so synthetic tokens
+    // can mint roles without seeding the database.  In production this
+    // default flips to FALSE — see H1b below.
     delete process.env['AUTH_ALLOW_TOKEN_ROLE_FALLBACK'];
+    process.env['NODE_ENV'] = 'integration';
 
     setVerifyClaims(makeClaims({ email: 'stranger@example.com', roles: ['ADMIN'] }));
 
@@ -168,10 +169,32 @@ describe('authenticate middleware – hardening scenarios', () => {
     const res = await request(app).get('/probe').set('Authorization', 'Bearer mock-token');
 
     expect(res.status).toBe(200);
-    // With default fallback=true the token ADMIN role should be present.
-    // If this assertion fails it means the middleware has changed the default to false —
-    // which is the desired production hardening state. Update this test accordingly.
     expect(res.body.roles).toContain('ADMIN');
+  });
+
+  it('H1b: token roles are IGNORED in production when AUTH_ALLOW_TOKEN_ROLE_FALLBACK is unset', async () => {
+    // Production hardening: NODE_ENV=production with the env var unset means
+    // the [user] table is the single source of truth.  A token claiming ADMIN
+    // must NOT grant ADMIN unless backed by a [user] row.
+    delete process.env['AUTH_ALLOW_TOKEN_ROLE_FALLBACK'];
+    process.env['NODE_ENV'] = 'production';
+
+    setVerifyClaims(makeClaims({ email: 'stranger@example.com', roles: ['ADMIN'] }));
+
+    const pool = buildMockPool([
+      { recordset: [] }, // no identity link
+      { recordset: [] }, // no member match (auto-link path)
+      { recordset: [] }, // no member match (outer)
+      { recordset: [] }, // no [user] entry
+    ]);
+    (getPool as jest.Mock).mockResolvedValue(pool);
+
+    const app = buildApp();
+    const res = await request(app).get('/probe').set('Authorization', 'Bearer mock-token');
+
+    expect(res.status).toBe(200);
+    expect(res.body.roles).not.toContain('ADMIN');
+    expect(res.body.roles).toEqual([]);
   });
 
   // ── H2 — X-Id-Token-Email header rescues member resolution ─────────────
