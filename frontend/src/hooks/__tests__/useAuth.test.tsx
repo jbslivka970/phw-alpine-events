@@ -4,10 +4,17 @@ import { useAuth } from '../useAuth'
 
 const mockSetTokenGetter = vi.fn()
 const mockSetEmailHint = vi.fn()
+const mockMembersMe = vi.fn()
 
 vi.mock('../../api/client', () => ({
   setTokenGetter: (...args: unknown[]) => mockSetTokenGetter(...args),
   setEmailHint: (...args: unknown[]) => mockSetEmailHint(...args),
+}))
+
+vi.mock('../../api/members', () => ({
+  membersApi: {
+    me: (...args: unknown[]) => mockMembersMe(...args),
+  },
 }))
 
 vi.mock('../../authConfig', () => ({
@@ -70,6 +77,7 @@ describe('useAuth auth flow regression coverage', () => {
     msalInstance.acquireTokenPopup.mockResolvedValue({ accessToken: 'popup-token' })
     msalInstance.getActiveAccount.mockReturnValue(null)
     msalInstance.getAllAccounts.mockReturnValue([account])
+    mockMembersMe.mockResolvedValue({ auth_roles: [] })
   })
 
   it('uses popup sign-in flow when login is requested', async () => {
@@ -142,5 +150,15 @@ describe('useAuth auth flow regression coverage', () => {
 
     expect(msalInstance.acquireTokenPopup).toHaveBeenCalledTimes(1)
     expect(token).toBe('popup-token')
+  })
+
+  it('merges backend-resolved roles from members/me', async () => {
+    mockMembersMe.mockResolvedValue({ auth_roles: ['ADMIN'] })
+
+    const { result } = renderHook(() => useAuth())
+
+    await waitFor(() => {
+      expect(result.current.isAdmin()).toBe(true)
+    })
   })
 })

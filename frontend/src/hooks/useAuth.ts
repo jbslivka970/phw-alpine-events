@@ -3,6 +3,7 @@ import { useIsAuthenticated, useMsal } from '@azure/msal-react'
 import { InteractionStatus } from '@azure/msal-browser'
 import { hasAuthConfig, loginRequest, popupRedirectUri, ROLES } from '../authConfig'
 import type { AppRole } from '../authConfig'
+import { membersApi } from '../api/members'
 import { setEmailHint, setTokenGetter } from '../api/client'
 import { authDebugLog, authDebugWarn } from '../utils/authDebug'
 
@@ -135,6 +136,45 @@ function useAuth() {
     const initialRoles = mapRoles(accountClaims)
     setRolesReady(initialRoles.length > 0)
   }, [account, accountClaims])
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function hydrateBackendRoles() {
+      if (localE2EAuth || !account) {
+        return
+      }
+
+      try {
+        const me = await membersApi.me()
+        const backendRoles = Array.isArray(me.auth_roles)
+          ? me.auth_roles.filter((role): role is AppRole => Object.values(ROLES).includes(role as AppRole))
+          : []
+
+        if (!cancelled && backendRoles.length > 0) {
+          setResolvedRoles((current) => mergeRoles(current, backendRoles))
+          setRolesReady(true)
+          authDebugLog('roles:backend:merged', {
+            account: account.username,
+            backendRoles,
+          })
+        }
+      } catch (error: unknown) {
+        if (!cancelled) {
+          authDebugWarn('roles:backend:unavailable', {
+            account: account.username,
+            message: error instanceof Error ? error.message : String(error),
+          })
+        }
+      }
+    }
+
+    void hydrateBackendRoles()
+
+    return () => {
+      cancelled = true
+    }
+  }, [account, localE2EAuth])
 
   useEffect(() => {
     if (account) {

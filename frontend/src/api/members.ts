@@ -13,6 +13,7 @@ interface MemberRecord {
   is_active: boolean;
   created_at: string;
   updated_at: string;
+  auth_roles?: Array<'ADMIN' | 'EVENT_CREATOR' | 'USER' | 'TAVF_CREATOR'>;
 }
 
 interface ListMembersResponse {
@@ -61,6 +62,7 @@ const membersApi = {
     const suffix = query.toString();
     return apiGet<ListMembersResponse>(suffix ? `/members?${suffix}` : '/members');
   },
+  me: () => apiGet<MemberRecord>('/members/me'),
   get: (id: string) => apiGet<MemberRecord>(`/members/${id}`),
   groups: (id: string) => apiGet<unknown[]>(`/members/${id}/groups`),
   create: (data: Partial<MemberRecord>) => apiPost<MemberRecord>('/members', data),

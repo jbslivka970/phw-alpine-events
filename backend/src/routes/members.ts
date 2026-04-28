@@ -47,6 +47,29 @@ router.get('/', apiLimiter, authenticate, requireAnyAuthenticatedRole, async (re
   }
 });
 
+router.get('/me', apiLimiter, authenticate, requireAnyAuthenticatedRole, async (req, res, next) => {
+  try {
+    const memberId = await resolveSelfMemberId(req.user?.sub, req.user?.email, req.user?.rawClaims);
+    if (!memberId) {
+      res.status(404).json({ error: 'Member not found.' });
+      return;
+    }
+
+    const member = await getMemberById(memberId);
+    if (!member) {
+      res.status(404).json({ error: 'Member not found.' });
+      return;
+    }
+
+    res.json({
+      ...member,
+      auth_roles: req.user?.roles ?? [],
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.get('/:id', apiLimiter, authenticate, requireAnyAuthenticatedRole, async (req, res, next) => {
   try {
     const member = await getMemberById(req.params.id);
@@ -60,7 +83,6 @@ router.get('/:id', apiLimiter, authenticate, requireAnyAuthenticatedRole, async 
     next(error);
   }
 });
-
 router.get('/:id/groups', apiLimiter, authenticate, requireAnyAuthenticatedRole, async (req, res, next) => {
   try {
     const groups = await getMemberGroups(req.params.id);
