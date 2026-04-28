@@ -143,29 +143,6 @@ function useAuth() {
     setRolesReady(initialRoles.length > 0)
   }, [account, accountClaims])
 
-  useEffect(() => {
-    let cancelled = false
-
-    async function hydrateBackendRoles() {
-      const backendRoles = await ensureBackendRoles()
-      if (!cancelled && backendRoles.length > 0) {
-        setRolesReady(true)
-      }
-    }
-
-    void hydrateBackendRoles()
-
-    return () => {
-      cancelled = true
-    }
-  }, [ensureBackendRoles])
-
-  useEffect(() => {
-    if (account) {
-      instance.setActiveAccount(account)
-    }
-  }, [account, instance])
-
   const ensureBackendRoles = useCallback(async (): Promise<AppRole[]> => {
     if (localE2EAuth || !account || interactionBusy) {
       return []
@@ -218,6 +195,29 @@ function useAuth() {
       return []
     }
   }, [account, accountClaims, instance, interactionBusy, localE2EAuth])
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function hydrateBackendRoles() {
+      const backendRoles = await ensureBackendRoles()
+      if (!cancelled && backendRoles.length > 0) {
+        setRolesReady(true)
+      }
+    }
+
+    void hydrateBackendRoles()
+
+    return () => {
+      cancelled = true
+    }
+  }, [ensureBackendRoles])
+
+  useEffect(() => {
+    if (account) {
+      instance.setActiveAccount(account)
+    }
+  }, [account, instance])
 
   useEffect(() => {
     tokenCacheRef.current = null
