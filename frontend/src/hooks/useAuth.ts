@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useIsAuthenticated, useMsal } from '@azure/msal-react'
 import { InteractionStatus } from '@azure/msal-browser'
 import { hasAuthConfig, loginRequest, popupRedirectUri, ROLES } from '../authConfig'
@@ -147,54 +147,9 @@ function useAuth() {
     let cancelled = false
 
     async function hydrateBackendRoles() {
-      if (localE2EAuth || !account || interactionBusy) {
-        return
-      }
-
-      try {
-        const tokenResponse = await instance.acquireTokenSilent({
-          ...loginRequest,
-          account,
-        })
-
-        const headers: Record<string, string> = {
-          Authorization: `Bearer ${tokenResponse.accessToken}`,
-        }
-
-        const emailHint = resolveEmailHint(accountClaims, account.username)
-        if (emailHint.includes('@')) {
-          headers['X-Id-Token-Email'] = emailHint
-        }
-
-        const response = await fetch(`${getApiBaseUrl()}/members/me`, {
-          method: 'GET',
-          headers,
-        })
-
-        if (!response.ok) {
-          throw new Error(`members/me failed (${response.status})`)
-        }
-
-        const me = (await response.json()) as { auth_roles?: unknown }
-        const backendRoles = Array.isArray(me.auth_roles)
-          ? me.auth_roles.filter((role): role is AppRole => Object.values(ROLES).includes(role as AppRole))
-          : []
-
-        if (!cancelled && backendRoles.length > 0) {
-          setResolvedRoles((current) => mergeRoles(current, backendRoles))
-          setRolesReady(true)
-          authDebugLog('roles:backend:merged', {
-            account: account.username,
-            backendRoles,
-          })
-        }
-      } catch (error: unknown) {
-        if (!cancelled) {
-          authDebugWarn('roles:backend:unavailable', {
-            account: account.username,
-            message: error instanceof Error ? error.message : String(error),
-          })
-        }
+      const backendRoles = await ensureBackendRoles()
+      if (!cancelled && backendRoles.length > 0) {
+        setRolesReady(true)
       }
     }
 
@@ -203,13 +158,66 @@ function useAuth() {
     return () => {
       cancelled = true
     }
-  }, [account, accountClaims, instance, interactionBusy, localE2EAuth])
+  }, [ensureBackendRoles])
 
   useEffect(() => {
     if (account) {
       instance.setActiveAccount(account)
     }
   }, [account, instance])
+
+  const ensureBackendRoles = useCallback(async (): Promise<AppRole[]> => {
+    if (localE2EAuth || !account || interactionBusy) {
+      return []
+    }
+
+    try {
+      const tokenResponse = await instance.acquireTokenSilent({
+        ...loginRequest,
+        account,
+      })
+
+      const headers: Record<string, string> = {
+        Authorization: `Bearer ${tokenResponse.accessToken}`,
+      }
+
+      const emailHint = resolveEmailHint(accountClaims, account.username)
+      if (emailHint.includes('@')) {
+        headers['X-Id-Token-Email'] = emailHint
+      }
+
+      const response = await fetch(`${getApiBaseUrl()}/members/me`, {
+        method: 'GET',
+        headers,
+      })
+
+      if (!response.ok) {
+        throw new Error(`members/me failed (${response.status})`)
+      }
+
+      const me = (await response.json()) as { auth_roles?: unknown }
+      const backendRoles = Array.isArray(me.auth_roles)
+        ? me.auth_roles.filter((role): role is AppRole => Object.values(ROLES).includes(role as AppRole))
+        : []
+
+      if (backendRoles.length > 0) {
+        setResolvedRoles((current) => mergeRoles(current, backendRoles))
+        setRolesReady(true)
+        authDebugLog('roles:backend:merged', {
+          account: account.username,
+          backendRoles,
+        })
+      }
+
+      return backendRoles
+    } catch (error: unknown) {
+      authDebugWarn('roles:backend:unavailable', {
+        account: account.username,
+        message: error instanceof Error ? error.message : String(error),
+      })
+      return []
+    }
+  }, [account, accountClaims, instance, interactionBusy, localE2EAuth])
 
   useEffect(() => {
     tokenCacheRef.current = null
@@ -637,6 +645,7 @@ function useAuth() {
     isAdmin,
     canCreateEvents,
     canCreateTavfPostings,
+    ensureBackendRoles,
     isAuthenticated: effectiveIsAuthenticated,
     login,
     logout,

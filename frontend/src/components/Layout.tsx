@@ -30,7 +30,7 @@ function isLinkActive(pathname: string, to: string): boolean {
 export default function Layout() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, logout } = useAuth();
+  const { user, logout, canCreateTavfPostings } = useAuth();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   useEffect(() => {
@@ -43,7 +43,10 @@ export default function Layout() {
   }
 
   const roles = user?.roles ?? [];
-  const visibleItems = NAV_ITEMS.filter((item) => !item.role || roles.includes(item.role as typeof ROLES[keyof typeof ROLES]));
+  const canAccessTavf = canCreateTavfPostings();
+  const visibleItems = NAV_ITEMS
+    .filter((item) => !item.role || roles.includes(item.role as typeof ROLES[keyof typeof ROLES]))
+    .filter((item) => item.to !== '/tavf' || canAccessTavf);
 
   return (
     <div className="phw-layout">
