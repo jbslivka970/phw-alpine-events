@@ -57,6 +57,9 @@ jobs:
     - name: Test frontend regression flows
       run: cd frontend && npm run test:flows
 
+    - name: Test frontend auth hook regressions
+      run: cd frontend && npx vitest run src/hooks/__tests__/useAuth.test.tsx
+
     - name: Install backend dependencies
       run: cd backend && npm ci
 
@@ -172,6 +175,97 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: playwright-browser-auth-email-hint-artifacts-${{ github.run_id }}
+        if-no-files-found: ignore
+        retention-days: 14
+        path: |
+          playwright-report/**
+          test-results/**
+
+  e2e_browser_launch_smoke_local:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: build
+    if: ${{ github.event_name != 'release' }}
+
+    steps:
+    - uses: actions/checkout@v5
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v5
+      with:
+        node-version: '22'
+        cache: 'npm'
+        cache-dependency-path: |
+          package-lock.json
+          frontend/package-lock.json
+          backend/package-lock.json
+
+    - name: Install root Playwright dependencies
+      run: npm ci
+
+    - name: Install frontend dependencies
+      run: cd frontend && npm ci
+
+    - name: Install backend dependencies
+      run: cd backend && npm ci
+
+    - name: Install Playwright Chromium
+      run: npx playwright install --with-deps chromium
+
+    - name: Run local browser launch smoke against current commit
+      env:
+        CI: '1'
+        E2E_LOCAL_AUTH_ENABLED: '1'
+        E2E_API_BASE_URL: http://127.0.0.1:3001
+        E2E_APP_URL: http://127.0.0.1:4173
+        VITE_E2E_LOCAL_AUTH: '1'
+        VITE_API_BASE_URL: http://127.0.0.1:3001/api/v1
+      run: |
+        set -euo pipefail
+
+        cleanup() {
+          if [ -n "${BACKEND_PID:-}" ]; then kill "$BACKEND_PID" >/dev/null 2>&1 || true; fi
+          if [ -n "${FRONTEND_PID:-}" ]; then kill "$FRONTEND_PID" >/dev/null 2>&1 || true; fi
+        }
+        trap cleanup EXIT
+
+        (cd backend && npm run dev) > /tmp/phw-backend.log 2>&1 &
+        BACKEND_PID=$!
+
+        (cd frontend && npm run dev -- --host 127.0.0.1 --port 4173) > /tmp/phw-frontend.log 2>&1 &
+        FRONTEND_PID=$!
+
+        for attempt in $(seq 1 30); do
+          if curl -fsS --max-time 5 "${E2E_API_BASE_URL}/api/v1/health" >/dev/null 2>&1; then
+            break
+          fi
+          if [ "$attempt" -eq 30 ]; then
+            echo 'Backend did not become ready in time.'
+            cat /tmp/phw-backend.log
+            exit 1
+          fi
+          sleep 2
+        done
+
+        for attempt in $(seq 1 30); do
+          if curl -fsS --max-time 5 "${E2E_APP_URL}" >/dev/null 2>&1; then
+            break
+          fi
+          if [ "$attempt" -eq 30 ]; then
+            echo 'Frontend did not become ready in time.'
+            cat /tmp/phw-frontend.log
+            exit 1
+          fi
+          sleep 2
+        done
+
+        npm run test:e2e:launch-smoke -- --workers=1 --max-failures=1
+
+    - name: Upload Playwright artifacts on failure
+      if: ${{ failure() || cancelled() }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: playwright-browser-launch-smoke-local-artifacts-${{ github.run_id }}
         if-no-files-found: ignore
         retention-days: 14
         path: |
@@ -482,7 +576,9 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 40
-    needs: build
+    needs:
+    - build
+    - e2e_browser_launch_smoke_local
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.AZURE_WEBAPP_NAME != ''
     concurrency:
       group: azure-prod-deploy-${{ github.ref_name }}

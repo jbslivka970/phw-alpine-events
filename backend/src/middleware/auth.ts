@@ -273,6 +273,36 @@ function extractRoles(claims: JwtPayload): AppRole[] {
   return normalizedRoles;
 }
 
+function normalizeEmailLikeValue(value: string | undefined): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  const normalized = value.trim();
+  if (!normalized) {
+    return undefined;
+  }
+
+  const extIndex = normalized.toLowerCase().indexOf('#ext#@');
+  if (extIndex > 0) {
+    const localAndDomain = normalized.slice(0, extIndex);
+    const separatorIndex = localAndDomain.lastIndexOf('_');
+    if (separatorIndex > 0 && separatorIndex < localAndDomain.length - 1) {
+      const localPart = localAndDomain.slice(0, separatorIndex);
+      const domainPart = localAndDomain.slice(separatorIndex + 1);
+      if (localPart && domainPart) {
+        return `${localPart}@${domainPart}`.toLowerCase();
+      }
+    }
+  }
+
+  if (normalized.includes('@')) {
+    return normalized.toLowerCase();
+  }
+
+  return undefined;
+}
+
 function isTokenRoleFallbackEnabled(): boolean {
   const raw = process.env['AUTH_ALLOW_TOKEN_ROLE_FALLBACK'];
   if (raw && raw.trim().length > 0) {
@@ -341,7 +371,10 @@ function extractEmail(claims: JwtPayload): string | undefined {
   for (const claimName of directClaims) {
     const value = claims[claimName];
     if (typeof value === 'string' && value.trim().length > 0) {
-      return value.trim();
+      const normalized = normalizeEmailLikeValue(value);
+      if (normalized) {
+        return normalized;
+      }
     }
   }
 
@@ -349,7 +382,10 @@ function extractEmail(claims: JwtPayload): string | undefined {
   if (Array.isArray(emailsClaim)) {
     const first = emailsClaim.find((value): value is string => typeof value === 'string' && value.trim().length > 0);
     if (first) {
-      return first.trim();
+      const normalized = normalizeEmailLikeValue(first);
+      if (normalized) {
+        return normalized;
+      }
     }
   }
 
@@ -357,52 +393,10 @@ function extractEmail(claims: JwtPayload): string | undefined {
   if (Array.isArray(otherMailsClaim)) {
     const first = otherMailsClaim.find((value): value is string => typeof value === 'string' && value.trim().length > 0);
     if (first) {
-      return first.trim();
-    }
-  }
-
-  // External ID can emit usernames like local_domain.com#EXT#@tenant.onmicrosoft.com
-  // instead of a plain email claim. Recover the source email using the last underscore
-  // before #EXT# as the original @ separator.
-  const recoverFromExtFormat = (value: string | undefined): string | undefined => {
-    if (!value) {
-      return undefined;
-    }
-
-    const normalized = value.trim();
-    const extIndex = normalized.toLowerCase().indexOf('#ext#@');
-    if (extIndex <= 0) {
-      return undefined;
-    }
-
-    const localAndDomain = normalized.slice(0, extIndex);
-    const separatorIndex = localAndDomain.lastIndexOf('_');
-    if (separatorIndex <= 0 || separatorIndex >= localAndDomain.length - 1) {
-      return undefined;
-    }
-
-    const localPart = localAndDomain.slice(0, separatorIndex);
-    const domainPart = localAndDomain.slice(separatorIndex + 1);
-    if (!localPart || !domainPart) {
-      return undefined;
-    }
-
-    return `${localPart}@${domainPart}`.toLowerCase();
-  };
-
-  const preferredUsername = claims['preferred_username'];
-  if (typeof preferredUsername === 'string') {
-    const recovered = recoverFromExtFormat(preferredUsername);
-    if (recovered) {
-      return recovered;
-    }
-  }
-
-  const upnClaim = claims['upn'];
-  if (typeof upnClaim === 'string') {
-    const recovered = recoverFromExtFormat(upnClaim);
-    if (recovered) {
-      return recovered;
+      const normalized = normalizeEmailLikeValue(first);
+      if (normalized) {
+        return normalized;
+      }
     }
   }
 
@@ -415,17 +409,20 @@ function extractEmail(claims: JwtPayload): string | undefined {
     }
 
     if (typeof rawValue === 'string') {
-      const value = rawValue.trim();
-      if (value.includes('@')) {
-        return value.toLowerCase();
+      const normalized = normalizeEmailLikeValue(rawValue);
+      if (normalized) {
+        return normalized;
       }
       continue;
     }
 
     if (Array.isArray(rawValue)) {
-      const first = rawValue.find((value): value is string => typeof value === 'string' && value.includes('@'));
+      const first = rawValue.find((value): value is string => typeof value === 'string' && value.trim().length > 0);
       if (first) {
-        return first.trim().toLowerCase();
+        const normalized = normalizeEmailLikeValue(first);
+        if (normalized) {
+          return normalized;
+        }
       }
     }
   }
@@ -761,7 +758,7 @@ function authenticate(req: Request, res: Response, next: NextFunction): void {
       if (!emailClaim) {
         const headerEmail = req.headers['x-id-token-email'];
         if (typeof headerEmail === 'string' && headerEmail.includes('@')) {
-          emailClaim = headerEmail.trim();
+          emailClaim = normalizeEmailLikeValue(headerEmail) ?? headerEmail.trim().toLowerCase();
           console.info('[auth] email resolved from X-Id-Token-Email header (not in access token)', {
             email: emailClaim,
             oid: claims['oid'] ?? claims['sub'],

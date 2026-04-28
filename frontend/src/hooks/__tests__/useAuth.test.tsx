@@ -164,4 +164,27 @@ describe('useAuth auth flow regression coverage', () => {
       expect(result.current.isAdmin()).toBe(true)
     })
   })
+
+  it('normalizes EXT-format account usernames before sending X-Id-Token-Email', async () => {
+    mockUseMsal.mockReturnValue({
+      accounts: [{
+        ...account,
+        username: 'SARNITRO_gmail.com#EXT#@tenant.onmicrosoft.com',
+        idTokenClaims: {
+          sub: 'subject-1',
+        },
+      }],
+      instance: msalInstance,
+      inProgress: 'none',
+    })
+
+    renderHook(() => useAuth())
+
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalled()
+    })
+
+    const requestInit = mockFetch.mock.calls[0]?.[1] as { headers?: Record<string, string> } | undefined
+    expect(requestInit?.headers?.['X-Id-Token-Email']).toBe('sarnitro@gmail.com')
+  })
 })

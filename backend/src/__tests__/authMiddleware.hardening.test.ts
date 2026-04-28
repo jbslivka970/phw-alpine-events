@@ -244,6 +244,28 @@ describe('authenticate middleware – hardening scenarios', () => {
     expect(res.body.roles).toEqual([]);
   });
 
+  it('H2c: EXT-format preferred_username resolves to the real email for admin lookup', async () => {
+    setVerifyClaims(makeClaims({ preferred_username: 'SARNITRO_gmail.com#EXT#@tenant.onmicrosoft.com' }));
+
+    const pool = buildMockPool([
+      { recordset: [] },
+      { recordset: [] },
+      { recordset: [] },
+      { recordset: [{ role: 'admin' }] },
+      { recordset: [{ updated: 1 }] },
+    ]);
+    (getPool as jest.Mock).mockResolvedValue(pool);
+
+    const app = buildApp();
+    const res = await request(app)
+      .get('/probe')
+      .set('Authorization', 'Bearer mock-token');
+
+    expect(res.status).toBe(200);
+    expect(res.body.email).toBe('sarnitro@gmail.com');
+    expect(res.body.roles).toContain('ADMIN');
+  });
+
   // ── H3 — Duplicate active members suppress implicit USER grant ───────────
 
   it('H3: duplicate active members by email returns empty roles (no implicit USER)', async () => {

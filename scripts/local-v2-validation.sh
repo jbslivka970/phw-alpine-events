@@ -59,6 +59,7 @@ else
     echo "[v2-local] local_e2e_api_base=${local_api_base}"
     echo "[v2-local] local_e2e_app_base=${local_app_base}"
     run_step "playwright api role matrix (local bypass auth)" bash -lc "cd '${repo_root}' && E2E_LOCAL_AUTH_ENABLED=1 E2E_API_BASE_URL='${local_api_base}' E2E_APP_URL='${local_app_base}' npm run test:e2e:role-matrix"
+    run_step "playwright launch smoke (local bypass auth)" bash -lc "cd '${repo_root}' && E2E_LOCAL_AUTH_ENABLED=1 E2E_API_BASE_URL='${local_api_base}' E2E_APP_URL='${local_app_base}' npm run test:e2e:launch-smoke"
     run_step "playwright browser suites (local bypass auth)" bash -lc "cd '${repo_root}' && E2E_LOCAL_AUTH_ENABLED=1 E2E_API_BASE_URL='${local_api_base}' E2E_APP_URL='${local_app_base}' npx playwright test browser-auth-flows.spec.ts browser-persona-flow-matrix.spec.ts browser-postdeploy-smoke.spec.ts"
   else
     echo "[v2-local] E2E_API_BASE_URL / E2E_APP_URL not set; skipping Playwright role matrix"

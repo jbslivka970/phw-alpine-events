@@ -745,15 +745,37 @@ function extractRoleValues(claims: Record<string, unknown> | undefined): string[
   return values
 }
 
+function normalizeEmailHintValue(value: string | null | undefined): string {
+  const normalized = (value ?? '').trim()
+  if (!normalized) {
+    return ''
+  }
+
+  const extIndex = normalized.toLowerCase().indexOf('#ext#@')
+  if (extIndex > 0) {
+    const localAndDomain = normalized.slice(0, extIndex)
+    const separatorIndex = localAndDomain.lastIndexOf('_')
+    if (separatorIndex > 0 && separatorIndex < localAndDomain.length - 1) {
+      const localPart = localAndDomain.slice(0, separatorIndex)
+      const domainPart = localAndDomain.slice(separatorIndex + 1)
+      if (localPart && domainPart) {
+        return `${localPart}@${domainPart}`.toLowerCase()
+      }
+    }
+  }
+
+  return normalized.includes('@') ? normalized.toLowerCase() : ''
+}
+
 function resolveEmailHint(claims: Record<string, unknown> | undefined, fallback: string | null | undefined): string {
   const directKeys = ['email', 'preferred_username', 'upn']
   if (claims) {
     for (const key of directKeys) {
       const raw = claims[key]
       if (typeof raw === 'string') {
-        const value = raw.trim()
-        if (value.includes('@')) {
-          return value.toLowerCase()
+        const normalized = normalizeEmailHintValue(raw)
+        if (normalized) {
+          return normalized
         }
       }
     }
@@ -762,15 +784,18 @@ function resolveEmailHint(claims: Record<string, unknown> | undefined, fallback:
     for (const key of arrayKeys) {
       const raw = claims[key]
       if (Array.isArray(raw)) {
-        const first = raw.find((value): value is string => typeof value === 'string' && value.includes('@'))
+        const first = raw.find((value): value is string => typeof value === 'string' && value.trim().length > 0)
         if (first) {
-          return first.trim().toLowerCase()
+          const normalized = normalizeEmailHintValue(first)
+          if (normalized) {
+            return normalized
+          }
         }
       }
     }
   }
 
-  return (fallback ?? '').trim().toLowerCase()
+  return normalizeEmailHintValue(fallback)
 }
 
 function mapRoles(claims: Record<string, unknown> | undefined): AppRole[] {
