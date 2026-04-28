@@ -187,4 +187,14 @@ describe('useAuth auth flow regression coverage', () => {
     const requestInit = mockFetch.mock.calls[0]?.[1] as { headers?: Record<string, string> } | undefined
     expect(requestInit?.headers?.['X-Id-Token-Email']).toBe('sarnitro@gmail.com')
   })
+
+  it('shares backend-resolved roles across separate useAuth hook instances', async () => {
+    const first = renderHook(() => useAuth())
+    const second = renderHook(() => useAuth())
+
+    await waitFor(() => {
+      expect(first.result.current.isAdmin()).toBe(true)
+      expect(second.result.current.isAdmin()).toBe(true)
+    })
+  })
 })

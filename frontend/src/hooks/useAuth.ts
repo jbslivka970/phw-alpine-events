@@ -26,8 +26,20 @@ interface AuthUser {
   roles: AppRole[]
 }
 
+type SharedRoleState = {
+  accountKey: string | null
+  roles: AppRole[]
+  rolesReady: boolean
+}
+
 const LOCAL_E2E_AUTH_TOGGLE_KEY = 'phw_e2e_local_auth'
 const LOCAL_E2E_AUTH_ROLE_KEY = 'phw_e2e_role'
+let sharedRoleState: SharedRoleState = {
+  accountKey: null,
+  roles: [],
+  rolesReady: true,
+}
+const sharedRoleSubscribers = new Set<(state: SharedRoleState) => void>()
 
 function isLocalE2EAuthEnabled(): boolean {
   return (import.meta.env.VITE_E2E_LOCAL_AUTH as string | undefined) === '1'
@@ -86,6 +98,31 @@ function getApiBaseUrl(): string {
   return normalized.length > 0 ? normalized : '/api/v1'
 }
 
+function getAccountKey(localAccountId: string | null | undefined): string | null {
+  const normalized = (localAccountId ?? '').trim()
+  return normalized || null
+}
+
+function mergeWithSharedRoles(accountKey: string | null, roles: AppRole[]): AppRole[] {
+  if (!accountKey || sharedRoleState.accountKey !== accountKey) {
+    return roles
+  }
+
+  return mergeRoles(roles, sharedRoleState.roles)
+}
+
+function publishSharedRoles(accountKey: string | null, roles: AppRole[], rolesReady: boolean): void {
+  sharedRoleState = {
+    accountKey,
+    roles,
+    rolesReady,
+  }
+
+  for (const subscriber of sharedRoleSubscribers) {
+    subscriber(sharedRoleState)
+  }
+}
+
 function useAuth() {
   const localE2EAuth = isLocalE2EAuthEnabled()
   const { accounts, instance, inProgress } = useMsal()
@@ -99,12 +136,17 @@ function useAuth() {
   const tokenCacheRef = useRef<CachedAccessToken | null>(null)
 
   const accountClaims = account?.idTokenClaims as Record<string, unknown> | undefined
-  const [resolvedRoles, setResolvedRoles] = useState<AppRole[]>(() => mapRoles(accountClaims))
+  const accountKey = getAccountKey(account?.localAccountId)
+  const [resolvedRoles, setResolvedRoles] = useState<AppRole[]>(() => mergeWithSharedRoles(accountKey, mapRoles(accountClaims)))
   const [rolesReady, setRolesReady] = useState(() => {
     if (!account) {
       return true
     }
-    return mapRoles(accountClaims).length > 0
+    const initialRoles = mergeWithSharedRoles(accountKey, mapRoles(accountClaims))
+    if (sharedRoleState.accountKey === accountKey) {
+      return sharedRoleState.rolesReady || initialRoles.length > 0
+    }
+    return initialRoles.length > 0
   })
   const [isLoggingIn, setIsLoggingIn] = useState(false)
   const [loginError, setLoginError] = useState<string | null>(null)
@@ -130,8 +172,21 @@ function useAuth() {
   }, [localE2EAuth])
 
   useEffect(() => {
-    setResolvedRoles(mapRoles(accountClaims))
-  }, [accountClaims])
+    const nextRoles = mergeWithSharedRoles(accountKey, mapRoles(accountClaims))
+    setResolvedRoles(nextRoles)
+
+    if (!account) {
+      setRolesReady(true)
+      return
+    }
+
+    if (sharedRoleState.accountKey === accountKey) {
+      setRolesReady(sharedRoleState.rolesReady || nextRoles.length > 0)
+      return
+    }
+
+    setRolesReady(nextRoles.length > 0)
+  }, [account, accountClaims, accountKey])
 
   useEffect(() => {
     if (!account) {
@@ -139,9 +194,25 @@ function useAuth() {
       return
     }
 
-    const initialRoles = mapRoles(accountClaims)
-    setRolesReady(initialRoles.length > 0)
-  }, [account, accountClaims])
+    const initialRoles = mergeWithSharedRoles(accountKey, mapRoles(accountClaims))
+    setRolesReady(initialRoles.length > 0 || (sharedRoleState.accountKey === accountKey && sharedRoleState.rolesReady))
+  }, [account, accountClaims, accountKey])
+
+  useEffect(() => {
+    const subscriber = (state: SharedRoleState) => {
+      if (!accountKey || state.accountKey !== accountKey) {
+        return
+      }
+
+      setResolvedRoles((current) => mergeRoles(current, state.roles))
+      setRolesReady(state.rolesReady || state.roles.length > 0)
+    }
+
+    sharedRoleSubscribers.add(subscriber)
+    return () => {
+      sharedRoleSubscribers.delete(subscriber)
+    }
+  }, [accountKey])
 
   const ensureBackendRoles = useCallback(async (): Promise<AppRole[]> => {
     if (localE2EAuth || !account || interactionBusy) {
@@ -178,7 +249,11 @@ function useAuth() {
         : []
 
       if (backendRoles.length > 0) {
-        setResolvedRoles((current) => mergeRoles(current, backendRoles))
+        setResolvedRoles((current) => {
+          const merged = mergeRoles(current, backendRoles)
+          publishSharedRoles(accountKey, merged, true)
+          return merged
+        })
         setRolesReady(true)
         authDebugLog('roles:backend:merged', {
           account: account.username,
@@ -244,10 +319,14 @@ function useAuth() {
 
         if (!cancelled) {
           const refreshedClaims = tokenResponse.idTokenClaims as Record<string, unknown> | undefined
-          setResolvedRoles(mergeRoles(
+          const mergedRoles = mergeWithSharedRoles(accountKey, mergeRoles(
             mapRoles(refreshedClaims),
             mapRoles(decodeJwtPayload(tokenResponse.accessToken)),
           ))
+          setResolvedRoles(mergedRoles)
+          if (accountKey && sharedRoleState.accountKey === accountKey && sharedRoleState.roles.length > 0) {
+            publishSharedRoles(accountKey, mergedRoles, true)
+          }
           setRolesReady(true)
         }
       } catch {
