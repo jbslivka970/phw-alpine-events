@@ -84,6 +84,32 @@ describe('ensureBootstrapAdmins', () => {
     expect(result.ensured).toEqual(['good@example.com']);
     expect(result.skipped).toEqual(['bad@example.com']);
   });
+
+  it('promotes existing non-admin rows to admin without downgrading superadmin', async () => {
+    // Issued SQL is asserted to contain the promotion guard; result.action
+    // distinguishes UPDATE (promoted) from NONE (already admin/superadmin).
+    process.env['AUTH_BOOTSTRAP_ADMIN_EMAILS'] = 'promote@example.com, already-admin@example.com, super@example.com';
+    let issuedSql = '';
+    const actions = ['UPDATE', 'NONE', 'NONE'];
+    let i = 0;
+    const pool = {
+      request: jest.fn(() => ({
+        input: jest.fn().mockReturnThis(),
+        query: jest.fn(async (text: string) => {
+          issuedSql = text;
+          return { recordset: [{ action: actions[i++] }] };
+        }),
+      })),
+    };
+    (getPool as jest.Mock).mockResolvedValue(pool);
+
+    const result = await ensureBootstrapAdmins();
+
+    expect(issuedSql).toContain("LOWER(target.role) NOT IN ('admin', 'superadmin')");
+    expect(issuedSql).toContain("LOWER(ISNULL(target.role, '')) = 'superadmin'");
+    expect(result.ensured).toEqual(['promote@example.com']);
+    expect(result.skipped.sort()).toEqual(['already-admin@example.com', 'super@example.com']);
+  });
 });
 
 describe('backfillAzureOidByEmail', () => {

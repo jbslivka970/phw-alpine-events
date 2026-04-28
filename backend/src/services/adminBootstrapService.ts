@@ -2,11 +2,17 @@ import { getPool, sql } from '../db';
 
 /**
  * Idempotently ensures every email in AUTH_BOOTSTRAP_ADMIN_EMAILS exists in
- * the [user] table with role='admin' and is_active=1.  Existing rows are NOT
- * downgraded — if a row already exists with a higher-priority role
- * (e.g. superadmin) it is left untouched.  This guarantees the application
- * always has at least one administrator capable of signing in via the second
- * Entra (CIAM) tenant, regardless of database state.
+ * the [user] table with role='admin' and is_active=1.  Behaviour:
+ *   - Missing row  → INSERT with role='admin', is_active=1
+ *   - Inactive row → reactivate (is_active=1) AND promote role to 'admin' if
+ *                    the current role is below admin
+ *   - Active row with role NOT in ('admin','superadmin') → promote to 'admin'
+ *   - Active row already 'admin' or 'superadmin' → left untouched (never
+ *     downgraded; superadmin retains its higher role)
+ *
+ * This guarantees the application always has at least one administrator
+ * capable of signing in, even after AUTH_ALLOW_TOKEN_ROLE_FALLBACK was set
+ * to false (which stops trusting Entra App-Role token claims).
  *
  * Safe to call repeatedly on every process start.
  */
@@ -34,7 +40,11 @@ export async function ensureBootstrapAdmins(): Promise<{ ensured: string[]; skip
 
   for (const email of emails) {
     try {
-      // MERGE-style: insert if missing, otherwise leave role alone but ensure is_active=1.
+      // MERGE-style: insert if missing; otherwise reactivate when inactive
+      // and promote to 'admin' when the existing role is below admin.  We
+      // never downgrade — rows already 'admin' or 'superadmin' are left
+      // untouched (UPDATE clause WHERE-guard keeps action='NONE' in that
+      // case).
       const result = await pool
         .request()
         .input('email', sql.NVarChar(255), email)
@@ -42,8 +52,19 @@ export async function ensureBootstrapAdmins(): Promise<{ ensured: string[]; skip
           `MERGE dbo.[user] AS target
            USING (SELECT @email AS email) AS src
               ON LOWER(target.email) = src.email
-           WHEN MATCHED AND target.is_active = 0 THEN
-                UPDATE SET is_active = 1, updated_at = GETUTCDATE()
+           WHEN MATCHED AND (
+                  target.is_active = 0
+               OR target.role IS NULL
+               OR LOWER(target.role) NOT IN ('admin', 'superadmin')
+                ) THEN
+                UPDATE SET
+                  is_active  = 1,
+                  role       = CASE
+                                 WHEN LOWER(ISNULL(target.role, '')) = 'superadmin'
+                                   THEN target.role
+                                 ELSE 'admin'
+                               END,
+                  updated_at = GETUTCDATE()
            WHEN NOT MATCHED THEN
                 INSERT (azure_oid, email, display_name, role, is_active)
                 VALUES (NULL, src.email, src.email, 'admin', 1)
