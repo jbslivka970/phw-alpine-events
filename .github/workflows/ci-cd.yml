@@ -581,6 +581,50 @@ jobs:
         echo "Azure backend login failed after retries."
         exit 1
 
+    - name: Ensure AUTHZ app settings are slot-sticky on prod and staging
+      # Authoritative AUTHZ knobs MUST be present on both slots and pinned via
+      # slotConfigNames (--slot-settings) so a slot swap does NOT leak the
+      # source-of-truth flag.  Idempotent: re-applying does not change values.
+      # If the secrets are not provided we leave existing values alone (blank
+      # secret => skip, never wipe).
+      if: ${{ steps.backend_deploy_mode.outputs.use_blue_green == '1' }}
+      env:
+        AZURE_WEBAPP_NAME: ${{ vars.AZURE_WEBAPP_NAME }}
+        AZURE_BACKEND_RESOURCE_GROUP: ${{ vars.AZURE_BACKEND_RESOURCE_GROUP }}
+        AZURE_BACKEND_SLOT_NAME: ${{ vars.AZURE_BACKEND_SLOT_NAME }}
+        AUTH_ALLOW_TOKEN_ROLE_FALLBACK: ${{ vars.AUTH_ALLOW_TOKEN_ROLE_FALLBACK }}
+        AUTH_BOOTSTRAP_ADMIN_EMAILS: ${{ secrets.AUTH_BOOTSTRAP_ADMIN_EMAILS }}
+      run: |
+        SETTINGS=()
+        if [ -n "${AUTH_ALLOW_TOKEN_ROLE_FALLBACK}" ]; then
+          SETTINGS+=("AUTH_ALLOW_TOKEN_ROLE_FALLBACK=${AUTH_ALLOW_TOKEN_ROLE_FALLBACK}")
+        fi
+        if [ -n "${AUTH_BOOTSTRAP_ADMIN_EMAILS}" ]; then
+          SETTINGS+=("AUTH_BOOTSTRAP_ADMIN_EMAILS=${AUTH_BOOTSTRAP_ADMIN_EMAILS}")
+        fi
+
+        if [ "${#SETTINGS[@]}" -eq 0 ]; then
+          echo "No AUTHZ vars/secrets provided; relying on existing slot-sticky values."
+          exit 0
+        fi
+
+        echo "Applying ${#SETTINGS[@]} AUTHZ slot-sticky setting(s) to production slot."
+        az webapp config appsettings set \
+          --resource-group "$AZURE_BACKEND_RESOURCE_GROUP" \
+          --name "$AZURE_WEBAPP_NAME" \
+          --slot-settings "${SETTINGS[@]}" \
+          --output none
+
+        echo "Applying ${#SETTINGS[@]} AUTHZ slot-sticky setting(s) to staging slot."
+        az webapp config appsettings set \
+          --resource-group "$AZURE_BACKEND_RESOURCE_GROUP" \
+          --name "$AZURE_WEBAPP_NAME" \
+          --slot "$AZURE_BACKEND_SLOT_NAME" \
+          --slot-settings "${SETTINGS[@]}" \
+          --output none
+
+        echo "AUTHZ slot-sticky settings applied."
+
     - name: Deploy backend package to staging slot
       if: ${{ steps.backend_deploy_mode.outputs.use_blue_green == '1' }}
       env:
