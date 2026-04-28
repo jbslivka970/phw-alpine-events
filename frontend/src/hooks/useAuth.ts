@@ -3,7 +3,6 @@ import { useIsAuthenticated, useMsal } from '@azure/msal-react'
 import { InteractionStatus } from '@azure/msal-browser'
 import { hasAuthConfig, loginRequest, popupRedirectUri, ROLES } from '../authConfig'
 import type { AppRole } from '../authConfig'
-import { membersApi } from '../api/members'
 import { setEmailHint, setTokenGetter } from '../api/client'
 import { authDebugLog, authDebugWarn } from '../utils/authDebug'
 
@@ -81,9 +80,16 @@ function localRoleToken(role: AppRole): string {
   return 'e2e-user'
 }
 
+function getApiBaseUrl(): string {
+  const rawBase = ((import.meta.env.VITE_API_BASE_URL as string | undefined) ?? '/api/v1').trim()
+  const normalized = rawBase.endsWith('/') ? rawBase.slice(0, -1) : rawBase
+  return normalized.length > 0 ? normalized : '/api/v1'
+}
+
 function useAuth() {
   const localE2EAuth = isLocalE2EAuthEnabled()
   const { accounts, instance, inProgress } = useMsal()
+  const interactionBusy = inProgress !== InteractionStatus.None
   const isAuthenticated = useIsAuthenticated()
   const account = accounts[0] ?? null
   const loginRequestRef = useRef<Promise<void> | null>(null)
@@ -141,12 +147,35 @@ function useAuth() {
     let cancelled = false
 
     async function hydrateBackendRoles() {
-      if (localE2EAuth || !account) {
+      if (localE2EAuth || !account || interactionBusy) {
         return
       }
 
       try {
-        const me = await membersApi.me()
+        const tokenResponse = await instance.acquireTokenSilent({
+          ...loginRequest,
+          account,
+        })
+
+        const headers: Record<string, string> = {
+          Authorization: `Bearer ${tokenResponse.accessToken}`,
+        }
+
+        const emailHint = resolveEmailHint(accountClaims, account.username)
+        if (emailHint.includes('@')) {
+          headers['X-Id-Token-Email'] = emailHint
+        }
+
+        const response = await fetch(`${getApiBaseUrl()}/members/me`, {
+          method: 'GET',
+          headers,
+        })
+
+        if (!response.ok) {
+          throw new Error(`members/me failed (${response.status})`)
+        }
+
+        const me = (await response.json()) as { auth_roles?: unknown }
         const backendRoles = Array.isArray(me.auth_roles)
           ? me.auth_roles.filter((role): role is AppRole => Object.values(ROLES).includes(role as AppRole))
           : []
@@ -174,7 +203,7 @@ function useAuth() {
     return () => {
       cancelled = true
     }
-  }, [account, localE2EAuth])
+  }, [account, accountClaims, instance, interactionBusy, localE2EAuth])
 
   useEffect(() => {
     if (account) {
@@ -261,8 +290,6 @@ function useAuth() {
   function canCreateTavfPostings(): boolean {
     return Boolean(user) && (!isAdmin() || hasRole(ROLES.TAVF_CREATOR) || hasRole(ROLES.EVENT_CREATOR))
   }
-
-  const interactionBusy = inProgress !== InteractionStatus.None
 
   useEffect(() => {
     authDebugLog('useAuth:state', {

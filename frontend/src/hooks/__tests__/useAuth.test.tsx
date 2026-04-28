@@ -4,17 +4,11 @@ import { useAuth } from '../useAuth'
 
 const mockSetTokenGetter = vi.fn()
 const mockSetEmailHint = vi.fn()
-const mockMembersMe = vi.fn()
+const mockFetch = vi.fn()
 
 vi.mock('../../api/client', () => ({
   setTokenGetter: (...args: unknown[]) => mockSetTokenGetter(...args),
   setEmailHint: (...args: unknown[]) => mockSetEmailHint(...args),
-}))
-
-vi.mock('../../api/members', () => ({
-  membersApi: {
-    me: (...args: unknown[]) => mockMembersMe(...args),
-  },
 }))
 
 vi.mock('../../authConfig', () => ({
@@ -60,6 +54,7 @@ describe('useAuth auth flow regression coverage', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.stubGlobal('fetch', mockFetch as unknown as typeof fetch)
 
     mockUseMsal.mockReturnValue({
       accounts: [account],
@@ -77,7 +72,11 @@ describe('useAuth auth flow regression coverage', () => {
     msalInstance.acquireTokenPopup.mockResolvedValue({ accessToken: 'popup-token' })
     msalInstance.getActiveAccount.mockReturnValue(null)
     msalInstance.getAllAccounts.mockReturnValue([account])
-    mockMembersMe.mockResolvedValue({ auth_roles: [] })
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ auth_roles: [] }),
+    })
   })
 
   it('uses popup sign-in flow when login is requested', async () => {
@@ -153,7 +152,11 @@ describe('useAuth auth flow regression coverage', () => {
   })
 
   it('merges backend-resolved roles from members/me', async () => {
-    mockMembersMe.mockResolvedValue({ auth_roles: ['ADMIN'] })
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ auth_roles: ['ADMIN'] }),
+    })
 
     const { result } = renderHook(() => useAuth())
 
