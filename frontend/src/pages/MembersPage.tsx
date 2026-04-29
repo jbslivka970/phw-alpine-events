@@ -75,6 +75,11 @@ function MembersPage() {
   const [isBulkInviting, setIsBulkInviting] = useState(false)
   const [identityByMemberId, setIdentityByMemberId] = useState<Record<string, IdentityStatus>>({})
   const [inviteInFlightByMemberId, setInviteInFlightByMemberId] = useState<Record<string, boolean>>({})
+  const [hardDeleteTarget, setHardDeleteTarget] = useState<{ memberId: string; displayName: string } | null>(null)
+  const [hardDeleteConfirmInput, setHardDeleteConfirmInput] = useState('')
+  const [hardDeleteError, setHardDeleteError] = useState<string | null>(null)
+  const [hardDeleteSuccess, setHardDeleteSuccess] = useState<string | null>(null)
+  const [isHardDeleting, setIsHardDeleting] = useState(false)
   const [consentLog, setConsentLog] = useState<Array<{
     consent_log_id: string
     action: string
@@ -385,21 +390,42 @@ function MembersPage() {
     }
   }
 
-  async function handleHardDelete(memberId: string, displayName: string) {
-    const confirmed = window.prompt(
-      `PERMANENT DELETE — this cannot be undone.\n\nType "${displayName}" to confirm.`
-    )
-    if (confirmed === null) return
-    if (confirmed.trim() !== displayName.trim()) {
-      setError('Name did not match. Delete cancelled.')
+  function requestHardDelete(memberId: string, displayName: string) {
+    setHardDeleteError(null)
+    setHardDeleteSuccess(null)
+    setHardDeleteConfirmInput('')
+    setHardDeleteTarget({ memberId, displayName })
+  }
+
+  function cancelHardDelete() {
+    if (isHardDeleting) return
+    setHardDeleteTarget(null)
+    setHardDeleteConfirmInput('')
+    setHardDeleteError(null)
+  }
+
+  async function confirmHardDelete() {
+    if (!hardDeleteTarget) return
+    const expected = hardDeleteTarget.displayName.trim()
+    if (hardDeleteConfirmInput.trim() !== expected) {
+      setHardDeleteError(`You must type "${expected}" exactly to confirm.`)
       return
     }
-    setError(null)
+    setHardDeleteError(null)
+    setIsHardDeleting(true)
     try {
-      await membersApi.hardDelete(memberId)
-      setMembers((cur) => cur.filter((m) => m.member_id !== memberId))
+      await membersApi.hardDelete(hardDeleteTarget.memberId)
+      const removedName = hardDeleteTarget.displayName
+      setMembers((cur) => cur.filter((m) => m.member_id !== hardDeleteTarget.memberId))
+      setHardDeleteTarget(null)
+      setHardDeleteConfirmInput('')
+      setHardDeleteSuccess(`Permanently deleted ${removedName}.`)
     } catch (err: unknown) {
-      setError(toUserErrorMessage(err, 'Delete failed.'))
+      const msg = toUserErrorMessage(err, 'Delete failed.')
+      setHardDeleteError(msg)
+      setError(msg)
+    } finally {
+      setIsHardDeleting(false)
     }
   }
 
@@ -455,6 +481,9 @@ function MembersPage() {
       </section>
 
       {error && <p className="ui-notice ui-notice--error">{error}</p>}
+      {hardDeleteSuccess && (
+        <p className="ui-notice ui-notice--success" role="status">{hardDeleteSuccess}</p>
+      )}
       {inviteSuccess && (
         <p className="ui-notice ui-notice--success">
           Invite recorded for {inviteSuccess.email}.
@@ -518,7 +547,7 @@ function MembersPage() {
                           className="btn btn--sm"
                           type="button"
                           style={{ background: '#b91c1c', borderColor: '#b91c1c', color: '#fff' }}
-                          onClick={() => void handleHardDelete(m.member_id, `${m.first_name} ${m.last_name}`)}
+                          onClick={() => requestHardDelete(m.member_id, `${m.first_name} ${m.last_name}`)}
                         >
                           Delete
                         </button>
@@ -531,6 +560,75 @@ function MembersPage() {
           </table>
         )}
       </section>
+
+      {hardDeleteTarget && (
+        <div className="modal-overlay" role="presentation" onClick={cancelHardDelete}>
+          <section
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="hard-delete-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal__header">
+              <h2 id="hard-delete-title" className="modal__title" style={{ color: '#b91c1c' }}>
+                Permanently delete member?
+              </h2>
+              <button className="btn btn--outline btn--sm" type="button" onClick={cancelHardDelete} disabled={isHardDeleting}>
+                Cancel
+              </button>
+            </div>
+            <div className="modal__body">
+              <p>
+                This permanently removes <strong>{hardDeleteTarget.displayName}</strong> and cannot be undone.
+                If you only want to hide them from active lists, use <em>Deactivate</em> instead.
+              </p>
+              <label className="members-search-label" htmlFor="hard-delete-confirm">
+                Type <code>{hardDeleteTarget.displayName}</code> to confirm
+              </label>
+              <input
+                id="hard-delete-confirm"
+                className="members-input"
+                autoFocus
+                value={hardDeleteConfirmInput}
+                onChange={(e) => {
+                  setHardDeleteConfirmInput(e.target.value)
+                  if (hardDeleteError) setHardDeleteError(null)
+                }}
+                disabled={isHardDeleting}
+                placeholder={hardDeleteTarget.displayName}
+              />
+              {hardDeleteError && (
+                <p className="ui-notice ui-notice--error" role="alert" style={{ marginTop: '0.5rem' }}>
+                  {hardDeleteError}
+                </p>
+              )}
+              <div className="members-row-actions" style={{ marginTop: '1rem', justifyContent: 'flex-end' }}>
+                <button
+                  className="btn btn--outline btn--sm"
+                  type="button"
+                  onClick={cancelHardDelete}
+                  disabled={isHardDeleting}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="btn btn--sm"
+                  type="button"
+                  style={{ background: '#b91c1c', borderColor: '#b91c1c', color: '#fff' }}
+                  onClick={() => void confirmHardDelete()}
+                  disabled={
+                    isHardDeleting ||
+                    hardDeleteConfirmInput.trim() !== hardDeleteTarget.displayName.trim()
+                  }
+                >
+                  {isHardDeleting ? 'Deleting…' : 'Permanently delete'}
+                </button>
+              </div>
+            </div>
+          </section>
+        </div>
+      )}
 
       {edit && (
         <div className="modal-overlay" role="presentation" onClick={closeEditor}>
