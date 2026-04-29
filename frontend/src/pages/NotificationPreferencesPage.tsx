@@ -5,6 +5,25 @@ import { useAuth } from '../hooks/useAuth'
 
 type ChannelPreference = 'email_only' | 'sms_only' | 'both'
 
+function normalizeUsPhoneInput(input: string): string | null {
+  const trimmed = input.trim()
+  if (!trimmed) {
+    return null
+  }
+
+  const digitsOnly = trimmed.replace(/\D/g, '')
+  if (digitsOnly.length === 10) {
+    return `+1${digitsOnly}`
+  }
+  if (digitsOnly.length === 11 && digitsOnly.startsWith('1')) {
+    return `+${digitsOnly}`
+  }
+  if (trimmed.startsWith('+') && digitsOnly.length >= 8 && digitsOnly.length <= 15) {
+    return `+${digitsOnly}`
+  }
+  return null
+}
+
 function deriveChannelPreference(member: MemberRecord): ChannelPreference {
   if (member.sms_opt_in && !member.email_opt_out) {
     return 'both'
@@ -199,13 +218,19 @@ function NotificationPreferencesPage() {
       return
     }
 
-    const phoneValue = phoneInput.trim() || null
+    const trimmedInput = phoneInput.trim()
+    const phoneValue = normalizeUsPhoneInput(trimmedInput)
+    if (trimmedInput && !phoneValue) {
+      setPhoneError('Enter a valid US phone number, for example 970-418-0120.')
+      return
+    }
+
     setSaving(true)
     setPhoneError(null)
     setError(null)
 
     try {
-      const response = await fetch(`/api/v1/members/${member.member_id}/phone`, {
+      const response = await fetch('/api/v1/members/me/phone', {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -294,10 +319,10 @@ function NotificationPreferencesPage() {
                     <input
                       id="sms-consent-phone"
                       className="members-input"
-                      type="tel"
+                      type="text"
                       value={phoneInput}
                       onChange={(e) => setPhoneInput(e.target.value)}
-                      placeholder="Enter phone number (10 digits or E.164 format)"
+                      placeholder="Enter phone number, e.g. 970-418-0120"
                       disabled={saving}
                     />
                     {phoneError && <p className="error-text">{phoneError}</p>}
