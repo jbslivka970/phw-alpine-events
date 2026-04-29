@@ -230,20 +230,7 @@ function NotificationPreferencesPage() {
     setError(null)
 
     try {
-      const response = await fetch('/api/v1/members/me/phone', {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ mobile_phone: phoneValue }),
-      })
-
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || 'Failed to update phone number.')
-      }
-
-      const updated = await response.json()
+      const updated = await membersApi.updateMyPhone(phoneValue)
       setMember(updated)
       setEditingPhone(false)
       setPhoneInput('')
@@ -322,7 +309,7 @@ function NotificationPreferencesPage() {
                       type="text"
                       value={phoneInput}
                       onChange={(e) => setPhoneInput(e.target.value)}
-                      placeholder="Enter phone number, e.g. 970-418-0120"
+                      placeholder="Enter phone number, e.g. 970-555-1234"
                       disabled={saving}
                     />
                     {phoneError && <p className="error-text">{phoneError}</p>}

@@ -71,6 +71,8 @@ const membersApi = {
     apiPatch<MemberRecord>(`/members/${id}/sms-consent`, { sms_opt_in }),
   updateChannelPreference: (id: string, channel_preference: 'email_only' | 'sms_only' | 'both') =>
     apiPatch<MemberRecord>(`/members/${id}/channel-preference`, { channel_preference }),
+  updateMyPhone: (mobile_phone: string | null) =>
+    apiPatch<MemberRecord>('/members/me/phone', { mobile_phone }),
   smsRolloutStatus: (id: string) => apiGet<SmsRolloutStatusResponse>(`/members/${id}/sms-rollout-status`),
   consentLog: (id: string) => apiGet<SmsConsentLogRow[]>(`/members/${id}/sms-consent-log`),
   participation: (id: string) => apiGet<MemberParticipation>(`/members/${id}/participation`),
