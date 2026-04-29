@@ -21,6 +21,9 @@ function NotificationPreferencesPage() {
   const [smsConsentChecked, setSmsConsentChecked] = useState(false)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [editingPhone, setEditingPhone] = useState(false)
+  const [phoneInput, setPhoneInput] = useState('')
+  const [phoneError, setPhoneError] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [consentLog, setConsentLog] = useState<SmsConsentLogRow[]>([])
@@ -179,6 +182,55 @@ function NotificationPreferencesPage() {
     await handleChannelPreferenceChange(nextPreference)
   }
 
+  function handleEditPhoneClick() {
+    setEditingPhone(true)
+    setPhoneInput(member?.mobile_phone ?? '')
+    setPhoneError(null)
+  }
+
+  function handleCancelPhone() {
+    setEditingPhone(false)
+    setPhoneInput('')
+    setPhoneError(null)
+  }
+
+  async function handleSavePhone() {
+    if (!member) {
+      return
+    }
+
+    const phoneValue = phoneInput.trim() || null
+    setSaving(true)
+    setPhoneError(null)
+    setError(null)
+
+    try {
+      const response = await fetch(`/api/v1/members/${member.member_id}/phone`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ mobile_phone: phoneValue }),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Failed to update phone number.')
+      }
+
+      const updated = await response.json()
+      setMember(updated)
+      setEditingPhone(false)
+      setPhoneInput('')
+      setNotice('Phone number updated successfully.')
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unable to update phone number.'
+      setPhoneError(message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
   return (
     <div className="page">
       <h1 className="page__title">Notification Preferences</h1>
@@ -217,13 +269,60 @@ function NotificationPreferencesPage() {
                   Members can opt in to receive event invitation, RSVP reminder, and program update texts.
                 </p>
                 <label className="members-search-label" htmlFor="sms-consent-phone">Mobile phone number</label>
-                <input
-                  id="sms-consent-phone"
-                  className="members-input"
-                  value={member.mobile_phone ?? ''}
-                  readOnly
-                  placeholder="No mobile number on file"
-                />
+                {!editingPhone ? (
+                  <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                    <input
+                      id="sms-consent-phone"
+                      className="members-input"
+                      value={member.mobile_phone ?? ''}
+                      readOnly
+                      placeholder="No mobile number on file"
+                      style={{ flex: 1 }}
+                    />
+                    <button
+                      type="button"
+                      className="btn btn--secondary"
+                      onClick={handleEditPhoneClick}
+                      disabled={saving}
+                      style={{ whiteSpace: 'nowrap' }}
+                    >
+                      Edit
+                    </button>
+                  </div>
+                ) : (
+                  <div>
+                    <input
+                      id="sms-consent-phone"
+                      className="members-input"
+                      type="tel"
+                      value={phoneInput}
+                      onChange={(e) => setPhoneInput(e.target.value)}
+                      placeholder="Enter phone number (10 digits or E.164 format)"
+                      disabled={saving}
+                    />
+                    {phoneError && <p className="error-text">{phoneError}</p>}
+                    <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
+                      <button
+                        type="button"
+                        className="btn btn--primary"
+                        onClick={() => {
+                          void handleSavePhone()
+                        }}
+                        disabled={saving}
+                      >
+                        Save
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn--secondary"
+                        onClick={handleCancelPhone}
+                        disabled={saving}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
                 <label className="members-checkbox sms-consent-checkbox" htmlFor="sms-consent-checkbox">
                   <input
                     id="sms-consent-checkbox"

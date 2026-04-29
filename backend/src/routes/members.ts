@@ -5,6 +5,7 @@ import { apiLimiter, writeLimiter } from '../middleware/rateLimiter';
 import { requireAdmin, requireAnyAuthenticatedRole } from '../middleware/rbac';
 import { getMemberGroups } from '../services/groupService';
 import { notificationService } from '../services/notifications';
+import { toE164 } from '../utils/phone';
 import {
   createMember,
   deactivateMember,
@@ -353,6 +354,60 @@ router.patch('/:id/channel-preference', writeLimiter, authenticate, async (req, 
         message: "PHW Alpine: You've opted in for event notifications. Reply STOP to unsubscribe. Msg&data rates may apply.",
         memberId,
       });
+    }
+
+    res.json(updated);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// PATCH /:id/phone - Allow users to update their own phone number
+router.patch('/:id/phone', writeLimiter, authenticate, async (req, res, next) => {
+  try {
+    const memberId = req.params.id;
+    const phoneInput = req.body?.mobile_phone;
+
+    // Validate phone input is a string or null
+    if (phoneInput !== undefined && phoneInput !== null && typeof phoneInput !== 'string') {
+      res.status(400).json({ error: 'mobile_phone must be a string or null.' });
+      return;
+    }
+
+    // Normalize phone number
+    const normalizedPhone = toE164(phoneInput ?? null);
+    if (phoneInput && !normalizedPhone) {
+      res.status(400).json({ error: 'Invalid phone number format. Use US phone (10 digits) or E.164 format.' });
+      return;
+    }
+
+    const pool = await getPool();
+    const memberResult = await pool
+      .request()
+      .input('member_id', sql.UniqueIdentifier, memberId)
+      .query<{ member_id: string; email: string | null }>(
+        `SELECT member_id, email
+         FROM member
+         WHERE member_id = @member_id`
+      );
+
+    const memberRecord = memberResult.recordset[0];
+    if (!memberRecord) {
+      res.status(404).json({ error: 'Member not found.' });
+      return;
+    }
+
+    // Only allow users to update their own phone number (not admin override, just self-service)
+    if (!isSelfMember(req, memberId, memberRecord.email)) {
+      res.status(403).json({ error: 'You can only update your own phone number.' });
+      return;
+    }
+
+    // Update the member's phone number
+    const updated = await updateMember(memberId, { mobile_phone: normalizedPhone });
+    if (!updated) {
+      res.status(404).json({ error: 'Member not found.' });
+      return;
     }
 
     res.json(updated);
