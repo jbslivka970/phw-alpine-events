@@ -111,11 +111,28 @@ async function clickInAnyScope(page: Page, selectors: string[]): Promise<boolean
 
 async function completeUsernameStep(authPage: Page, username: string): Promise<boolean> {
   for (let i = 0; i < authStepMaxAttempts; i += 1) {
+    // Hard guard: if a click lands us on a federated IdP host the test
+    // accounts can't authenticate there (they are CIAM-local).  Bail back.
+    const currentUrl = authPage.url();
+    if (/accounts\.google\.com|appleid\.apple\.com|facebook\.com\/login/i.test(currentUrl)) {
+      await authPage.goBack().catch(() => {});
+      await authPage.waitForLoadState('domcontentloaded').catch(() => {});
+    }
+
     await clickInAnyScope(authPage, [
       `text="${username}"`,
       `[data-test-id="${username}"]`,
       'div[role="button"]:has-text("Use another account")',
-      'div[role="button"]:has-text("Sign in")',
+    ]);
+
+    // Prefer explicit local-account / email tile before generic Sign in
+    // (which would also match "Sign in with Google").
+    await clickInAnyScope(authPage, [
+      'button:has-text("Sign in with email")',
+      'a:has-text("Sign in with email")',
+      'button:has-text("Email")',
+      'button:has-text("Sign in with Microsoft")',
+      'a:has-text("Sign in with Microsoft")',
     ]);
 
     const entered = await fillInAnyScope(authPage, [
@@ -138,11 +155,11 @@ async function completeUsernameStep(authPage: Page, username: string): Promise<b
       return true;
     }
 
+    // Wake-up clicks must NOT match federation tiles.
     await clickInAnyScope(authPage, [
       'button:has-text("Use another account")',
       'a:has-text("Use another account")',
-      'button:has-text("Sign in")',
-      'button:has-text("Continue")',
+      'button:has-text("Continue"):not(:has-text("Google")):not(:has-text("Apple")):not(:has-text("Facebook"))',
     ]);
 
     await authPage.waitForTimeout(authStepSleepMs);

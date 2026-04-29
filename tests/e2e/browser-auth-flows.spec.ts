@@ -77,11 +77,33 @@ async function clickInAnyScope(page: Page, selectors: string[]): Promise<boolean
 
 async function completeUsernameStep(authPage: Page, username: string): Promise<boolean> {
   for (let i = 0; i < authStepMaxAttempts; i += 1) {
+      // Hard guard: if we ever land on a federated IdP host (Google, Apple,
+      // Facebook), the test accounts are CIAM-local so the only correct path
+      // is to bail back to the IdP picker.  Clicking a federation tile by
+      // accident triggers automation-blocking on those providers.
+      const currentUrl = authPage.url();
+      if (/accounts\.google\.com|appleid\.apple\.com|facebook\.com\/login/i.test(currentUrl)) {
+        await captureCiamDebug(authPage, username, 'federated-idp-trap').catch(() => {});
+        await authPage.goBack().catch(() => {});
+        await authPage.waitForLoadState('domcontentloaded').catch(() => {});
+      }
+
       // Try clicking an account tile for the exact username first (handles account-chooser UI)
       await clickInAnyScope(authPage, [
         `text="${username}"`,
         `[data-test-id="${username}"]`,
         'div[role="button"]:has-text("Use another account")',
+      ]);
+
+      // Prefer explicit local-account / email tile on the CIAM IdP picker
+      // before any generic "Sign in" button (which would also match
+      // "Sign in with Google" / "Sign in with Apple").
+      await clickInAnyScope(authPage, [
+        'button:has-text("Sign in with email")',
+        'a:has-text("Sign in with email")',
+        'button:has-text("Email")',
+        'button:has-text("Sign in with Microsoft")',
+        'a:has-text("Sign in with Microsoft")',
       ]);
 
       const entered = await fillInAnyScope(
@@ -105,14 +127,15 @@ async function completeUsernameStep(authPage: Page, username: string): Promise<b
       return true;
     }
 
+    // Wake-up clicks — strictly avoid federation tiles.  Selectors below
+    // explicitly exclude any element whose text mentions Google/Apple/
+    // Facebook to prevent the automation-blocked redirect.
     await clickInAnyScope(authPage, [
       'button:has-text("Use another account")',
       'a:has-text("Use another account")',
       'div:has-text("Use another account")',
-      'button:has-text("Sign in")',
-      'button:has-text("Sign in with Microsoft")',
-      'button:has-text("Continue")',
-      'a:has-text("Continue")',
+      'button:has-text("Continue"):not(:has-text("Google")):not(:has-text("Apple")):not(:has-text("Facebook"))',
+      'a:has-text("Continue"):not(:has-text("Google")):not(:has-text("Apple")):not(:has-text("Facebook"))',
     ]);
 
     await authPage.waitForTimeout(authStepSleepMs);

@@ -949,7 +949,16 @@ async function assertEventCancelledNotificationReady(eventId: string): Promise<v
        FROM event_response er
        INNER JOIN member m ON m.member_id = er.member_id
        WHERE er.event_id = @event_id
-         AND er.response IN ('yes', 'no', 'maybe', 'waitlist')`
+         AND er.response IN ('yes', 'no', 'maybe', 'waitlist')
+       UNION
+       SELECT DISTINCT
+          m.email,
+          m.mobile_phone,
+          m.sms_opt_in,
+          m.email_opt_out
+       FROM event_assignment ea
+       INNER JOIN member m ON m.member_id = ea.member_id
+       WHERE ea.event_id = @event_id`
     );
 
   const emailNeeded = recipientsResult.recordset.some((recipient) => Boolean(!recipient.email_opt_out && recipient.email));
@@ -1210,7 +1219,19 @@ async function sendEventCancelledNotification(payload: EventNotificationPayload)
        FROM event_response er
        INNER JOIN member m ON m.member_id = er.member_id
        WHERE er.event_id = @event_id
-         AND er.response IN ('yes', 'no', 'maybe', 'waitlist')`
+         AND er.response IN ('yes', 'no', 'maybe', 'waitlist')
+       UNION
+       SELECT DISTINCT
+          m.member_id,
+          m.first_name,
+          m.email,
+          m.mobile_phone,
+          m.sms_opt_in,
+          m.email_opt_out,
+          NULL AS response_channel
+       FROM event_assignment ea
+       INNER JOIN member m ON m.member_id = ea.member_id
+       WHERE ea.event_id = @event_id`
     );
 
   const variables = buildEventVariables(payload);
