@@ -22,7 +22,6 @@ import {
 } from '../services/personaService';
 
 const router = Router();
-const DEFAULT_SMS_ROLLOUT_EMAIL_ALLOWLIST = 'sarnitro@gmail.com';
 
 type SmsRolloutReason =
   | 'open_rollout'
@@ -736,11 +735,7 @@ function getConfiguredSmsRolloutAllowlist(): { emails: string[]; groups: string[
   const emailsFromEnv = parseLowercaseCsv(process.env['SMS_CONSENT_ROLLOUT_EMAIL_ALLOWLIST']);
   const groupsFromEnv = parseLowercaseCsv(process.env['SMS_CONSENT_ROLLOUT_GROUP_ALLOWLIST']);
 
-  if (emailsFromEnv.length > 0 || groupsFromEnv.length > 0) {
-    return { emails: emailsFromEnv, groups: groupsFromEnv };
-  }
-
-  return { emails: [DEFAULT_SMS_ROLLOUT_EMAIL_ALLOWLIST], groups: [] };
+  return { emails: emailsFromEnv, groups: groupsFromEnv };
 }
 
 async function getSmsRolloutStatus(memberId: string, memberEmail: string | null): Promise<SmsRolloutStatus> {

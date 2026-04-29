@@ -119,10 +119,12 @@ async function sendIdentityAccessEmail(input: {
   const safeName = input.firstName?.trim() || 'there';
   const safeUrl = normalizePortalLoginUrl(input.signInUrl);
   let signInGuideUrl = 'https://app.phwcoloradoalpine.org/onboarding/sign-in-options.png';
+  let smsConsentGuideUrl = 'https://app.phwcoloradoalpine.org/images/sms-consent.png';
   let appOrigin = 'https://app.phwcoloradoalpine.org';
   try {
     appOrigin = new URL(safeUrl).origin;
     signInGuideUrl = `${appOrigin}/onboarding/sign-in-options.png`;
+    smsConsentGuideUrl = `${appOrigin}/images/sms-consent.png`;
   } catch {
     // Keep defaults when safeUrl is not a valid absolute URL.
   }
@@ -162,10 +164,12 @@ Click <strong>Sign in with Google</strong>, then follow the Google prompts.</p>
   <li>Enter your mobile number and check the box to enable SMS.</li>
   <li>Save your preferences.</li>
 </ol>
+<p><strong>What it looks like:</strong></p>
+<p><a href="${smsConsentGuideUrl}"><img src="${smsConsentGuideUrl}" alt="Notification Preferences screen showing the SMS consent checkbox and Save preferences button" style="max-width:100%;border:1px solid #d0d7de;border-radius:8px;" /></a></p>
 <p style="font-size:12px;color:#6b7280;">Message frequency varies. Message and data rates may apply. Reply STOP to opt out at any time. Reply HELP for help.</p>
 <p>If anything looks confusing, simply reply to this email and we will help right away.</p>
 <p>Thank you,<br/>Project Healing Waters Colorado Alpine</p>`,
-    textBody: `Hi ${safeName},\n\nWelcome to PHW Alpine Events. We are very glad you are here.\n\nSign in here:\n${safeUrl}\n\nScreenshot guide (where to click):\n${signInGuideUrl}\n\nStep-by-step:\n1) Open the sign-in link above.\n2) Choose one sign-in method.\n\nOption A: Google sign-in\n- Select Sign in with Google and continue.\n\nOption B: Email one-time code (OTP)\n1) Choose the email sign-in option and enter your email.\n2) First time only: choose Create one when prompted.\n3) Check your email for the code and enter it.\n4) After setup, use the same email sign-in option each time.\n\n---\n\nOptional: Enable SMS text notifications\n\nOnce signed in, you can receive event invitations, RSVP reminders, and updates by text message.\n\nHow to turn on SMS:\n1) Sign in at the link above.\n2) Go to Notification Preferences: ${notifPrefsUrl}\n3) Enter your mobile number and check the box to enable SMS.\n4) Save your preferences.\n\nMessage frequency varies. Message and data rates may apply. Reply STOP to opt out. Reply HELP for help.\n\nIf anything is confusing, reply to this email and we will help right away.\n\nThank you,\nProject Healing Waters Colorado Alpine`,
+    textBody: `Hi ${safeName},\n\nWelcome to PHW Alpine Events. We are very glad you are here.\n\nSign in here:\n${safeUrl}\n\nScreenshot guide (where to click):\n${signInGuideUrl}\n\nStep-by-step:\n1) Open the sign-in link above.\n2) Choose one sign-in method.\n\nOption A: Google sign-in\n- Select Sign in with Google and continue.\n\nOption B: Email one-time code (OTP)\n1) Choose the email sign-in option and enter your email.\n2) First time only: choose Create one when prompted.\n3) Check your email for the code and enter it.\n4) After setup, use the same email sign-in option each time.\n\n---\n\nOptional: Enable SMS text notifications\n\nOnce signed in, you can receive event invitations, RSVP reminders, and updates by text message.\n\nHow to turn on SMS:\n1) Sign in at the link above.\n2) Go to Notification Preferences: ${notifPrefsUrl}\n3) Enter your mobile number and check the box to enable SMS.\n4) Save your preferences.\n\nScreenshot guide (SMS section):\n${smsConsentGuideUrl}\n\nMessage frequency varies. Message and data rates may apply. Reply STOP to opt out. Reply HELP for help.\n\nIf anything is confusing, reply to this email and we will help right away.\n\nThank you,\nProject Healing Waters Colorado Alpine`,
     operationType: 'identity_access_invite',
   });
 }
