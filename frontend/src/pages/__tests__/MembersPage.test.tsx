@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { adminApi } from '../../api/admin';
 import { membersApi } from '../../api/members';
 import { useAuth } from '../../hooks/useAuth';
@@ -92,6 +92,10 @@ function makeStatus(memberId: string, status: 'pending' | 'invited' | 'linked' |
 }
 
 describe('MembersPage identity workflow', () => {
+  let createObjectUrlSpy: ReturnType<typeof vi.spyOn>;
+  let revokeObjectUrlSpy: ReturnType<typeof vi.spyOn>;
+  let anchorClickSpy: ReturnType<typeof vi.spyOn>;
+
   beforeEach(() => {
     mockedUseAuth.mockReturnValue({
       isAdmin: () => true,
@@ -132,6 +136,22 @@ describe('MembersPage identity workflow', () => {
       ],
     });
     mockedAdminApi.relinkIdentity.mockResolvedValue(makeStatus('m-1', 'linked'));
+
+    createObjectUrlSpy = vi
+      .spyOn(URL, 'createObjectURL')
+      .mockReturnValue('blob:members-export');
+    revokeObjectUrlSpy = vi
+      .spyOn(URL, 'revokeObjectURL')
+      .mockImplementation(() => undefined);
+    anchorClickSpy = vi
+      .spyOn(HTMLAnchorElement.prototype, 'click')
+      .mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    createObjectUrlSpy.mockRestore();
+    revokeObjectUrlSpy.mockRestore();
+    anchorClickSpy.mockRestore();
   });
 
   it('shows identity status column from bulk status API', async () => {
@@ -143,8 +163,8 @@ describe('MembersPage identity workflow', () => {
       expect(mockedAdminApi.identityStatusBulk).toHaveBeenCalledWith(['m-1', 'm-2']);
     });
 
-    expect(screen.getByText('Linked')).toBeInTheDocument();
-    expect(screen.getByText('Pending')).toBeInTheDocument();
+    expect(screen.getByRole('cell', { name: 'Accepted' })).toBeInTheDocument();
+    expect(screen.getByRole('cell', { name: 'Pending invite' })).toBeInTheDocument();
   });
 
   it('invites one member and refreshes identity status', async () => {
@@ -160,7 +180,7 @@ describe('MembersPage identity workflow', () => {
       expect(mockedAdminApi.identityStatus).toHaveBeenCalledWith('m-1');
     });
 
-    expect(screen.getByText('Invited')).toBeInTheDocument();
+    expect(screen.getByRole('cell', { name: 'Invited' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Open redeem link' })).toHaveAttribute('href', 'https://example.com/redeem');
   });
 
@@ -178,6 +198,23 @@ describe('MembersPage identity workflow', () => {
       expect(mockedAdminApi.inviteIdentityBulk).toHaveBeenCalledWith(['m-1', 'm-2']);
     });
 
-    expect(await screen.findAllByText('Invited')).toHaveLength(2);
+    expect(await screen.findAllByRole('cell', { name: 'Invited' })).toHaveLength(2);
+  });
+
+  it('shows invite summary and exports filtered csv', async () => {
+    render(<MembersPage />);
+
+    await screen.findByText('Mike Rivera');
+
+    await waitFor(() => {
+      expect(screen.getByText('Pending invite: 1')).toBeInTheDocument();
+      expect(screen.getByText('Accepted: 1')).toBeInTheDocument();
+    });
+
+    await userEvent.selectOptions(screen.getByLabelText('Invite status'), 'accepted');
+    await userEvent.click(screen.getByRole('button', { name: 'Export filtered CSV' }));
+
+    expect(createObjectUrlSpy).toHaveBeenCalledTimes(1);
+    expect(revokeObjectUrlSpy).toHaveBeenCalledTimes(1);
   });
 });

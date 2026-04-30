@@ -18,6 +18,15 @@ interface MemberEditState {
   is_active: boolean
 }
 
+type InviteFilter = 'all' | 'pending' | 'invited' | 'accepted' | 'disabled'
+
+interface MemberInviteSummary {
+  pending: number
+  invited: number
+  accepted: number
+  disabled: number
+}
+
 function deriveChannelPreference(smsOptIn: boolean, emailOptOut: boolean): 'email_only' | 'sms_only' | 'both' {
   if (smsOptIn && !emailOptOut) {
     return 'both'
@@ -52,6 +61,23 @@ function toEditState(m: MemberRecord): MemberEditState {
   }
 }
 
+function normalizeIdentityStatus(status?: IdentityStatus['status']): 'pending' | 'invited' | 'accepted' | 'disabled' {
+  if (status === 'linked') {
+    return 'accepted'
+  }
+  if (status === 'invited' || status === 'disabled') {
+    return status
+  }
+  return 'pending'
+}
+
+function toCsvCell(value: string): string {
+  if (value.includes(',') || value.includes('"') || value.includes('\n')) {
+    return `"${value.replace(/"/g, '""')}"`
+  }
+  return value
+}
+
 function MembersPage() {
   const PAGE_SIZE = 100
   const { isAdmin } = useAuth()
@@ -63,6 +89,7 @@ function MembersPage() {
   const identityBulkLastRequestedAtRef = useRef(0)
   const identityBulkCooldownUntilRef = useRef(0)
   const [search, setSearch] = useState('')
+  const [inviteFilter, setInviteFilter] = useState<InviteFilter>('all')
   const [page, setPage] = useState(1)
   const [members, setMembers] = useState<MemberRecord[]>([])
   const [totalMembers, setTotalMembers] = useState(0)
@@ -88,6 +115,39 @@ function MembersPage() {
     notes: string | null
   }>>([])
 
+  const hasPreviousPage = page > 1
+  const hasNextPage = page * PAGE_SIZE < totalMembers
+
+  const filteredMembers = useMemo(
+    () => members.filter((member) => {
+      if (!isAdminUser || inviteFilter === 'all') {
+        return true
+      }
+      const identityStatus = identityByMemberId[member.member_id]?.status ?? 'pending'
+      if (inviteFilter === 'accepted') {
+        return identityStatus === 'linked'
+      }
+      return identityStatus === inviteFilter
+    }),
+    [members, isAdminUser, inviteFilter, identityByMemberId],
+  )
+
+  const inviteSummary = useMemo<MemberInviteSummary>(() => {
+    const summary: MemberInviteSummary = {
+      pending: 0,
+      invited: 0,
+      accepted: 0,
+      disabled: 0,
+    }
+
+    for (const member of members) {
+      const normalized = normalizeIdentityStatus(identityByMemberId[member.member_id]?.status)
+      summary[normalized] += 1
+    }
+
+    return summary
+  }, [members, identityByMemberId])
+
   const totalLabel = useMemo(
     () => {
       if (totalMembers <= PAGE_SIZE) {
@@ -99,9 +159,6 @@ function MembersPage() {
     },
     [members.length, page, totalMembers],
   )
-
-  const hasPreviousPage = page > 1
-  const hasNextPage = page * PAGE_SIZE < totalMembers
 
   useEffect(() => {
     setPage(1)
@@ -362,7 +419,10 @@ function MembersPage() {
     setError(null)
     setInviteSuccess(null)
     try {
-      const memberIds = members.map((member) => member.member_id)
+      const memberIds = filteredMembers.map((member) => member.member_id)
+      if (memberIds.length === 0) {
+        return
+      }
       await adminApi.inviteIdentityBulk(memberIds)
       const refreshed = await adminApi.identityStatusBulk(memberIds)
       const map: Record<string, IdentityStatus> = {}
@@ -430,11 +490,87 @@ function MembersPage() {
   }
 
   function describeIdentityStatus(memberId: string): string {
-    const status = identityByMemberId[memberId]?.status
-    if (!status) {
-      return 'Pending'
+    const normalized = normalizeIdentityStatus(identityByMemberId[memberId]?.status)
+    if (normalized === 'accepted') {
+      return 'Accepted'
     }
-    return `${status.charAt(0).toUpperCase()}${status.slice(1)}`
+    if (normalized === 'pending') {
+      return 'Pending invite'
+    }
+    return `${normalized.charAt(0).toUpperCase()}${normalized.slice(1)}`
+  }
+
+  function describeAcceptedAt(memberId: string): string {
+    const status = identityByMemberId[memberId]
+    if (!status || status.status !== 'linked') {
+      return 'No'
+    }
+
+    const acceptedAt = status.last_sign_in_at ?? status.linked_at
+    if (!acceptedAt) {
+      return 'Yes'
+    }
+    return `Yes (${new Date(acceptedAt).toLocaleDateString()})`
+  }
+
+  function handleExportFilteredCsv() {
+    if (filteredMembers.length === 0) {
+      return
+    }
+
+    const header = [
+      'member_id',
+      'first_name',
+      'last_name',
+      'email',
+      'mobile_phone',
+      'channels',
+      'record_status',
+      'invite_status',
+      'accepted',
+      'accepted_at',
+      'invited_at',
+      'last_sign_in_at',
+    ]
+
+    const rows = filteredMembers.map((member) => {
+      const identity = identityByMemberId[member.member_id]
+      const normalized = normalizeIdentityStatus(identity?.status)
+      const acceptedAt = normalized === 'accepted' ? (identity?.last_sign_in_at ?? identity?.linked_at ?? '') : ''
+      const invitedAt = identity?.invited_at ?? identity?.invite_email_sent_at ?? ''
+      const accepted = normalized === 'accepted' ? 'yes' : 'no'
+
+      return [
+        member.member_id,
+        member.first_name,
+        member.last_name,
+        member.email,
+        member.mobile_phone ?? '',
+        deriveChannelPreference(member.sms_opt_in, member.email_opt_out),
+        member.is_active ? 'active' : 'inactive',
+        normalized,
+        accepted,
+        acceptedAt,
+        invitedAt,
+        identity?.last_sign_in_at ?? '',
+      ]
+    })
+
+    const csv = [header, ...rows]
+      .map((row) => row.map((value) => toCsvCell(String(value))).join(','))
+      .join('\n')
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    const date = new Date().toISOString().slice(0, 10)
+
+    anchor.href = url
+    anchor.download = `members-${inviteFilter}-${date}.csv`
+    document.body.appendChild(anchor)
+    anchor.click()
+    document.body.removeChild(anchor)
+    URL.revokeObjectURL(url)
   }
 
   return (
@@ -451,7 +587,24 @@ function MembersPage() {
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
-        <span className="members-count">{totalLabel}</span>
+        {isAdminUser && (
+          <>
+            <label className="members-search-label" htmlFor="member-invite-filter">Invite status</label>
+            <select
+              id="member-invite-filter"
+              className="members-input"
+              value={inviteFilter}
+              onChange={(e) => setInviteFilter(e.target.value as InviteFilter)}
+            >
+              <option value="all">All statuses</option>
+              <option value="pending">Pending invite</option>
+              <option value="invited">Invited</option>
+              <option value="accepted">Accepted</option>
+              <option value="disabled">Disabled</option>
+            </select>
+          </>
+        )}
+        <span className="members-count">{filteredMembers.length} shown · {totalLabel}</span>
         <button
           className="btn btn--outline btn--sm"
           type="button"
@@ -478,7 +631,29 @@ function MembersPage() {
             {isBulkInviting ? 'Inviting…' : 'Invite all filtered'}
           </button>
         )}
+        {isAdminUser && (
+          <button
+            className="btn btn--outline btn--sm"
+            type="button"
+            disabled={isLoading || filteredMembers.length === 0}
+            onClick={handleExportFilteredCsv}
+          >
+            Export filtered CSV
+          </button>
+        )}
       </section>
+
+      {isAdminUser && (
+        <section className="card members-summary">
+          <p className="members-summary__title">Invite status snapshot</p>
+          <div className="members-summary__grid">
+            <span className="members-summary__pill">Pending invite: {inviteSummary.pending}</span>
+            <span className="members-summary__pill">Invited: {inviteSummary.invited}</span>
+            <span className="members-summary__pill">Accepted: {inviteSummary.accepted}</span>
+            <span className="members-summary__pill">Disabled: {inviteSummary.disabled}</span>
+          </div>
+        </section>
+      )}
 
       {error && <p className="ui-notice ui-notice--error">{error}</p>}
       {hardDeleteSuccess && (
@@ -503,11 +678,11 @@ function MembersPage() {
           <table className="members-table">
             <thead>
               <tr>
-                <th>Name</th><th>Email</th><th>Phone</th><th>Channels</th><th>Status</th><th>Identity</th><th>Actions</th>
+                <th>Name</th><th>Email</th><th>Phone</th><th>Channels</th><th>Record</th><th>Invite status</th><th>Accepted</th><th>Actions</th>
               </tr>
             </thead>
             <tbody>
-              {members.map((m) => (
+              {filteredMembers.map((m) => (
                 <tr key={m.member_id}>
                   <td>{m.first_name} {m.last_name}</td>
                   <td>{m.email}</td>
@@ -515,6 +690,7 @@ function MembersPage() {
                   <td>{deriveChannelPreference(m.sms_opt_in, m.email_opt_out).replace('_', ' ')}</td>
                   <td>{m.is_active ? 'Active' : 'Inactive'}</td>
                   <td>{describeIdentityStatus(m.member_id)}</td>
+                  <td>{describeAcceptedAt(m.member_id)}</td>
                   <td>
                     <div className="members-row-actions">
                       <button className="btn btn--primary btn--sm" onClick={() => startEdit(m)}>Edit</button>
@@ -556,6 +732,11 @@ function MembersPage() {
                   </td>
                 </tr>
               ))}
+              {filteredMembers.length === 0 && (
+                <tr>
+                  <td colSpan={8}>No members match this filter.</td>
+                </tr>
+              )}
             </tbody>
           </table>
         )}
