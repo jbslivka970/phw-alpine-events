@@ -52,7 +52,26 @@ interface IdentityStatusRow {
   invite_email_sent_at: Date | null;
   linked_at: Date | null;
   last_sign_in_at: Date | null;
-  updated_at: Date;
+  updated_at: Date | null;
+}
+
+interface IdentityStatusJoinedRow {
+  member_id: string;
+  link_status: 'pending' | 'invited' | 'linked' | 'disabled' | null;
+  identity_provider: string | null;
+  entra_object_id: string | null;
+  issuer: string | null;
+  issuer_assigned_id: string | null;
+  invited_at: Date | null;
+  invite_email_sent_at: Date | null;
+  linked_at: Date | null;
+  last_sign_in_at: Date | null;
+  link_updated_at: Date | null;
+  app_user_email: string | null;
+  app_user_azure_oid: string | null;
+  app_user_last_login: Date | null;
+  app_user_created_at: Date | null;
+  app_user_updated_at: Date | null;
 }
 
 interface IdentityInviteTraceRow {
@@ -802,21 +821,9 @@ router.post('/identity/status/bulk', apiLimiter, async (req, res) => {
       return;
     }
 
-    const pool = await getPool();
-    const query = memberIds.map((_, index) => `@member_id_${index}`).join(', ');
-    const request = pool.request();
-    memberIds.forEach((memberId, index) => {
-      request.input(`member_id_${index}`, sql.UniqueIdentifier, memberId);
-    });
+    const result = await getIdentityStatusesByMemberIds(memberIds);
 
-    const result = await request.query<IdentityStatusRow>(
-      `SELECT member_id, status, identity_provider, entra_object_id, issuer, issuer_assigned_id,
-              invited_at, invite_email_sent_at, linked_at, last_sign_in_at, updated_at
-       FROM member_identity_link
-       WHERE member_id IN (${query})`
-    );
-
-    const found = new Map(result.recordset.map((row) => [row.member_id.toLowerCase(), row]));
+    const found = new Map(result.map((row) => [row.member_id.toLowerCase(), row]));
     const data = memberIds.map((memberId) => {
       const row = found.get(memberId.toLowerCase());
       if (row) {
@@ -1244,18 +1251,82 @@ function parseOptionalPositiveInt(value: unknown): number | undefined {
 }
 
 async function getIdentityStatusByMemberId(memberId: string): Promise<IdentityStatusRow | null> {
-  const pool = await getPool();
-  const result = await pool
-    .request()
-    .input('member_id', sql.UniqueIdentifier, memberId)
-    .query<IdentityStatusRow>(
-      `SELECT TOP 1 member_id, status, identity_provider, entra_object_id, issuer, issuer_assigned_id,
-              invited_at, invite_email_sent_at, linked_at, last_sign_in_at, updated_at
-       FROM member_identity_link
-       WHERE member_id = @member_id`
-    );
+  const statuses = await getIdentityStatusesByMemberIds([memberId]);
+  return statuses[0] ?? null;
+}
 
-  return result.recordset[0] ?? null;
+async function getIdentityStatusesByMemberIds(memberIds: string[]): Promise<IdentityStatusRow[]> {
+  if (memberIds.length === 0) {
+    return [];
+  }
+
+  const pool = await getPool();
+  const query = memberIds.map((_, index) => `@member_id_${index}`).join(', ');
+  const request = pool.request();
+  memberIds.forEach((memberId, index) => {
+    request.input(`member_id_${index}`, sql.UniqueIdentifier, memberId);
+  });
+
+  const result = await request.query<IdentityStatusJoinedRow>(
+    `SELECT
+       m.member_id,
+       mil.status AS link_status,
+       mil.identity_provider,
+       mil.entra_object_id,
+       mil.issuer,
+       mil.issuer_assigned_id,
+       mil.invited_at,
+       mil.invite_email_sent_at,
+       mil.linked_at,
+       mil.last_sign_in_at,
+       mil.updated_at AS link_updated_at,
+       u.email AS app_user_email,
+       u.azure_oid AS app_user_azure_oid,
+       u.last_login AS app_user_last_login,
+       u.created_at AS app_user_created_at,
+       u.updated_at AS app_user_updated_at
+     FROM member m
+     LEFT JOIN member_identity_link mil ON mil.member_id = m.member_id
+     LEFT JOIN dbo.[user] u ON LOWER(u.email) = LOWER(m.email) AND u.is_active = 1
+     WHERE m.member_id IN (${query})`
+  );
+
+  return result.recordset.map(toIdentityStatusRow);
+}
+
+function toIdentityStatusRow(row: IdentityStatusJoinedRow): IdentityStatusRow {
+  const hasAppUser = Boolean(
+    row.app_user_email
+    || row.app_user_azure_oid
+    || row.app_user_last_login
+    || row.app_user_created_at
+  );
+
+  let effectiveStatus: IdentityStatusRow['status'] = 'pending';
+  if (row.link_status === 'disabled') {
+    effectiveStatus = 'disabled';
+  } else if (hasAppUser) {
+    effectiveStatus = 'linked';
+  } else if (row.link_status) {
+    effectiveStatus = row.link_status;
+  }
+
+  const linkedAt = row.linked_at ?? (effectiveStatus === 'linked' ? (row.app_user_last_login ?? row.app_user_created_at ?? null) : null);
+  const lastSignInAt = row.last_sign_in_at ?? row.app_user_last_login ?? null;
+
+  return {
+    member_id: row.member_id,
+    status: effectiveStatus,
+    identity_provider: row.identity_provider ?? (hasAppUser ? 'app_user' : null),
+    entra_object_id: row.entra_object_id ?? row.app_user_azure_oid,
+    issuer: row.issuer,
+    issuer_assigned_id: row.issuer_assigned_id ?? row.app_user_email,
+    invited_at: row.invited_at,
+    invite_email_sent_at: row.invite_email_sent_at,
+    linked_at: linkedAt,
+    last_sign_in_at: lastSignInAt,
+    updated_at: row.link_updated_at ?? row.app_user_updated_at ?? row.app_user_created_at,
+  };
 }
 
 async function getMemberIdentityTarget(memberId: string): Promise<{

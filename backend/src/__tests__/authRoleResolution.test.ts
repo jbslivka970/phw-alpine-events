@@ -2,8 +2,8 @@ import { mapAppAccountRole, resolveRolesForRequest } from '../middleware/authRol
 
 describe('auth app role resolution', () => {
   it('maps app admin roles to ADMIN', () => {
-    expect(mapAppAccountRole('admin')).toEqual(['ADMIN']);
-    expect(mapAppAccountRole('superadmin')).toEqual(['ADMIN']);
+    expect(mapAppAccountRole('admin')).toEqual(['ADMIN', 'EVENT_CREATOR', 'TAVF_CREATOR', 'USER']);
+    expect(mapAppAccountRole('superadmin')).toEqual(['ADMIN', 'EVENT_CREATOR', 'TAVF_CREATOR', 'USER']);
   });
 
   it('maps app creator roles to app permissions', () => {
@@ -44,7 +44,7 @@ describe('auth app role resolution', () => {
       allowTokenRoleFallback: true,
     });
 
-    expect(roles).toEqual(['ADMIN', 'USER', 'EVENT_CREATOR']);
+    expect(roles).toEqual(['ADMIN', 'EVENT_CREATOR', 'TAVF_CREATOR', 'USER']);
   });
 
   it('returns DB-only roles when fallback is disabled, even with token claims present', () => {

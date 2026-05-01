@@ -11,7 +11,7 @@ function mapAppAccountRole(rawRole: string | null | undefined): AppRole[] {
   }
 
   if (normalized === 'admin' || normalized === 'superadmin') {
-    return ['ADMIN'];
+    return ['ADMIN', 'EVENT_CREATOR', 'TAVF_CREATOR', 'USER'];
   }
 
   if (normalized === 'event_creator') {
