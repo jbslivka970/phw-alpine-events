@@ -375,7 +375,7 @@ function useAuth() {
   }
 
   function canCreateTavfPostings(): boolean {
-    return hasRole(ROLES.ADMIN) || hasRole(ROLES.TAVF_CREATOR) || hasRole(ROLES.EVENT_CREATOR)
+    return Boolean(user) && (!isAdmin() || hasRole(ROLES.TAVF_CREATOR) || hasRole(ROLES.EVENT_CREATOR))
   }
 
   useEffect(() => {
