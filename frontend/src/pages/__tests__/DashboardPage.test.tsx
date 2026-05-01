@@ -62,6 +62,7 @@ describe('DashboardPage regression coverage', () => {
     mockedUseAuth.mockReturnValue({
       isAdmin: () => false,
       canCreateEvents: () => false,
+      canCreateTavfPostings: () => false,
       user: {
         id: 'auth-subject-id-not-uuid',
         email: 'member@example.org',
