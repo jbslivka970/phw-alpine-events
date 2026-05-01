@@ -13,6 +13,12 @@ export interface UserRoleAssignment {
   roleName: string;
 }
 
+export interface EntraUserLookup {
+  id: string;
+  mail: string | null;
+  userPrincipalName: string | null;
+}
+
 export function isGraphRoleManagementConfigured(): boolean {
   return loadEntraProvisioningConfig().isConfigured;
 }
@@ -107,6 +113,44 @@ export async function listAvailableAppRoles(): Promise<AppRoleInfo[]> {
   const token = await getGraphToken();
   const { appRoles } = await getApiServicePrincipal(token);
   return appRoles;
+}
+
+export async function lookupEntraUserByEmail(email: string): Promise<EntraUserLookup | null> {
+  const normalizedEmail = email.trim().toLowerCase();
+  if (!normalizedEmail) {
+    return null;
+  }
+
+  const token = await getGraphToken();
+  const safeEmail = normalizedEmail.replace(/'/g, "''");
+  const filter = encodeURIComponent(
+    `mail eq '${safeEmail}' or userPrincipalName eq '${safeEmail}' or otherMails/any(c:c eq '${safeEmail}') or identities/any(c:c/issuerAssignedId eq '${safeEmail}')`
+  );
+
+  const response = await fetch(
+    `https://graph.microsoft.com/v1.0/users?$filter=${filter}&$select=id,mail,userPrincipalName`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    throw new Error(`Entra user lookup failed for ${normalizedEmail} (${response.status})${text ? `: ${text.slice(0, 180)}` : ''}`);
+  }
+
+  const data = (await response.json()) as {
+    value?: Array<{ id?: string; mail?: string | null; userPrincipalName?: string | null }>;
+  };
+
+  const user = data.value?.find((candidate) => typeof candidate.id === 'string');
+  if (!user?.id) {
+    return null;
+  }
+
+  return {
+    id: user.id,
+    mail: user.mail ?? null,
+    userPrincipalName: user.userPrincipalName ?? null,
+  };
 }
 
 export async function getUserRoleAssignments(email: string): Promise<UserRoleAssignment[]> {

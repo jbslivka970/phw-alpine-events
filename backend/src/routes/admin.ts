@@ -12,6 +12,7 @@ import {
   getUserRoleAssignments,
   isGraphRoleManagementConfigured,
   listAvailableAppRoles,
+  lookupEntraUserByEmail,
   removeAppRole,
 } from '../services/graphRoleService';
 import { notificationService } from '../services/notifications';
@@ -57,6 +58,7 @@ interface IdentityStatusRow {
 
 interface IdentityStatusJoinedRow {
   member_id: string;
+  member_email: string;
   link_status: 'pending' | 'invited' | 'linked' | 'disabled' | null;
   identity_provider: string | null;
   entra_object_id: string | null;
@@ -1270,6 +1272,7 @@ async function getIdentityStatusesByMemberIds(memberIds: string[]): Promise<Iden
   const result = await request.query<IdentityStatusJoinedRow>(
     `SELECT
        m.member_id,
+       m.email AS member_email,
        mil.status AS link_status,
        mil.identity_provider,
        mil.entra_object_id,
@@ -1291,7 +1294,112 @@ async function getIdentityStatusesByMemberIds(memberIds: string[]): Promise<Iden
      WHERE m.member_id IN (${query})`
   );
 
-  return result.recordset.map(toIdentityStatusRow);
+  let rows: IdentityStatusJoinedRow[] = Array.from(result.recordset);
+
+  if (isGraphRoleManagementConfigured()) {
+    rows = await applyFederatedGraphAcceptanceFallback(rows);
+  }
+
+  return rows.map(toIdentityStatusRow);
+}
+
+async function applyFederatedGraphAcceptanceFallback(rows: IdentityStatusJoinedRow[]): Promise<IdentityStatusJoinedRow[]> {
+  const candidates = rows.filter((row) => {
+    if (!row.member_email) {
+      return false;
+    }
+    if (row.link_status === 'disabled' || row.link_status === 'linked') {
+      return false;
+    }
+    if (row.app_user_email || row.app_user_azure_oid || row.app_user_last_login) {
+      return false;
+    }
+    return true;
+  });
+
+  if (candidates.length === 0) {
+    return rows;
+  }
+
+  const acceptedByMemberId = new Map<string, { entraObjectId: string; linkedAt: Date }>();
+
+  await Promise.all(candidates.map(async (candidate) => {
+    try {
+      const user = await lookupEntraUserByEmail(candidate.member_email);
+      if (!user?.id) {
+        return;
+      }
+
+      const linkedAt = new Date();
+      await upsertFederatedGraphLink(candidate.member_id, candidate.member_email, user.id, linkedAt);
+      acceptedByMemberId.set(candidate.member_id.toLowerCase(), {
+        entraObjectId: user.id,
+        linkedAt,
+      });
+    } catch (error) {
+      console.warn('identity status federated graph lookup failed', {
+        memberId: candidate.member_id,
+        email: candidate.member_email,
+        error: error instanceof Error ? error.message : 'unknown_error',
+      });
+    }
+  }));
+
+  if (acceptedByMemberId.size === 0) {
+    return rows;
+  }
+
+  return rows.map((row) => {
+    const accepted = acceptedByMemberId.get(row.member_id.toLowerCase());
+    if (!accepted) {
+      return row;
+    }
+
+    return {
+      ...row,
+      link_status: 'linked',
+      identity_provider: row.identity_provider ?? 'federated_graph',
+      entra_object_id: row.entra_object_id ?? accepted.entraObjectId,
+      issuer_assigned_id: row.issuer_assigned_id ?? row.member_email,
+      linked_at: row.linked_at ?? accepted.linkedAt,
+      last_sign_in_at: row.last_sign_in_at,
+      link_updated_at: accepted.linkedAt,
+    };
+  });
+}
+
+async function upsertFederatedGraphLink(memberId: string, email: string, entraObjectId: string, linkedAt: Date): Promise<void> {
+  const pool = await getPool();
+  await pool
+    .request()
+    .input('member_id', sql.UniqueIdentifier, memberId)
+    .input('email', sql.NVarChar(255), email.toLowerCase())
+    .input('entra_object_id', sql.NVarChar(255), entraObjectId)
+    .input('identity_provider', sql.NVarChar(100), 'federated_graph')
+    .input('linked_at', sql.DateTime, linkedAt)
+    .query(
+      `MERGE member_identity_link AS target
+       USING (SELECT @member_id AS member_id) AS source
+       ON target.member_id = source.member_id
+       WHEN MATCHED THEN
+         UPDATE SET
+           status = CASE WHEN target.status = 'disabled' THEN target.status ELSE 'linked' END,
+           linked_at = COALESCE(target.linked_at, @linked_at),
+           entra_object_id = COALESCE(target.entra_object_id, @entra_object_id),
+           identity_provider = COALESCE(target.identity_provider, @identity_provider),
+           issuer_assigned_id = COALESCE(target.issuer_assigned_id, @email),
+           last_seen_email = COALESCE(target.last_seen_email, @email),
+           updated_at = GETUTCDATE()
+       WHEN NOT MATCHED THEN
+         INSERT (
+           link_id, member_id, entra_object_id, identity_provider, issuer_assigned_id,
+           status, linked_at, last_seen_email, created_at, updated_at
+         )
+         VALUES (
+           NEWID(), @member_id, @entra_object_id, @identity_provider, @email,
+           'linked', @linked_at, @email, GETUTCDATE(), GETUTCDATE()
+         );`
+    );
 }
 
 function toIdentityStatusRow(row: IdentityStatusJoinedRow): IdentityStatusRow {
