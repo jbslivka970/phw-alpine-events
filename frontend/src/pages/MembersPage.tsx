@@ -18,12 +18,13 @@ interface MemberEditState {
   is_active: boolean
 }
 
-type InviteFilter = 'all' | 'pending' | 'invited' | 'accepted' | 'disabled'
+type InviteFilter = 'all' | 'pending' | 'invited' | 'access' | 'signed_in' | 'disabled'
 
 interface MemberInviteSummary {
   pending: number
   invited: number
-  accepted: number
+  access: number
+  signedIn: number
   disabled: number
 }
 
@@ -69,6 +70,10 @@ function normalizeIdentityStatus(status?: IdentityStatus['status']): 'pending' |
     return status
   }
   return 'pending'
+}
+
+function hasMemberSignedIn(status?: IdentityStatus): boolean {
+  return Boolean(status?.last_sign_in_at)
 }
 
 function toCsvCell(value: string): string {
@@ -123,9 +128,13 @@ function MembersPage() {
       if (!isAdminUser || inviteFilter === 'all') {
         return true
       }
-      const identityStatus = identityByMemberId[member.member_id]?.status ?? 'pending'
-      if (inviteFilter === 'accepted') {
+      const identity = identityByMemberId[member.member_id]
+      const identityStatus = identity?.status ?? 'pending'
+      if (inviteFilter === 'access') {
         return identityStatus === 'linked'
+      }
+      if (inviteFilter === 'signed_in') {
+        return hasMemberSignedIn(identity)
       }
       return identityStatus === inviteFilter
     }),
@@ -136,13 +145,21 @@ function MembersPage() {
     const summary: MemberInviteSummary = {
       pending: 0,
       invited: 0,
-      accepted: 0,
+      access: 0,
+      signedIn: 0,
       disabled: 0,
     }
 
     for (const member of members) {
       const normalized = normalizeIdentityStatus(identityByMemberId[member.member_id]?.status)
-      summary[normalized] += 1
+      if (normalized === 'accepted') {
+        summary.access += 1
+      } else {
+        summary[normalized] += 1
+      }
+      if (hasMemberSignedIn(identityByMemberId[member.member_id])) {
+        summary.signedIn += 1
+      }
     }
 
     return summary
@@ -158,6 +175,11 @@ function MembersPage() {
       return `${start}-${end} of ${totalMembers} members`
     },
     [members.length, page, totalMembers],
+  )
+
+  const invitableFilteredCount = useMemo(
+    () => filteredMembers.filter((member) => normalizeIdentityStatus(identityByMemberId[member.member_id]?.status) === 'pending').length,
+    [filteredMembers, identityByMemberId],
   )
 
   useEffect(() => {
@@ -419,7 +441,9 @@ function MembersPage() {
     setError(null)
     setInviteSuccess(null)
     try {
-      const memberIds = filteredMembers.map((member) => member.member_id)
+      const memberIds = filteredMembers
+        .filter((member) => normalizeIdentityStatus(identityByMemberId[member.member_id]?.status) === 'pending')
+        .map((member) => member.member_id)
       if (memberIds.length === 0) {
         return
       }
@@ -429,7 +453,7 @@ function MembersPage() {
       for (const row of refreshed.data) {
         map[row.member_id] = row
       }
-      setIdentityByMemberId(map)
+      setIdentityByMemberId((current) => ({ ...current, ...map }))
     } catch (err: unknown) {
       setError(toUserErrorMessage(err, 'Bulk identity invite failed.'))
     } finally {
@@ -492,25 +516,34 @@ function MembersPage() {
   function describeIdentityStatus(memberId: string): string {
     const normalized = normalizeIdentityStatus(identityByMemberId[memberId]?.status)
     if (normalized === 'accepted') {
-      return 'Accepted'
+      return 'Access enabled'
     }
     if (normalized === 'pending') {
-      return 'Pending invite'
+      return 'No access record'
     }
     return `${normalized.charAt(0).toUpperCase()}${normalized.slice(1)}`
   }
 
-  function describeAcceptedAt(memberId: string): string {
+  function describeSignedIn(memberId: string): string {
     const status = identityByMemberId[memberId]
-    if (!status || status.status !== 'linked') {
+    if (!status?.last_sign_in_at) {
       return 'No'
     }
+    return `Yes (${new Date(status.last_sign_in_at).toLocaleDateString()})`
+  }
 
-    const acceptedAt = status.last_sign_in_at ?? status.linked_at
-    if (!acceptedAt) {
-      return 'Yes'
+  function getInviteButtonState(memberId: string): { label: string; disabled: boolean } {
+    const normalized = normalizeIdentityStatus(identityByMemberId[memberId]?.status)
+    if (normalized === 'accepted') {
+      return { label: 'Has access', disabled: true }
     }
-    return `Yes (${new Date(acceptedAt).toLocaleDateString()})`
+    if (normalized === 'invited') {
+      return { label: 'Invited', disabled: true }
+    }
+    if (normalized === 'disabled') {
+      return { label: 'Disabled', disabled: true }
+    }
+    return { label: 'Invite', disabled: false }
   }
 
   function handleExportFilteredCsv() {
@@ -526,9 +559,9 @@ function MembersPage() {
       'mobile_phone',
       'channels',
       'record_status',
-      'invite_status',
-      'accepted',
-      'accepted_at',
+      'access_status',
+      'signed_in',
+      'signed_in_at',
       'invited_at',
       'last_sign_in_at',
     ]
@@ -536,9 +569,10 @@ function MembersPage() {
     const rows = filteredMembers.map((member) => {
       const identity = identityByMemberId[member.member_id]
       const normalized = normalizeIdentityStatus(identity?.status)
-      const acceptedAt = normalized === 'accepted' ? (identity?.last_sign_in_at ?? identity?.linked_at ?? '') : ''
+      const signedInAt = identity?.last_sign_in_at ?? ''
       const invitedAt = identity?.invited_at ?? identity?.invite_email_sent_at ?? ''
-      const accepted = normalized === 'accepted' ? 'yes' : 'no'
+      const accessStatus = normalized === 'accepted' ? 'access_enabled' : normalized
+      const signedIn = identity?.last_sign_in_at ? 'yes' : 'no'
 
       return [
         member.member_id,
@@ -548,9 +582,9 @@ function MembersPage() {
         member.mobile_phone ?? '',
         deriveChannelPreference(member.sms_opt_in, member.email_opt_out),
         member.is_active ? 'active' : 'inactive',
-        normalized,
-        accepted,
-        acceptedAt,
+        accessStatus,
+        signedIn,
+        signedInAt,
         invitedAt,
         identity?.last_sign_in_at ?? '',
       ]
@@ -589,7 +623,7 @@ function MembersPage() {
         />
         {isAdminUser && (
           <>
-            <label className="members-search-label" htmlFor="member-invite-filter">Invite status</label>
+            <label className="members-search-label" htmlFor="member-invite-filter">Access status</label>
             <select
               id="member-invite-filter"
               className="members-input"
@@ -597,9 +631,10 @@ function MembersPage() {
               onChange={(e) => setInviteFilter(e.target.value as InviteFilter)}
             >
               <option value="all">All statuses</option>
-              <option value="pending">Pending invite</option>
+              <option value="pending">No access record</option>
               <option value="invited">Invited</option>
-              <option value="accepted">Accepted</option>
+              <option value="access">Access enabled</option>
+              <option value="signed_in">Signed in</option>
               <option value="disabled">Disabled</option>
             </select>
           </>
@@ -627,8 +662,8 @@ function MembersPage() {
           </button>
         )}
         {isAdminUser && (
-          <button className="btn btn--outline btn--sm" type="button" disabled={isBulkInviting} onClick={handleInviteAllFiltered}>
-            {isBulkInviting ? 'Inviting…' : 'Invite all filtered'}
+          <button className="btn btn--outline btn--sm" type="button" disabled={isBulkInviting || invitableFilteredCount === 0} onClick={handleInviteAllFiltered}>
+            {isBulkInviting ? 'Inviting…' : 'Invite all without access'}
           </button>
         )}
         {isAdminUser && (
@@ -645,11 +680,12 @@ function MembersPage() {
 
       {isAdminUser && (
         <section className="card members-summary">
-          <p className="members-summary__title">Invite status snapshot</p>
+          <p className="members-summary__title">Access snapshot</p>
           <div className="members-summary__grid">
-            <span className="members-summary__pill">Pending invite: {inviteSummary.pending}</span>
+            <span className="members-summary__pill">No access record: {inviteSummary.pending}</span>
             <span className="members-summary__pill">Invited: {inviteSummary.invited}</span>
-            <span className="members-summary__pill">Accepted: {inviteSummary.accepted}</span>
+            <span className="members-summary__pill">Access enabled: {inviteSummary.access}</span>
+            <span className="members-summary__pill">Signed in: {inviteSummary.signedIn}</span>
             <span className="members-summary__pill">Disabled: {inviteSummary.disabled}</span>
           </div>
         </section>
@@ -678,7 +714,7 @@ function MembersPage() {
           <table className="members-table">
             <thead>
               <tr>
-                <th>Name</th><th>Email</th><th>Phone</th><th>Channels</th><th>Record</th><th>Invite status</th><th>Accepted</th><th>Actions</th>
+                <th>Name</th><th>Email</th><th>Phone</th><th>Channels</th><th>Record</th><th>Access</th><th>Signed in</th><th>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -690,19 +726,24 @@ function MembersPage() {
                   <td>{deriveChannelPreference(m.sms_opt_in, m.email_opt_out).replace('_', ' ')}</td>
                   <td>{m.is_active ? 'Active' : 'Inactive'}</td>
                   <td>{describeIdentityStatus(m.member_id)}</td>
-                  <td>{describeAcceptedAt(m.member_id)}</td>
+                  <td>{describeSignedIn(m.member_id)}</td>
                   <td>
                     <div className="members-row-actions">
                       <button className="btn btn--primary btn--sm" onClick={() => startEdit(m)}>Edit</button>
                       {isAdminUser && (
-                        <button
-                          className="btn btn--outline btn--sm"
-                          type="button"
-                          disabled={Boolean(inviteInFlightByMemberId[m.member_id])}
-                          onClick={() => handleInvite(m.member_id)}
-                        >
-                          {inviteInFlightByMemberId[m.member_id] ? 'Inviting…' : 'Invite'}
-                        </button>
+                        (() => {
+                          const inviteButton = getInviteButtonState(m.member_id)
+                          return (
+                          <button
+                            className="btn btn--outline btn--sm"
+                            type="button"
+                            disabled={inviteButton.disabled || Boolean(inviteInFlightByMemberId[m.member_id])}
+                            onClick={() => handleInvite(m.member_id)}
+                          >
+                            {inviteInFlightByMemberId[m.member_id] ? 'Inviting…' : inviteButton.label}
+                          </button>
+                          )
+                        })()
                       )}
                       {isAdminUser && (
                         <button className="btn btn--outline btn--sm" type="button" onClick={() => handleRelink(m)}>

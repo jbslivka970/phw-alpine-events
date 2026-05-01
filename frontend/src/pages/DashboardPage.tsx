@@ -103,10 +103,11 @@ function StatCard({ label, value, color, delay }: { label: string; value: string
 }
 
 function DashboardPage() {
-  const { user, isAdmin, canCreateEvents } = useAuth();
+  const { user, isAdmin, canCreateEvents, canCreateTavfPostings } = useAuth();
   const navigate = useNavigate();
   const isAdminUser = isAdmin();
   const canManageEvents = isAdminUser || canCreateEvents();
+  const canManageTavf = canCreateTavfPostings();
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [eventActionError, setEventActionError] = useState<string | null>(null);
@@ -475,8 +476,8 @@ function DashboardPage() {
                 variant="fishing"
                 title="No open postings"
                 description="Post your availability and help a veteran get on the water."
-                actionLabel="Post availability"
-                onAction={() => navigate('/tavf/new')}
+                actionLabel={canManageTavf ? 'Post availability' : undefined}
+                onAction={canManageTavf ? () => navigate('/tavf/new') : undefined}
               />
             ) : (
               openPostings.map((posting, index) => (

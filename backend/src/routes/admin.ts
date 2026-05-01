@@ -899,6 +899,20 @@ router.post('/identity/invite', writeLimiter, async (req, res) => {
       return;
     }
 
+    const existingStatus = await getIdentityStatusByMemberId(member.member_id);
+    if (existingStatus?.status === 'linked') {
+      res.status(409).json({ error: 'Member already has access. No duplicate invite was sent.' });
+      return;
+    }
+    if (existingStatus?.status === 'invited') {
+      res.status(409).json({ error: 'Member already has a pending access invite. No duplicate invite was sent.' });
+      return;
+    }
+    if (existingStatus?.status === 'disabled') {
+      res.status(409).json({ error: 'Member access is disabled. Re-enable or relink instead of sending a new invite.' });
+      return;
+    }
+
     const invitation = await sendEntraInvitation({
       email: member.email,
       displayName: `${member.first_name} ${member.last_name}`.trim() || member.email,
@@ -976,6 +990,8 @@ router.post('/identity/invite/bulk', writeLimiter, async (req, res) => {
 
     const currentUser = req.user?.email ?? req.user?.sub ?? 'unknown';
     const results: Array<{ member_id: string; status: 'invited' | 'skipped' | 'failed'; reason?: string }> = [];
+    const existingStatuses = await getIdentityStatusesByMemberIds(memberIds);
+    const existingStatusByMemberId = new Map(existingStatuses.map((status) => [status.member_id.toLowerCase(), status]));
 
     for (const memberId of memberIds) {
       try {
@@ -990,6 +1006,20 @@ router.post('/identity/invite/bulk', writeLimiter, async (req, res) => {
         }
         if (!member.email) {
           results.push({ member_id: memberId, status: 'skipped', reason: 'missing_email' });
+          continue;
+        }
+
+        const existingStatus = existingStatusByMemberId.get(member.member_id.toLowerCase());
+        if (existingStatus?.status === 'linked') {
+          results.push({ member_id: member.member_id, status: 'skipped', reason: 'already_has_access' });
+          continue;
+        }
+        if (existingStatus?.status === 'invited') {
+          results.push({ member_id: member.member_id, status: 'skipped', reason: 'already_invited' });
+          continue;
+        }
+        if (existingStatus?.status === 'disabled') {
+          results.push({ member_id: member.member_id, status: 'skipped', reason: 'access_disabled' });
           continue;
         }
 

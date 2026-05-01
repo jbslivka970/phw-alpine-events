@@ -163,11 +163,18 @@ describe('MembersPage identity workflow', () => {
       expect(mockedAdminApi.identityStatusBulk).toHaveBeenCalledWith(['m-1', 'm-2']);
     });
 
-    expect(screen.getByRole('cell', { name: 'Accepted' })).toBeInTheDocument();
-    expect(screen.getByRole('cell', { name: 'Pending invite' })).toBeInTheDocument();
+    expect(screen.getByRole('cell', { name: 'Access enabled' })).toBeInTheDocument();
+    expect(screen.getByRole('cell', { name: 'No access record' })).toBeInTheDocument();
   });
 
   it('invites one member and refreshes identity status', async () => {
+    mockedAdminApi.identityStatusBulk.mockResolvedValueOnce({
+      data: [
+        makeStatus('m-1', 'pending'),
+        makeStatus('m-2', 'pending'),
+      ],
+    });
+
     render(<MembersPage />);
 
     await screen.findByText('Mike Rivera');
@@ -192,7 +199,7 @@ describe('MembersPage identity workflow', () => {
     render(<MembersPage />);
 
     await screen.findByText('Mike Rivera');
-    await userEvent.click(screen.getByRole('button', { name: 'Invite all filtered' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Invite all without access' }));
 
     await waitFor(() => {
       expect(mockedAdminApi.inviteIdentityBulk).toHaveBeenCalledWith(['m-1', 'm-2']);
@@ -207,11 +214,11 @@ describe('MembersPage identity workflow', () => {
     await screen.findByText('Mike Rivera');
 
     await waitFor(() => {
-      expect(screen.getByText('Pending invite: 1')).toBeInTheDocument();
-      expect(screen.getByText('Accepted: 1')).toBeInTheDocument();
+      expect(screen.getByText('No access record: 1')).toBeInTheDocument();
+      expect(screen.getByText('Access enabled: 1')).toBeInTheDocument();
     });
 
-    await userEvent.selectOptions(screen.getByLabelText('Invite status'), 'accepted');
+    await userEvent.selectOptions(screen.getByLabelText('Access status'), 'access');
     await userEvent.click(screen.getByRole('button', { name: 'Export filtered CSV' }));
 
     expect(createObjectUrlSpy).toHaveBeenCalledTimes(1);
