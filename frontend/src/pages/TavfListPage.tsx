@@ -48,8 +48,7 @@ function PostingCard({ posting }: { posting: TavfPosting }) {
 }
 
 function TavfListPage() {
-  const { user, canCreateEvents, canCreateTavfPostings } = useAuth();
-  const canEditEvents = canCreateEvents();
+  const { user, canCreateTavfPostings } = useAuth();
   const [postings, setPostings] = useState<TavfPosting[]>([]);
   const [statusFilter, setStatusFilter] = useState<PostingStatus | ''>('open');
   const [loading, setLoading] = useState(true);
@@ -73,7 +72,7 @@ function TavfListPage() {
   }, [statusFilter]);
 
   useEffect(() => {
-    if (!user?.email || canEditEvents) {
+    if (!user?.email) {
       return;
     }
 
@@ -102,7 +101,7 @@ function TavfListPage() {
     return () => {
       cancelled = true;
     };
-  }, [canEditEvents, user?.email]);
+  }, [user?.email]);
 
   async function toggleSubscription(next: boolean): Promise<void> {
     setSavingSubscription(true);
@@ -133,7 +132,7 @@ function TavfListPage() {
         )}
       </div>
 
-      {user && !canEditEvents && (
+      {user && (
         <div className="tavf-notify-pref">
           <label className="tavf-notify-pref__toggle" htmlFor="tavf-notify-toggle">
             <input

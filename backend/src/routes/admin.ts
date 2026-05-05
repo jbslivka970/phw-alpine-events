@@ -76,6 +76,14 @@ interface IdentityStatusJoinedRow {
   app_user_updated_at: Date | null;
 }
 
+interface AppUserLookupRow {
+  email: string | null;
+  azure_oid: string | null;
+  last_login: Date | null;
+  created_at: Date | null;
+  updated_at: Date | null;
+}
+
 interface IdentityStatusSummary {
   total_members: number;
   pending: number;
@@ -1424,11 +1432,135 @@ async function getIdentityStatusesByMemberIds(memberIds: string[]): Promise<Iden
 
   let rows: IdentityStatusJoinedRow[] = Array.from(result.recordset);
 
+  rows = await applyAppUserEmailNormalizationFallback(rows);
+
   if (isGraphRoleManagementConfigured()) {
     rows = await applyFederatedGraphAcceptanceFallback(rows);
   }
 
   return rows.map(toIdentityStatusRow);
+}
+
+function normalizeEmailForIdentityMatch(value: string | null | undefined): string | null {
+  if (!value) {
+    return null;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) {
+    return null;
+  }
+
+  const extIndex = normalized.indexOf('#ext#@');
+  if (extIndex > 0) {
+    const localAndDomain = normalized.slice(0, extIndex);
+    const separatorIndex = localAndDomain.lastIndexOf('_');
+    if (separatorIndex > 0 && separatorIndex < localAndDomain.length - 1) {
+      const localPart = localAndDomain.slice(0, separatorIndex);
+      const domainPart = localAndDomain.slice(separatorIndex + 1);
+      if (localPart && domainPart) {
+        return `${localPart}@${domainPart}`;
+      }
+    }
+  }
+
+  if (normalized.includes('@')) {
+    return normalized;
+  }
+
+  return null;
+}
+
+function compareAppUserRows(a: AppUserLookupRow, b: AppUserLookupRow): number {
+  const aLastLogin = a.last_login?.getTime() ?? 0;
+  const bLastLogin = b.last_login?.getTime() ?? 0;
+  if (aLastLogin !== bLastLogin) {
+    return bLastLogin - aLastLogin;
+  }
+
+  const aUpdated = a.updated_at?.getTime() ?? a.created_at?.getTime() ?? 0;
+  const bUpdated = b.updated_at?.getTime() ?? b.created_at?.getTime() ?? 0;
+  return bUpdated - aUpdated;
+}
+
+async function applyAppUserEmailNormalizationFallback(rows: IdentityStatusJoinedRow[]): Promise<IdentityStatusJoinedRow[]> {
+  const candidates = rows.filter((row) => {
+    if (!row.member_email) {
+      return false;
+    }
+    return !(row.app_user_email || row.app_user_azure_oid || row.app_user_last_login);
+  });
+
+  if (candidates.length === 0) {
+    return rows;
+  }
+
+  const normalizedMemberEmails = Array.from(new Set(
+    candidates
+      .map((row) => normalizeEmailForIdentityMatch(row.member_email))
+      .filter((value): value is string => Boolean(value))
+  ));
+
+  if (normalizedMemberEmails.length === 0) {
+    return rows;
+  }
+
+  const pool = await getPool();
+  const request = pool.request();
+  const emailParams = normalizedMemberEmails.map((value, index) => {
+    const key = `normalized_email_${index}`;
+    request.input(key, sql.NVarChar(320), value);
+    return `@${key}`;
+  }).join(', ');
+
+  const userResult = await request.query<AppUserLookupRow>(
+    `SELECT email, azure_oid, last_login, created_at, updated_at
+     FROM dbo.[user]
+     WHERE is_active = 1
+       AND (
+         LOWER(email) IN (${emailParams})
+         OR email LIKE '%#EXT#@%'
+       )`
+  );
+
+  const appUserByNormalizedEmail = new Map<string, AppUserLookupRow>();
+  for (const appUserRow of userResult.recordset) {
+    const normalizedEmail = normalizeEmailForIdentityMatch(appUserRow.email);
+    if (!normalizedEmail) {
+      continue;
+    }
+
+    const existing = appUserByNormalizedEmail.get(normalizedEmail);
+    if (!existing || compareAppUserRows(appUserRow, existing) < 0) {
+      appUserByNormalizedEmail.set(normalizedEmail, appUserRow);
+    }
+  }
+
+  return rows.map((row) => {
+    if (row.app_user_email || row.app_user_azure_oid || row.app_user_last_login) {
+      return row;
+    }
+
+    const normalizedMemberEmail = normalizeEmailForIdentityMatch(row.member_email);
+    if (!normalizedMemberEmail) {
+      return row;
+    }
+
+    const matchedAppUser = appUserByNormalizedEmail.get(normalizedMemberEmail);
+    if (!matchedAppUser) {
+      return row;
+    }
+
+    return {
+      ...row,
+      app_user_email: row.app_user_email ?? matchedAppUser.email,
+      app_user_azure_oid: row.app_user_azure_oid ?? matchedAppUser.azure_oid,
+      app_user_last_login: row.app_user_last_login ?? matchedAppUser.last_login,
+      app_user_created_at: row.app_user_created_at ?? matchedAppUser.created_at,
+      app_user_updated_at: row.app_user_updated_at ?? matchedAppUser.updated_at,
+      last_sign_in_at: row.last_sign_in_at ?? matchedAppUser.last_login,
+    };
+  });
 }
 
 async function applyFederatedGraphAcceptanceFallback(rows: IdentityStatusJoinedRow[]): Promise<IdentityStatusJoinedRow[]> {
