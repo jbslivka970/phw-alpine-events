@@ -790,7 +790,7 @@ router.post('/retention/preview', async (req, res) => {
   }
 });
 
-router.get('/identity/status/:memberId', async (req, res) => {
+router.get('/identity/status/:memberId([0-9a-fA-F-]{36})', async (req, res) => {
   try {
     const memberId = req.params.memberId;
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(memberId)) {
@@ -1001,7 +1001,7 @@ router.post('/identity/invite', writeLimiter, async (req, res) => {
     });
 
     const currentUser = req.user?.email ?? req.user?.sub ?? 'unknown';
-    await upsertMemberIdentityInvite(member.member_id, member.email, currentUser);
+    await upsertMemberIdentityInvite(member.member_id, member.email, currentUser, invitation.invitedUser?.id ?? null);
     const signInUrl = normalizePortalLoginUrl(invitation.inviteRedeemUrl);
     try {
       await sendIdentityAccessEmail({
@@ -1109,7 +1109,7 @@ router.post('/identity/invite/bulk', writeLimiter, async (req, res) => {
           displayName: `${member.first_name} ${member.last_name}`.trim() || member.email,
           redirectUrl,
         });
-        await upsertMemberIdentityInvite(member.member_id, member.email, currentUser);
+        await upsertMemberIdentityInvite(member.member_id, member.email, currentUser, invitation.invitedUser?.id ?? null);
         const signInUrl = normalizePortalLoginUrl(invitation.inviteRedeemUrl);
         try {
           await sendIdentityAccessEmail({
@@ -1581,9 +1581,13 @@ async function applyFederatedGraphAcceptanceFallback(rows: IdentityStatusJoinedR
     return rows;
   }
 
-  const acceptedByMemberId = new Map<string, { entraObjectId: string; linkedAt: Date }>();
+  const acceptedByMemberId = await getAcceptedByMemberIdFromInviteTrace(candidates.map((candidate) => candidate.member_id));
 
   await Promise.all(candidates.map(async (candidate) => {
+    if (acceptedByMemberId.has(candidate.member_id.toLowerCase())) {
+      return;
+    }
+
     try {
       const user = await lookupEntraUserByEmail(candidate.member_email);
       if (!user?.id) {
@@ -1677,6 +1681,61 @@ async function applyFederatedGraphAcceptanceFallback(rows: IdentityStatusJoinedR
       link_updated_at: accepted.linkedAt,
     };
   });
+}
+
+async function getAcceptedByMemberIdFromInviteTrace(memberIds: string[]): Promise<Map<string, { entraObjectId: string; linkedAt: Date }>> {
+  const acceptedByMemberId = new Map<string, { entraObjectId: string; linkedAt: Date }>();
+  if (memberIds.length === 0) {
+    return acceptedByMemberId;
+  }
+
+  const pool = await getPool();
+  const request = pool.request();
+  const params = memberIds.map((memberId, index) => {
+    const key = `trace_member_id_${index}`;
+    request.input(key, sql.NVarChar(64), memberId);
+    return `@${key}`;
+  }).join(', ');
+
+  const traceResult = await request.query<{
+    member_id: string;
+    invited_user_id: string;
+    occurred_at: Date | null;
+  }>(
+    `IF OBJECT_ID('identity_invite_trace', 'U') IS NULL
+     BEGIN
+       SELECT TOP 0
+         CAST(NULL AS NVARCHAR(64)) AS member_id,
+         CAST(NULL AS NVARCHAR(128)) AS invited_user_id,
+         CAST(NULL AS DATETIME2(3)) AS occurred_at;
+     END
+     ELSE
+     BEGIN
+       SELECT member_id, invited_user_id, occurred_at
+       FROM identity_invite_trace
+       WHERE invited_user_id IS NOT NULL
+         AND member_id IN (${params})
+       ORDER BY occurred_at DESC;
+     END`
+  );
+
+  for (const row of traceResult.recordset) {
+    if (!row.member_id || !row.invited_user_id) {
+      continue;
+    }
+
+    const key = row.member_id.toLowerCase();
+    if (acceptedByMemberId.has(key)) {
+      continue;
+    }
+
+    acceptedByMemberId.set(key, {
+      entraObjectId: row.invited_user_id,
+      linkedAt: row.occurred_at ?? new Date(),
+    });
+  }
+
+  return acceptedByMemberId;
 }
 
 async function upsertFederatedGraphLink(memberId: string, email: string, entraObjectId: string, linkedAt: Date): Promise<void> {
@@ -1773,13 +1832,14 @@ async function getMemberIdentityTarget(memberId: string): Promise<{
   return result.recordset[0] ?? null;
 }
 
-async function upsertMemberIdentityInvite(memberId: string, email: string, invitedBy: string): Promise<void> {
+async function upsertMemberIdentityInvite(memberId: string, email: string, invitedBy: string, invitedUserId?: string | null): Promise<void> {
   const pool = await getPool();
   await pool
     .request()
     .input('member_id', sql.UniqueIdentifier, memberId)
     .input('email', sql.NVarChar(255), email)
     .input('invited_by', sql.NVarChar(255), invitedBy)
+    .input('invited_user_id', sql.NVarChar(128), invitedUserId ?? null)
     .query(
       `MERGE member_identity_link AS target
        USING (SELECT @member_id AS member_id) AS source
@@ -1789,16 +1849,17 @@ async function upsertMemberIdentityInvite(memberId: string, email: string, invit
            status = CASE WHEN target.status = 'linked' THEN target.status ELSE 'invited' END,
            invited_at = COALESCE(target.invited_at, GETUTCDATE()),
            invite_email_sent_at = GETUTCDATE(),
+           entra_object_id = COALESCE(target.entra_object_id, @invited_user_id),
            last_seen_email = COALESCE(target.last_seen_email, @email),
            invited_by = @invited_by,
            updated_at = GETUTCDATE()
        WHEN NOT MATCHED THEN
          INSERT (
-           link_id, member_id, status, invited_at, invite_email_sent_at, last_seen_email,
+           link_id, member_id, entra_object_id, status, invited_at, invite_email_sent_at, last_seen_email,
            invited_by, created_at, updated_at
          )
          VALUES (
-           NEWID(), @member_id, 'invited', GETUTCDATE(), GETUTCDATE(), @email,
+           NEWID(), @member_id, @invited_user_id, 'invited', GETUTCDATE(), GETUTCDATE(), @email,
            @invited_by, GETUTCDATE(), GETUTCDATE()
          );`
     );
