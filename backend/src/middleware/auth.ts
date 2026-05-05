@@ -72,12 +72,12 @@ async function lookupEmailFromGraph(entraObjectId: string): Promise<string | nul
 
     // Prefer mail, then otherMails, then the identity issuerAssignedId that looks like an email.
     if (user.mail?.includes('@')) {
-      return user.mail.toLowerCase();
+      return normalizeEmailLikeValue(user.mail) ?? user.mail.toLowerCase();
     }
     if (Array.isArray(user.otherMails)) {
       const found = user.otherMails.find((m) => typeof m === 'string' && m.includes('@'));
       if (found) {
-        return found.toLowerCase();
+        return normalizeEmailLikeValue(found) ?? found.toLowerCase();
       }
     }
     if (Array.isArray(user.identities)) {
@@ -85,7 +85,7 @@ async function lookupEmailFromGraph(entraObjectId: string): Promise<string | nul
         (id) => typeof id.issuerAssignedId === 'string' && id.issuerAssignedId.includes('@')
       );
       if (found?.issuerAssignedId) {
-        return found.issuerAssignedId.toLowerCase();
+        return normalizeEmailLikeValue(found.issuerAssignedId) ?? found.issuerAssignedId.toLowerCase();
       }
     }
   } catch {
@@ -557,6 +557,7 @@ async function upsertMemberIdentityLink(claims: JwtPayload, email: string | unde
     .input('entra_object_id', sql.NVarChar(255), entraObjectId ?? null)
     .input('issuer', sql.NVarChar(255), issuer ?? null)
     .input('issuer_assigned_id', sql.NVarChar(255), issuerAssignedId ?? null)
+    .input('normalized_email', sql.NVarChar(255), normalizedEmail ?? null)
     .query<{ member_id: string }>(
       `SELECT TOP 1 member_id
        FROM member_identity_link mil
@@ -564,6 +565,7 @@ async function upsertMemberIdentityLink(claims: JwtPayload, email: string | unde
         WHERE (
             (@entra_object_id IS NOT NULL AND entra_object_id = @entra_object_id)
             OR (@issuer IS NOT NULL AND @issuer_assigned_id IS NOT NULL AND issuer = @issuer AND issuer_assigned_id = @issuer_assigned_id)
+            OR (@normalized_email IS NOT NULL AND (LOWER(mil.last_seen_email) = @normalized_email OR LOWER(m.email) = @normalized_email))
            )
           AND m.is_active = 1`
     );

@@ -22,7 +22,7 @@ function isSchemaAvailabilityError(error: unknown): boolean {
 
 function splitDisplayName(name: string | undefined, fallbackEmail: string): { firstName: string; lastName: string } {
   const base = (name ?? '').trim();
-  if (!base) {
+  if (!base || base.includes('@')) {
     const localPart = fallbackEmail.split('@')[0] ?? 'member';
     return { firstName: localPart.slice(0, 80), lastName: 'Member' };
   }

@@ -23,6 +23,10 @@ const APPLICATION_STATUS_LABELS: Record<ApplicationStatus, string> = {
   withdrawn: 'Withdrawn',
 };
 
+function looksLikeEmail(value: string | null | undefined): boolean {
+  return typeof value === 'string' && value.includes('@');
+}
+
 function formatApplicantName(application: TavfApplication): string {
   const fullName = [application.first_name, application.last_name].filter(Boolean).join(' ').trim();
   if (fullName.length > 0) {
@@ -271,7 +275,10 @@ function TavfDetailPage() {
 
   const alreadyApplied = Boolean(viewerMemberId) && applications.some(a => a.vet_member_id === viewerMemberId);
   const canApply = posting.status === 'open' && !alreadyApplied;
-  const postedByName = [posting.guide_first_name, posting.guide_last_name].filter(Boolean).join(' ').trim();
+  const postedByName = [posting.guide_first_name, posting.guide_last_name]
+    .filter((part): part is string => Boolean(part) && !looksLikeEmail(part))
+    .join(' ')
+    .trim();
   const postedByContact = [posting.guide_email, posting.guide_mobile_phone].filter(Boolean).join(' • ');
 
   return (
