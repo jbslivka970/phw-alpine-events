@@ -1434,9 +1434,7 @@ async function getIdentityStatusesByMemberIds(memberIds: string[]): Promise<Iden
 
   rows = await applyAppUserEmailNormalizationFallback(rows);
 
-  if (isGraphRoleManagementConfigured()) {
-    rows = await applyFederatedGraphAcceptanceFallback(rows);
-  }
+  rows = await applyFederatedGraphAcceptanceFallback(rows);
 
   return rows.map(toIdentityStatusRow);
 }
@@ -1582,9 +1580,14 @@ async function applyFederatedGraphAcceptanceFallback(rows: IdentityStatusJoinedR
   }
 
   const acceptedByMemberId = await getAcceptedByMemberIdFromInviteTrace(candidates.map((candidate) => candidate.member_id));
+  const allowGraphLookup = isGraphRoleManagementConfigured();
 
   await Promise.all(candidates.map(async (candidate) => {
     if (acceptedByMemberId.has(candidate.member_id.toLowerCase())) {
+      return;
+    }
+
+    if (!allowGraphLookup) {
       return;
     }
 

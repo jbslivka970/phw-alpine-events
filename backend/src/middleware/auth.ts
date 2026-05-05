@@ -605,13 +605,22 @@ async function upsertMemberIdentityLink(claims: JwtPayload, email: string | unde
     .input('issuer_assigned_id', sql.NVarChar(255), issuerAssignedId ?? null)
     .input('normalized_email', sql.NVarChar(255), normalizedEmail ?? null)
     .query<{ member_id: string }>(
-      `SELECT TOP 1 member_id
+      `SELECT TOP 1 mil.member_id
        FROM member_identity_link mil
        INNER JOIN member m ON m.member_id = mil.member_id
         WHERE (
             (@entra_object_id IS NOT NULL AND entra_object_id = @entra_object_id)
             OR (@issuer IS NOT NULL AND @issuer_assigned_id IS NOT NULL AND issuer = @issuer AND issuer_assigned_id = @issuer_assigned_id)
             OR (@normalized_email IS NOT NULL AND (LOWER(mil.last_seen_email) = @normalized_email OR LOWER(m.email) = @normalized_email))
+            OR (
+              @entra_object_id IS NOT NULL
+              AND EXISTS (
+                SELECT 1
+                FROM identity_invite_trace it
+                WHERE it.member_id = CONVERT(NVARCHAR(64), mil.member_id)
+                  AND it.invited_user_id = @entra_object_id
+              )
+            )
            )
           AND m.is_active = 1`
     );
