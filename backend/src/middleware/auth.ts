@@ -465,6 +465,52 @@ async function resolveUniqueActiveMemberByEmail(email: string | undefined): Prom
   }
 }
 
+async function resolveMemberIdByInvitedUserOid(entraObjectId: string | undefined): Promise<string | null> {
+  if (!entraObjectId) {
+    return null;
+  }
+
+  try {
+    const pool = await getPool();
+    const result = await pool
+      .request()
+      .input('invited_user_id', sql.NVarChar(128), entraObjectId)
+      .query<{ member_id: string }>(
+        `IF OBJECT_ID('identity_invite_trace', 'U') IS NULL
+         BEGIN
+           SELECT TOP 0 CAST(NULL AS NVARCHAR(64)) AS member_id;
+         END
+         ELSE
+         BEGIN
+           SELECT TOP 1 member_id
+           FROM identity_invite_trace
+           WHERE invited_user_id = @invited_user_id
+           ORDER BY occurred_at DESC;
+         END`
+      );
+
+    const memberId = result.recordset[0]?.member_id;
+    if (!memberId) {
+      return null;
+    }
+
+    const activeMember = await pool
+      .request()
+      .input('member_id', sql.UniqueIdentifier, memberId)
+      .query<{ member_id: string }>(
+        `SELECT TOP 1 member_id
+         FROM member
+         WHERE member_id = @member_id
+           AND is_active = 1`
+      );
+
+    return activeMember.recordset[0]?.member_id ?? null;
+  } catch (error) {
+    console.warn('[auth] invited-user OID fallback lookup failed', error);
+    return null;
+  }
+}
+
 function getStringClaim(claims: JwtPayload, key: string): string | undefined {
   const value = claims[key];
   if (typeof value !== 'string') {
@@ -612,11 +658,18 @@ async function upsertMemberIdentityLink(claims: JwtPayload, email: string | unde
     }
   }
 
-  if (!resolvedEmail) {
-    return null;
+  let matchedMemberId: string | null = await resolveMemberIdByInvitedUserOid(entraObjectId);
+  let matchCount = matchedMemberId ? 1 : 0;
+
+  if (!matchedMemberId) {
+    if (!resolvedEmail) {
+      return null;
+    }
+    const resolvedByEmail = await resolveUniqueActiveMemberByEmail(resolvedEmail);
+    matchedMemberId = resolvedByEmail.memberId;
+    matchCount = resolvedByEmail.matchCount;
   }
 
-  const { memberId: matchedMemberId, matchCount } = await resolveUniqueActiveMemberByEmail(resolvedEmail);
   if (matchCount > 1) {
     console.warn('[auth] duplicate active member email detected; refusing auto-link', {
       email: resolvedEmail,
@@ -635,7 +688,7 @@ async function upsertMemberIdentityLink(claims: JwtPayload, email: string | unde
     .input('issuer', sql.NVarChar(255), issuer ?? null)
     .input('issuer_assigned_id', sql.NVarChar(255), issuerAssignedId ?? null)
     .input('identity_provider', sql.NVarChar(100), identityProvider)
-    .input('last_seen_email', sql.NVarChar(255), resolvedEmail)
+    .input('last_seen_email', sql.NVarChar(255), resolvedEmail ?? null)
     .query(
       `MERGE member_identity_link AS target
        USING (SELECT @member_id AS member_id) AS source
@@ -649,7 +702,7 @@ async function upsertMemberIdentityLink(claims: JwtPayload, email: string | unde
            issuer = COALESCE(@issuer, target.issuer),
            issuer_assigned_id = COALESCE(@issuer_assigned_id, target.issuer_assigned_id),
            identity_provider = COALESCE(@identity_provider, target.identity_provider),
-           last_seen_email = @last_seen_email,
+           last_seen_email = COALESCE(@last_seen_email, target.last_seen_email),
            updated_at = GETUTCDATE()
        WHEN NOT MATCHED THEN
          INSERT (
