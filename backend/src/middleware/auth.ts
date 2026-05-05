@@ -658,13 +658,10 @@ async function upsertMemberIdentityLink(claims: JwtPayload, email: string | unde
     }
   }
 
-  let matchedMemberId: string | null = await resolveMemberIdByInvitedUserOid(entraObjectId);
-  let matchCount = matchedMemberId ? 1 : 0;
+  let matchedMemberId: string | null = null;
+  let matchCount = 0;
 
-  if (!matchedMemberId) {
-    if (!resolvedEmail) {
-      return null;
-    }
+  if (resolvedEmail) {
     const resolvedByEmail = await resolveUniqueActiveMemberByEmail(resolvedEmail);
     matchedMemberId = resolvedByEmail.memberId;
     matchCount = resolvedByEmail.matchCount;
@@ -675,6 +672,13 @@ async function upsertMemberIdentityLink(claims: JwtPayload, email: string | unde
       email: resolvedEmail,
       matchCount,
     });
+  }
+
+  if (!matchedMemberId && matchCount === 0 && !resolvedEmail && entraObjectId) {
+    matchedMemberId = await resolveMemberIdByInvitedUserOid(entraObjectId);
+    if (matchedMemberId) {
+      matchCount = 1;
+    }
   }
 
   if (!matchedMemberId) {
