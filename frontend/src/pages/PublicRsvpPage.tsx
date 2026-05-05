@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
+import { getApiBaseUrl } from '../api/baseUrl'
 import { emailRsvpApi } from '../api/events'
 import type { PublicRsvpContext, RsvpRecord } from '../api/events'
 
@@ -18,7 +19,7 @@ const RESPONSE_OPTIONS: Array<{ value: RsvpRecord['response']; label: string; cl
 ]
 
 function toDirectRsvpRespondUrl(token: string, response: RsvpRecord['response'], role?: ResponseRole | null): string {
-  const base = ((import.meta.env.VITE_API_BASE_URL as string | undefined) ?? '/api/v1').replace(/\/$/, '')
+  const base = getApiBaseUrl()
   const params = new URLSearchParams({ response })
   if (role) {
     params.set('role', role)

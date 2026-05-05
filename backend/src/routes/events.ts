@@ -18,7 +18,7 @@ import {
   sendEventUpdatedNotification,
 } from '../services/notifications';
 import { inferResponseRoleForMember, recordRsvpResponse, RsvpError, VALID_RESPONSES, type RsvpResponse } from '../services/rsvpService';
-import { verifyRsvpToken } from '../services/rsvpLinkService';
+import { resolveShortRsvpToken, verifyRsvpToken } from '../services/rsvpLinkService';
 import { generateDescriptionDraft, generateInviteDraft } from '../services/aiInviteService';
 import { formatInProgramTimeZone } from '../utils/dateTime';
 
@@ -347,6 +347,21 @@ router.post('/rsvp', writeLimiter, async (req, res) => {
 
     console.error('POST /events/rsvp failed', error);
     res.status(401).json({ error: error instanceof Error ? error.message : 'Invalid or expired RSVP token' });
+  }
+});
+
+router.get('/rsvp/short/:code', apiLimiter, async (req, res) => {
+  try {
+    const token = await resolveShortRsvpToken(req.params.code);
+    if (!token) {
+      res.status(404).json({ error: 'RSVP link not found or expired' });
+      return;
+    }
+
+    res.json({ token });
+  } catch (error) {
+    console.error('GET /events/rsvp/short/:code failed', error);
+    res.status(500).json({ error: 'Unable to resolve RSVP link' });
   }
 });
 

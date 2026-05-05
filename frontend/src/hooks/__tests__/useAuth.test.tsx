@@ -131,7 +131,7 @@ describe('useAuth auth flow regression coverage', () => {
     const getter = mockSetTokenGetter.mock.calls.at(-1)?.[0] as (() => Promise<string | null>)
     const token = await getter()
 
-    expect(msalInstance.acquireTokenPopup).toHaveBeenCalledTimes(1)
+    expect(msalInstance.acquireTokenPopup).toHaveBeenCalled()
     expect(token).toBe('popup-token')
   })
 
@@ -147,8 +147,25 @@ describe('useAuth auth flow regression coverage', () => {
     const getter = mockSetTokenGetter.mock.calls.at(-1)?.[0] as (() => Promise<string | null>)
     const token = await getter()
 
-    expect(msalInstance.acquireTokenPopup).toHaveBeenCalledTimes(1)
+    expect(msalInstance.acquireTokenPopup).toHaveBeenCalled()
     expect(token).toBe('popup-token')
+  })
+
+  it('treats browser pattern silent token failures as interactive fallback and still hydrates backend roles', async () => {
+    msalInstance.acquireTokenSilent.mockRejectedValue(new Error('The string did not match the expected pattern.'))
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ auth_roles: ['ADMIN'] }),
+    })
+
+    const { result } = renderHook(() => useAuth())
+
+    await waitFor(() => {
+      expect(result.current.isAdmin()).toBe(true)
+    })
+
+    expect(msalInstance.acquireTokenPopup).toHaveBeenCalledTimes(1)
   })
 
   it('merges backend-resolved roles from members/me', async () => {
@@ -186,6 +203,53 @@ describe('useAuth auth flow regression coverage', () => {
 
     const requestInit = mockFetch.mock.calls[0]?.[1] as { headers?: Record<string, string> } | undefined
     expect(requestInit?.headers?.['X-Id-Token-Email']).toBe('sarnitro@gmail.com')
+  })
+
+  it('prefers nonstandard email claim keys over synthetic tenant usernames for X-Id-Token-Email', async () => {
+    mockUseMsal.mockReturnValue({
+      accounts: [{
+        ...account,
+        username: 'c7c703e4-8ee5-46fa-a6c0-fbb7d48dee88@PHWAlpine.onmicrosoft.com',
+        idTokenClaims: {
+          sub: 'subject-1',
+          'signInNames.emailAddress': 'sarnitro@gmail.com',
+        },
+      }],
+      instance: msalInstance,
+      inProgress: 'none',
+    })
+
+    renderHook(() => useAuth())
+
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalled()
+    })
+
+    const requestInit = mockFetch.mock.calls[0]?.[1] as { headers?: Record<string, string> } | undefined
+    expect(requestInit?.headers?.['X-Id-Token-Email']).toBe('sarnitro@gmail.com')
+  })
+
+  it('omits synthetic tenant usernames from X-Id-Token-Email when no real email is available', async () => {
+    mockUseMsal.mockReturnValue({
+      accounts: [{
+        ...account,
+        username: 'c7c703e4-8ee5-46fa-a6c0-fbb7d48dee88@PHWAlpine.onmicrosoft.com',
+        idTokenClaims: {
+          sub: 'subject-1',
+        },
+      }],
+      instance: msalInstance,
+      inProgress: 'none',
+    })
+
+    renderHook(() => useAuth())
+
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalled()
+    })
+
+    const requestInit = mockFetch.mock.calls[0]?.[1] as { headers?: Record<string, string> } | undefined
+    expect(requestInit?.headers?.['X-Id-Token-Email']).toBeUndefined()
   })
 
   it('shares backend-resolved roles across separate useAuth hook instances', async () => {

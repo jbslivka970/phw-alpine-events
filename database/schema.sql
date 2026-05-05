@@ -421,6 +421,30 @@ BEGIN
         CREATE INDEX IX_inbound_sms_log_received_at ON dbo.inbound_sms_log (received_at DESC);
 END
 
+IF OBJECT_ID(N'dbo.rsvp_short_link', N'U') IS NULL
+CREATE TABLE dbo.rsvp_short_link (
+    short_link_id UNIQUEIDENTIFIER NOT NULL,
+    short_code    NVARCHAR(20)     NOT NULL,
+    token         NVARCHAR(1024)   NOT NULL,
+    event_id      UNIQUEIDENTIFIER NULL,
+    member_id     UNIQUEIDENTIFIER NULL,
+    expires_at    DATETIME2        NOT NULL,
+    created_at    DATETIME         NOT NULL DEFAULT GETUTCDATE(),
+    CONSTRAINT PK_rsvp_short_link PRIMARY KEY (short_link_id),
+    CONSTRAINT UQ_rsvp_short_link_code UNIQUE (short_code)
+);
+
+IF OBJECT_ID(N'dbo.rsvp_short_link', N'U') IS NOT NULL
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM sys.indexes
+        WHERE object_id = OBJECT_ID(N'dbo.rsvp_short_link')
+          AND name = N'IX_rsvp_short_link_expires_at'
+    )
+        CREATE INDEX IX_rsvp_short_link_expires_at ON dbo.rsvp_short_link (expires_at);
+END
+
 IF OBJECT_ID(N'dbo.support_email_relay_config', N'U') IS NULL
 CREATE TABLE dbo.support_email_relay_config (
     support_relay_config_id UNIQUEIDENTIFIER NOT NULL DEFAULT NEWID(),

@@ -1,5 +1,7 @@
 type TokenGetter = () => Promise<string | null>;
 
+import { getApiBaseUrl } from './baseUrl';
+
 function getLocalE2EToken(): string | null {
   if (typeof window === 'undefined') {
     return null;
@@ -23,10 +25,7 @@ function getLocalE2EToken(): string | null {
   return 'e2e-user';
 }
 
-const DEFAULT_BASE = '/api/v1';
-const rawBase = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? DEFAULT_BASE;
-const resolvedBase = rawBase;
-const BASE_URL = resolvedBase.endsWith('/') ? resolvedBase.slice(0, -1) : resolvedBase;
+const BASE_URL = getApiBaseUrl();
 
 let getToken: TokenGetter = async () => getLocalE2EToken();
 let emailHint: string | null = null;
@@ -47,8 +46,21 @@ function setTokenGetter(fn: TokenGetter): void {
   clearTokenCache();
 }
 
+// HTTP header values must be 7-bit ASCII; Safari/WebKit throws
+// `TypeError: The string did not match the expected pattern.` from `fetch()`
+// when a header value contains anything outside printable ASCII. The
+// X-Id-Token-Email header is an optional backend hint, so reject any value
+// that would not be safe to send.
+function isHeaderSafeAsciiEmail(value: string): boolean {
+  return /^[\x21-\x7E]+$/.test(value);
+}
+
 function setEmailHint(email: string | null): void {
-  emailHint = email;
+  if (email && isHeaderSafeAsciiEmail(email)) {
+    emailHint = email;
+  } else {
+    emailHint = null;
+  }
 }
 
 async function getCachedToken(): Promise<string | null> {

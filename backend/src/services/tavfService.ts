@@ -127,6 +127,8 @@ export interface TavfApplication {
   application_id: string;
   posting_id: string;
   vet_member_id: string;
+  first_name?: string | null;
+  last_name?: string | null;
   notes?: string | null;
   status: ApplicationStatus;
   applied_at: string;
@@ -287,7 +289,14 @@ export async function listApplicationsForPosting(
     .request()
     .input('posting_id', sql.UniqueIdentifier, postingId)
     .query<TavfApplication>(
-      `SELECT * FROM tavf_application WHERE posting_id = @posting_id ORDER BY applied_at ASC`
+      `SELECT
+          ta.*, 
+          m.first_name,
+          m.last_name
+       FROM tavf_application ta
+       INNER JOIN member m ON m.member_id = ta.vet_member_id
+       WHERE ta.posting_id = @posting_id
+       ORDER BY ta.applied_at ASC`
     );
   return result.recordset;
 }
@@ -299,7 +308,13 @@ export async function getApplication(applicationId: string): Promise<TavfApplica
     .request()
     .input('application_id', sql.UniqueIdentifier, applicationId)
     .query<TavfApplication>(
-      `SELECT * FROM tavf_application WHERE application_id = @application_id`
+      `SELECT
+          ta.*, 
+          m.first_name,
+          m.last_name
+       FROM tavf_application ta
+       INNER JOIN member m ON m.member_id = ta.vet_member_id
+       WHERE ta.application_id = @application_id`
     );
   return result.recordset[0] ?? null;
 }
@@ -319,7 +334,15 @@ export async function createApplication(
       OUTPUT INSERTED.*
       VALUES (@posting_id, @vet_member_id, @notes)
     `);
-  const application = result.recordset[0];
+  const insertedApplicationId = result.recordset[0]?.application_id;
+  if (!insertedApplicationId) {
+    throw new Error('Failed to create TAVF application.');
+  }
+
+  const application = await getApplication(insertedApplicationId);
+  if (!application) {
+    throw new Error('Failed to load created TAVF application.');
+  }
 
   await notifications.notifyApplicationReceived(application.application_id);
 
@@ -339,10 +362,14 @@ export async function updateApplicationStatus(
     .query<TavfApplication>(`
       UPDATE tavf_application
       SET status = @status, updated_at = GETDATE()
-      OUTPUT INSERTED.*
       WHERE application_id = @application_id
     `);
-  return result.recordset[0] ?? null;
+
+  if ((result.rowsAffected[0] ?? 0) === 0) {
+    return null;
+  }
+
+  return getApplication(applicationId);
 }
 
 // ---------------------------------------------------------------------------

@@ -64,7 +64,7 @@ const eventInviteTemplate: NotificationTemplate = {
   textBodyTemplate:
     'You\'re invited to {{eventTitle}}.\n\nDate and time: {{eventDate}}\nLocation: {{location}}\nMap: {{mapUrl}}\n\n{{description}}\n\nRSVP options:\nYes: {{yesUrl}}\nNo: {{noUrl}}\nMaybe: {{maybeUrl}}\nWaitlist: {{waitlistUrl}}\n\nPrefer email reply?\nReply YES: {{replyYesMailto}}\nReply NO: {{replyNoMailto}}\nReply MAYBE: {{replyMaybeMailto}}\nReply WAITLIST: {{replyWaitlistMailto}}\n\nFull RSVP page: {{rsvpUrl}}\n\nProject Healing Waters Fly Fishing - Colorado Alpine Program',
   smsBodyTemplate:
-    'PHW Alpine: {{eventTitle}} on {{eventDate}} at {{location}}. RSVP: {{rsvpUrl}} Reply STOP to opt out',
+    'PHW Alpine invite: {{eventTitle}}\n{{eventDate}} at {{location}}\nRSVP: {{rsvpUrl}}\nReply STOP to opt out',
   variables: [
     { name: 'eventTitle', description: 'Event title', required: true },
     { name: 'eventDate', description: 'Formatted event date', required: true },

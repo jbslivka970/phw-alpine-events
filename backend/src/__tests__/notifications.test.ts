@@ -88,7 +88,7 @@ describe('notifications service', () => {
     expect(emailSpy).not.toHaveBeenCalled();
   });
 
-  it('sendSms truncates messages longer than 160 characters', async () => {
+  it('sendSms does not truncate ordinary multi-segment messages', async () => {
     const mockEmail = { sendEmail: jest.fn().mockResolvedValue(undefined) };
     const mockSms = { sendSms: jest.fn().mockResolvedValue('provider-123') };
     const service = new NotificationService(mockEmail, mockSms, true, true);
@@ -106,8 +106,7 @@ describe('notifications service', () => {
 
     expect(mockSms.sendSms).toHaveBeenCalledTimes(1);
     const smsArgs = mockSms.sendSms.mock.calls[0][0] as { message: string };
-    expect(smsArgs.message.length).toBe(160);
-    expect(smsArgs.message.endsWith('...')).toBe(true);
+    expect(smsArgs.message).toBe(longMessage);
     expect(logSpy).toHaveBeenCalledWith(expect.objectContaining({
       channel: 'sms',
       status: 'sent',
@@ -116,7 +115,7 @@ describe('notifications service', () => {
     }));
   });
 
-  it('sendSms does not truncate a 160 character message', async () => {
+  it('sendSms preserves URL when compacting extreme-length messages', async () => {
     const mockEmail = { sendEmail: jest.fn().mockResolvedValue(undefined) };
     const mockSms = { sendSms: jest.fn().mockResolvedValue('provider-124') };
     const service = new NotificationService(mockEmail, mockSms, true, true);
@@ -125,7 +124,8 @@ describe('notifications service', () => {
       .spyOn(service as unknown as { writeNotificationLog: (...args: unknown[]) => Promise<void> }, 'writeNotificationLog')
       .mockResolvedValue(undefined);
 
-    const exactLengthMessage = 'B'.repeat(160);
+    const url = 'https://app.phwcoloradoalpine.org/rsvp/ZXlKaGJHY2lPaVeryLongTokenSegment1234567890';
+    const exactLengthMessage = `${'B'.repeat(980)} RSVP: ${url} Reply STOP to opt out`;
     await service.sendSms({
       to: '+13035550003',
       message: exactLengthMessage,
@@ -134,7 +134,9 @@ describe('notifications service', () => {
 
     expect(mockSms.sendSms).toHaveBeenCalledTimes(1);
     const smsArgs = mockSms.sendSms.mock.calls[0][0] as { message: string };
-    expect(smsArgs.message).toBe(exactLengthMessage);
+    expect(smsArgs.message.length).toBeLessThanOrEqual(1000);
+    expect(smsArgs.message.includes(url)).toBe(true);
+    expect(smsArgs.message.endsWith('Reply STOP to opt out')).toBe(true);
     expect(logSpy).toHaveBeenCalledWith(expect.objectContaining({
       channel: 'sms',
       status: 'sent',

@@ -3,6 +3,7 @@ import { useIsAuthenticated, useMsal } from '@azure/msal-react'
 import { InteractionStatus } from '@azure/msal-browser'
 import { hasAuthConfig, loginRequest, popupRedirectUri, ROLES } from '../authConfig'
 import type { AppRole } from '../authConfig'
+import { getApiBaseUrl as resolveApiBaseUrl } from '../api/baseUrl'
 import { setEmailHint, setTokenGetter } from '../api/client'
 import { authDebugLog, authDebugWarn } from '../utils/authDebug'
 
@@ -93,9 +94,7 @@ function localRoleToken(role: AppRole): string {
 }
 
 function getApiBaseUrl(): string {
-  const rawBase = ((import.meta.env.VITE_API_BASE_URL as string | undefined) ?? '/api/v1').trim()
-  const normalized = rawBase.endsWith('/') ? rawBase.slice(0, -1) : rawBase
-  return normalized.length > 0 ? normalized : '/api/v1'
+  return resolveApiBaseUrl()
 }
 
 function getAccountKey(localAccountId: string | null | undefined): string | null {
@@ -214,31 +213,251 @@ function useAuth() {
     }
   }, [accountKey])
 
+  const acquireAccessToken = useCallback(async (): Promise<string | null> => {
+    if (!account) return null
+
+    const cached = tokenCacheRef.current
+    if (cached && cached.expiresAtMs - Date.now() > TOKEN_EXPIRY_SAFETY_WINDOW_MS) {
+      return cached.token
+    }
+
+    if (tokenRequestInFlightRef.current) {
+      return tokenRequestInFlightRef.current
+    }
+
+    const tokenPromise = (async (): Promise<string | null> => {
+      try {
+        const tokenResponse = await instance.acquireTokenSilent({
+          ...loginRequest,
+          account,
+        })
+        authDebugLog('token:silent:success', {
+          account: account.username,
+          expiresOn: tokenResponse.expiresOn?.toISOString(),
+        })
+
+        if (tokenResponse.expiresOn) {
+          tokenCacheRef.current = {
+            token: tokenResponse.accessToken,
+            expiresAtMs: tokenResponse.expiresOn.getTime(),
+          }
+        }
+
+        setResolvedRoles((current) => mergeRoles(
+          current,
+          mapRoles(decodeJwtPayload(tokenResponse.accessToken)),
+        ))
+        setRolesReady(true)
+
+        return tokenResponse.accessToken
+      } catch (error: unknown) {
+        const shouldTreatAsInteractionRequired = isInteractionRequired(error) || isSilentTimeoutLikeError(error)
+
+        if (!shouldTreatAsInteractionRequired) {
+          const code = (error as { errorCode?: string } | null)?.errorCode
+          authDebugWarn('token:silent:non-interaction-error', {
+            code,
+            account: account.username,
+          })
+          if (code !== 'interaction_in_progress') {
+            console.error('[MSAL] Silent token acquisition failed:', error)
+          }
+          return null
+        }
+
+        const now = Date.now()
+        if (now < tokenInteractiveCooldownUntilRef.current) {
+          authDebugWarn('token:popup:cooldown:active', {
+            account: account.username,
+            retryInMs: tokenInteractiveCooldownUntilRef.current - now,
+          })
+          return null
+        }
+
+        authDebugWarn('token:silent:interaction-required', {
+          account: account.username,
+          interactionBusy,
+          hasLoginRequestInFlight: Boolean(loginRequestRef.current),
+        })
+
+        if (interactionBusy || loginRequestRef.current) {
+          authDebugWarn('token:popup:skipped:interaction-busy')
+
+          // During initial sign-in, API requests can race token readiness.
+          // Wait briefly and retry silent acquisition before giving up.
+          for (let attempt = 0; attempt < TOKEN_BUSY_RETRY_ATTEMPTS; attempt += 1) {
+            await wait(TOKEN_BUSY_RETRY_MS)
+            try {
+              const retryToken = await instance.acquireTokenSilent({
+                ...loginRequest,
+                account,
+              })
+
+              if (retryToken.expiresOn) {
+                tokenCacheRef.current = {
+                  token: retryToken.accessToken,
+                  expiresAtMs: retryToken.expiresOn.getTime(),
+                }
+              }
+
+              authDebugLog('token:silent:retry-after-busy:success', {
+                account: account.username,
+                attempt: attempt + 1,
+              })
+              return retryToken.accessToken
+            } catch {
+              // Keep retrying until attempts are exhausted.
+            }
+          }
+
+          authDebugWarn('token:silent:retry-after-busy:exhausted', {
+            account: account.username,
+          })
+          return null
+        }
+
+        if (!tokenInteractiveInFlightRef.current) {
+          tokenInteractiveInFlightRef.current = true
+          try {
+            const tokenResponse = await instance.acquireTokenPopup({
+              ...loginRequest,
+              account,
+              redirectUri: popupRedirectUri ?? window.location.origin,
+            })
+            authDebugLog('token:popup:success', {
+              account: account.username,
+              expiresOn: tokenResponse.expiresOn?.toISOString(),
+            })
+
+            if (tokenResponse.expiresOn) {
+              tokenCacheRef.current = {
+                token: tokenResponse.accessToken,
+                expiresAtMs: tokenResponse.expiresOn.getTime(),
+              }
+            }
+
+            setResolvedRoles((current) => mergeRoles(
+              current,
+              mapRoles(decodeJwtPayload(tokenResponse.accessToken)),
+            ))
+            setRolesReady(true)
+
+            tokenInteractiveInFlightRef.current = false
+            return tokenResponse.accessToken
+          } catch (redirectError: unknown) {
+            const code = (redirectError as { errorCode?: string })?.errorCode
+            const message = (redirectError as { message?: string })?.message ?? ''
+            authDebugWarn('token:popup:error', {
+              code,
+              message,
+            })
+            if (code === 'popup_window_error' || code === 'popup_window_timeout' || message.toLowerCase().includes('popup')) {
+              // Avoid full-page redirect fallback here to prevent auth bounce loops on browsers
+              // that block popup/cookie access during background token refresh.
+              setLoginError('Your browser blocked the sign-in popup. Please allow popups/cookies for this site and sign in again.')
+              tokenInteractiveCooldownUntilRef.current = Date.now() + TOKEN_INTERACTIVE_COOLDOWN_MS
+              tokenInteractiveInFlightRef.current = false
+              return null
+            }
+
+            if (code !== 'interaction_in_progress') {
+              console.error('[MSAL] Popup token acquisition failed:', redirectError)
+            }
+            tokenInteractiveInFlightRef.current = false
+          }
+        }
+
+        return null
+      }
+    })()
+
+    tokenRequestInFlightRef.current = tokenPromise
+    try {
+      return await tokenPromise
+    } finally {
+      tokenRequestInFlightRef.current = null
+    }
+  }, [account, instance, interactionBusy, popupRedirectUri])
+
   const ensureBackendRoles = useCallback(async (): Promise<AppRole[]> => {
     if (localE2EAuth || !account || interactionBusy) {
       return []
     }
 
+    let accessToken: string | null = null
     try {
-      const tokenResponse = await instance.acquireTokenSilent({
-        ...loginRequest,
-        account,
+      accessToken = await acquireAccessToken()
+    } catch (error: unknown) {
+      authDebugWarn('roles:backend:unavailable', {
+        account: account.username,
+        stage: 'token',
+        message: error instanceof Error ? error.message : String(error),
       })
+      return []
+    }
 
-      const headers: Record<string, string> = {
-        Authorization: `Bearer ${tokenResponse.accessToken}`,
+    if (!accessToken) {
+      return []
+    }
+
+    const emailHintHeader = resolveEmailHintHeader(accountClaims, account.username)
+    const baseHeaders: Record<string, string> = {
+      Authorization: `Bearer ${accessToken}`,
+    }
+
+    const headersWithHint: Record<string, string> = emailHintHeader
+      ? { ...baseHeaders, 'X-Id-Token-Email': emailHintHeader }
+      : baseHeaders
+
+    const membersMeUrl = `${getApiBaseUrl()}/members/me`
+
+    const requestMembersMe = async (
+      headers: Record<string, string>,
+    ): Promise<Response> => fetch(membersMeUrl, { method: 'GET', headers })
+
+    let response: Response
+    let usedEmailHintHeader = Boolean(emailHintHeader)
+    try {
+      response = await requestMembersMe(headersWithHint)
+    } catch (firstError: unknown) {
+      // Some browsers (notably Safari/WebKit) reject `fetch()` with
+      // `TypeError: The string did not match the expected pattern.` when a
+      // header value contains anything outside header-safe ASCII. The
+      // X-Id-Token-Email header is purely an optional backend hint — the
+      // server can resolve the caller from the access token alone — so if the
+      // request was rejected and we attached that header, retry once without
+      // it before giving up.
+      const isTypeError = firstError instanceof TypeError
+      if (!emailHintHeader || !isTypeError) {
+        authDebugWarn('roles:backend:unavailable', {
+          account: account.username,
+          stage: 'request',
+          hasEmailHintHeader: Boolean(emailHintHeader),
+          message: firstError instanceof Error ? firstError.message : String(firstError),
+        })
+        return []
       }
 
-      const emailHint = resolveEmailHint(accountClaims, account.username)
-      if (emailHint.includes('@')) {
-        headers['X-Id-Token-Email'] = emailHint
-      }
-
-      const response = await fetch(`${getApiBaseUrl()}/members/me`, {
-        method: 'GET',
-        headers,
+      authDebugWarn('roles:backend:retry-without-hint', {
+        account: account.username,
+        message: firstError instanceof Error ? firstError.message : String(firstError),
       })
 
+      try {
+        response = await requestMembersMe(baseHeaders)
+        usedEmailHintHeader = false
+      } catch (retryError: unknown) {
+        authDebugWarn('roles:backend:unavailable', {
+          account: account.username,
+          stage: 'request',
+          hasEmailHintHeader: false,
+          message: retryError instanceof Error ? retryError.message : String(retryError),
+        })
+        return []
+      }
+    }
+
+    try {
       if (!response.ok) {
         throw new Error(`members/me failed (${response.status})`)
       }
@@ -258,6 +477,7 @@ function useAuth() {
         authDebugLog('roles:backend:merged', {
           account: account.username,
           backendRoles,
+          usedEmailHintHeader,
         })
       }
 
@@ -265,11 +485,13 @@ function useAuth() {
     } catch (error: unknown) {
       authDebugWarn('roles:backend:unavailable', {
         account: account.username,
+        stage: 'response',
+        hasEmailHintHeader: usedEmailHintHeader,
         message: error instanceof Error ? error.message : String(error),
       })
       return []
     }
-  }, [account, accountClaims, instance, interactionBusy, localE2EAuth])
+  }, [account, accountClaims, acquireAccessToken, interactionBusy, localE2EAuth])
 
   useEffect(() => {
     let cancelled = false
@@ -538,174 +760,10 @@ function useAuth() {
       return
     }
 
-    setEmailHint(resolveEmailHint(accountClaims, account?.username))
+    setEmailHint(resolveEmailHintHeader(accountClaims, account?.username))
 
-    setTokenGetter(async () => {
-      if (!account) return null
-
-      const cached = tokenCacheRef.current
-      if (cached && cached.expiresAtMs - Date.now() > TOKEN_EXPIRY_SAFETY_WINDOW_MS) {
-        return cached.token
-      }
-
-      if (tokenRequestInFlightRef.current) {
-        return tokenRequestInFlightRef.current
-      }
-
-      const tokenPromise = (async (): Promise<string | null> => {
-        try {
-          const tokenResponse = await instance.acquireTokenSilent({
-            ...loginRequest,
-            account,
-          })
-          authDebugLog('token:silent:success', {
-            account: account.username,
-            expiresOn: tokenResponse.expiresOn?.toISOString(),
-          })
-
-          if (tokenResponse.expiresOn) {
-            tokenCacheRef.current = {
-              token: tokenResponse.accessToken,
-              expiresAtMs: tokenResponse.expiresOn.getTime(),
-            }
-          }
-
-          setResolvedRoles((current) => mergeRoles(
-            current,
-            mapRoles(decodeJwtPayload(tokenResponse.accessToken)),
-          ))
-          setRolesReady(true)
-
-          return tokenResponse.accessToken
-        } catch (error: unknown) {
-          const shouldTreatAsInteractionRequired = isInteractionRequired(error) || isSilentTimeoutLikeError(error)
-
-          if (!shouldTreatAsInteractionRequired) {
-            const code = (error as { errorCode?: string } | null)?.errorCode
-            authDebugWarn('token:silent:non-interaction-error', {
-              code,
-              account: account.username,
-            })
-            if (code !== 'interaction_in_progress') {
-              console.error('[MSAL] Silent token acquisition failed:', error)
-            }
-            return null
-          }
-
-          const now = Date.now()
-          if (now < tokenInteractiveCooldownUntilRef.current) {
-            authDebugWarn('token:popup:cooldown:active', {
-              account: account.username,
-              retryInMs: tokenInteractiveCooldownUntilRef.current - now,
-            })
-            return null
-          }
-
-          authDebugWarn('token:silent:interaction-required', {
-            account: account.username,
-            interactionBusy,
-            hasLoginRequestInFlight: Boolean(loginRequestRef.current),
-          })
-
-          if (interactionBusy || loginRequestRef.current) {
-            authDebugWarn('token:popup:skipped:interaction-busy')
-
-            // During initial sign-in, API requests can race token readiness.
-            // Wait briefly and retry silent acquisition before giving up.
-            for (let attempt = 0; attempt < TOKEN_BUSY_RETRY_ATTEMPTS; attempt += 1) {
-              await wait(TOKEN_BUSY_RETRY_MS)
-              try {
-                const retryToken = await instance.acquireTokenSilent({
-                  ...loginRequest,
-                  account,
-                })
-
-                if (retryToken.expiresOn) {
-                  tokenCacheRef.current = {
-                    token: retryToken.accessToken,
-                    expiresAtMs: retryToken.expiresOn.getTime(),
-                  }
-                }
-
-                authDebugLog('token:silent:retry-after-busy:success', {
-                  account: account.username,
-                  attempt: attempt + 1,
-                })
-                return retryToken.accessToken
-              } catch {
-                // Keep retrying until attempts are exhausted.
-              }
-            }
-
-            authDebugWarn('token:silent:retry-after-busy:exhausted', {
-              account: account.username,
-            })
-            return null
-          }
-
-          if (!tokenInteractiveInFlightRef.current) {
-            tokenInteractiveInFlightRef.current = true
-            try {
-              const tokenResponse = await instance.acquireTokenPopup({
-                ...loginRequest,
-                account,
-                redirectUri: popupRedirectUri ?? window.location.origin,
-              })
-              authDebugLog('token:popup:success', {
-                account: account.username,
-                expiresOn: tokenResponse.expiresOn?.toISOString(),
-              })
-
-              if (tokenResponse.expiresOn) {
-                tokenCacheRef.current = {
-                  token: tokenResponse.accessToken,
-                  expiresAtMs: tokenResponse.expiresOn.getTime(),
-                }
-              }
-
-              setResolvedRoles((current) => mergeRoles(
-                current,
-                mapRoles(decodeJwtPayload(tokenResponse.accessToken)),
-              ))
-                setRolesReady(true)
-
-              tokenInteractiveInFlightRef.current = false
-              return tokenResponse.accessToken
-            } catch (redirectError: unknown) {
-              const code = (redirectError as { errorCode?: string })?.errorCode
-              const message = (redirectError as { message?: string })?.message ?? ''
-              authDebugWarn('token:popup:error', {
-                code,
-                message,
-              })
-              if (code === 'popup_window_error' || code === 'popup_window_timeout' || message.toLowerCase().includes('popup')) {
-                // Avoid full-page redirect fallback here to prevent auth bounce loops on browsers
-                // that block popup/cookie access during background token refresh.
-                setLoginError('Your browser blocked the sign-in popup. Please allow popups/cookies for this site and sign in again.')
-                tokenInteractiveCooldownUntilRef.current = Date.now() + TOKEN_INTERACTIVE_COOLDOWN_MS
-                tokenInteractiveInFlightRef.current = false
-                return null
-              }
-
-              if (code !== 'interaction_in_progress') {
-                console.error('[MSAL] Popup token acquisition failed:', redirectError)
-              }
-              tokenInteractiveInFlightRef.current = false
-            }
-          }
-
-          return null
-        }
-      })()
-
-      tokenRequestInFlightRef.current = tokenPromise
-      try {
-        return await tokenPromise
-      } finally {
-        tokenRequestInFlightRef.current = null
-      }
-    })
-  }, [account, accountClaims, instance, interactionBusy, localE2EAuth, localE2ERole])
+    setTokenGetter(acquireAccessToken)
+  }, [account, accountClaims, acquireAccessToken, localE2EAuth, localE2ERole])
 
   const localUser: AuthUser = {
     id: `e2e-${localE2ERole.toLowerCase()}`,
@@ -790,6 +848,7 @@ function isSilentTimeoutLikeError(error: unknown): boolean {
     || code.includes('iframe_closed_prematurely')
     || message.includes('timed_out')
     || message.includes('monitor_window_timeout')
+    || message.includes('the string did not match the expected pattern')
 }
 
 function wait(ms: number): Promise<void> {
@@ -846,35 +905,123 @@ function normalizeEmailHintValue(value: string | null | undefined): string {
   return normalized.includes('@') ? normalized.toLowerCase() : ''
 }
 
+function firstNormalizedEmailValue(rawValue: unknown): string {
+  if (typeof rawValue === 'string') {
+    return normalizeEmailHintValue(rawValue)
+  }
+
+  if (Array.isArray(rawValue)) {
+    for (const value of rawValue) {
+      if (typeof value !== 'string' || value.trim().length === 0) {
+        continue
+      }
+
+      const normalized = normalizeEmailHintValue(value)
+      if (normalized) {
+        return normalized
+      }
+    }
+  }
+
+  return ''
+}
+
+function isSyntheticTenantPrincipalEmail(value: string): boolean {
+  const normalized = normalizeEmailHintValue(value)
+  if (!normalized) {
+    return false
+  }
+
+  const [localPart = '', domainPart = ''] = normalized.split('@')
+  return domainPart.endsWith('.onmicrosoft.com')
+    && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(localPart)
+}
+
+// HTTP header values must be 7-bit, header-safe characters. Browsers (notably
+// Safari/WebKit) throw `TypeError: The string did not match the expected
+// pattern.` from `fetch()` when a header value contains anything outside
+// printable ASCII (including non-Latin-1 letters or stray control bytes that
+// can sneak in from federated identity claims). Any value that is not strictly
+// safe to put on the wire MUST be omitted from the header — the backend can
+// resolve identity from the access token and Graph fallback without it.
+function isHeaderSafeAscii(value: string): boolean {
+  // Allow only printable ASCII (no space, no controls, no high-bit / Unicode).
+  return /^[\x21-\x7E]+$/.test(value)
+}
+
+function isUsableEmailHint(value: string | null | undefined): boolean {
+  const normalized = normalizeEmailHintValue(value)
+  if (!normalized || isSyntheticTenantPrincipalEmail(normalized)) {
+    return false
+  }
+
+  if (!isHeaderSafeAscii(normalized)) {
+    return false
+  }
+
+  return /^[^\s<>"'(),;:\[\]\\\r\n]+@[^\s<>"'(),;:\[\]\\\r\n]+\.[^\s<>"'(),;:\[\]\\\r\n]+$/.test(normalized)
+}
+
 function resolveEmailHint(claims: Record<string, unknown> | undefined, fallback: string | null | undefined): string {
+  let fallbackCandidate = ''
+
+  const considerValue = (rawValue: unknown): string => {
+    const normalized = firstNormalizedEmailValue(rawValue)
+    if (!normalized) {
+      return ''
+    }
+
+    if (isUsableEmailHint(normalized)) {
+      return normalized
+    }
+
+    if (!fallbackCandidate) {
+      fallbackCandidate = normalized
+    }
+
+    return ''
+  }
+
   const directKeys = ['email', 'preferred_username', 'upn']
   if (claims) {
     for (const key of directKeys) {
-      const raw = claims[key]
-      if (typeof raw === 'string') {
-        const normalized = normalizeEmailHintValue(raw)
-        if (normalized) {
-          return normalized
-        }
+      const resolved = considerValue(claims[key])
+      if (resolved) {
+        return resolved
       }
     }
 
     const arrayKeys = ['emails', 'otherMails']
     for (const key of arrayKeys) {
-      const raw = claims[key]
-      if (Array.isArray(raw)) {
-        const first = raw.find((value): value is string => typeof value === 'string' && value.trim().length > 0)
-        if (first) {
-          const normalized = normalizeEmailHintValue(first)
-          if (normalized) {
-            return normalized
-          }
-        }
+      const resolved = considerValue(claims[key])
+      if (resolved) {
+        return resolved
+      }
+    }
+
+    for (const [key, rawValue] of Object.entries(claims)) {
+      if (!key.toLowerCase().includes('email')) {
+        continue
+      }
+
+      const resolved = considerValue(rawValue)
+      if (resolved) {
+        return resolved
       }
     }
   }
 
-  return normalizeEmailHintValue(fallback)
+  const fallbackNormalized = normalizeEmailHintValue(fallback)
+  if (isUsableEmailHint(fallbackNormalized)) {
+    return fallbackNormalized
+  }
+
+  return fallbackCandidate || fallbackNormalized
+}
+
+function resolveEmailHintHeader(claims: Record<string, unknown> | undefined, fallback: string | null | undefined): string | null {
+  const resolved = resolveEmailHint(claims, fallback)
+  return isUsableEmailHint(resolved) ? resolved : null
 }
 
 function mapRoles(claims: Record<string, unknown> | undefined): AppRole[] {

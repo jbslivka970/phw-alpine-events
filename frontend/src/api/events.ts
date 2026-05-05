@@ -208,6 +208,7 @@ const rsvpApi = {
 
 const emailRsvpApi = {
   get: (token: string) => apiGet<PublicRsvpContext>(`/events/rsvp/${encodeURIComponent(token)}`),
+  resolveShort: (code: string) => apiGet<{ token: string }>(`/events/rsvp/short/${encodeURIComponent(code)}`),
   submit: (token: string, payload: { response: RsvpRecord['response']; response_role?: 'MENTOR' | 'PARTICIPANT' }) =>
     apiPost<RsvpRecord>(`/events/rsvp/${encodeURIComponent(token)}`, payload),
 };

@@ -20,6 +20,7 @@ const MembersPage = lazy(() => import('./pages/MembersPage').then((module) => ({
 const NotificationPreferencesPage = lazy(() => import('./pages/NotificationPreferencesPage').then((module) => ({ default: module.NotificationPreferencesPage })))
 const PrivacyPolicyPage = lazy(() => import('./pages/PrivacyPolicyPage').then((module) => ({ default: module.PrivacyPolicyPage })))
 const PublicRsvpPage = lazy(() => import('./pages/PublicRsvpPage').then((module) => ({ default: module.PublicRsvpPage })))
+const ShortRsvpRedirectPage = lazy(() => import('./pages/ShortRsvpRedirectPage').then((module) => ({ default: module.ShortRsvpRedirectPage })))
 const ReportsPage = lazy(() => import('./pages/ReportsPage').then((module) => ({ default: module.ReportsPage })))
 const SmsProgramPage = lazy(() => import('./pages/SmsProgramPage').then((module) => ({ default: module.SmsProgramPage })))
 const TavfListPage = lazy(() => import('./pages/TavfListPage').then((module) => ({ default: module.TavfListPage })))
@@ -47,6 +48,7 @@ function App() {
           <Route path="/privacy" element={<PrivacyPolicyPage />} />
           <Route path="/terms" element={<TermsPage />} />
           <Route path="/sms-program" element={<SmsProgramPage />} />
+          <Route path="/go/:code" element={<ShortRsvpRedirectPage />} />
           <Route path="/rsvp/:token" element={<PublicRsvpPage />} />
 
           <Route

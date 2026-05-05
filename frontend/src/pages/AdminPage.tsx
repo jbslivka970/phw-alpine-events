@@ -5,6 +5,7 @@ import type { AdminUser, AppRoleAvailable, UserRoleAssignment, UserRoleAssignmen
 import { eventsApi } from '../api/events'
 import { groupsApi } from '../api/groups'
 import { membersApi } from '../api/members'
+import { getApiBaseUrl } from '../api/baseUrl'
 import LoadingSkeleton from '../components/LoadingSkeleton'
 import type { EventRecord } from '../api/events'
 import { toUserErrorMessage } from '../utils/errorMessage'
@@ -100,8 +101,7 @@ function AdminPage() {
   const [roleRemovingId, setRoleRemovingId] = useState<string | null>(null)
 
   useEffect(() => {
-    const rawBase = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? '/api/v1'
-    const base = rawBase.endsWith('/') ? rawBase.slice(0, -1) : rawBase
+    const base = getApiBaseUrl()
 
     fetch(`${base}/health`)
       .then((r) => (r.ok ? setHealth((h) => ({ ...h, api: 'ok' })) : Promise.reject()))

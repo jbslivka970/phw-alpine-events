@@ -14,7 +14,7 @@ import { assignmentConfirmationTemplate } from '../templates/assignmentConfirmat
 import { assignmentAdminAddedTemplate } from '../templates/assignmentAdminAdded';
 import { waitlistPromotionTemplate } from '../templates/waitlistPromotion';
 import { buildMemberEmailUnsubscribeUrl } from './emailPreferenceLinkService';
-import { buildMemberRsvpUrls, type ResponseRole } from './rsvpLinkService';
+import { buildMemberRsvpUrls, createShortRsvpUrlFromLandingUrl, type ResponseRole } from './rsvpLinkService';
 import { formatInProgramTimeZone } from '../utils/dateTime';
 
 interface RsvpNotificationPayload {
@@ -442,7 +442,7 @@ class NotificationService {
   async sendSms(options: SendSmsOptions): Promise<void> {
     const normalizedMessage = truncateSms(options.message);
     if (normalizedMessage !== options.message) {
-      console.warn('[NotificationService] SMS exceeded 160 characters and was truncated.');
+      console.warn('[NotificationService] SMS exceeded max length and was compacted before send.');
     }
 
     if (options.memberId && !options.bypassOptInCheck) {
@@ -707,6 +707,23 @@ function renderEmailTemplate(
 
 function renderSmsTemplate(override: RuntimeTemplateOverride | null, fallbackBody: string, variables: Record<string, string>): string {
   return renderTemplate(override?.body ?? fallbackBody, variables);
+}
+
+async function withShortRsvpVariable(variables: Record<string, string>): Promise<Record<string, string>> {
+  const landingUrl = variables.rsvpUrl;
+  if (!landingUrl) {
+    return variables;
+  }
+
+  const shortUrl = await createShortRsvpUrlFromLandingUrl(landingUrl);
+  if (!shortUrl || shortUrl === landingUrl) {
+    return variables;
+  }
+
+  return {
+    ...variables,
+    rsvpUrl: shortUrl,
+  };
 }
 
 const acsConfig = loadAcsConfig();
@@ -1152,9 +1169,10 @@ async function sendEventPublishedNotification(
     }
 
     if (canSms) {
+      const smsVariables = await withShortRsvpVariable(variables);
       await notificationService.sendSms({
         to: recipient.mobile_phone as string,
-        message: renderSmsTemplate(smsTemplateOverride, eventInviteTemplate.smsBodyTemplate ?? '', variables),
+        message: renderSmsTemplate(smsTemplateOverride, eventInviteTemplate.smsBodyTemplate ?? '', smsVariables),
         templateId: eventInviteTemplate.templateId,
         memberId: recipient.member_id,
         eventId: payload.event_id,
@@ -1242,9 +1260,10 @@ async function sendEventCancelledNotification(payload: EventNotificationPayload)
     const canSms = Boolean(recipient.mobile_phone && recipient.sms_opt_in);
 
     if (preferredChannel === 'sms' && canSms) {
+      const smsVariables = await withShortRsvpVariable(variables);
       await notificationService.sendSms({
         to: recipient.mobile_phone as string,
-        message: renderSmsTemplate(smsTemplateOverride, eventCancellationTemplate.smsBodyTemplate ?? '', variables),
+        message: renderSmsTemplate(smsTemplateOverride, eventCancellationTemplate.smsBodyTemplate ?? '', smsVariables),
         templateId: eventCancellationTemplate.templateId,
         memberId: recipient.member_id,
         eventId: payload.event_id,
@@ -1276,9 +1295,10 @@ async function sendEventCancelledNotification(payload: EventNotificationPayload)
     }
 
     if (canSms) {
+      const smsVariables = await withShortRsvpVariable(variables);
       await notificationService.sendSms({
         to: recipient.mobile_phone as string,
-        message: renderSmsTemplate(smsTemplateOverride, eventCancellationTemplate.smsBodyTemplate ?? '', variables),
+        message: renderSmsTemplate(smsTemplateOverride, eventCancellationTemplate.smsBodyTemplate ?? '', smsVariables),
         templateId: eventCancellationTemplate.templateId,
         memberId: recipient.member_id,
         eventId: payload.event_id,
@@ -1341,9 +1361,10 @@ async function sendEventUpdatedNotification(payload: EventUpdateNotificationPayl
     const canSms = Boolean(recipient.mobile_phone && recipient.sms_opt_in);
 
     if (preferredChannel === 'sms' && canSms) {
+      const smsVariables = await withShortRsvpVariable(variables);
       await notificationService.sendSms({
         to: recipient.mobile_phone as string,
-        message: renderSmsTemplate(smsTemplateOverride, eventUpdateTemplate.smsBodyTemplate ?? '', variables),
+        message: renderSmsTemplate(smsTemplateOverride, eventUpdateTemplate.smsBodyTemplate ?? '', smsVariables),
         templateId: eventUpdateTemplate.templateId,
         memberId: recipient.member_id,
         eventId: payload.event_id,
@@ -1376,9 +1397,10 @@ async function sendEventUpdatedNotification(payload: EventUpdateNotificationPayl
     }
 
     if (canSms) {
+      const smsVariables = await withShortRsvpVariable(variables);
       await notificationService.sendSms({
         to: recipient.mobile_phone as string,
-        message: renderSmsTemplate(smsTemplateOverride, eventUpdateTemplate.smsBodyTemplate ?? '', variables),
+        message: renderSmsTemplate(smsTemplateOverride, eventUpdateTemplate.smsBodyTemplate ?? '', smsVariables),
         templateId: eventUpdateTemplate.templateId,
         memberId: recipient.member_id,
         eventId: payload.event_id,
@@ -1457,9 +1479,10 @@ async function sendEventCompletedNotification(payload: EventNotificationPayload)
     const canSms = Boolean(recipient.mobile_phone && recipient.sms_opt_in);
 
     if (preferredChannel === 'sms' && canSms) {
+      const smsVariables = await withShortRsvpVariable(variables);
       await notificationService.sendSms({
         to: recipient.mobile_phone as string,
-        message: renderSmsTemplate(smsTemplateOverride, eventThankYouTemplate.smsBodyTemplate ?? '', variables),
+        message: renderSmsTemplate(smsTemplateOverride, eventThankYouTemplate.smsBodyTemplate ?? '', smsVariables),
         templateId: eventThankYouTemplate.templateId,
         memberId: recipient.member_id,
         eventId: payload.event_id,
@@ -1489,9 +1512,10 @@ async function sendEventCompletedNotification(payload: EventNotificationPayload)
     }
 
     if (canSms) {
+      const smsVariables = await withShortRsvpVariable(variables);
       await notificationService.sendSms({
         to: recipient.mobile_phone as string,
-        message: renderSmsTemplate(smsTemplateOverride, eventThankYouTemplate.smsBodyTemplate ?? '', variables),
+        message: renderSmsTemplate(smsTemplateOverride, eventThankYouTemplate.smsBodyTemplate ?? '', smsVariables),
         templateId: eventThankYouTemplate.templateId,
         memberId: recipient.member_id,
         eventId: payload.event_id,
@@ -1921,10 +1945,49 @@ function formatEventDate(value: Date | string): string {
   return formatInProgramTimeZone(value);
 }
 
-function truncateSms(message: string, limit = 160): string {
+const MAX_SMS_LENGTH = 1000;
+
+function truncateSms(message: string, limit = MAX_SMS_LENGTH): string {
   if (message.length <= limit) {
     return message;
   }
+
+  // Preserve a full URL and trailing compliance copy when possible so RSVP links
+  // remain valid and legal text is retained when a message must be shortened.
+  const urlMatch = message.match(/https?:\/\/\S+/i);
+  if (urlMatch && typeof urlMatch.index === 'number') {
+    const fullUrl = urlMatch[0];
+    const intro = message.slice(0, urlMatch.index).trimEnd();
+    const trailing = message.slice(urlMatch.index + fullUrl.length).trim();
+    const trailingBudget = trailing ? trailing.length + 1 : 0;
+
+    if (fullUrl.length + trailingBudget + 1 < limit) {
+      const introBudget = limit - fullUrl.length - trailingBudget - 1;
+      let compactIntro = intro;
+      if (compactIntro.length > introBudget) {
+        if (introBudget <= 3) {
+          compactIntro = ''.padEnd(Math.max(introBudget, 0), '.');
+        } else {
+          compactIntro = `${compactIntro.slice(0, introBudget - 3).trimEnd()}...`;
+        }
+      }
+      return [compactIntro, fullUrl, trailing].filter(Boolean).join(' ').trim();
+    }
+
+    if (fullUrl.length + 1 < limit) {
+      const introBudget = limit - fullUrl.length - 1;
+      let compactIntro = intro;
+      if (compactIntro.length > introBudget) {
+        if (introBudget <= 3) {
+          compactIntro = ''.padEnd(Math.max(introBudget, 0), '.');
+        } else {
+          compactIntro = `${compactIntro.slice(0, introBudget - 3).trimEnd()}...`;
+        }
+      }
+      return `${compactIntro} ${fullUrl}`.trim();
+    }
+  }
+
   if (limit <= 3) {
     return '.'.repeat(Math.max(limit, 0));
   }

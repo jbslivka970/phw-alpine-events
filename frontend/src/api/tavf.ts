@@ -21,6 +21,8 @@ export interface TavfApplication {
   application_id: string;
   posting_id: string;
   vet_member_id: string;
+  first_name?: string | null;
+  last_name?: string | null;
   notes?: string | null;
   status: ApplicationStatus;
   applied_at: string;

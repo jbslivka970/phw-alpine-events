@@ -55,6 +55,8 @@ const application = {
   application_id: 'a-3333',
   posting_id: 'p-1111',
   vet_member_id: 'member-abc',
+  first_name: 'Casey',
+  last_name: 'Member',
   notes: 'I have my own gear.',
   status: 'pending',
   applied_at: '2026-03-30T11:00:00Z',
@@ -103,6 +105,7 @@ describe('TavfDetailPage flow pattern', () => {
 
     expect(await screen.findByRole('heading', { name: 'Cherry Creek Reservoir' })).toBeInTheDocument();
     expect(screen.getByText(/Applications/i)).toBeInTheDocument();
+    expect(screen.getByText('Casey Member')).toBeInTheDocument();
     expect(mockedApi.getPosting).toHaveBeenCalledWith('p-1111');
     expect(mockedApi.listApplications).toHaveBeenCalledWith('p-1111');
     expect(mockedApi.listMatches).toHaveBeenCalled();

@@ -23,6 +23,15 @@ const APPLICATION_STATUS_LABELS: Record<ApplicationStatus, string> = {
   withdrawn: 'Withdrawn',
 };
 
+function formatApplicantName(application: TavfApplication): string {
+  const fullName = [application.first_name, application.last_name].filter(Boolean).join(' ').trim();
+  if (fullName.length > 0) {
+    return fullName;
+  }
+
+  return `${application.vet_member_id.slice(0, 8)}…`;
+}
+
 function ApplicationRow({
   application,
   matches,
@@ -50,7 +59,10 @@ function ApplicationRow({
 
   return (
     <tr className="tavf-app-row">
-      <td className="tavf-app-row__id">{application.vet_member_id.slice(0, 8)}…</td>
+      <td>
+        <div>{formatApplicantName(application)}</div>
+        <div className="tavf-app-row__id">{application.vet_member_id.slice(0, 8)}…</div>
+      </td>
       <td>
         <span className={`tavf-status-badge tavf-status-badge--${application.status}`}>
           {APPLICATION_STATUS_LABELS[application.status]}
@@ -356,7 +368,7 @@ function TavfDetailPage() {
               <table className="data-table">
                 <thead>
                   <tr>
-                    <th>Veteran ID</th>
+                    <th>Applicant</th>
                     <th>Status</th>
                     <th>Notes</th>
                     <th>Applied</th>
