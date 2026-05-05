@@ -194,15 +194,15 @@ function TavfDetailPage() {
 
   async function handleApply(e: React.FormEvent) {
     e.preventDefault();
-    if (!id || !viewerMemberId) {
-      setApplyError('Unable to resolve your member profile for this application.');
+    if (!id) {
+      setApplyError('Posting ID is missing.');
       return;
     }
     setApplying(true);
     setApplyError(null);
     try {
       await tavfApi.applyToPosting(id, {
-        vet_member_id: viewerMemberId,
+        vet_member_id: viewerMemberId ?? undefined,
         notes: applyNotes || undefined,
       });
       setApplyNotes('');
@@ -270,7 +270,9 @@ function TavfDetailPage() {
   });
 
   const alreadyApplied = Boolean(viewerMemberId) && applications.some(a => a.vet_member_id === viewerMemberId);
-  const canApply = posting.status === 'open' && !alreadyApplied && Boolean(viewerMemberId);
+  const canApply = posting.status === 'open' && !alreadyApplied;
+  const postedByName = [posting.guide_first_name, posting.guide_last_name].filter(Boolean).join(' ').trim();
+  const postedByContact = [posting.guide_email, posting.guide_mobile_phone].filter(Boolean).join(' • ');
 
   return (
     <div className="page-container">
@@ -309,6 +311,11 @@ function TavfDetailPage() {
         <span className={`tavf-status-badge tavf-status-badge--${posting.status}`}>
           {POSTING_STATUS_LABELS[posting.status]}
         </span>
+        {(postedByName || postedByContact) && (
+          <span className="tavf-detail-meta__item">
+            <strong>Posted by:</strong> {[postedByName, postedByContact].filter(Boolean).join(' • ')}
+          </span>
+        )}
         <span className="tavf-detail-meta__item">
           <strong>Capacity:</strong> {posting.capacity} veteran{posting.capacity !== 1 ? 's' : ''}
         </span>
@@ -351,6 +358,12 @@ function TavfDetailPage() {
       {alreadyApplied && (
         <div className="tavf-applied-notice">
           You have already applied to this posting.
+        </div>
+      )}
+
+      {!viewerMemberId && canApply && (
+        <div className="tavf-applied-notice">
+          Your member profile will be resolved automatically at submit time.
         </div>
       )}
 

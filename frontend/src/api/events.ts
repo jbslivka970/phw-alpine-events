@@ -164,6 +164,8 @@ const eventsApi = {
     apiPut<EventRecord>(`/events/${id}`, data),
   updateStatus: (id: string, status: EventRecord['status']) =>
     apiPut<EventRecord>(`/events/${id}/status`, { status }),
+  sendReminder: (id: string) =>
+    apiPost<{ ok: boolean; event_id: string; sent: boolean }>(`/events/${id}/send-reminder`, {}),
   sendUpdate: (id: string, payload: { update_reason: string; change_summary?: string | null; changed_fields?: string[] }) =>
     apiPost<{ ok: boolean; event_id: string; sent: boolean }>(`/events/${id}/send-update`, payload),
   downloadIcs: (id: string) => apiGetBlob(`/events/${id}/ics`),

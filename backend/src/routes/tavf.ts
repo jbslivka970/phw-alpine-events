@@ -256,9 +256,10 @@ router.post('/postings/:id/applications', async (req: Request, res: Response): P
     const { vet_member_id: requestedVetMemberId, notes } = req.body as { vet_member_id?: string; notes?: string };
     const elevatedAccess = hasElevatedTavfAccess(req.user);
 
+    const currentMemberId = await resolveCurrentMemberId(req.user);
     let vetMemberId = requestedVetMemberId;
+
     if (!elevatedAccess) {
-      const currentMemberId = await resolveCurrentMemberId(req.user);
       if (!currentMemberId) {
         res.status(400).json({ error: 'Unable to resolve a member profile for this authenticated user.' });
         return;
@@ -270,6 +271,8 @@ router.post('/postings/:id/applications', async (req: Request, res: Response): P
       }
 
       vetMemberId = currentMemberId;
+    } else if (!vetMemberId) {
+      vetMemberId = currentMemberId ?? undefined;
     }
 
     if (!vetMemberId) {
@@ -284,6 +287,19 @@ router.post('/postings/:id/applications', async (req: Request, res: Response): P
     });
     res.status(201).json(application);
   } catch (err) {
+    if (err instanceof Error && err.message.includes('closed and no longer accepting applications')) {
+      res.status(409).json({ error: err.message });
+      return;
+    }
+
+    if (err && typeof err === 'object') {
+      const sqlErr = err as { number?: number };
+      if (sqlErr.number === 2601 || sqlErr.number === 2627) {
+        res.status(409).json({ error: 'You have already applied to this posting.' });
+        return;
+      }
+    }
+
     console.error('[tavf] createApplication error', err);
     res.status(500).json({ error: 'Internal server error' });
   }

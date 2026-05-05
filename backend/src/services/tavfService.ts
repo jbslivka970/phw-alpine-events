@@ -95,6 +95,10 @@ export type MatchStatus = 'confirmed' | 'cancelled';
 export interface TavfPosting {
   posting_id: string;
   guide_member_id: string;
+  guide_first_name?: string | null;
+  guide_last_name?: string | null;
+  guide_email?: string | null;
+  guide_mobile_phone?: string | null;
   event_date: string;
   location: string;
   capacity: number;
@@ -169,6 +173,19 @@ function isUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
 
+async function autoClosePastOpenPostings(): Promise<void> {
+  const pool = await getPool();
+  await pool
+    .request()
+    .query(
+      `UPDATE tavf_posting
+       SET status = 'cancelled',
+           updated_at = GETDATE()
+       WHERE status = 'open'
+         AND event_date < CAST(GETUTCDATE() AS DATE)`
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Postings
 // ---------------------------------------------------------------------------
@@ -177,25 +194,44 @@ export async function listPostings(
   filters: { status?: PostingStatus } = {}
 ): Promise<TavfPosting[]> {
   await ensureTavfSchema();
+  await autoClosePastOpenPostings();
   const pool = await getPool();
   const req = pool.request();
-  let query = `SELECT * FROM tavf_posting`;
+  let query = `SELECT
+      p.*,
+      guide.first_name AS guide_first_name,
+      guide.last_name AS guide_last_name,
+      guide.email AS guide_email,
+      guide.mobile_phone AS guide_mobile_phone
+    FROM tavf_posting p
+    LEFT JOIN member guide ON guide.member_id = p.guide_member_id`;
   if (filters.status) {
     req.input('status', sql.NVarChar(20), filters.status);
-    query += ` WHERE status = @status`;
+    query += ` WHERE p.status = @status`;
   }
-  query += ` ORDER BY event_date ASC`;
+  query += ` ORDER BY p.event_date ASC`;
   const result = await req.query<TavfPosting>(query);
   return result.recordset;
 }
 
 export async function getPosting(postingId: string): Promise<TavfPosting | null> {
   await ensureTavfSchema();
+  await autoClosePastOpenPostings();
   const pool = await getPool();
   const result = await pool
     .request()
     .input('posting_id', sql.UniqueIdentifier, postingId)
-    .query<TavfPosting>(`SELECT * FROM tavf_posting WHERE posting_id = @posting_id`);
+    .query<TavfPosting>(
+      `SELECT
+          p.*,
+          guide.first_name AS guide_first_name,
+          guide.last_name AS guide_last_name,
+          guide.email AS guide_email,
+          guide.mobile_phone AS guide_mobile_phone
+       FROM tavf_posting p
+       LEFT JOIN member guide ON guide.member_id = p.guide_member_id
+       WHERE p.posting_id = @posting_id`
+    );
   return result.recordset[0] ?? null;
 }
 
@@ -218,10 +254,9 @@ export async function createPosting(input: CreatePostingInput): Promise<TavfPost
         (@guide_member_id, @event_date, @location, @capacity, @species, @description)
     `);
   const posting = result.recordset[0];
-
   await notifications.notifyNewPosting(posting.posting_id);
-
-  return posting;
+  const detailed = await getPosting(posting.posting_id);
+  return detailed ?? posting;
 }
 
 export async function updatePosting(
@@ -263,7 +298,13 @@ export async function updatePosting(
       OUTPUT INSERTED.*
       WHERE posting_id = @posting_id
     `);
-  return result.recordset[0] ?? null;
+  const updated = result.recordset[0] ?? null;
+  if (!updated) {
+    return null;
+  }
+
+  const detailed = await getPosting(updated.posting_id);
+  return detailed ?? updated;
 }
 
 export async function deletePosting(postingId: string): Promise<boolean> {
@@ -323,7 +364,25 @@ export async function createApplication(
   input: CreateApplicationInput
 ): Promise<TavfApplication> {
   await ensureTavfSchema();
+  await autoClosePastOpenPostings();
   const pool = await getPool();
+
+  const postingResult = await pool
+    .request()
+    .input('posting_id', sql.UniqueIdentifier, input.posting_id)
+    .query<{ posting_id: string }>(
+      `SELECT posting_id
+       FROM tavf_posting
+       WHERE posting_id = @posting_id
+         AND status = 'open'
+         AND event_date >= CAST(GETUTCDATE() AS DATE)`
+    );
+
+  const posting = postingResult.recordset[0];
+  if (!posting) {
+    throw new Error('This posting is closed and no longer accepting applications.');
+  }
+
   const result = await pool
     .request()
     .input('posting_id', sql.UniqueIdentifier, input.posting_id)

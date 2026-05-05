@@ -1296,6 +1296,7 @@ function EventsPage() {
   // status transition in-flight
   const [transitioning, setTransitioning] = useState<string | null>(null)
   const [sendingUpdateEventId, setSendingUpdateEventId] = useState<string | null>(null)
+  const [sendingReminderEventId, setSendingReminderEventId] = useState<string | null>(null)
   const [reportEmailingEventId, setReportEmailingEventId] = useState<string | null>(null)
   const [memberId, setMemberId] = useState<string | null>(null)
   const [rsvpBusyEventId, setRsvpBusyEventId] = useState<string | null>(null)
@@ -1456,6 +1457,28 @@ function EventsPage() {
       setErr(toUserErrorMessage(error, 'Unable to send event update notification.'))
     } finally {
       setSendingUpdateEventId(null)
+    }
+  }
+
+  async function sendReminder(event: EventRecord) {
+    const preview = [
+      `Send RSVP reminder to non-responders for \"${event.title}\"?`,
+      '',
+      'This will only contact targeted members who have not RSVP\'d yet.',
+    ].join('\n')
+
+    if (!window.confirm(preview)) {
+      return
+    }
+
+    setSendingReminderEventId(event.event_id)
+    try {
+      await eventsApi.sendReminder(event.event_id)
+      setErr(null)
+    } catch (error) {
+      setErr(toUserErrorMessage(error, 'Unable to send RSVP reminder.'))
+    } finally {
+      setSendingReminderEventId(null)
     }
   }
 
@@ -1822,6 +1845,16 @@ function EventsPage() {
                       {isTransitioning ? '…' : STATUS_LABELS[next]}
                     </button>
                   ))}
+
+                  {canEdit && event.status === 'published' && (
+                    <button
+                      className="btn btn--outline btn--sm"
+                      onClick={() => void sendReminder(event)}
+                      disabled={sendingReminderEventId === event.event_id}
+                    >
+                      {sendingReminderEventId === event.event_id ? 'Sending…' : 'Send Reminder'}
+                    </button>
+                  )}
 
                   {canEdit && event.status === 'published' && (
                     <button

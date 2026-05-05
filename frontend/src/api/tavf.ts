@@ -7,6 +7,10 @@ export type MatchStatus = 'confirmed' | 'cancelled';
 export interface TavfPosting {
   posting_id: string;
   guide_member_id: string;
+  guide_first_name?: string | null;
+  guide_last_name?: string | null;
+  guide_email?: string | null;
+  guide_mobile_phone?: string | null;
   event_date: string;
   location: string;
   capacity: number;
@@ -80,7 +84,7 @@ const tavfApi = {
     apiGet<TavfApplication[]>(`/tavf/postings/${postingId}/applications`),
 
   applyToPosting: (postingId: string, data: {
-    vet_member_id: string;
+    vet_member_id?: string;
     notes?: string;
   }) => apiPost<TavfApplication>(`/tavf/postings/${postingId}/applications`, data),
 

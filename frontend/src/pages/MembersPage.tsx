@@ -84,7 +84,7 @@ function toCsvCell(value: string): string {
 }
 
 function MembersPage() {
-  const PAGE_SIZE = 100
+  const PAGE_SIZE = 250
   const { isAdmin } = useAuth()
   const isAdminUser = isAdmin()
   const modalRef = useRef<HTMLElement | null>(null)

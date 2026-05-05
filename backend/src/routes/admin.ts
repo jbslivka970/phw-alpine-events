@@ -1320,7 +1320,32 @@ async function getIdentityStatusesByMemberIds(memberIds: string[]): Promise<Iden
        u.updated_at AS app_user_updated_at
      FROM member m
      LEFT JOIN member_identity_link mil ON mil.member_id = m.member_id
-     LEFT JOIN dbo.[user] u ON LOWER(u.email) = LOWER(m.email) AND u.is_active = 1
+     OUTER APPLY (
+       SELECT TOP 1
+         user_match.email,
+         user_match.azure_oid,
+         user_match.last_login,
+         user_match.created_at,
+         user_match.updated_at
+       FROM dbo.[user] user_match
+       WHERE user_match.is_active = 1
+         AND (
+           LOWER(user_match.email) = LOWER(m.email)
+           OR (mil.last_seen_email IS NOT NULL AND LOWER(user_match.email) = LOWER(mil.last_seen_email))
+           OR (mil.issuer_assigned_id IS NOT NULL AND LOWER(user_match.email) = LOWER(mil.issuer_assigned_id))
+           OR (mil.entra_object_id IS NOT NULL AND user_match.azure_oid = mil.entra_object_id)
+         )
+       ORDER BY
+         CASE
+           WHEN LOWER(user_match.email) = LOWER(m.email) THEN 0
+           WHEN mil.entra_object_id IS NOT NULL AND user_match.azure_oid = mil.entra_object_id THEN 1
+           WHEN mil.last_seen_email IS NOT NULL AND LOWER(user_match.email) = LOWER(mil.last_seen_email) THEN 2
+           WHEN mil.issuer_assigned_id IS NOT NULL AND LOWER(user_match.email) = LOWER(mil.issuer_assigned_id) THEN 3
+           ELSE 4
+         END,
+         user_match.last_login DESC,
+         user_match.updated_at DESC
+     ) u
      WHERE m.member_id IN (${query})`
   );
 

@@ -1428,6 +1428,139 @@ async function sendEventUpdatedNotification(payload: EventUpdateNotificationPayl
   });
 }
 
+async function sendEventRsvpReminderToNonResponders(payload: EventNotificationPayload): Promise<void> {
+  const [emailTemplateOverride, smsTemplateOverride] = await Promise.all([
+    getActiveTemplateOverride(eventInviteTemplate.displayName, 'email'),
+    getActiveTemplateOverride(eventInviteTemplate.displayName, 'sms'),
+  ]);
+
+  const pool = await getPool();
+  const recipientsResult = await pool
+    .request()
+    .input('event_id', sql.UniqueIdentifier, payload.event_id)
+    .query<{
+      member_id: string;
+      group_context_id: string | null;
+      group_name: string | null;
+      email: string;
+      mobile_phone: string | null;
+      sms_opt_in: boolean;
+      email_opt_out: boolean;
+    }>(
+      `WITH eligible AS (
+          SELECT
+            m.member_id,
+            ent.group_id AS group_context_id,
+            g.group_name,
+            m.email,
+            m.mobile_phone,
+            m.sms_opt_in,
+            m.email_opt_out,
+            ROW_NUMBER() OVER (
+              PARTITION BY m.member_id
+              ORDER BY CASE WHEN ent.group_id IS NULL THEN 1 ELSE 0 END, ent.group_id
+            ) AS row_num
+          FROM event_notification_target ent
+          LEFT JOIN member_group mg ON mg.group_id = ent.group_id
+          LEFT JOIN [group] g ON g.group_id = ent.group_id
+          LEFT JOIN member m ON m.member_id = COALESCE(ent.member_id, mg.member_id)
+          LEFT JOIN event_response er ON er.event_id = ent.event_id AND er.member_id = m.member_id
+          WHERE ent.event_id = @event_id
+            AND m.member_id IS NOT NULL
+            AND m.is_active = 1
+            AND er.response_id IS NULL
+        )
+        SELECT
+          member_id,
+          group_context_id,
+          group_name,
+          email,
+          mobile_phone,
+          sms_opt_in,
+          email_opt_out
+        FROM eligible
+        WHERE row_num = 1`
+    );
+
+  let sentEmailCount = 0;
+  let sentSmsCount = 0;
+  let skippedCount = 0;
+
+  for (const recipient of recipientsResult.recordset) {
+    const inferredRole = inferRoleFromGroupName(recipient.group_name);
+    if (payload.invitation_stage === 'volunteer' && inferredRole !== 'MENTOR') {
+      skippedCount += 1;
+      continue;
+    }
+    if (payload.invitation_stage === 'participant' && inferredRole !== 'PARTICIPANT') {
+      skippedCount += 1;
+      continue;
+    }
+
+    const canEmail = Boolean(!recipient.email_opt_out && recipient.email);
+    const canSms = Boolean(recipient.mobile_phone && recipient.sms_opt_in);
+    if (!canEmail && !canSms) {
+      skippedCount += 1;
+      continue;
+    }
+
+    const variables = {
+      ...buildEventVariables(payload, recipient.member_id, recipient.group_context_id ?? undefined, inferredRole),
+      reminderNote: 'Friendly reminder: please RSVP so we can plan guides, logistics, and attendance.',
+    };
+
+    if (canEmail) {
+      const renderedEmail = renderEmailTemplate(emailTemplateOverride, {
+        subject: 'Reminder: RSVP requested for {{eventTitle}}',
+        htmlBody: '<p>{{reminderNote}}</p><p><strong>{{eventTitle}}</strong><br/>{{eventDate}}<br/>{{location}}</p><p>RSVP: <a href="{{rsvpUrl}}">{{rsvpUrl}}</a></p>',
+        textBody: '{{reminderNote}}\n\n{{eventTitle}}\n{{eventDate}}\n{{location}}\nRSVP: {{rsvpUrl}}',
+      }, variables);
+      await notificationService.sendEmail({
+        to: recipient.email,
+        subject: renderedEmail.subject,
+        htmlBody: renderedEmail.htmlBody,
+        textBody: renderedEmail.textBody,
+        templateId: eventInviteTemplate.templateId,
+        memberId: recipient.member_id,
+        eventId: payload.event_id,
+        operationType: 'event_rsvp_reminder',
+      });
+      sentEmailCount += 1;
+    }
+
+    if (canSms) {
+      const smsVariables = await withShortRsvpVariable(variables);
+      await notificationService.sendSms({
+        to: recipient.mobile_phone as string,
+        message: renderSmsTemplate(
+          smsTemplateOverride,
+          'PHW Alpine reminder: please RSVP for {{eventTitle}} ({{eventDate}}). RSVP: {{rsvpUrl}} Reply STOP to opt out.',
+          smsVariables,
+        ),
+        templateId: eventInviteTemplate.templateId,
+        memberId: recipient.member_id,
+        eventId: payload.event_id,
+        operationType: 'event_rsvp_reminder',
+      });
+      sentSmsCount += 1;
+    }
+  }
+
+  await sendCoordinatorSummaryEmail({
+    eventLeadEmail: payload.event_lead_email,
+    eventId: payload.event_id,
+    subject: `Coordinator summary: RSVP reminders sent for ${payload.title}`,
+    lines: [
+      `Event: ${payload.title}`,
+      `Date/time: ${formatEventDate(payload.event_date)}`,
+      `Reminder recipients emailed: ${sentEmailCount}`,
+      `Reminder recipients texted: ${sentSmsCount}`,
+      `Recipients skipped: ${skippedCount}`,
+    ],
+    operationType: 'event_rsvp_reminder',
+  });
+}
+
 async function sendEventCompletedNotification(payload: EventNotificationPayload): Promise<void> {
   const [emailTemplateOverride, smsTemplateOverride] = await Promise.all([
     getActiveTemplateOverride(eventThankYouTemplate.displayName, 'email'),
@@ -1918,7 +2051,7 @@ async function sendCoordinatorSummaryEmail(options: {
   eventId: string;
   subject: string;
   lines: string[];
-  operationType: 'event_published' | 'event_updated';
+  operationType: 'event_published' | 'event_updated' | 'event_rsvp_reminder';
 }): Promise<void> {
   const to = options.eventLeadEmail?.trim().toLowerCase();
   if (!to) {
@@ -2132,20 +2265,32 @@ async function notifyApplicationReceived(applicationId: string): Promise<void> {
     .query<{
       location: string;
       event_date: Date;
+      guide_first_name: string | null;
+      guide_last_name: string | null;
       guide_email: string;
       guide_member_id: string;
       guide_mobile_phone: string | null;
       guide_sms_opt_in: boolean;
       vet_first_name: string | null;
+      vet_email: string;
+      vet_member_id: string;
+      vet_mobile_phone: string | null;
+      vet_sms_opt_in: boolean;
     }>(
       `SELECT
           p.location,
           p.event_date,
+          guide.first_name AS guide_first_name,
+          guide.last_name AS guide_last_name,
           guide.email AS guide_email,
           guide.member_id AS guide_member_id,
           guide.mobile_phone AS guide_mobile_phone,
           guide.sms_opt_in AS guide_sms_opt_in,
-          vet.first_name AS vet_first_name
+          vet.first_name AS vet_first_name,
+          vet.email AS vet_email,
+          vet.member_id AS vet_member_id,
+          vet.mobile_phone AS vet_mobile_phone,
+          vet.sms_opt_in AS vet_sms_opt_in
        FROM tavf_application ta
        INNER JOIN tavf_posting p ON p.posting_id = ta.posting_id
        INNER JOIN member guide ON guide.member_id = p.guide_member_id
@@ -2162,11 +2307,16 @@ async function notifyApplicationReceived(applicationId: string): Promise<void> {
     applicantName: row.vet_first_name ?? 'A member',
     location: row.location,
     eventDate: dateLabel,
+    applicantEmail: row.vet_email,
+    applicantPhone: row.vet_mobile_phone ?? 'not provided',
+    guideName: [row.guide_first_name, row.guide_last_name].filter(Boolean).join(' ').trim() || 'Guide',
+    guideEmail: row.guide_email,
+    guidePhone: row.guide_mobile_phone ?? 'not provided',
   };
   const renderedEmail = renderEmailTemplate(emailTemplateOverride, {
     subject: 'New TAVF Application - {{location}} on {{eventDate}}',
-    htmlBody: '<p>{{applicantName}} applied for your TAVF posting at {{location}} on {{eventDate}}.</p>',
-    textBody: '{{applicantName}} applied for your TAVF posting at {{location}} on {{eventDate}}.',
+    htmlBody: '<p>{{applicantName}} applied for your TAVF posting at {{location}} on {{eventDate}}.</p><p>Applicant contact: {{applicantEmail}} {{applicantPhone}}</p>',
+    textBody: '{{applicantName}} applied for your TAVF posting at {{location}} on {{eventDate}}. Applicant contact: {{applicantEmail}} {{applicantPhone}}',
   }, variables);
   const renderedSms = renderSmsTemplate(
     smsTemplateOverride,
@@ -2191,6 +2341,34 @@ async function notifyApplicationReceived(applicationId: string): Promise<void> {
       operationType: 'tavf_application_received',
     });
   }
+
+  const applicantRenderedEmail = renderEmailTemplate(emailTemplateOverride, {
+    subject: 'TAVF Interest Submitted - {{location}} on {{eventDate}}',
+    htmlBody: '<p>Thanks for applying for {{location}} on {{eventDate}}.</p><p>Your guide contact: {{guideName}} ({{guideEmail}}, {{guidePhone}}).</p>',
+    textBody: 'Thanks for applying for {{location}} on {{eventDate}}. Your guide contact: {{guideName}} ({{guideEmail}}, {{guidePhone}}).',
+  }, variables);
+
+  await notificationService.sendEmail({
+    to: row.vet_email,
+    subject: applicantRenderedEmail.subject,
+    htmlBody: applicantRenderedEmail.htmlBody,
+    textBody: applicantRenderedEmail.textBody,
+    memberId: row.vet_member_id,
+    operationType: 'tavf_application_received',
+  });
+
+  if (row.vet_sms_opt_in && row.vet_mobile_phone) {
+    await notificationService.sendSms({
+      to: row.vet_mobile_phone,
+      message: renderSmsTemplate(
+        smsTemplateOverride,
+        'PHW Alpine TAVF: Interest submitted for {{location}} on {{eventDate}}. Guide contact: {{guideEmail}} {{guidePhone}}. Reply STOP to opt out.',
+        variables,
+      ),
+      memberId: row.vet_member_id,
+      operationType: 'tavf_application_received',
+    });
+  }
 }
 
 async function notifyMatchConfirmed(matchId: string): Promise<void> {
@@ -2207,10 +2385,14 @@ async function notifyMatchConfirmed(matchId: string): Promise<void> {
       posting_id: string;
       location: string;
       event_date: Date;
+      guide_first_name: string | null;
+      guide_last_name: string | null;
       guide_email: string;
       guide_member_id: string;
       guide_mobile_phone: string | null;
       guide_sms_opt_in: boolean;
+      vet_first_name: string | null;
+      vet_last_name: string | null;
       vet_email: string;
       vet_member_id: string;
       vet_mobile_phone: string | null;
@@ -2220,10 +2402,14 @@ async function notifyMatchConfirmed(matchId: string): Promise<void> {
           p.posting_id,
           p.location,
           p.event_date,
+          guide.first_name AS guide_first_name,
+          guide.last_name AS guide_last_name,
           guide.email AS guide_email,
           guide.member_id AS guide_member_id,
           guide.mobile_phone AS guide_mobile_phone,
           guide.sms_opt_in AS guide_sms_opt_in,
+          vet.first_name AS vet_first_name,
+          vet.last_name AS vet_last_name,
           vet.email AS vet_email,
           vet.member_id AS vet_member_id,
           vet.mobile_phone AS vet_mobile_phone,
@@ -2244,11 +2430,17 @@ async function notifyMatchConfirmed(matchId: string): Promise<void> {
   const variables = {
     location: row.location,
     eventDate: dateLabel,
+    guideName: [row.guide_first_name, row.guide_last_name].filter(Boolean).join(' ').trim() || 'Guide',
+    guideEmail: row.guide_email,
+    guidePhone: row.guide_mobile_phone ?? 'not provided',
+    participantName: [row.vet_first_name, row.vet_last_name].filter(Boolean).join(' ').trim() || 'Participant',
+    participantEmail: row.vet_email,
+    participantPhone: row.vet_mobile_phone ?? 'not provided',
   };
   const renderedEmail = renderEmailTemplate(emailTemplateOverride, {
     subject: 'TAVF Match Confirmed - {{location}} on {{eventDate}}',
-    htmlBody: '<p>Your TAVF match is confirmed for {{location}} on {{eventDate}}.</p>',
-    textBody: 'Your TAVF match is confirmed for {{location}} on {{eventDate}}.',
+    htmlBody: '<p>Your TAVF match is confirmed for {{location}} on {{eventDate}}.</p><p>Guide: {{guideName}} ({{guideEmail}}, {{guidePhone}})</p><p>Participant: {{participantName}} ({{participantEmail}}, {{participantPhone}})</p>',
+    textBody: 'Your TAVF match is confirmed for {{location}} on {{eventDate}}. Guide: {{guideName}} ({{guideEmail}}, {{guidePhone}}). Participant: {{participantName}} ({{participantEmail}}, {{participantPhone}}).',
   }, variables);
   const renderedSms = renderSmsTemplate(
     smsTemplateOverride,
@@ -2408,6 +2600,7 @@ export {
   sendEventCancelledNotification,
   sendEventCompletedNotification,
   sendEventPublishedNotification,
+  sendEventRsvpReminderToNonResponders,
   sendEventUpdatedNotification,
   sendRsvpConfirmation,
   sendRsvpWaitlisted,

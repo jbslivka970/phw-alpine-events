@@ -15,6 +15,7 @@ import {
   sendEventCancelledNotification,
   sendEventCompletedNotification,
   sendEventPublishedNotification,
+  sendEventRsvpReminderToNonResponders,
   sendEventUpdatedNotification,
 } from '../services/notifications';
 import { inferResponseRoleForMember, recordRsvpResponse, RsvpError, VALID_RESPONSES, type RsvpResponse } from '../services/rsvpService';
@@ -1103,6 +1104,75 @@ router.post('/:id/send-update', writeLimiter, authenticate, requireEventCreatorO
     }
 
     console.error('POST /events/:id/send-update failed', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.post('/:id/send-reminder', writeLimiter, authenticate, requireEventCreatorOrAdmin, async (req, res) => {
+  try {
+    const pool = await getPool();
+    const eventColumns = await getEventColumnSupport(pool);
+    const eventResult = await pool
+      .request()
+      .input('event_id', sql.UniqueIdentifier, req.params.id)
+      .query<{
+        event_id: string;
+        status: string;
+        title: string;
+        event_date: Date | string;
+        location: string | null;
+        description: string | null;
+        photo_url: string | null;
+        invitation_stage: 'volunteer' | 'participant' | 'both';
+        event_lead_name: string | null;
+        event_lead_email: string | null;
+      }>(
+        `SELECT
+           event_id,
+           status,
+           title,
+           event_date,
+           location,
+           description,
+           ${eventColumns.hasPhotoUrl ? 'photo_url' : 'CAST(NULL AS NVARCHAR(1024)) AS photo_url'},
+           ${eventColumns.hasInvitationStage ? 'invitation_stage' : "CAST('both' AS NVARCHAR(20)) AS invitation_stage"},
+           ${eventColumns.hasEventLeadName ? 'event_lead_name' : 'CAST(NULL AS NVARCHAR(200)) AS event_lead_name'},
+           ${eventColumns.hasEventLeadEmail ? 'event_lead_email' : 'CAST(NULL AS NVARCHAR(255)) AS event_lead_email'}
+         FROM event
+         WHERE event_id = @event_id`
+      );
+
+    const event = eventResult.recordset[0];
+    if (!event) {
+      res.status(404).json({ error: 'Event not found' });
+      return;
+    }
+
+    if (event.status !== 'published') {
+      res.status(409).json({ error: 'Reminders can only be sent for published events.' });
+      return;
+    }
+
+    await sendEventRsvpReminderToNonResponders({
+      event_id: event.event_id,
+      title: event.title,
+      event_date: event.event_date,
+      location: event.location,
+      description: event.description,
+      photo_url: event.photo_url,
+      invitation_stage: event.invitation_stage,
+      event_lead_name: event.event_lead_name,
+      event_lead_email: event.event_lead_email,
+    });
+
+    res.status(200).json({ ok: true, event_id: event.event_id, sent: true });
+  } catch (error) {
+    if (isNotificationConfigurationError(error)) {
+      res.status(503).json({ error: error.message });
+      return;
+    }
+
+    console.error('POST /events/:id/send-reminder failed', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
