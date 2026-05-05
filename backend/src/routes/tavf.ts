@@ -255,11 +255,19 @@ router.post('/postings/:id/applications', async (req: Request, res: Response): P
   try {
     const { vet_member_id: requestedVetMemberId, notes } = req.body as { vet_member_id?: string; notes?: string };
     const elevatedAccess = hasElevatedTavfAccess(req.user);
+    const resolveCurrentMemberIdSafe = async (): Promise<string | null> => {
+      try {
+        return await resolveCurrentMemberId(req.user);
+      } catch (error) {
+        console.warn('[tavf] resolveCurrentMemberId failed in createApplication', error);
+        return null;
+      }
+    };
 
-    const currentMemberId = await resolveCurrentMemberId(req.user);
     let vetMemberId = requestedVetMemberId;
 
     if (!elevatedAccess) {
+      const currentMemberId = await resolveCurrentMemberIdSafe();
       if (!currentMemberId) {
         res.status(400).json({ error: 'Unable to resolve a member profile for this authenticated user.' });
         return;
@@ -272,6 +280,7 @@ router.post('/postings/:id/applications', async (req: Request, res: Response): P
 
       vetMemberId = currentMemberId;
     } else if (!vetMemberId) {
+      const currentMemberId = await resolveCurrentMemberIdSafe();
       vetMemberId = currentMemberId ?? undefined;
     }
 
