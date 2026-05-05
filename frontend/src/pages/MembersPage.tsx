@@ -26,6 +26,7 @@ interface MemberInviteSummary {
   access: number
   signedIn: number
   disabled: number
+  totalMembers?: number
 }
 
 function deriveChannelPreference(smsOptIn: boolean, emailOptOut: boolean): 'email_only' | 'sms_only' | 'both' {
@@ -106,6 +107,7 @@ function MembersPage() {
   const [isSaving, setIsSaving] = useState(false)
   const [isBulkInviting, setIsBulkInviting] = useState(false)
   const [identityByMemberId, setIdentityByMemberId] = useState<Record<string, IdentityStatus>>({})
+  const [identitySummary, setIdentitySummary] = useState<MemberInviteSummary | null>(null)
   const [inviteInFlightByMemberId, setInviteInFlightByMemberId] = useState<Record<string, boolean>>({})
   const [hardDeleteTarget, setHardDeleteTarget] = useState<{ memberId: string; displayName: string } | null>(null)
   const [hardDeleteConfirmInput, setHardDeleteConfirmInput] = useState('')
@@ -164,6 +166,8 @@ function MembersPage() {
 
     return summary
   }, [members, identityByMemberId])
+
+  const displayInviteSummary = identitySummary ?? inviteSummary
 
   const totalLabel = useMemo(
     () => {
@@ -258,6 +262,31 @@ function MembersPage() {
       identityBulkInFlightRef.current = false
     }
   }, [members, isAdminUser])
+
+  const loadIdentitySummary = useCallback(async () => {
+    if (!isAdminUser) {
+      setIdentitySummary(null)
+      return
+    }
+
+    try {
+      const summary = await adminApi.identityStatusSummary()
+      setIdentitySummary({
+        pending: summary.pending,
+        invited: summary.invited,
+        access: summary.access,
+        signedIn: summary.signed_in,
+        disabled: summary.disabled,
+        totalMembers: summary.total_members,
+      })
+    } catch {
+      setIdentitySummary(null)
+    }
+  }, [isAdminUser])
+
+  useEffect(() => {
+    void loadIdentitySummary()
+  }, [loadIdentitySummary])
 
   function startEdit(m: MemberRecord) {
     setSelected(m)
@@ -416,6 +445,7 @@ function MembersPage() {
       })
       const status = await adminApi.identityStatus(memberId)
       setIdentityByMemberId((current) => ({ ...current, [memberId]: status }))
+      await loadIdentitySummary()
     } catch (err: unknown) {
       setError(toUserErrorMessage(err, 'Identity invite failed.'))
     } finally {
@@ -431,6 +461,7 @@ function MembersPage() {
         email: member.email,
       })
       setIdentityByMemberId((current) => ({ ...current, [member.member_id]: status }))
+      await loadIdentitySummary()
     } catch (err: unknown) {
       setError(toUserErrorMessage(err, 'Identity relink failed.'))
     }
@@ -454,6 +485,7 @@ function MembersPage() {
         map[row.member_id] = row
       }
       setIdentityByMemberId((current) => ({ ...current, ...map }))
+      await loadIdentitySummary()
     } catch (err: unknown) {
       setError(toUserErrorMessage(err, 'Bulk identity invite failed.'))
     } finally {
@@ -680,13 +712,16 @@ function MembersPage() {
 
       {isAdminUser && (
         <section className="card members-summary">
-          <p className="members-summary__title">Access snapshot</p>
+          <p className="members-summary__title">
+            Access snapshot
+            {displayInviteSummary.totalMembers !== undefined ? ` (all ${displayInviteSummary.totalMembers} active members)` : ' (current page)'}
+          </p>
           <div className="members-summary__grid">
-            <span className="members-summary__pill">No access record: {inviteSummary.pending}</span>
-            <span className="members-summary__pill">Invited: {inviteSummary.invited}</span>
-            <span className="members-summary__pill">Access enabled: {inviteSummary.access}</span>
-            <span className="members-summary__pill">Signed in: {inviteSummary.signedIn}</span>
-            <span className="members-summary__pill">Disabled: {inviteSummary.disabled}</span>
+            <span className="members-summary__pill">No access record: {displayInviteSummary.pending}</span>
+            <span className="members-summary__pill">Invited: {displayInviteSummary.invited}</span>
+            <span className="members-summary__pill">Access enabled: {displayInviteSummary.access}</span>
+            <span className="members-summary__pill">Signed in: {displayInviteSummary.signedIn}</span>
+            <span className="members-summary__pill">Disabled: {displayInviteSummary.disabled}</span>
           </div>
         </section>
       )}

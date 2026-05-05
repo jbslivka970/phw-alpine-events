@@ -76,6 +76,15 @@ interface IdentityStatusJoinedRow {
   app_user_updated_at: Date | null;
 }
 
+interface IdentityStatusSummary {
+  total_members: number;
+  pending: number;
+  invited: number;
+  access: number;
+  signed_in: number;
+  disabled: number;
+}
+
 interface IdentityInviteTraceRow {
   trace_id: string;
   occurred_at: Date;
@@ -853,6 +862,70 @@ router.post('/identity/status/bulk', apiLimiter, async (req, res) => {
   }
 });
 
+router.get('/identity/status/summary', apiLimiter, async (_req, res) => {
+  try {
+    const pool = await getPool();
+    const memberResult = await pool
+      .request()
+      .query<{ member_id: string }>(
+        `SELECT member_id
+         FROM member
+         WHERE is_active = 1`
+      );
+
+    const memberIds = memberResult.recordset.map((row) => row.member_id);
+    if (memberIds.length === 0) {
+      res.status(200).json({
+        total_members: 0,
+        pending: 0,
+        invited: 0,
+        access: 0,
+        signed_in: 0,
+        disabled: 0,
+      } satisfies IdentityStatusSummary);
+      return;
+    }
+
+    const statuses: IdentityStatusRow[] = [];
+    const chunkSize = 400;
+    for (let index = 0; index < memberIds.length; index += chunkSize) {
+      const chunk = memberIds.slice(index, index + chunkSize);
+      const chunkStatuses = await getIdentityStatusesByMemberIds(chunk);
+      statuses.push(...chunkStatuses);
+    }
+
+    const summary: IdentityStatusSummary = {
+      total_members: memberIds.length,
+      pending: 0,
+      invited: 0,
+      access: 0,
+      signed_in: 0,
+      disabled: 0,
+    };
+
+    for (const status of statuses) {
+      if (status.status === 'linked') {
+        summary.access += 1;
+      } else if (status.status === 'invited') {
+        summary.invited += 1;
+      } else if (status.status === 'disabled') {
+        summary.disabled += 1;
+      } else {
+        summary.pending += 1;
+      }
+
+      if (status.last_sign_in_at) {
+        summary.signed_in += 1;
+      }
+    }
+
+    res.status(200).json(summary);
+  } catch (error) {
+    console.error('GET /admin/identity/status/summary failed', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 router.get('/identity/invite-trace/:memberId', async (req, res) => {
   try {
     const memberId = (req.params.memberId as string | undefined)?.trim();
@@ -1404,11 +1477,57 @@ async function applyFederatedGraphAcceptanceFallback(rows: IdentityStatusJoinedR
     return rows;
   }
 
+  const acceptedObjectIds = Array.from(new Set(
+    Array.from(acceptedByMemberId.values())
+      .map((value) => value.entraObjectId)
+      .filter((value) => typeof value === 'string' && value.length > 0)
+  ));
+
+  const appUserByOid = new Map<string, {
+    email: string | null;
+    azure_oid: string;
+    last_login: Date | null;
+    created_at: Date | null;
+    updated_at: Date | null;
+  }>();
+
+  if (acceptedObjectIds.length > 0) {
+    const pool = await getPool();
+    const request = pool.request();
+    const params = acceptedObjectIds.map((value, index) => {
+      const key = `entra_oid_${index}`;
+      request.input(key, sql.NVarChar(255), value);
+      return `@${key}`;
+    }).join(', ');
+
+    const appUserResult = await request.query<{
+      email: string | null;
+      azure_oid: string;
+      last_login: Date | null;
+      created_at: Date | null;
+      updated_at: Date | null;
+    }>(
+      `SELECT email, azure_oid, last_login, created_at, updated_at
+       FROM dbo.[user]
+       WHERE is_active = 1
+         AND azure_oid IN (${params})`
+    );
+
+    for (const appUserRow of appUserResult.recordset) {
+      if (!appUserRow.azure_oid) {
+        continue;
+      }
+      appUserByOid.set(appUserRow.azure_oid.toLowerCase(), appUserRow);
+    }
+  }
+
   return rows.map((row) => {
     const accepted = acceptedByMemberId.get(row.member_id.toLowerCase());
     if (!accepted) {
       return row;
     }
+
+    const matchedAppUser = appUserByOid.get(accepted.entraObjectId.toLowerCase());
 
     return {
       ...row,
@@ -1417,7 +1536,12 @@ async function applyFederatedGraphAcceptanceFallback(rows: IdentityStatusJoinedR
       entra_object_id: row.entra_object_id ?? accepted.entraObjectId,
       issuer_assigned_id: row.issuer_assigned_id ?? row.member_email,
       linked_at: row.linked_at ?? accepted.linkedAt,
-      last_sign_in_at: row.last_sign_in_at,
+      last_sign_in_at: row.last_sign_in_at ?? matchedAppUser?.last_login ?? null,
+      app_user_email: row.app_user_email ?? matchedAppUser?.email ?? null,
+      app_user_azure_oid: row.app_user_azure_oid ?? matchedAppUser?.azure_oid ?? accepted.entraObjectId,
+      app_user_last_login: row.app_user_last_login ?? matchedAppUser?.last_login ?? null,
+      app_user_created_at: row.app_user_created_at ?? matchedAppUser?.created_at ?? null,
+      app_user_updated_at: row.app_user_updated_at ?? matchedAppUser?.updated_at ?? null,
       link_updated_at: accepted.linkedAt,
     };
   });

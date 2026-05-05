@@ -80,6 +80,15 @@ interface BulkIdentityStatusResponse {
   data: IdentityStatus[];
 }
 
+interface IdentityStatusSummaryResponse {
+  total_members: number;
+  pending: number;
+  invited: number;
+  access: number;
+  signed_in: number;
+  disabled: number;
+}
+
 interface InviteIdentityResponse {
   member_id: string;
   email: string;
@@ -153,6 +162,8 @@ const adminApi = {
     apiGet<IdentityStatus>(`/admin/identity/status/${memberId}`),
   identityStatusBulk: (memberIds: string[]) =>
     apiPost<BulkIdentityStatusResponse>('/admin/identity/status/bulk', { member_ids: memberIds }),
+  identityStatusSummary: () =>
+    apiGet<IdentityStatusSummaryResponse>('/admin/identity/status/summary'),
   inviteIdentity: (memberId: string, redirectUrl?: string) =>
     apiPost<InviteIdentityResponse>('/admin/identity/invite', {
       member_id: memberId,
@@ -216,6 +227,7 @@ export type {
   RetentionPreviewResponse,
   IdentityStatus,
   BulkIdentityStatusResponse,
+  IdentityStatusSummaryResponse,
   InviteIdentityResponse,
   BulkInviteIdentityResponse,
   SupportEmailRelayConfig,
