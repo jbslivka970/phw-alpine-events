@@ -45,45 +45,45 @@ jobs:
             exit 1
           fi
 
-          python - <<'PY'
-import os
-import sys
-import xml.etree.ElementTree as ET
+            python - <<'PY'
+            import os
+            import sys
+            import xml.etree.ElementTree as ET
 
-raw = (os.environ.get("AZURE_SPLASH_PUBLISH_PROFILE") or "").strip()
-app = (os.environ.get("AZURE_SPLASH_WEBAPP_NAME") or "").strip().lower()
+            raw = (os.environ.get("AZURE_SPLASH_PUBLISH_PROFILE") or "").strip()
+            app = (os.environ.get("AZURE_SPLASH_WEBAPP_NAME") or "").strip().lower()
 
-try:
-    root = ET.fromstring(raw)
-except ET.ParseError as exc:
-    print(f"Invalid AZURE_SPLASH_PUBLISH_PROFILE XML: {exc}")
-    sys.exit(1)
+            try:
+              root = ET.fromstring(raw)
+            except ET.ParseError as exc:
+              print(f"Invalid AZURE_SPLASH_PUBLISH_PROFILE XML: {exc}")
+              sys.exit(1)
 
-profiles = root.findall(".//publishProfile")
-if not profiles:
-    print("AZURE_SPLASH_PUBLISH_PROFILE has no <publishProfile> entries")
-    sys.exit(1)
+            profiles = root.findall(".//publishProfile")
+            if not profiles:
+              print("AZURE_SPLASH_PUBLISH_PROFILE has no <publishProfile> entries")
+              sys.exit(1)
 
-matches = []
-for p in profiles:
-    site = (p.attrib.get("msdeploySite") or "").strip().lower()
-    url = (p.attrib.get("publishUrl") or "").strip().lower()
-    target = f"{site} {url}"
-    if app in target:
-        matches.append((site, url))
+            matches = []
+            for p in profiles:
+              site = (p.attrib.get("msdeploySite") or "").strip().lower()
+              url = (p.attrib.get("publishUrl") or "").strip().lower()
+              target = f"{site} {url}"
+              if app in target:
+                matches.append((site, url))
 
-if not matches:
-    print("Publish profile does not appear to match AZURE_SPLASH_WEBAPP_NAME.")
-    print(f"Expected app name fragment: {app}")
-    print("Sample profile targets:")
-    for p in profiles[:3]:
-        site = (p.attrib.get("msdeploySite") or "").strip()
-        url = (p.attrib.get("publishUrl") or "").strip()
-        print(f"- msdeploySite='{site}' publishUrl='{url}'")
-    sys.exit(1)
+            if not matches:
+              print("Publish profile does not appear to match AZURE_SPLASH_WEBAPP_NAME.")
+              print(f"Expected app name fragment: {app}")
+              print("Sample profile targets:")
+              for p in profiles[:3]:
+                site = (p.attrib.get("msdeploySite") or "").strip()
+                url = (p.attrib.get("publishUrl") or "").strip()
+                print(f"- msdeploySite='{site}' publishUrl='{url}'")
+              sys.exit(1)
 
-print("Publish profile appears to match configured splash app name.")
-PY
+            print("Publish profile appears to match configured splash app name.")
+            PY
 
       - name: Deploy splash to Azure Web App
         uses: azure/webapps-deploy@v3
