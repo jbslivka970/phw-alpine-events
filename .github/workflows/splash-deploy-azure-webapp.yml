@@ -33,13 +33,21 @@ jobs:
       - name: Azure CLI login (splash deploy)
         env:
           AZURE_SPLASH_DEPLOY_CREDENTIALS: ${{ secrets.AZURE_SPLASH_DEPLOY_CREDENTIALS }}
+          AZURE_FRONTEND_DEPLOY_CREDENTIALS: ${{ secrets.AZURE_FRONTEND_DEPLOY_CREDENTIALS }}
         run: |
-          if [ -z "$AZURE_SPLASH_DEPLOY_CREDENTIALS" ]; then
-            echo "AZURE_SPLASH_DEPLOY_CREDENTIALS is required"
+          DEPLOY_CREDS="$AZURE_SPLASH_DEPLOY_CREDENTIALS"
+          if [ -z "$DEPLOY_CREDS" ]; then
+            DEPLOY_CREDS="$AZURE_FRONTEND_DEPLOY_CREDENTIALS"
+          fi
+
+          if [ -z "$DEPLOY_CREDS" ]; then
+            echo "Set AZURE_SPLASH_DEPLOY_CREDENTIALS (preferred) or AZURE_FRONTEND_DEPLOY_CREDENTIALS"
             exit 1
           fi
 
-          AZ_LINE=$(python -c "import json,os; creds=json.loads(os.environ['AZURE_SPLASH_DEPLOY_CREDENTIALS']); print('\\t'.join([creds.get('clientId',''), creds.get('clientSecret',''), creds.get('tenantId',''), creds.get('subscriptionId','')]))")
+          export DEPLOY_CREDS
+
+          AZ_LINE=$(python -c "import json,os; creds=json.loads(os.environ['DEPLOY_CREDS']); print('\\t'.join([creds.get('clientId',''), creds.get('clientSecret',''), creds.get('tenantId',''), creds.get('subscriptionId','')]))")
 
           IFS=$'\t' read -r AZ_CLIENT_ID AZ_CLIENT_SECRET AZ_TENANT_ID AZ_SUBSCRIPTION_ID <<< "$AZ_LINE"
 
