@@ -106,9 +106,11 @@ function MembersPage() {
   const [edit, setEdit] = useState<MemberEditState | null>(null)
   const [isSaving, setIsSaving] = useState(false)
   const [isBulkInviting, setIsBulkInviting] = useState(false)
+  const [isReconciling, setIsReconciling] = useState(false)
   const [identityByMemberId, setIdentityByMemberId] = useState<Record<string, IdentityStatus>>({})
   const [identitySummary, setIdentitySummary] = useState<MemberInviteSummary | null>(null)
   const [inviteInFlightByMemberId, setInviteInFlightByMemberId] = useState<Record<string, boolean>>({})
+  const [reconcileSuccess, setReconcileSuccess] = useState<string | null>(null)
   const [hardDeleteTarget, setHardDeleteTarget] = useState<{ memberId: string; displayName: string } | null>(null)
   const [hardDeleteConfirmInput, setHardDeleteConfirmInput] = useState('')
   const [hardDeleteError, setHardDeleteError] = useState<string | null>(null)
@@ -437,6 +439,7 @@ function MembersPage() {
     setInviteInFlightByMemberId((current) => ({ ...current, [memberId]: true }))
     setError(null)
     setInviteSuccess(null)
+    setReconcileSuccess(null)
     try {
       const invite = await adminApi.inviteIdentity(memberId)
       setInviteSuccess({
@@ -455,6 +458,7 @@ function MembersPage() {
 
   async function handleRelink(member: MemberRecord) {
     setError(null)
+    setReconcileSuccess(null)
     try {
       const status = await adminApi.relinkIdentity({
         member_id: member.member_id,
@@ -471,6 +475,7 @@ function MembersPage() {
     setIsBulkInviting(true)
     setError(null)
     setInviteSuccess(null)
+    setReconcileSuccess(null)
     try {
       const memberIds = filteredMembers
         .filter((member) => normalizeIdentityStatus(identityByMemberId[member.member_id]?.status) === 'pending')
@@ -490,6 +495,35 @@ function MembersPage() {
       setError(toUserErrorMessage(err, 'Bulk identity invite failed.'))
     } finally {
       setIsBulkInviting(false)
+    }
+  }
+
+  async function handleReconcileFiltered() {
+    setIsReconciling(true)
+    setError(null)
+    setInviteSuccess(null)
+    setReconcileSuccess(null)
+
+    try {
+      const memberIds = filteredMembers.map((member) => member.member_id)
+      if (memberIds.length === 0) {
+        return
+      }
+
+      const result = await adminApi.reconcileIdentity(memberIds)
+      const map: Record<string, IdentityStatus> = {}
+      for (const row of result.data) {
+        map[row.member_id] = row
+      }
+      setIdentityByMemberId((current) => ({ ...current, ...map }))
+      setReconcileSuccess(
+        `Reconciled ${result.reconciled} of ${result.scanned} shown member account${result.scanned === 1 ? '' : 's'}.`,
+      )
+      await loadIdentitySummary()
+    } catch (err: unknown) {
+      setError(toUserErrorMessage(err, 'Identity reconciliation failed.'))
+    } finally {
+      setIsReconciling(false)
     }
   }
 
@@ -702,6 +736,16 @@ function MembersPage() {
           <button
             className="btn btn--outline btn--sm"
             type="button"
+            disabled={isReconciling || isLoading || filteredMembers.length === 0}
+            onClick={handleReconcileFiltered}
+          >
+            {isReconciling ? 'Reconciling…' : 'Reconcile shown accounts'}
+          </button>
+        )}
+        {isAdminUser && (
+          <button
+            className="btn btn--outline btn--sm"
+            type="button"
             disabled={isLoading || filteredMembers.length === 0}
             onClick={handleExportFilteredCsv}
           >
@@ -738,6 +782,9 @@ function MembersPage() {
             ? <a href={inviteSuccess.redeemUrl} target="_blank" rel="noreferrer">Open redeem link</a>
             : 'No redeem URL was returned. Check Entra invitation settings and delivery logs.'}
         </p>
+      )}
+      {reconcileSuccess && (
+        <p className="ui-notice ui-notice--success" role="status">{reconcileSuccess}</p>
       )}
 
       <section className="card members-table-wrap">

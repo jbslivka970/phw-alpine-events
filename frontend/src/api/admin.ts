@@ -106,6 +106,12 @@ interface BulkInviteIdentityResponse {
   }>;
 }
 
+interface ReconcileIdentityResponse {
+  scanned: number;
+  reconciled: number;
+  data: IdentityStatus[];
+}
+
 interface SupportEmailRelayConfig {
   supportInboxEmail: string;
   relayRecipients: string[];
@@ -174,6 +180,8 @@ const adminApi = {
       member_ids: memberIds,
       ...(redirectUrl ? { redirect_url: redirectUrl } : {}),
     }),
+  reconcileIdentity: (memberIds?: string[]) =>
+    apiPost<ReconcileIdentityResponse>('/admin/identity/reconcile', memberIds ? { member_ids: memberIds } : {}),
   relinkIdentity: (payload: {
     member_id: string;
     email?: string;
@@ -230,6 +238,7 @@ export type {
   IdentityStatusSummaryResponse,
   InviteIdentityResponse,
   BulkInviteIdentityResponse,
+  ReconcileIdentityResponse,
   SupportEmailRelayConfig,
   AdminUser,
   AdminUsersResponse,

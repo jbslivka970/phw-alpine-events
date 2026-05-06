@@ -7,6 +7,7 @@ import { requireAdmin } from '../middleware/rbac';
 import { loadEntraProvisioningConfig } from '../config';
 import { generateInviteDraft } from '../services/aiInviteService';
 import { isProvisioningEnabled, sendEntraInvitation } from '../services/identityProvisioningService';
+import { appendMemberInviteTokenToLoginUrl, issueIdentityInviteClaim } from '../services/identityInviteClaimService';
 import {
   assignAppRole,
   getUserRoleAssignments,
@@ -108,9 +109,16 @@ interface IdentityInviteTraceRow {
   error: string | null;
 }
 
+interface IdentityReconcileResponse {
+  scanned: number;
+  reconciled: number;
+  data: IdentityStatusRow[];
+}
+
 const MAX_INVITE_TITLE_LENGTH = 160;
 const MAX_INVITE_LOCATION_LENGTH = 200;
 const MAX_INVITE_DESCRIPTION_LENGTH = 2000;
+const IDENTITY_GRAPH_LOOKUP_BATCH_SIZE = 10;
 
 const DEFAULT_PORTAL_LOGIN_URL = 'https://app.phwcoloradoalpine.org/login';
 
@@ -140,8 +148,13 @@ function normalizePortalLoginUrl(candidate?: string | null): string {
       return configuredDefault;
     }
 
+    const inviteToken = parsedCandidate.searchParams.get('invite');
+
     parsedCandidate.pathname = '/login';
     parsedCandidate.search = '';
+    if (inviteToken) {
+      parsedCandidate.searchParams.set('invite', inviteToken);
+    }
     parsedCandidate.hash = '';
     return parsedCandidate.toString();
   } catch {
@@ -1001,8 +1014,12 @@ router.post('/identity/invite', writeLimiter, async (req, res) => {
     });
 
     const currentUser = req.user?.email ?? req.user?.sub ?? 'unknown';
+    const inviteClaim = await issueIdentityInviteClaim(member.member_id, member.email, currentUser);
     await upsertMemberIdentityInvite(member.member_id, member.email, currentUser, invitation.invitedUser?.id ?? null);
-    const signInUrl = normalizePortalLoginUrl(invitation.inviteRedeemUrl);
+    const signInUrl = appendMemberInviteTokenToLoginUrl(
+      normalizePortalLoginUrl(invitation.inviteRedeemUrl),
+      inviteClaim.claimToken
+    );
     try {
       await sendIdentityAccessEmail({
         to: member.email,
@@ -1109,8 +1126,12 @@ router.post('/identity/invite/bulk', writeLimiter, async (req, res) => {
           displayName: `${member.first_name} ${member.last_name}`.trim() || member.email,
           redirectUrl,
         });
+        const inviteClaim = await issueIdentityInviteClaim(member.member_id, member.email, currentUser);
         await upsertMemberIdentityInvite(member.member_id, member.email, currentUser, invitation.invitedUser?.id ?? null);
-        const signInUrl = normalizePortalLoginUrl(invitation.inviteRedeemUrl);
+        const signInUrl = appendMemberInviteTokenToLoginUrl(
+          normalizePortalLoginUrl(invitation.inviteRedeemUrl),
+          inviteClaim.claimToken
+        );
         try {
           await sendIdentityAccessEmail({
             to: member.email,
@@ -1161,6 +1182,57 @@ router.post('/identity/invite/bulk', writeLimiter, async (req, res) => {
   } catch (error) {
     console.error('POST /admin/identity/invite/bulk failed', error);
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.post('/identity/reconcile', writeLimiter, async (req, res) => {
+  try {
+    const memberIdsRaw = req.body?.member_ids;
+    let memberIds: string[];
+
+    if (memberIdsRaw === undefined) {
+      memberIds = await getActiveMemberIds();
+    } else {
+      if (!Array.isArray(memberIdsRaw)) {
+        res.status(400).json({ error: 'member_ids must be an array when provided.' });
+        return;
+      }
+
+      memberIds = memberIdsRaw
+        .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+        .map((value) => value.trim());
+    }
+
+    if (memberIds.length === 0) {
+      res.status(200).json({ scanned: 0, reconciled: 0, data: [] } satisfies IdentityReconcileResponse);
+      return;
+    }
+
+    if (memberIds.length > 500) {
+      res.status(400).json({ error: 'member_ids may not contain more than 500 records per request.' });
+      return;
+    }
+
+    const before = await getIdentityStatusesByMemberIds(memberIds, { reconcile: false });
+    const after = await getIdentityStatusesByMemberIds(memberIds);
+    const beforeByMemberId = new Map(before.map((status) => [status.member_id.toLowerCase(), status]));
+
+    const reconciled = after.filter((status) => {
+      if (status.status !== 'linked') {
+        return false;
+      }
+
+      return beforeByMemberId.get(status.member_id.toLowerCase())?.status !== 'linked';
+    }).length;
+
+    res.status(200).json({
+      scanned: memberIds.length,
+      reconciled,
+      data: after,
+    } satisfies IdentityReconcileResponse);
+  } catch (error) {
+    console.error('POST /admin/identity/reconcile failed', error);
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Internal server error' });
   }
 });
 
@@ -1368,11 +1440,26 @@ async function getIdentityStatusByMemberId(memberId: string): Promise<IdentitySt
   return statuses[0] ?? null;
 }
 
-async function getIdentityStatusesByMemberIds(memberIds: string[]): Promise<IdentityStatusRow[]> {
+async function getIdentityStatusesByMemberIds(
+  memberIds: string[],
+  options: { reconcile?: boolean } = {}
+): Promise<IdentityStatusRow[]> {
   if (memberIds.length === 0) {
     return [];
   }
 
+  let rows = await loadIdentityStatusJoinedRows(memberIds);
+
+  rows = await applyAppUserEmailNormalizationFallback(rows);
+
+  if (options.reconcile !== false) {
+    rows = await applyFederatedGraphAcceptanceFallback(rows);
+  }
+
+  return rows.map(toIdentityStatusRow);
+}
+
+async function loadIdentityStatusJoinedRows(memberIds: string[]): Promise<IdentityStatusJoinedRow[]> {
   const pool = await getPool();
   const query = memberIds.map((_, index) => `@member_id_${index}`).join(', ');
   const request = pool.request();
@@ -1430,13 +1517,23 @@ async function getIdentityStatusesByMemberIds(memberIds: string[]): Promise<Iden
      WHERE m.member_id IN (${query})`
   );
 
-  let rows: IdentityStatusJoinedRow[] = Array.from(result.recordset);
+  return Array.from(result.recordset);
+}
 
-  rows = await applyAppUserEmailNormalizationFallback(rows);
+async function getActiveMemberIds(): Promise<string[]> {
+  const pool = await getPool();
+  const result = await pool
+    .request()
+    .query<{ member_id: string }>(
+      `SELECT member_id
+       FROM member
+       WHERE is_active = 1
+       ORDER BY member_id`
+    );
 
-  rows = await applyFederatedGraphAcceptanceFallback(rows);
-
-  return rows.map(toIdentityStatusRow);
+  return result.recordset
+    .map((row) => row.member_id)
+    .filter((memberId): memberId is string => typeof memberId === 'string' && memberId.length > 0);
 }
 
 function normalizeEmailForIdentityMatch(value: string | null | undefined): string | null {
@@ -1582,35 +1679,38 @@ async function applyFederatedGraphAcceptanceFallback(rows: IdentityStatusJoinedR
   const acceptedByMemberId = await getAcceptedByMemberIdFromInviteTrace(candidates.map((candidate) => candidate.member_id));
   const allowGraphLookup = isGraphRoleManagementConfigured();
 
-  await Promise.all(candidates.map(async (candidate) => {
-    if (acceptedByMemberId.has(candidate.member_id.toLowerCase())) {
-      return;
-    }
-
-    if (!allowGraphLookup) {
-      return;
-    }
-
-    try {
-      const user = await lookupEntraUserByEmail(candidate.member_email);
-      if (!user?.id) {
+  for (let index = 0; index < candidates.length; index += IDENTITY_GRAPH_LOOKUP_BATCH_SIZE) {
+    const batch = candidates.slice(index, index + IDENTITY_GRAPH_LOOKUP_BATCH_SIZE);
+    await Promise.all(batch.map(async (candidate) => {
+      if (acceptedByMemberId.has(candidate.member_id.toLowerCase())) {
         return;
       }
 
-      const linkedAt = new Date();
-      await upsertFederatedGraphLink(candidate.member_id, candidate.member_email, user.id, linkedAt);
-      acceptedByMemberId.set(candidate.member_id.toLowerCase(), {
-        entraObjectId: user.id,
-        linkedAt,
-      });
-    } catch (error) {
-      console.warn('identity status federated graph lookup failed', {
-        memberId: candidate.member_id,
-        email: candidate.member_email,
-        error: error instanceof Error ? error.message : 'unknown_error',
-      });
-    }
-  }));
+      if (!allowGraphLookup) {
+        return;
+      }
+
+      try {
+        const user = await lookupEntraUserByEmail(candidate.member_email);
+        if (!user?.id) {
+          return;
+        }
+
+        const linkedAt = new Date();
+        await upsertFederatedGraphLink(candidate.member_id, candidate.member_email, user.id, linkedAt);
+        acceptedByMemberId.set(candidate.member_id.toLowerCase(), {
+          entraObjectId: user.id,
+          linkedAt,
+        });
+      } catch (error) {
+        console.warn('identity status federated graph lookup failed', {
+          memberId: candidate.member_id,
+          email: candidate.member_email,
+          error: error instanceof Error ? error.message : 'unknown_error',
+        });
+      }
+    }));
+  }
 
   if (acceptedByMemberId.size === 0) {
     return rows;

@@ -4,7 +4,7 @@ import { InteractionStatus } from '@azure/msal-browser'
 import { hasAuthConfig, loginRequest, popupRedirectUri, ROLES } from '../authConfig'
 import type { AppRole } from '../authConfig'
 import { getApiBaseUrl as resolveApiBaseUrl } from '../api/baseUrl'
-import { setEmailHint, setTokenGetter } from '../api/client'
+import { setEmailHint, setMemberInviteToken, setTokenGetter } from '../api/client'
 import { authDebugLog, authDebugWarn } from '../utils/authDebug'
 
 const LOGIN_POPUP_TIMEOUT_MS = 240_000
@@ -742,9 +742,12 @@ function useAuth() {
       if (typeof window !== 'undefined') {
         window.localStorage.removeItem(LOCAL_E2E_AUTH_ROLE_KEY)
       }
+      setMemberInviteToken(null)
       setLocalE2ERole(ROLES.USER)
       return
     }
+
+    setMemberInviteToken(null)
 
     await instance.logoutPopup({
       account: account ?? undefined,

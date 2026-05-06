@@ -5,6 +5,7 @@ import { loadAuthConfig, loadEntraProvisioningConfig } from '../config';
 import { getPool, sql } from '../db';
 import { resolveRolesForRequest } from './authRoleResolver';
 import { backfillAzureOidByEmail } from '../services/adminBootstrapService';
+import { claimIdentityInvite } from '../services/identityInviteClaimService';
 
 type AppRole = 'ADMIN' | 'EVENT_CREATOR' | 'USER' | 'TAVF_CREATOR';
 
@@ -585,7 +586,11 @@ function inferIdentityProvider(claims: JwtPayload): string {
   return 'unknown';
 }
 
-async function upsertMemberIdentityLink(claims: JwtPayload, email: string | undefined): Promise<string | null> {
+async function upsertMemberIdentityLink(
+  claims: JwtPayload,
+  email: string | undefined,
+  memberInviteToken?: string | null
+): Promise<string | null> {
   const entraObjectId = getStringClaim(claims, 'oid') ?? getStringClaim(claims, 'sub');
   const issuer = getStringClaim(claims, 'iss');
   const issuerAssignedId = getStringClaim(claims, 'sub') ?? (email ? email.toLowerCase() : undefined);
@@ -650,6 +655,19 @@ async function upsertMemberIdentityLink(claims: JwtPayload, email: string | unde
       );
 
     return linkedMemberId;
+  }
+
+  if (memberInviteToken) {
+    const claimedMemberId = await claimIdentityInvite(memberInviteToken, {
+      entraObjectId,
+      issuer,
+      issuerAssignedId,
+      identityProvider,
+      email: normalizedEmail,
+    });
+    if (claimedMemberId) {
+      return claimedMemberId;
+    }
   }
 
   // No existing link found. If we have no email from the token, attempt a one-time Graph API
@@ -836,6 +854,12 @@ function authenticate(req: Request, res: Response, next: NextFunction): void {
 
       const roles = extractRoles(claims);
       const normalizedEmail = emailClaim?.toLowerCase();
+      const inviteTokenHeader = req.headers['x-member-invite-token'];
+      const memberInviteToken = typeof inviteTokenHeader === 'string'
+        ? inviteTokenHeader
+        : Array.isArray(inviteTokenHeader)
+          ? inviteTokenHeader[0] ?? null
+          : null;
 
       const enforceMemberPasswordless = isEnabled(process.env['AUTH_ENFORCE_MEMBER_PASSWORDLESS'], true);
       const localPasswordAllowlist = parseEmailAllowlist(process.env['AUTH_LOCAL_PASSWORD_ALLOWLIST']);
@@ -861,7 +885,7 @@ function authenticate(req: Request, res: Response, next: NextFunction): void {
 
       let linkedMemberId: string | null = null;
       try {
-        linkedMemberId = await upsertMemberIdentityLink(claims, emailClaim);
+        linkedMemberId = await upsertMemberIdentityLink(claims, emailClaim, memberInviteToken);
       } catch (linkError) {
         // Keep auth resilient if identity link table is not yet deployed or temporarily unavailable.
         console.warn('[auth] member identity link lookup failed', linkError);

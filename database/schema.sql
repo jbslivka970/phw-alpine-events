@@ -664,6 +664,64 @@ BEGIN
 END
 
 -- ---------------------------------------------------------------------------
+-- 14a. IdentityInviteClaim  (ties invite links to the member being invited)
+-- ---------------------------------------------------------------------------
+IF OBJECT_ID(N'dbo.identity_invite_claim', N'U') IS NULL
+CREATE TABLE dbo.identity_invite_claim (
+    claim_token             UNIQUEIDENTIFIER NOT NULL,
+    member_id               UNIQUEIDENTIFIER NOT NULL,
+    email                   NVARCHAR(255)    NOT NULL,
+    invited_by              NVARCHAR(255)    NOT NULL,
+    created_at              DATETIME2(3)     NOT NULL DEFAULT SYSUTCDATETIME(),
+    claimed_at              DATETIME2(3)     NULL,
+    claimed_entra_object_id NVARCHAR(255)    NULL,
+    claimed_email           NVARCHAR(255)    NULL,
+    last_claimed_at         DATETIME2(3)     NULL,
+    CONSTRAINT PK_identity_invite_claim PRIMARY KEY (claim_token),
+    CONSTRAINT FK_identity_invite_claim_member FOREIGN KEY (member_id)
+        REFERENCES dbo.member(member_id) ON DELETE CASCADE
+);
+
+IF OBJECT_ID(N'dbo.identity_invite_claim', N'U') IS NOT NULL
+BEGIN
+    IF COL_LENGTH('dbo.identity_invite_claim', 'claim_token') IS NULL
+        ALTER TABLE dbo.identity_invite_claim ADD claim_token UNIQUEIDENTIFIER NULL;
+
+    IF COL_LENGTH('dbo.identity_invite_claim', 'member_id') IS NULL
+        ALTER TABLE dbo.identity_invite_claim ADD member_id UNIQUEIDENTIFIER NULL;
+
+    IF COL_LENGTH('dbo.identity_invite_claim', 'email') IS NULL
+        ALTER TABLE dbo.identity_invite_claim ADD email NVARCHAR(255) NULL;
+
+    IF COL_LENGTH('dbo.identity_invite_claim', 'invited_by') IS NULL
+        ALTER TABLE dbo.identity_invite_claim ADD invited_by NVARCHAR(255) NULL;
+
+    IF COL_LENGTH('dbo.identity_invite_claim', 'created_at') IS NULL
+        ALTER TABLE dbo.identity_invite_claim ADD created_at DATETIME2(3) NOT NULL DEFAULT SYSUTCDATETIME();
+
+    IF COL_LENGTH('dbo.identity_invite_claim', 'claimed_at') IS NULL
+        ALTER TABLE dbo.identity_invite_claim ADD claimed_at DATETIME2(3) NULL;
+
+    IF COL_LENGTH('dbo.identity_invite_claim', 'claimed_entra_object_id') IS NULL
+        ALTER TABLE dbo.identity_invite_claim ADD claimed_entra_object_id NVARCHAR(255) NULL;
+
+    IF COL_LENGTH('dbo.identity_invite_claim', 'claimed_email') IS NULL
+        ALTER TABLE dbo.identity_invite_claim ADD claimed_email NVARCHAR(255) NULL;
+
+    IF COL_LENGTH('dbo.identity_invite_claim', 'last_claimed_at') IS NULL
+        ALTER TABLE dbo.identity_invite_claim ADD last_claimed_at DATETIME2(3) NULL;
+END
+
+IF OBJECT_ID(N'dbo.identity_invite_claim', N'U') IS NOT NULL
+   AND NOT EXISTS (
+       SELECT 1 FROM sys.indexes
+       WHERE object_id = OBJECT_ID(N'dbo.identity_invite_claim')
+         AND name = N'IX_identity_invite_claim_member_created_at'
+   )
+CREATE INDEX IX_identity_invite_claim_member_created_at
+    ON dbo.identity_invite_claim(member_id, created_at DESC);
+
+-- ---------------------------------------------------------------------------
 -- 14. TakeAVetPosting  (Take-A-Vet program listings)
 -- ---------------------------------------------------------------------------
 IF OBJECT_ID(N'dbo.take_a_vet_posting', N'U') IS NULL

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { setMemberInviteToken } from '../api/client'
 import { useAuth } from '../hooks/useAuth'
 
 const LOGIN_HERO_PHOTOS = [
@@ -21,6 +22,13 @@ function LoginPage() {
     const fromPath = state?.from?.pathname
     return fromPath && fromPath !== '/login' ? fromPath : '/dashboard'
   })()
+
+  useEffect(() => {
+    const inviteToken = new URLSearchParams(location.search).get('invite')
+    if (inviteToken) {
+      setMemberInviteToken(inviteToken)
+    }
+  }, [location.search])
 
   useEffect(() => {
     if (isAuthenticated) {

@@ -12,6 +12,7 @@ vi.mock('../../api/admin', () => ({
     identityStatusBulk: vi.fn(),
     inviteIdentity: vi.fn(),
     inviteIdentityBulk: vi.fn(),
+    reconcileIdentity: vi.fn(),
     relinkIdentity: vi.fn(),
   },
 }));
@@ -35,6 +36,7 @@ const mockedAdminApi = adminApi as unknown as {
   identityStatusBulk: ReturnType<typeof vi.fn>;
   inviteIdentity: ReturnType<typeof vi.fn>;
   inviteIdentityBulk: ReturnType<typeof vi.fn>;
+  reconcileIdentity: ReturnType<typeof vi.fn>;
   relinkIdentity: ReturnType<typeof vi.fn>;
 };
 
@@ -135,6 +137,14 @@ describe('MembersPage identity workflow', () => {
         { member_id: 'm-2', status: 'invited' },
       ],
     });
+    mockedAdminApi.reconcileIdentity.mockResolvedValue({
+      scanned: 2,
+      reconciled: 1,
+      data: [
+        makeStatus('m-1', 'linked'),
+        makeStatus('m-2', 'pending'),
+      ],
+    });
     mockedAdminApi.relinkIdentity.mockResolvedValue(makeStatus('m-1', 'linked'));
 
     createObjectUrlSpy = vi
@@ -223,5 +233,34 @@ describe('MembersPage identity workflow', () => {
 
     expect(createObjectUrlSpy).toHaveBeenCalledTimes(1);
     expect(revokeObjectUrlSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('reconciles shown members and refreshes identity statuses', async () => {
+    mockedAdminApi.identityStatusBulk.mockResolvedValueOnce({
+      data: [
+        makeStatus('m-1', 'pending'),
+        makeStatus('m-2', 'pending'),
+      ],
+    });
+    mockedAdminApi.reconcileIdentity.mockResolvedValueOnce({
+      scanned: 2,
+      reconciled: 2,
+      data: [
+        makeStatus('m-1', 'linked'),
+        makeStatus('m-2', 'linked'),
+      ],
+    });
+
+    render(<MembersPage />);
+
+    await screen.findByText('Mike Rivera');
+    await userEvent.click(screen.getByRole('button', { name: 'Reconcile shown accounts' }));
+
+    await waitFor(() => {
+      expect(mockedAdminApi.reconcileIdentity).toHaveBeenCalledWith(['m-1', 'm-2']);
+    });
+
+    expect(await screen.findAllByRole('cell', { name: 'Access enabled' })).toHaveLength(2);
+    expect(screen.getByText('Reconciled 2 of 2 shown member accounts.')).toBeInTheDocument();
   });
 });

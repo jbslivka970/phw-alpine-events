@@ -26,6 +26,7 @@ function getLocalE2EToken(): string | null {
 }
 
 const BASE_URL = getApiBaseUrl();
+const MEMBER_INVITE_TOKEN_STORAGE_KEY = 'phw_member_invite_token';
 
 let getToken: TokenGetter = async () => getLocalE2EToken();
 let emailHint: string | null = null;
@@ -44,6 +45,33 @@ function clearTokenCache(): void {
 function setTokenGetter(fn: TokenGetter): void {
   getToken = fn;
   clearTokenCache();
+}
+
+function isMemberInviteToken(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+function getStoredMemberInviteToken(): string | null {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  const value = window.sessionStorage.getItem(MEMBER_INVITE_TOKEN_STORAGE_KEY)?.trim().toLowerCase() ?? '';
+  return isMemberInviteToken(value) ? value : null;
+}
+
+function setMemberInviteToken(inviteToken: string | null): void {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  const normalized = inviteToken?.trim().toLowerCase() ?? '';
+  if (!normalized || !isMemberInviteToken(normalized)) {
+    window.sessionStorage.removeItem(MEMBER_INVITE_TOKEN_STORAGE_KEY);
+    return;
+  }
+
+  window.sessionStorage.setItem(MEMBER_INVITE_TOKEN_STORAGE_KEY, normalized);
 }
 
 // HTTP header values must be 7-bit ASCII; Safari/WebKit throws
@@ -159,6 +187,11 @@ async function buildHeaders(extra?: HeadersInit): Promise<HeadersInit> {
     headers['X-Id-Token-Email'] = emailHint;
   }
 
+  const memberInviteToken = getStoredMemberInviteToken();
+  if (memberInviteToken) {
+    headers['X-Member-Invite-Token'] = memberInviteToken;
+  }
+
   return headers;
 }
 
@@ -225,6 +258,15 @@ async function apiPostForm<T>(path: string, formData: FormData): Promise<T> {
       headers.Authorization = `Bearer ${token}`;
     }
 
+    if (emailHint) {
+      headers['X-Id-Token-Email'] = emailHint;
+    }
+
+    const memberInviteToken = getStoredMemberInviteToken();
+    if (memberInviteToken) {
+      headers['X-Member-Invite-Token'] = memberInviteToken;
+    }
+
     return {
       method: 'POST',
       headers,
@@ -275,4 +317,4 @@ async function apiGetBlob(path: string): Promise<{ blob: Blob; headers: Headers 
   return { blob: await response.blob(), headers: response.headers };
 }
 
-export { BASE_URL, setEmailHint, setTokenGetter, apiDelete, apiGet, apiGetBlob, apiPatch, apiPost, apiPostForm, apiPut };
+export { BASE_URL, setEmailHint, setMemberInviteToken, setTokenGetter, apiDelete, apiGet, apiGetBlob, apiPatch, apiPost, apiPostForm, apiPut };
