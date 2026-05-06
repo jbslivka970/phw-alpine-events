@@ -361,6 +361,9 @@ function EventAssignmentPage() {
   )
 
   const assignedTotalCount = assignments.length
+  const volunteerCapacity = eventCapacity?.mentor_capacity ?? null
+  const participantCapacity = eventCapacity?.participant_capacity ?? null
+  const totalCapacity = eventCapacity?.capacity ?? null
 
   function quotaText(assigned: number, quota: number | null): string {
     if (quota === null) {
@@ -413,20 +416,20 @@ function EventAssignmentPage() {
           Lock this event at its current assigned/confirmed seats. Future "Yes" RSVP submissions will be stored as waitlist when full.
         </p>
         <div className="assignment-capacity-grid" aria-label="Assignment capacity summary">
-          <div className={`assignment-capacity-card ${eventCapacity?.mentor_capacity !== null && assignedVolunteerCount >= eventCapacity.mentor_capacity ? 'assignment-capacity-card--full' : ''}`}>
+          <div className={`assignment-capacity-card ${volunteerCapacity !== null && assignedVolunteerCount >= volunteerCapacity ? 'assignment-capacity-card--full' : ''}`}>
             <p className="assignment-capacity-label">Volunteers</p>
-            <p className="assignment-capacity-value">{quotaText(assignedVolunteerCount, eventCapacity?.mentor_capacity ?? null)}</p>
-            <p className="assignment-capacity-meta">{quotaMeta(assignedVolunteerCount, eventCapacity?.mentor_capacity ?? null)}</p>
+            <p className="assignment-capacity-value">{quotaText(assignedVolunteerCount, volunteerCapacity)}</p>
+            <p className="assignment-capacity-meta">{quotaMeta(assignedVolunteerCount, volunteerCapacity)}</p>
           </div>
-          <div className={`assignment-capacity-card ${eventCapacity?.participant_capacity !== null && assignedParticipantCount >= eventCapacity.participant_capacity ? 'assignment-capacity-card--full' : ''}`}>
+          <div className={`assignment-capacity-card ${participantCapacity !== null && assignedParticipantCount >= participantCapacity ? 'assignment-capacity-card--full' : ''}`}>
             <p className="assignment-capacity-label">Participants</p>
-            <p className="assignment-capacity-value">{quotaText(assignedParticipantCount, eventCapacity?.participant_capacity ?? null)}</p>
-            <p className="assignment-capacity-meta">{quotaMeta(assignedParticipantCount, eventCapacity?.participant_capacity ?? null)}</p>
+            <p className="assignment-capacity-value">{quotaText(assignedParticipantCount, participantCapacity)}</p>
+            <p className="assignment-capacity-meta">{quotaMeta(assignedParticipantCount, participantCapacity)}</p>
           </div>
-          <div className={`assignment-capacity-card ${eventCapacity?.capacity !== null && assignedTotalCount >= eventCapacity.capacity ? 'assignment-capacity-card--full' : ''}`}>
+          <div className={`assignment-capacity-card ${totalCapacity !== null && assignedTotalCount >= totalCapacity ? 'assignment-capacity-card--full' : ''}`}>
             <p className="assignment-capacity-label">Total Seats</p>
-            <p className="assignment-capacity-value">{quotaText(assignedTotalCount, eventCapacity?.capacity ?? null)}</p>
-            <p className="assignment-capacity-meta">{quotaMeta(assignedTotalCount, eventCapacity?.capacity ?? null)}</p>
+            <p className="assignment-capacity-value">{quotaText(assignedTotalCount, totalCapacity)}</p>
+            <p className="assignment-capacity-meta">{quotaMeta(assignedTotalCount, totalCapacity)}</p>
           </div>
         </div>
         <button className="btn btn--sm" disabled={closingAtCapacity} onClick={() => void closeEventAtCapacity()}>
