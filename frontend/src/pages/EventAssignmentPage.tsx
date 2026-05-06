@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { assignmentsApi, rsvpApi } from '../api/events'
+import { assignmentsApi, eventsApi, rsvpApi } from '../api/events'
 import { membersApi } from '../api/members'
 import type { AssignmentRecommendationRow } from '../api/events'
 
@@ -39,6 +39,12 @@ type ParticipationSummary = {
   participant_attended_prior_year: number
 }
 
+type EventCapacitySnapshot = {
+  mentor_capacity: number | null
+  participant_capacity: number | null
+  capacity: number | null
+}
+
 const EMPTY_PARTICIPATION: ParticipationSummary = {
   events_attended: 0,
   events_attended_prior_year: 0,
@@ -63,18 +69,25 @@ function EventAssignmentPage() {
   const [manualResults, setManualResults] = useState<MemberSearchRow[]>([])
   const [manualLoading, setManualLoading] = useState(false)
   const [closingAtCapacity, setClosingAtCapacity] = useState(false)
+  const [eventCapacity, setEventCapacity] = useState<EventCapacitySnapshot | null>(null)
   const [closeAtCapacityNotice, setCloseAtCapacityNotice] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const assignedMemberIds = useMemo(() => new Set(assignments.map((a) => a.member_id)), [assignments])
 
   async function refreshEventData(targetEventId: string): Promise<void> {
-    const [asns, eventRsvps] = await Promise.all([
+    const [asns, eventRsvps, eventDetail] = await Promise.all([
       assignmentsApi.list(targetEventId),
       rsvpApi.list(targetEventId),
+      eventsApi.get(targetEventId),
     ])
 
     setAssignments(asns as Assignment[])
+    setEventCapacity({
+      mentor_capacity: eventDetail.mentor_capacity,
+      participant_capacity: eventDetail.participant_capacity,
+      capacity: eventDetail.capacity,
+    })
     const relevantRsvps = eventRsvps.filter((row) => ['yes', 'maybe', 'waitlist'].includes(row.response))
     setRsvps(relevantRsvps)
 
@@ -216,6 +229,11 @@ function EventAssignmentPage() {
     setCloseAtCapacityNotice(null)
     try {
       const result = await assignmentsApi.closeAtCapacity(eventId)
+      setEventCapacity({
+        mentor_capacity: result.event.mentor_capacity,
+        participant_capacity: result.event.participant_capacity,
+        capacity: result.event.capacity,
+      })
       setCloseAtCapacityNotice(
         `${result.message} Volunteer cap: ${result.event.mentor_capacity ?? 0}. Participant cap: ${result.event.participant_capacity ?? 0}.`
       )
@@ -326,6 +344,39 @@ function EventAssignmentPage() {
     [recommendations]
   )
 
+  const assignedVolunteerCount = useMemo(
+    () => assignments.filter((assignment) => assignment.role === 'MENTOR').length,
+    [assignments]
+  )
+
+  const assignedParticipantCount = useMemo(
+    () => assignments.filter((assignment) => assignment.role !== 'MENTOR').length,
+    [assignments]
+  )
+
+  const assignedTotalCount = assignments.length
+
+  function quotaText(assigned: number, quota: number | null): string {
+    if (quota === null) {
+      return `${assigned} / unlimited`
+    }
+    return `${assigned} / ${quota}`
+  }
+
+  function quotaMeta(assigned: number, quota: number | null): string {
+    if (quota === null) {
+      return 'No quota set'
+    }
+    const remaining = quota - assigned
+    if (remaining > 0) {
+      return `${remaining} open`
+    }
+    if (remaining === 0) {
+      return 'At capacity'
+    }
+    return `${Math.abs(remaining)} over capacity`
+  }
+
   const assignmentRolesByMember = useMemo(() => {
     const roleMap = new Map<string, Array<'MENTOR' | 'PARTICIPANT'>>()
     assignments.forEach((assignment) => {
@@ -355,6 +406,23 @@ function EventAssignmentPage() {
         <p className="page__subtitle event-assignments-note">
           Lock this event at its current assigned/confirmed seats. Future "Yes" RSVP submissions will be stored as waitlist when full.
         </p>
+        <div className="assignment-capacity-grid" aria-label="Assignment capacity summary">
+          <div className={`assignment-capacity-card ${eventCapacity?.mentor_capacity !== null && assignedVolunteerCount >= eventCapacity.mentor_capacity ? 'assignment-capacity-card--full' : ''}`}>
+            <p className="assignment-capacity-label">Volunteers</p>
+            <p className="assignment-capacity-value">{quotaText(assignedVolunteerCount, eventCapacity?.mentor_capacity ?? null)}</p>
+            <p className="assignment-capacity-meta">{quotaMeta(assignedVolunteerCount, eventCapacity?.mentor_capacity ?? null)}</p>
+          </div>
+          <div className={`assignment-capacity-card ${eventCapacity?.participant_capacity !== null && assignedParticipantCount >= eventCapacity.participant_capacity ? 'assignment-capacity-card--full' : ''}`}>
+            <p className="assignment-capacity-label">Participants</p>
+            <p className="assignment-capacity-value">{quotaText(assignedParticipantCount, eventCapacity?.participant_capacity ?? null)}</p>
+            <p className="assignment-capacity-meta">{quotaMeta(assignedParticipantCount, eventCapacity?.participant_capacity ?? null)}</p>
+          </div>
+          <div className={`assignment-capacity-card ${eventCapacity?.capacity !== null && assignedTotalCount >= eventCapacity.capacity ? 'assignment-capacity-card--full' : ''}`}>
+            <p className="assignment-capacity-label">Total Seats</p>
+            <p className="assignment-capacity-value">{quotaText(assignedTotalCount, eventCapacity?.capacity ?? null)}</p>
+            <p className="assignment-capacity-meta">{quotaMeta(assignedTotalCount, eventCapacity?.capacity ?? null)}</p>
+          </div>
+        </div>
         <button className="btn btn--sm" disabled={closingAtCapacity} onClick={() => void closeEventAtCapacity()}>
           {closingAtCapacity ? 'Closing…' : 'Close Event At Capacity'}
         </button>

@@ -1021,6 +1021,52 @@
   margin-top: 0.55rem;
 }
 
+.assignment-capacity-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.65rem;
+  margin: 0.15rem 0 0.75rem;
+}
+
+.assignment-capacity-card {
+  border: 1px solid #d2dbe2;
+  border-radius: 12px;
+  background: #f8fbff;
+  padding: 0.62rem 0.72rem;
+}
+
+.assignment-capacity-label {
+  margin: 0;
+  font-size: 0.76rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #54606d;
+  font-weight: 700;
+}
+
+.assignment-capacity-value {
+  margin: 0.2rem 0 0;
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: #1c2c3c;
+}
+
+.assignment-capacity-meta {
+  margin: 0.18rem 0 0;
+  font-size: 0.78rem;
+  color: #475569;
+}
+
+.assignment-capacity-card--full {
+  border-color: #f3a7a7;
+  background: #fff1f1;
+}
+
+.assignment-capacity-card--full .assignment-capacity-value,
+.assignment-capacity-card--full .assignment-capacity-meta {
+  color: #8c1d1d;
+}
+
 .assignment-priority-controls {
   display: flex;
   flex-wrap: wrap;
@@ -1080,6 +1126,10 @@
 
   .event-assignments-page .members-table {
     min-width: 760px;
+  }
+
+  .assignment-capacity-grid {
+    grid-template-columns: 1fr;
   }
 }
 
