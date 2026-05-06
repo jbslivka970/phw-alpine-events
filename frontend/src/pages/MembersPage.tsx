@@ -802,7 +802,9 @@ function MembersPage() {
             <tbody>
               {filteredMembers.map((m) => (
                 <tr key={m.member_id}>
-                  <td>{m.first_name} {m.last_name}</td>
+                  <td className="member-name-cell">
+                    <span className="member-name-primary">{m.first_name} {m.last_name}</span>
+                  </td>
                   <td>{m.email}</td>
                   <td>{m.mobile_phone ?? '-'}</td>
                   <td>{deriveChannelPreference(m.sms_opt_in, m.email_opt_out).replace('_', ' ')}</td>

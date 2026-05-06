@@ -1591,10 +1591,21 @@
 }
 
 .members-table td {
-  padding: 0.6rem 0.85rem;
+  padding: 0.46rem 0.72rem;
   border-bottom: 1px solid var(--border);
-  font-size: 0.88rem;
+  font-size: 0.84rem;
   vertical-align: middle;
+}
+
+.member-name-cell {
+  min-width: 10.5rem;
+}
+
+.member-name-primary {
+  font-size: 0.97rem;
+  font-weight: 700;
+  color: #1b2f1d;
+  letter-spacing: 0.01em;
 }
 
 .members-table tr:hover td { background: #f8fafc; cursor: pointer; }
@@ -1603,15 +1614,15 @@
 /* Member persona chips */
 .member-persona-chip {
   display: inline-block;
-  padding: 0.15rem 0.5rem;
+  padding: 0.12rem 0.42rem;
   border-radius: 9999px;
-  font-size: 0.75rem;
-  font-weight: 600;
+  font-size: 0.7rem;
+  font-weight: 700;
   text-transform: capitalize;
   background: #e8f0da;
   color: #3a5a1c;
   border: 1px solid #c0d89a;
-  margin: 0.1rem 0.2rem 0.1rem 0;
+  margin: 0.06rem 0.14rem 0.06rem 0;
   white-space: nowrap;
 }
 .member-persona-none {

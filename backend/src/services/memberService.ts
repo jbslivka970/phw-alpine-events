@@ -117,9 +117,36 @@ async function listMembers(opts: MemberListOptions = {}): Promise<{ data: Member
   const [dataResult, countResult] = await Promise.all([
     dataRequest.query<Member>(
       `SELECT m.*,
-              (SELECT STRING_AGG(mp.persona, ',') WITHIN GROUP (ORDER BY mp.persona)
-               FROM dbo.member_persona mp
-               WHERE mp.member_id = m.member_id) AS personas
+              (
+                SELECT STRING_AGG(p.persona, ',') WITHIN GROUP (ORDER BY p.persona)
+                FROM (
+                  SELECT DISTINCT mp.persona
+                  FROM dbo.member_persona mp
+                  WHERE mp.member_id = m.member_id
+
+                  UNION
+
+                  SELECT 'participant'
+                  WHERE EXISTS (
+                    SELECT 1
+                    FROM dbo.member_group mg
+                    INNER JOIN dbo.[group] g ON g.group_id = mg.group_id
+                    WHERE mg.member_id = m.member_id
+                      AND UPPER(g.group_name) = 'PARTICIPANTS'
+                  )
+
+                  UNION
+
+                  SELECT 'volunteer'
+                  WHERE EXISTS (
+                    SELECT 1
+                    FROM dbo.member_group mg
+                    INNER JOIN dbo.[group] g ON g.group_id = mg.group_id
+                    WHERE mg.member_id = m.member_id
+                      AND UPPER(g.group_name) IN ('VOLUNTEERS', 'MENTORS')
+                  )
+                ) p
+              ) AS personas
        FROM member m ${where}
        ORDER BY m.last_name, m.first_name
        OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY`
