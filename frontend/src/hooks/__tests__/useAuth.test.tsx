@@ -4,11 +4,13 @@ import { useAuth } from '../useAuth'
 
 const mockSetTokenGetter = vi.fn()
 const mockSetEmailHint = vi.fn()
+const mockSetMemberInviteToken = vi.fn()
 const mockFetch = vi.fn()
 
 vi.mock('../../api/client', () => ({
   setTokenGetter: (...args: unknown[]) => mockSetTokenGetter(...args),
   setEmailHint: (...args: unknown[]) => mockSetEmailHint(...args),
+  setMemberInviteToken: (...args: unknown[]) => mockSetMemberInviteToken(...args),
 }))
 
 vi.mock('../../authConfig', () => ({
@@ -110,6 +112,7 @@ describe('useAuth auth flow regression coverage', () => {
     })
 
     expect(msalInstance.logoutPopup).toHaveBeenCalledTimes(1)
+    expect(mockSetMemberInviteToken).toHaveBeenCalledWith(null)
     expect(msalInstance.logoutPopup).toHaveBeenCalledWith(
       expect.objectContaining({
         account,
