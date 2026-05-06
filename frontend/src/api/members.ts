@@ -14,6 +14,7 @@ interface MemberRecord {
   created_at: string;
   updated_at: string;
   auth_roles?: Array<'ADMIN' | 'EVENT_CREATOR' | 'USER' | 'TAVF_CREATOR'>;
+  personas?: string | null;
 }
 
 interface ListMembersResponse {

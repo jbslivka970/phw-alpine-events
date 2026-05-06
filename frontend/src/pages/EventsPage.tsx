@@ -1429,7 +1429,14 @@ function EventsPage() {
     setTransitioning(event.event_id)
     try {
       await eventsApi.updateStatus(event.event_id, newStatus)
-      await loadEvents()
+      // Optimistically update just this event's status so the UI responds
+      // immediately — the background notification send can hold DB connections
+      // briefly, which would delay a full loadEvents() reload.
+      setEvents((prev) => prev.map((e) =>
+        e.event_id === event.event_id ? { ...e, status: newStatus } : e
+      ))
+      // Refresh the full list in background without blocking the UI.
+      void loadEvents()
     } catch (e: unknown) {
       setErr(toUserErrorMessage(e, 'Status change failed.'))
     } finally {

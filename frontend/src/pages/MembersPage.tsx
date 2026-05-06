@@ -796,7 +796,7 @@ function MembersPage() {
           <table className="members-table">
             <thead>
               <tr>
-                <th>Name</th><th>Email</th><th>Phone</th><th>Channels</th><th>Record</th><th>Access</th><th>Signed in</th><th>Actions</th>
+                <th>Name</th><th>Email</th><th>Phone</th><th>Channels</th><th>Role</th><th>Record</th><th>Access</th><th>Signed in</th><th>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -806,6 +806,13 @@ function MembersPage() {
                   <td>{m.email}</td>
                   <td>{m.mobile_phone ?? '-'}</td>
                   <td>{deriveChannelPreference(m.sms_opt_in, m.email_opt_out).replace('_', ' ')}</td>
+                  <td>
+                    {m.personas
+                      ? m.personas.split(',').map((p) => (
+                          <span key={p} className="member-persona-chip">{p}</span>
+                        ))
+                      : <span className="member-persona-none">—</span>}
+                  </td>
                   <td>{m.is_active ? 'Active' : 'Inactive'}</td>
                   <td>{describeIdentityStatus(m.member_id)}</td>
                   <td>{describeSignedIn(m.member_id)}</td>
@@ -857,7 +864,7 @@ function MembersPage() {
               ))}
               {filteredMembers.length === 0 && (
                 <tr>
-                  <td colSpan={8}>No members match this filter.</td>
+                  <td colSpan={9}>No members match this filter.</td>
                 </tr>
               )}
             </tbody>

@@ -21,6 +21,7 @@ interface Member {
   is_active: boolean;
   created_at: Date;
   updated_at: Date;
+  personas: string | null;
 }
 
 interface CreateMemberInput {
@@ -115,8 +116,12 @@ async function listMembers(opts: MemberListOptions = {}): Promise<{ data: Member
 
   const [dataResult, countResult] = await Promise.all([
     dataRequest.query<Member>(
-      `SELECT * FROM member ${where}
-       ORDER BY last_name, first_name
+      `SELECT m.*,
+              (SELECT STRING_AGG(mp.persona, ',') WITHIN GROUP (ORDER BY mp.persona)
+               FROM dbo.member_persona mp
+               WHERE mp.member_id = m.member_id) AS personas
+       FROM member m ${where}
+       ORDER BY m.last_name, m.first_name
        OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY`
     ),
     applyInputs(pool.request()).query<{ total: number }>(

@@ -1599,6 +1599,25 @@
 
 .members-table tr:hover td { background: #f8fafc; cursor: pointer; }
 .members-table tr:hover td { background: #f3f6ed; cursor: pointer; }
+
+/* Member persona chips */
+.member-persona-chip {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: capitalize;
+  background: #e8f0da;
+  color: #3a5a1c;
+  border: 1px solid #c0d89a;
+  margin: 0.1rem 0.2rem 0.1rem 0;
+  white-space: nowrap;
+}
+.member-persona-none {
+  color: #aaa;
+  font-size: 0.85rem;
+}
 .day-cell--empty { background: #f1f4ec; }
 .day-cell--today { border-color: var(--primary); background: #eef5e8; }
 

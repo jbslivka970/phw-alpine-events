@@ -20,6 +20,27 @@ import { notificationService } from '../services/notifications';
 import { runRetentionJob } from '../jobs/retentionJob';
 
 const router = Router();
+
+// ─── Identity summary cache ─────────────────────────────────────────────────
+// The summary endpoint runs through every member, which can be slow when
+// Graph reconciliation is enabled. Cache the DB-only snapshot (reconcile:false)
+// so the admin page loads instantly; use the Reconcile button for a fresh sync.
+const IDENTITY_SUMMARY_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+let _identitySummaryCache: { data: unknown; cachedAt: number } | null = null;
+function getCachedIdentitySummary(): unknown | null {
+  if (!_identitySummaryCache) return null;
+  if (Date.now() - _identitySummaryCache.cachedAt > IDENTITY_SUMMARY_CACHE_TTL_MS) {
+    _identitySummaryCache = null;
+    return null;
+  }
+  return _identitySummaryCache.data;
+}
+function setCachedIdentitySummary(data: unknown) {
+  _identitySummaryCache = { data, cachedAt: Date.now() };
+}
+function invalidateIdentitySummaryCache() {
+  _identitySummaryCache = null;
+}
 const APP_DB_ROLES = ['admin', 'superadmin', 'event_creator', 'tavf_creator', 'user'] as const;
 
 type InviteTone = 'friendly' | 'professional';
@@ -853,7 +874,9 @@ router.post('/identity/status/bulk', apiLimiter, async (req, res) => {
       return;
     }
 
-    const result = await getIdentityStatusesByMemberIds(memberIds);
+    // Pass reconcile:false so this read-only display call never triggers Graph API
+    // lookups. Use the "Reconcile shown accounts" button for a fresh Graph sync.
+    const result = await getIdentityStatusesByMemberIds(memberIds, { reconcile: false });
 
     const found = new Map(result.map((row) => [row.member_id.toLowerCase(), row]));
     const data = memberIds.map((memberId) => {
@@ -885,6 +908,13 @@ router.post('/identity/status/bulk', apiLimiter, async (req, res) => {
 
 router.get('/identity/status/summary', apiLimiter, async (_req, res) => {
   try {
+    // Serve from cache when fresh — avoids repeated Graph API calls on every page load.
+    const cached = getCachedIdentitySummary();
+    if (cached) {
+      res.status(200).json(cached);
+      return;
+    }
+
     const pool = await getPool();
     const memberResult = await pool
       .request()
@@ -911,7 +941,9 @@ router.get('/identity/status/summary', apiLimiter, async (_req, res) => {
     const chunkSize = 400;
     for (let index = 0; index < memberIds.length; index += chunkSize) {
       const chunk = memberIds.slice(index, index + chunkSize);
-      const chunkStatuses = await getIdentityStatusesByMemberIds(chunk);
+      // Use reconcile:false so the summary reads from DB only — no Graph API calls.
+      // The Reconcile button triggers Graph lookups explicitly when needed.
+      const chunkStatuses = await getIdentityStatusesByMemberIds(chunk, { reconcile: false });
       statuses.push(...chunkStatuses);
     }
 
@@ -940,6 +972,7 @@ router.get('/identity/status/summary', apiLimiter, async (_req, res) => {
       }
     }
 
+    setCachedIdentitySummary(summary);
     res.status(200).json(summary);
   } catch (error) {
     console.error('GET /admin/identity/status/summary failed', error);
@@ -1224,6 +1257,10 @@ router.post('/identity/reconcile', writeLimiter, async (req, res) => {
 
       return beforeByMemberId.get(status.member_id.toLowerCase())?.status !== 'linked';
     }).length;
+
+    // Reconcile wrote fresh Graph data — invalidate the summary cache so
+    // the next page load reflects the updated status.
+    invalidateIdentitySummaryCache();
 
     res.status(200).json({
       scanned: memberIds.length,
