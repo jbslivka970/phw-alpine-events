@@ -35,7 +35,7 @@ Standalone marketing splash site for `www.phwcoloradoalpine.org`.
 
 This deploy path uses Azure CLI service principal auth and does not require App Service Basic Auth or publish profiles.
 
-If `AZURE_SPLASH_DEPLOY_CREDENTIALS` is not set, the workflow falls back to `AZURE_FRONTEND_DEPLOY_CREDENTIALS` when available.
+If `AZURE_SPLASH_DEPLOY_CREDENTIALS` is not set, the workflow falls back to `AZURE_BACKEND_DEPLOY_CREDENTIALS`, then `AZURE_FRONTEND_DEPLOY_CREDENTIALS` when available.
 If `AZURE_SPLASH_RESOURCE_GROUP` is not set, the workflow falls back to `AZURE_FRONTEND_RESOURCE_GROUP` when available.
 
 ### Namecheap DNS for Azure hosting

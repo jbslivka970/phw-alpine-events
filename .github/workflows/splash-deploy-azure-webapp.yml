@@ -33,15 +33,19 @@ jobs:
       - name: Azure CLI login (splash deploy)
         env:
           AZURE_SPLASH_DEPLOY_CREDENTIALS: ${{ secrets.AZURE_SPLASH_DEPLOY_CREDENTIALS }}
+          AZURE_BACKEND_DEPLOY_CREDENTIALS: ${{ secrets.AZURE_BACKEND_DEPLOY_CREDENTIALS }}
           AZURE_FRONTEND_DEPLOY_CREDENTIALS: ${{ secrets.AZURE_FRONTEND_DEPLOY_CREDENTIALS }}
         run: |
           DEPLOY_CREDS="$AZURE_SPLASH_DEPLOY_CREDENTIALS"
+          if [ -z "$DEPLOY_CREDS" ]; then
+            DEPLOY_CREDS="$AZURE_BACKEND_DEPLOY_CREDENTIALS"
+          fi
           if [ -z "$DEPLOY_CREDS" ]; then
             DEPLOY_CREDS="$AZURE_FRONTEND_DEPLOY_CREDENTIALS"
           fi
 
           if [ -z "$DEPLOY_CREDS" ]; then
-            echo "Set AZURE_SPLASH_DEPLOY_CREDENTIALS (preferred) or AZURE_FRONTEND_DEPLOY_CREDENTIALS"
+            echo "Set AZURE_SPLASH_DEPLOY_CREDENTIALS (preferred), AZURE_BACKEND_DEPLOY_CREDENTIALS, or AZURE_FRONTEND_DEPLOY_CREDENTIALS"
             exit 1
           fi
 
