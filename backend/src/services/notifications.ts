@@ -652,6 +652,16 @@ function stripHtmlToText(value: string): string {
     .trim();
 }
 
+function normalizeTemplateBody(value: string): string {
+  return value.replace(/\s+/g, ' ').trim();
+}
+
+function isLegacyEventInviteSmsBody(body: string): boolean {
+  const normalized = normalizeTemplateBody(body);
+  const legacy = normalizeTemplateBody('PHW Alpine invite: {{eventTitle}}\n{{eventDate}} at {{location}}\nRSVP: {{rsvpUrl}}\nReply STOP to opt out');
+  return normalized === legacy;
+}
+
 function getFrontendAppBaseUrl(): string {
   const configured = loadRsvpLinkConfig().frontendBaseUrl?.trim();
   return configured || 'https://app.phwcoloradoalpine.org';
@@ -703,7 +713,17 @@ async function getActiveTemplateOverride(templateName: string, channel: 'email' 
       );
 
     const row = result.recordset[0];
-    return row ? { subject: row.subject, body: row.body } : null;
+    if (!row) {
+      return null;
+    }
+
+    // Keep existing custom templates, but skip the legacy generic Event Invite SMS override.
+    // This allows the richer built-in Event Invite SMS template to flow without forcing a DB migration.
+    if (templateName === eventInviteTemplate.displayName && channel === 'sms' && isLegacyEventInviteSmsBody(row.body)) {
+      return null;
+    }
+
+    return { subject: row.subject, body: row.body };
   } catch (error) {
     console.warn('[NotificationService] Failed to load runtime template override, using built-in template.', {
       templateName,
