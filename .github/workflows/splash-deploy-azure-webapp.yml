@@ -14,7 +14,7 @@ env:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    if: ${{ vars.AZURE_SPLASH_WEBAPP_NAME != '' && vars.AZURE_SPLASH_RESOURCE_GROUP != '' }}
+    if: ${{ vars.AZURE_SPLASH_WEBAPP_NAME != '' }}
     permissions:
       contents: read
     concurrency:
@@ -88,11 +88,24 @@ jobs:
           exit 1
 
       - name: Deploy splash to Azure
+        env:
+          AZURE_SPLASH_RESOURCE_GROUP: ${{ vars.AZURE_SPLASH_RESOURCE_GROUP }}
+          AZURE_FRONTEND_RESOURCE_GROUP: ${{ vars.AZURE_FRONTEND_RESOURCE_GROUP }}
         run: |
+          TARGET_RG="$AZURE_SPLASH_RESOURCE_GROUP"
+          if [ -z "$TARGET_RG" ]; then
+            TARGET_RG="$AZURE_FRONTEND_RESOURCE_GROUP"
+          fi
+
+          if [ -z "$TARGET_RG" ]; then
+            echo "Set AZURE_SPLASH_RESOURCE_GROUP (preferred) or AZURE_FRONTEND_RESOURCE_GROUP"
+            exit 1
+          fi
+
           for attempt in $(seq 1 18); do
             set +e
             DEPLOY_OUTPUT=$(az webapp deploy \
-              --resource-group "${{ vars.AZURE_SPLASH_RESOURCE_GROUP }}" \
+              --resource-group "$TARGET_RG" \
               --name "${{ vars.AZURE_SPLASH_WEBAPP_NAME }}" \
               --src-path splash-release.zip \
               --type zip \
