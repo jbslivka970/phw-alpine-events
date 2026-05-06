@@ -83,10 +83,14 @@ function EventAssignmentPage() {
     ])
 
     setAssignments(asns as Assignment[])
-    setEventCapacity({
+    setEventCapacity(eventDetail ? {
       mentor_capacity: eventDetail.mentor_capacity,
       participant_capacity: eventDetail.participant_capacity,
       capacity: eventDetail.capacity,
+    } : {
+      mentor_capacity: null,
+      participant_capacity: null,
+      capacity: null,
     })
     const relevantRsvps = eventRsvps.filter((row) => ['yes', 'maybe', 'waitlist'].includes(row.response))
     setRsvps(relevantRsvps)
@@ -229,13 +233,15 @@ function EventAssignmentPage() {
     setCloseAtCapacityNotice(null)
     try {
       const result = await assignmentsApi.closeAtCapacity(eventId)
-      setEventCapacity({
-        mentor_capacity: result.event.mentor_capacity,
-        participant_capacity: result.event.participant_capacity,
-        capacity: result.event.capacity,
-      })
+      if (result.event) {
+        setEventCapacity({
+          mentor_capacity: result.event.mentor_capacity,
+          participant_capacity: result.event.participant_capacity,
+          capacity: result.event.capacity,
+        })
+      }
       setCloseAtCapacityNotice(
-        `${result.message} Volunteer cap: ${result.event.mentor_capacity ?? 0}. Participant cap: ${result.event.participant_capacity ?? 0}.`
+        `${result.message} Volunteer cap: ${result.event?.mentor_capacity ?? 0}. Participant cap: ${result.event?.participant_capacity ?? 0}.`
       )
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to close event at capacity')
