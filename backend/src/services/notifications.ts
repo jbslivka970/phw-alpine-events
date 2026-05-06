@@ -2,7 +2,7 @@ import { EmailClient } from '@azure/communication-email';
 import { SmsClient } from '@azure/communication-sms';
 import { getPool, sql } from '../db';
 import twilio from 'twilio';
-import { loadAcsConfig, loadTelnyxSmsConfig, loadTwilioSmsConfig } from '../config';
+import { loadAcsConfig, loadRsvpLinkConfig, loadTelnyxSmsConfig, loadTwilioSmsConfig } from '../config';
 import { renderTemplate } from '../templates/NotificationTemplate';
 import { eventCancellationTemplate } from '../templates/eventCancellation';
 import { eventInviteTemplate } from '../templates/eventInvite';
@@ -650,6 +650,40 @@ function stripHtmlToText(value: string): string {
     .replace(/&nbsp;/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function getFrontendAppBaseUrl(): string {
+  const configured = loadRsvpLinkConfig().frontendBaseUrl?.trim();
+  return configured || 'https://app.phwcoloradoalpine.org';
+}
+
+function toAbsoluteAppUrl(pathOrUrl: string): string {
+  const normalized = pathOrUrl.trim();
+  if (!normalized) {
+    return getFrontendAppBaseUrl();
+  }
+
+  try {
+    return new URL(normalized).toString();
+  } catch {
+    const path = normalized.startsWith('/') ? normalized : `/${normalized}`;
+    return `${getFrontendAppBaseUrl()}${path}`;
+  }
+}
+
+function summarizePlainText(value: string | null | undefined, maxLength: number): string {
+  const normalized = value?.replace(/\s+/g, ' ').trim() ?? '';
+  if (!normalized) {
+    return '';
+  }
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+  return `${normalized.slice(0, Math.max(maxLength - 3, 0)).trimEnd()}...`;
+}
+
+function formatSlotLabel(count: number): string {
+  return count === 1 ? '1 participant slot' : `${count} participant slots`;
 }
 
 async function getActiveTemplateOverride(templateName: string, channel: 'email' | 'sms'): Promise<RuntimeTemplateOverride | null> {
@@ -1952,6 +1986,8 @@ function buildEventVariables(
   const eventLeadSection = (eventLeadName || eventLeadEmail)
     ? `<p style="margin:10px 0 0;color:#1f3b6e;font-size:14px;"><strong>Coordinator:</strong> ${eventLeadName || 'PHW Alpine Team'}${eventLeadEmail ? ` · <a href=\"mailto:${eventLeadEmail}\" style=\"color:#1456cc;text-decoration:underline;\">${eventLeadEmail}</a>` : ''}</p>`
     : '';
+  const descriptionSnippet = summarizePlainText(payload.description, 120);
+  const smsDescriptionLine = descriptionSnippet ? `\n${descriptionSnippet}` : '';
   const defaultRsvpUrl = `/events/${payload.event_id}`;
   let rsvpUrl = defaultRsvpUrl;
   let yesUrl = defaultRsvpUrl;
@@ -1996,6 +2032,8 @@ function buildEventVariables(
     eventLeadName,
     eventLeadEmail,
     eventLeadSection,
+    descriptionSnippet,
+    smsDescriptionLine,
     rsvpUrl,
     yesUrl,
     noUrl,
@@ -2165,8 +2203,8 @@ async function notifyNewPosting(postingId: string): Promise<void> {
   const postingResult = await pool
     .request()
     .input('posting_id', sql.UniqueIdentifier, postingId)
-    .query<{ posting_id: string; location: string; event_date: Date }>(
-      `SELECT posting_id, location, event_date
+    .query<{ posting_id: string; location: string; event_date: Date; capacity: number; species: string | null; description: string | null }>(
+      `SELECT posting_id, location, event_date, capacity, species, description
        FROM tavf_posting
        WHERE posting_id = @posting_id`
     );
@@ -2212,20 +2250,68 @@ async function notifyNewPosting(postingId: string): Promise<void> {
     recipientRows = fallbackRecipients.recordset;
   }
 
-  const eventDate = posting.event_date.toLocaleDateString();
+  const eventDate = formatInProgramTimeZone(posting.event_date);
+  const postingUrl = toAbsoluteAppUrl(`/tavf/${posting.posting_id}`);
+  const capacityLabel = formatSlotLabel(posting.capacity);
+  const speciesLabel = posting.species?.trim() || '';
+  const descriptionSummary = summarizePlainText(posting.description, 220);
+  const smsDescriptionSummary = summarizePlainText(posting.description, 110);
   const variables = {
     location: posting.location,
     eventDate,
-    postingUrl: `/tavf/${posting.posting_id}`,
+    postingUrl,
+    capacityLabel,
+    speciesSection: speciesLabel
+      ? `<p style="margin:0 0 10px;color:#355345;font-size:14px;"><strong style="color:#1f4a3a;">Target:</strong> ${speciesLabel}</p>`
+      : '',
+    descriptionSection: descriptionSummary
+      ? `<div style="margin:14px 0 0;padding:14px 15px;border-left:4px solid #d59b3d;background:#fff8eb;border-radius:0 12px 12px 0;line-height:1.55;color:#30463b;">${descriptionSummary}</div>`
+      : '',
+    speciesText: speciesLabel ? `\nTarget species: ${speciesLabel}` : '',
+    descriptionText: descriptionSummary ? `\n${descriptionSummary}` : '',
+    smsDetails: [capacityLabel, speciesLabel ? `Target: ${speciesLabel}` : ''].filter(Boolean).join(' · '),
+    smsDescriptionLine: smsDescriptionSummary ? `\n${smsDescriptionSummary}` : '',
   };
   const renderedEmail = renderEmailTemplate(emailTemplateOverride, {
     subject: 'New TAVF opportunity: {{location}} on {{eventDate}}',
-    htmlBody: '<p>New TAVF opportunity: {{location}} on {{eventDate}}. View: {{postingUrl}}</p>',
-    textBody: 'New TAVF opportunity: {{location}} on {{eventDate}}. View: {{postingUrl}}',
+    htmlBody: `
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#f4f7f3;padding:22px 10px;font-family:'Segoe UI',Arial,sans-serif;color:#1f2937;">
+        <tr>
+          <td align="center">
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="640" style="max-width:640px;width:100%;background:#ffffff;border:1px solid #d4ddd5;border-radius:18px;overflow:hidden;box-shadow:0 10px 28px rgba(25,43,34,0.08);">
+              <tr>
+                <td style="padding:22px 22px 20px;background:linear-gradient(132deg,#234b6b,#18344c);color:#ffffff;">
+                  <p style="margin:0 0 8px;font-size:12px;letter-spacing:0.14em;text-transform:uppercase;opacity:0.88;">Take A Vet Fishing</p>
+                  <h2 style="margin:0;font-size:32px;line-height:1.12;letter-spacing:-0.02em;">New opportunity posted</h2>
+                  <p style="margin:10px 0 0;font-size:15px;opacity:0.94;line-height:1.45;">A guide just opened a new TAVF day. If it fits your schedule, jump in early and claim a spot.</p>
+                </td>
+              </tr>
+              <tr>
+                <td style="padding:18px 18px 20px;">
+                  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border:1px solid #d4ddd5;border-radius:14px;background:#f7fbf8;">
+                    <tr><td style="padding:14px 15px 6px;"><strong style="color:#1f4a3a;">Where:</strong> {{location}}</td></tr>
+                    <tr><td style="padding:6px 15px;"><strong style="color:#1f4a3a;">When:</strong> {{eventDate}}</td></tr>
+                    <tr><td style="padding:6px 15px 14px;"><strong style="color:#1f4a3a;">Availability:</strong> {{capacityLabel}}</td></tr>
+                  </table>
+                  <div style="margin:14px 0 0;">{{speciesSection}}</div>
+                  {{descriptionSection}}
+                  <p style="margin:18px 0 12px;color:#40574d;font-size:14px;">Open the posting in PHW Alpine to review the details and submit your interest.</p>
+                  <p style="margin:0 0 14px;">
+                    <a href="{{postingUrl}}" style="display:inline-block;padding:12px 18px;border-radius:999px;background:#234b6b;color:#ffffff;text-decoration:none;font-weight:700;">View opportunity</a>
+                  </p>
+                  <p style="margin:0;font-size:13px;color:#60756b;">Direct link: <a href="{{postingUrl}}" style="color:#234b6b;text-decoration:underline;">{{postingUrl}}</a></p>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+      </table>
+    `,
+    textBody: 'New TAVF opportunity: {{location}}\nWhen: {{eventDate}}\nAvailability: {{capacityLabel}}{{speciesText}}{{descriptionText}}\n\nView opportunity: {{postingUrl}}',
   }, variables);
   const renderedSms = renderSmsTemplate(
     smsTemplateOverride,
-    'PHW Alpine TAVF: New opportunity at {{location}} on {{eventDate}}. Open app for details. Reply STOP to opt out.',
+    'PHW Alpine TAVF\n{{location}}\n{{eventDate}}\n{{smsDetails}}{{smsDescriptionLine}}\nView: {{postingUrl}}\nReply STOP to opt out.',
     variables
   );
 

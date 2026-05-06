@@ -1149,6 +1149,7 @@ function EventFormModal({ initial, groups, onSave, onGenerateAiDescriptionPrevie
 
             <div className="form-field form-field--full">
               <label className="form-label">AI Invite Preview</label>
+              <p className="form-field-hint">Preview only. Publishing uses the active Notification Templates for Event Invite, not this draft automatically.</p>
               <div className="event-ai-inline__toolbar">
                 <select className="form-input event-ai-inline__tone" value={aiTone} onChange={(e) => setAiTone(e.target.value as 'friendly' | 'professional' | 'casual' | 'exciting')}>
                   <option value="friendly">Friendly</option>

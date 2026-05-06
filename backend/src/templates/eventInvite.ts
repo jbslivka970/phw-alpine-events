@@ -64,12 +64,14 @@ const eventInviteTemplate: NotificationTemplate = {
   textBodyTemplate:
     'You\'re invited to {{eventTitle}}.\n\nDate and time: {{eventDate}}\nLocation: {{location}}\nMap: {{mapUrl}}\n\n{{description}}\n\nRSVP options:\nYes: {{yesUrl}}\nNo: {{noUrl}}\nMaybe: {{maybeUrl}}\nWaitlist: {{waitlistUrl}}\n\nPrefer email reply?\nReply YES: {{replyYesMailto}}\nReply NO: {{replyNoMailto}}\nReply MAYBE: {{replyMaybeMailto}}\nReply WAITLIST: {{replyWaitlistMailto}}\n\nFull RSVP page: {{rsvpUrl}}\n\nProject Healing Waters Fly Fishing - Colorado Alpine Program',
   smsBodyTemplate:
-    'PHW Alpine invite: {{eventTitle}}\n{{eventDate}} at {{location}}\nRSVP: {{rsvpUrl}}\nReply STOP to opt out',
+    'PHW Alpine: {{eventTitle}}\n{{eventDate}}\n{{location}}{{smsDescriptionLine}}\nRSVP: {{rsvpUrl}}\nReply STOP to opt out',
   variables: [
     { name: 'eventTitle', description: 'Event title', required: true },
     { name: 'eventDate', description: 'Formatted event date', required: true },
     { name: 'location', description: 'Event location', required: true },
     { name: 'description', description: 'Event description', required: true },
+    { name: 'descriptionSnippet', description: 'Short event description for compact channels', required: false },
+    { name: 'smsDescriptionLine', description: 'Optional prefixed newline plus short description for SMS', required: false },
     { name: 'mapUrl', description: 'Google Maps URL for event location', required: false },
     { name: 'mapSection', description: 'Rendered map link section for HTML emails', required: false },
     { name: 'photoSection', description: 'Rendered event photo section for HTML emails', required: false },
