@@ -14,7 +14,7 @@ env:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    if: ${{ vars.AZURE_SPLASH_WEBAPP_NAME != '' }}
+    if: ${{ vars.AZURE_SPLASH_WEBAPP_NAME != '' && vars.AZURE_SPLASH_RESOURCE_GROUP != '' }}
     permissions:
       contents: read
     concurrency:
@@ -30,36 +30,86 @@ jobs:
           cd splash
           zip -r ../splash-release.zip .
 
-      - name: Validate splash publish profile matches app name
+      - name: Azure CLI login (splash deploy)
         env:
-          AZURE_SPLASH_WEBAPP_NAME: ${{ vars.AZURE_SPLASH_WEBAPP_NAME }}
-          AZURE_SPLASH_PUBLISH_PROFILE: ${{ secrets.AZURE_SPLASH_PUBLISH_PROFILE }}
+          AZURE_SPLASH_DEPLOY_CREDENTIALS: ${{ secrets.AZURE_SPLASH_DEPLOY_CREDENTIALS }}
         run: |
-          if [ -z "$AZURE_SPLASH_PUBLISH_PROFILE" ]; then
-            echo "AZURE_SPLASH_PUBLISH_PROFILE is required"
+          if [ -z "$AZURE_SPLASH_DEPLOY_CREDENTIALS" ]; then
+            echo "AZURE_SPLASH_DEPLOY_CREDENTIALS is required"
             exit 1
           fi
 
-          if [ -z "$AZURE_SPLASH_WEBAPP_NAME" ]; then
-            echo "AZURE_SPLASH_WEBAPP_NAME is required"
+          AZ_LINE=$(python -c "import json,os; creds=json.loads(os.environ['AZURE_SPLASH_DEPLOY_CREDENTIALS']); print('\\t'.join([creds.get('clientId',''), creds.get('clientSecret',''), creds.get('tenantId',''), creds.get('subscriptionId','')]))")
+
+          IFS=$'\t' read -r AZ_CLIENT_ID AZ_CLIENT_SECRET AZ_TENANT_ID AZ_SUBSCRIPTION_ID <<< "$AZ_LINE"
+
+          if [ -z "$AZ_CLIENT_ID" ] || [ -z "$AZ_CLIENT_SECRET" ] || [ -z "$AZ_TENANT_ID" ] || [ -z "$AZ_SUBSCRIPTION_ID" ]; then
+            echo "AZURE_SPLASH_DEPLOY_CREDENTIALS is missing required fields"
             exit 1
           fi
 
-          APP_LC=$(printf "%s" "$AZURE_SPLASH_WEBAPP_NAME" | tr '[:upper:]' '[:lower:]')
-          PROFILE_LC=$(printf "%s" "$AZURE_SPLASH_PUBLISH_PROFILE" | tr '[:upper:]' '[:lower:]')
+          for attempt in $(seq 1 5); do
+            set +e
+            LOGIN_OUTPUT=$(timeout 120 az login --service-principal \
+              --username "$AZ_CLIENT_ID" \
+              --password "$AZ_CLIENT_SECRET" \
+              --tenant "$AZ_TENANT_ID" \
+              --output none 2>&1)
+            LOGIN_EXIT=$?
+            set -e
 
-          if ! printf "%s" "$PROFILE_LC" | grep -Fq "$APP_LC"; then
-            echo "Publish profile does not appear to match AZURE_SPLASH_WEBAPP_NAME."
-            echo "Expected app name fragment: $AZURE_SPLASH_WEBAPP_NAME"
-            echo "The publish profile XML should contain the splash app name in msdeploySite/publishUrl."
-            exit 1
-          fi
+            echo "$LOGIN_OUTPUT"
 
-          echo "Publish profile appears to match configured splash app name."
+            if [ "$LOGIN_EXIT" -eq 0 ]; then
+              az account set --subscription "$AZ_SUBSCRIPTION_ID"
+              echo "Azure splash login succeeded."
+              exit 0
+            fi
 
-      - name: Deploy splash to Azure Web App
-        uses: azure/webapps-deploy@v3
-        with:
-          app-name: ${{ vars.AZURE_SPLASH_WEBAPP_NAME }}
-          publish-profile: ${{ secrets.AZURE_SPLASH_PUBLISH_PROFILE }}
-          package: splash-release.zip
+            if [ "$LOGIN_EXIT" -eq 124 ] || printf "%s" "$LOGIN_OUTPUT" | grep -Eqi "timed out|timeout|temporarily unavailable|connection|EOF|unreachable"; then
+              echo "Azure splash login transient failure (attempt $attempt/5). Retrying in 15s..."
+              sleep 15
+              continue
+            fi
+
+            echo "Azure splash login failed with a non-retryable error."
+            exit "$LOGIN_EXIT"
+          done
+
+          echo "Azure splash login failed after retries."
+          exit 1
+
+      - name: Deploy splash to Azure
+        run: |
+          for attempt in $(seq 1 18); do
+            set +e
+            DEPLOY_OUTPUT=$(az webapp deploy \
+              --resource-group "${{ vars.AZURE_SPLASH_RESOURCE_GROUP }}" \
+              --name "${{ vars.AZURE_SPLASH_WEBAPP_NAME }}" \
+              --src-path splash-release.zip \
+              --type zip \
+              --async true \
+              --track-status false \
+              --timeout 1800000 2>&1)
+            DEPLOY_EXIT=$?
+            set -e
+
+            echo "$DEPLOY_OUTPUT"
+
+            if [ "$DEPLOY_EXIT" -eq 0 ]; then
+              echo "Splash deployment accepted."
+              exit 0
+            fi
+
+            if printf "%s" "$DEPLOY_OUTPUT" | grep -qi "Another deployment is in progress"; then
+              echo "Splash deployment locked by another deployment (attempt $attempt/18). Retrying in 20s..."
+              sleep 20
+              continue
+            fi
+
+            echo "Splash deploy failed with a non-retryable error."
+            exit "$DEPLOY_EXIT"
+          done
+
+          echo "Splash deploy did not obtain deployment lock after retries."
+          exit 1

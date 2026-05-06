@@ -22,10 +22,18 @@ Standalone marketing splash site for `www.phwcoloradoalpine.org`.
 1. Create a dedicated Azure Web App for the splash site (separate from API app).
 2. In GitHub repository settings, add variable:
    - `AZURE_SPLASH_WEBAPP_NAME`
+   - `AZURE_SPLASH_RESOURCE_GROUP`
 3. In GitHub repository settings, add secret:
-   - `AZURE_SPLASH_PUBLISH_PROFILE`
-4. Push changes to `main` under `splash/**` or run workflow dispatch for:
+   - `AZURE_SPLASH_DEPLOY_CREDENTIALS`
+4. Set `AZURE_SPLASH_DEPLOY_CREDENTIALS` to JSON with these fields:
+   - `clientId`
+   - `clientSecret`
+   - `tenantId`
+   - `subscriptionId`
+5. Push changes to `main` under `splash/**` or run workflow dispatch for:
    - `.github/workflows/splash-deploy-azure-webapp.yml`
+
+This deploy path uses Azure CLI service principal auth and does not require App Service Basic Auth or publish profiles.
 
 ### Namecheap DNS for Azure hosting
 
