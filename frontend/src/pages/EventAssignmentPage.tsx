@@ -22,6 +22,14 @@ type MemberSearchRow = {
   email: string
 }
 
+type RsvpPoolRow = {
+  member_id: string
+  first_name?: string
+  last_name?: string
+  response: string
+  response_role?: 'MENTOR' | 'PARTICIPANT' | null
+}
+
 type ParticipationSummary = {
   events_attended: number
   events_attended_prior_year: number
@@ -46,7 +54,7 @@ function EventAssignmentPage() {
   const eventId = id ?? ''
 
   const [assignments, setAssignments] = useState<Assignment[]>([])
-  const [rsvps, setRsvps] = useState<Array<{ member_id: string; first_name?: string; last_name?: string; response: string }>>([])
+  const [rsvps, setRsvps] = useState<RsvpPoolRow[]>([])
   const [participation, setParticipation] = useState<Record<string, ParticipationSummary>>({})
   const [priorityRole, setPriorityRole] = useState<'MENTOR' | 'PARTICIPANT'>('PARTICIPANT')
   const [recommendations, setRecommendations] = useState<AssignmentRecommendationRow[]>([])
@@ -270,6 +278,16 @@ function EventAssignmentPage() {
     return participation[memberId] ?? EMPTY_PARTICIPATION
   }
 
+  function roleLabel(role: 'MENTOR' | 'PARTICIPANT' | null | undefined): string {
+    if (role === 'MENTOR') {
+      return 'Volunteer'
+    }
+    if (role === 'PARTICIPANT') {
+      return 'Participant'
+    }
+    return 'Unspecified'
+  }
+
   const rankedRsvps = useMemo(() => {
     const rows = [...rsvps]
     const recommendationRank = new Map(recommendations.map((row) => [row.member_id, row.rank]))
@@ -308,27 +326,44 @@ function EventAssignmentPage() {
     [recommendations]
   )
 
+  const assignmentRolesByMember = useMemo(() => {
+    const roleMap = new Map<string, Array<'MENTOR' | 'PARTICIPANT'>>()
+    assignments.forEach((assignment) => {
+      const role = assignment.role === 'MENTOR' ? 'MENTOR' : 'PARTICIPANT'
+      const existingRoles = roleMap.get(assignment.member_id) ?? []
+      if (!existingRoles.includes(role)) {
+        existingRoles.push(role)
+      }
+      roleMap.set(assignment.member_id, existingRoles)
+    })
+    return roleMap
+  }, [assignments])
+
   return (
-    <div className="page">
-      <h1 className="page__title">Event Assignments</h1>
-      <p className="page__subtitle">Assign members from the RSVP pool and track attendance.</p>
-      <button className="btn btn--outline btn--sm" onClick={() => navigate('/events')}>Back to Events</button>
+    <div className="page event-assignments-page">
+      <div className="event-assignments-header">
+        <div>
+          <h1 className="page__title">Event Assignments</h1>
+          <p className="page__subtitle">Assign members from the RSVP pool and track attendance.</p>
+        </div>
+        <button className="btn btn--outline btn--sm" onClick={() => navigate('/events')}>Back to Events</button>
+      </div>
       {error && <p className="members-error">{error}</p>}
 
-      <section className="card members-table-wrap" style={{ marginTop: 12 }}>
+      <section className="card members-table-wrap">
         <h2>Capacity Controls</h2>
-        <p className="page__subtitle" style={{ marginBottom: 8 }}>
+        <p className="page__subtitle event-assignments-note">
           Lock this event at its current assigned/confirmed seats. Future "Yes" RSVP submissions will be stored as waitlist when full.
         </p>
         <button className="btn btn--sm" disabled={closingAtCapacity} onClick={() => void closeEventAtCapacity()}>
           {closingAtCapacity ? 'Closing…' : 'Close Event At Capacity'}
         </button>
-        {closeAtCapacityNotice && <p className="members-loading" style={{ marginTop: 8 }}>{closeAtCapacityNotice}</p>}
+        {closeAtCapacityNotice && <p className="members-loading event-assignments-notice">{closeAtCapacityNotice}</p>}
       </section>
 
-      <section className="card members-table-wrap" style={{ marginTop: 12 }}>
+      <section className="card members-table-wrap">
         <h2>Manual Association</h2>
-        <p className="page__subtitle" style={{ marginBottom: 8 }}>
+        <p className="page__subtitle event-assignments-note">
           Search active members and assign directly, even if they did not RSVP yet.
         </p>
         <input
@@ -342,24 +377,36 @@ function EventAssignmentPage() {
           <p className="members-loading">No active members found.</p>
         )}
         {!manualLoading && manualResults.length > 0 && (
-          <table className="members-table" style={{ marginTop: 8 }}>
+          <table className="members-table event-assignments-table event-assignments-table--manual">
             <thead>
               <tr><th>Name</th><th>Email</th><th>Assign</th></tr>
             </thead>
             <tbody>
               {manualResults.map((member) => {
                 const alreadyAssigned = assignedMemberIds.has(member.member_id)
+                const assignedRoles = assignmentRolesByMember.get(member.member_id) ?? []
                 const name = `${member.first_name ?? ''} ${member.last_name ?? ''}`.trim()
                 return (
                   <tr key={member.member_id}>
                     <td>{name || member.member_id}</td>
                     <td>{member.email}</td>
                     <td>
-                      {alreadyAssigned ? 'Assigned' : (
-                        <>
+                      {alreadyAssigned ? (
+                        <div className="assignment-status">
+                          {assignedRoles.map((role) => (
+                            <span
+                              key={`${member.member_id}-${role}`}
+                              className={`assignment-role-chip ${role === 'MENTOR' ? 'assignment-role-chip--mentor' : 'assignment-role-chip--participant'}`}
+                            >
+                              Assigned {roleLabel(role)}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="members-row-actions">
                           <button className="btn btn--sm" onClick={() => assignMember(member.member_id, 'PARTICIPANT')}>Assign Participant</button>
                           <button className="btn btn--sm btn--outline" onClick={() => assignMember(member.member_id, 'MENTOR')}>Assign Volunteer</button>
-                        </>
+                        </div>
                       )}
                     </td>
                   </tr>
@@ -370,12 +417,12 @@ function EventAssignmentPage() {
         )}
       </section>
 
-      <section className="card members-table-wrap" style={{ marginTop: 12 }}>
+      <section className="card members-table-wrap">
         <h2>RSVP Pool</h2>
-        <p className="page__subtitle" style={{ marginBottom: 8 }}>
+        <p className="page__subtitle event-assignments-note">
           Priority sorted by lowest {priorityRole === 'MENTOR' ? 'volunteer shifts' : 'participant attendance'} first.
         </p>
-        <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+        <div className="assignment-priority-controls">
           <button className={`btn btn--sm ${priorityRole === 'PARTICIPANT' ? '' : 'btn--outline'}`} onClick={() => setPriorityRole('PARTICIPANT')}>
             Prioritize Participant Role
           </button>
@@ -386,20 +433,34 @@ function EventAssignmentPage() {
         {recommendationsLoading && <p className="members-loading">Refreshing equity recommendations…</p>}
         <table className="members-table">
           <thead>
-            <tr><th>Name</th><th>Response</th><th>Volunteer Y/PY</th><th>Participant Y/PY</th><th>Equity</th><th>Assign</th></tr>
+            <tr><th>Name</th><th>Response</th><th>RSVP Role</th><th>Volunteer Y/PY</th><th>Participant Y/PY</th><th>Equity</th><th>Assign</th></tr>
           </thead>
           <tbody>
             {rankedRsvps.length === 0 ? (
-              <tr><td colSpan={6}>No RSVP rows to assign.</td></tr>
+              <tr><td colSpan={7}>No RSVP rows to assign.</td></tr>
             ) : rankedRsvps.map((row) => {
               const name = `${row.first_name ?? ''} ${row.last_name ?? ''}`.trim()
               const alreadyAssigned = assignedMemberIds.has(row.member_id)
+              const assignedRoles = assignmentRolesByMember.get(row.member_id) ?? []
               const p = participationFor(row.member_id)
               const recommendation = recommendationByMember.get(row.member_id)
               return (
                 <tr key={`${row.member_id}-${row.response}`}>
                   <td>{name || row.member_id}</td>
                   <td>{row.response}</td>
+                  <td>
+                    <span
+                      className={`assignment-role-chip ${
+                        row.response_role === 'MENTOR'
+                          ? 'assignment-role-chip--mentor'
+                          : row.response_role === 'PARTICIPANT'
+                            ? 'assignment-role-chip--participant'
+                            : 'assignment-role-chip--unknown'
+                      }`}
+                    >
+                      {roleLabel(row.response_role)}
+                    </span>
+                  </td>
                   <td>{p.mentor_attended} / {p.mentor_attended_prior_year}</td>
                   <td>{p.participant_attended} / {p.participant_attended_prior_year}</td>
                   <td>
@@ -408,11 +469,22 @@ function EventAssignmentPage() {
                       : '—'}
                   </td>
                   <td>
-                    {alreadyAssigned ? 'Assigned' : (
-                      <>
+                    {alreadyAssigned ? (
+                      <div className="assignment-status">
+                        {assignedRoles.map((role) => (
+                          <span
+                            key={`${row.member_id}-${role}`}
+                            className={`assignment-role-chip ${role === 'MENTOR' ? 'assignment-role-chip--mentor' : 'assignment-role-chip--participant'}`}
+                          >
+                            Assigned {roleLabel(role)}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="members-row-actions">
                         <button className="btn btn--sm" onClick={() => assignMember(row.member_id, 'PARTICIPANT')}>Assign Participant</button>
                         <button className="btn btn--sm btn--outline" onClick={() => assignMember(row.member_id, 'MENTOR')}>Assign Volunteer</button>
-                      </>
+                      </div>
                     )}
                   </td>
                 </tr>
@@ -422,7 +494,7 @@ function EventAssignmentPage() {
         </table>
       </section>
 
-      <section className="card members-table-wrap" style={{ marginTop: 12 }}>
+      <section className="card members-table-wrap">
         <h2>Current Assignments</h2>
         <table className="members-table">
           <thead>
@@ -449,7 +521,7 @@ function EventAssignmentPage() {
                     />
                   </td>
                   <td>
-                    <div style={{ display: 'flex', gap: 6 }}>
+                    <div className="members-row-actions">
                       <button className="btn btn--sm btn--outline" onClick={() => void deleteAssignment(row.assignment_id)}>Remove</button>
                       <button className="btn btn--sm" onClick={() => void setRsvpNoAndRemove(row)}>RSVP No + Remove</button>
                     </div>
