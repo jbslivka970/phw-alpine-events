@@ -117,17 +117,19 @@ function buildClaimSnapshot(claims: JwtPayload): Record<string, unknown> {
     return undefined;
   };
 
+  // Redact high-sensitivity identity fields; retain only structural/diagnostic fields.
+  const redact = (label: string) => `[redacted:${label}]`;
   return {
     oid: stringOrStringArray(claims['oid']),
-    sub: stringOrStringArray(claims['sub']),
-    iss: stringOrStringArray(claims['iss']),
-    aud: stringOrStringArray(claims['aud']),
+    sub: redact('sub'),
+    iss: redact('iss'),
+    aud: redact('aud'),
     idp: stringOrStringArray(claims['idp']),
-    email: stringOrStringArray(claims['email']),
-    preferred_username: stringOrStringArray(claims['preferred_username']),
-    upn: stringOrStringArray(claims['upn']),
-    emails: stringOrStringArray(claims['emails']),
-    otherMails: stringOrStringArray(claims['otherMails']),
+    email: redact('email'),
+    preferred_username: redact('preferred_username'),
+    upn: redact('upn'),
+    emails: redact('emails'),
+    otherMails: redact('otherMails'),
     amr: stringOrStringArray(claims['amr']),
     roles: stringOrStringArray(claims['roles']),
     role: stringOrStringArray(claims['role']),

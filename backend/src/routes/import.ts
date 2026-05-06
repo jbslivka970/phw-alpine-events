@@ -82,7 +82,7 @@ router.post('/commit/:sessionId', writeLimiter, authenticate, requireAdmin, asyn
   }
 });
 
-router.get('/logs', authenticate, requireAdmin, async (req: Request, res: Response) => {
+router.get('/logs', writeLimiter, authenticate, requireAdmin, async (req: Request, res: Response) => {
   try {
     const startedFromRaw = typeof req.query.started_from === 'string' ? req.query.started_from : undefined;
     const startedToRaw = typeof req.query.started_to === 'string' ? req.query.started_to : undefined;
@@ -111,7 +111,7 @@ router.get('/logs', authenticate, requireAdmin, async (req: Request, res: Respon
   }
 });
 
-router.get('/logs/:importId/report.csv', authenticate, requireAdmin, async (req: Request, res: Response) => {
+router.get('/logs/:importId/report.csv', writeLimiter, authenticate, requireAdmin, async (req: Request, res: Response) => {
   try {
     const report = await getImportLogReport(req.params.importId);
     if (!report) {
@@ -127,7 +127,7 @@ router.get('/logs/:importId/report.csv', authenticate, requireAdmin, async (req:
   }
 });
 
-router.get('/logs/:importId/errors', authenticate, requireAdmin, async (req: Request, res: Response) => {
+router.get('/logs/:importId/errors', writeLimiter, authenticate, requireAdmin, async (req: Request, res: Response) => {
   try {
     const errors = await getImportLogRowErrors(req.params.importId);
     res.status(200).json({ errors });

@@ -118,7 +118,8 @@ function tryDecodeWrappedToken(token: string): string {
 }
 
 function normalizeIncomingToken(rawToken: string): string {
-  let token = String(rawToken ?? '').trim();
+  // Cap length before any regex operations to prevent ReDoS on crafted input.
+  let token = String(rawToken ?? '').trim().slice(0, 2048);
 
   // Some SMS/email clients include link wrappers or punctuation when copied/opened.
   token = token
@@ -387,10 +388,19 @@ async function createShortRsvpCode(token: string): Promise<string> {
 }
 
 function generateShortCode(length = SHORT_CODE_LENGTH): string {
-  const bytes = randomBytes(length);
+  // Use rejection sampling to eliminate modular bias.
+  // 256 is not evenly divisible by the alphabet size (58), so we discard
+  // any byte >= floor(256/58)*58 = 232 and draw a fresh byte instead.
+  const ALPHABET_LEN = SHORT_CODE_ALPHABET.length;
+  const MAX_UNBIASED = Math.floor(256 / ALPHABET_LEN) * ALPHABET_LEN;
   let code = '';
-  for (let i = 0; i < length; i += 1) {
-    code += SHORT_CODE_ALPHABET[bytes[i] % SHORT_CODE_ALPHABET.length];
+  while (code.length < length) {
+    const bytes = randomBytes(length - code.length + 4); // over-sample to reduce re-draws
+    for (let i = 0; i < bytes.length && code.length < length; i += 1) {
+      if (bytes[i] < MAX_UNBIASED) {
+        code += SHORT_CODE_ALPHABET[bytes[i] % ALPHABET_LEN];
+      }
+    }
   }
   return code;
 }

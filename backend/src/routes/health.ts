@@ -3,6 +3,7 @@ import { ManagedIdentityCredential } from '@azure/identity';
 import fs from 'fs';
 import path from 'path';
 import { getPool } from '../db';
+import { apiLimiter } from '../middleware/rateLimiter';
 import { loadAcsConfig, loadAuthConfig, loadTelnyxSmsConfig, loadTwilioSmsConfig } from '../config';
 import { getAiInviteRuntimeStatus } from '../services/aiInviteService';
 import { getNotificationRuntimeStatus } from '../services/notifications';
@@ -184,7 +185,7 @@ async function loadKeyVaultReferenceCheck(): Promise<KeyVaultReferenceCheckResul
 }
 
 // Liveness — always 200 if the process is running
-router.get('/', (_req: Request, res: Response) => {
+router.get('/', apiLimiter, (_req: Request, res: Response) => {
   res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
@@ -193,7 +194,7 @@ router.get('/', (_req: Request, res: Response) => {
 });
 
 // Readiness — 200 only when DB is reachable
-router.get('/ready', async (_req: Request, res: Response): Promise<void> => {
+router.get('/ready', apiLimiter, async (_req: Request, res: Response): Promise<void> => {
   try {
     const pool = await getPool();
     await pool.request().query('SELECT 1 AS ping');
@@ -205,7 +206,7 @@ router.get('/ready', async (_req: Request, res: Response): Promise<void> => {
 });
 
 // Startup diagnostics — reports configuration health without exposing secrets
-router.get('/startup', async (_req: Request, res: Response) => {
+router.get('/startup', apiLimiter, async (_req: Request, res: Response) => {
   const authConfig = loadAuthConfig();
   const acsConfig = loadAcsConfig();
   const telnyxSmsConfig = loadTelnyxSmsConfig();

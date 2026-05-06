@@ -55,8 +55,10 @@ function parseInboundAddresses(raw: string | undefined): string[] {
     .map((value) => value.trim())
     .filter(Boolean)
     .map((value) => {
-      const match = value.match(/<([^>]+)>/);
-      return normalizeInboundAddress(match ? match[1] : value);
+      // Cap length before regex to prevent ReDoS on crafted header values.
+      const capped = value.slice(0, 512);
+      const match = capped.match(/<([^>]{1,320})>/);
+      return normalizeInboundAddress(match ? match[1] : capped);
     });
 }
 

@@ -221,13 +221,24 @@ function resolveResponseRole(
   return requiresExplicitRole(response) ? 'PARTICIPANT' : undefined;
 }
 
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function renderRsvpActionHtml(title: string, body: string): string {
+  const safeTitle = escapeHtml(title);
+  const safeBody = escapeHtml(body);
   return `<!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>${title}</title>
+    <title>${safeTitle}</title>
     <style>
       body { font-family: 'Segoe UI', Arial, sans-serif; margin: 0; padding: 24px; background: #f4f7f9; color: #1f2937; }
       .card { max-width: 640px; margin: 0 auto; background: #fff; border: 1px solid #dbe3ea; border-radius: 10px; padding: 20px; box-shadow: 0 6px 18px rgba(12, 28, 43, 0.08); }
@@ -237,8 +248,8 @@ function renderRsvpActionHtml(title: string, body: string): string {
   </head>
   <body>
     <div class="card">
-      <h1>${title}</h1>
-      <p>${body}</p>
+      <h1>${safeTitle}</h1>
+      <p>${safeBody}</p>
     </div>
   </body>
 </html>`;
@@ -2096,7 +2107,8 @@ function parseOptionalEmail(value: unknown): string | null {
     return null;
   }
 
-  const lower = normalized.toLowerCase();
+  // Cap length before regex to prevent ReDoS on pathological inputs.
+  const lower = normalized.slice(0, 255).toLowerCase();
   const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   if (!emailPattern.test(lower)) {
     return null;

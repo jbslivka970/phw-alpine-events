@@ -226,7 +226,7 @@ router.delete('/postings/:id', requireEventCreatorOrAdmin, async (req: Request, 
 /**
  * GET /api/tavf/postings/:id/applications
  */
-router.get('/postings/:id/applications', async (req: Request, res: Response): Promise<void> => {
+router.get('/postings/:id/applications', apiLimiter, async (req: Request, res: Response): Promise<void> => {
   try {
     const applications = await tavf.listApplicationsForPosting(req.params['id']!);
     if (hasElevatedTavfAccess(req.user)) {

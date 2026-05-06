@@ -265,7 +265,13 @@ export async function assignAppRole(email: string, roleValue: string): Promise<U
   };
 }
 
+const GRAPH_UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 export async function removeAppRole(assignmentId: string): Promise<void> {
+  if (!GRAPH_UUID_PATTERN.test(assignmentId)) {
+    throw new Error('assignmentId must be a valid UUID.');
+  }
+
   const token = await getGraphToken();
   const { id: spId } = await getApiServicePrincipal(token);
 
