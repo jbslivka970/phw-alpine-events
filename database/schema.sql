@@ -28,11 +28,18 @@ CREATE TABLE dbo.member (
     source             NVARCHAR(10)     NULL CHECK (source IN ('import', 'manual')),
     last_import_hash   NVARCHAR(64)     NULL,
     last_manual_edit   DATETIME         NULL,
+    is_test_account    BIT              NOT NULL DEFAULT 0,
     is_active          BIT              NOT NULL DEFAULT 1,
     created_at         DATETIME         NOT NULL DEFAULT GETUTCDATE(),
     updated_at         DATETIME         NOT NULL DEFAULT GETUTCDATE(),
     CONSTRAINT PK_member PRIMARY KEY (member_id)
 );
+
+IF OBJECT_ID(N'dbo.member', N'U') IS NOT NULL
+BEGIN
+    IF COL_LENGTH('dbo.member', 'is_test_account') IS NULL
+        ALTER TABLE dbo.member ADD is_test_account BIT NOT NULL CONSTRAINT DF_member_is_test_account DEFAULT 0;
+END;
 
 -- ---------------------------------------------------------------------------
 -- 2. [group]  (brackets required: GROUP is a reserved word in T-SQL)

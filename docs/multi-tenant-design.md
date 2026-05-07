@@ -1,0 +1,183 @@
+# Plan: Multi-Tenant Architecture Design (PHW Programs)
+
+Convert the single-tenant PHW Colorado Alpine Events app into a multi-tenant SaaS supporting multiple PHW programs (Colorado Alpine, Montrose, …) with:
+- Shared DB + `tenant_id` column on every domain row (with optional SQL Row-Level Security as defense-in-depth)
+- Single domain; tenant is chosen post-login from the user's tenant memberships (no subdomains)
+- One Entra External ID tenant for all programs; tenant membership lives in our app DB
+- Members belong to exactly **one** tenant. Admins may belong to **multiple** tenants and/or hold a `root` role above all tenants
+- Per-tenant brand identity on outbound messaging (email/SMS sender, logos, colors, copy) and an admin scope limited to their tenant
+- Rollout: incremental behind a `MULTI_TENANT_ENABLED` flag, all current data backfilled into a default "Colorado Alpine" tenant before a second tenant is onboarded
+
+---
+
+## Phases
+
+### Phase 1 — Tenant primitives (foundation)
+1. Add `dbo.tenant` table: `tenant_id UNIQUEIDENTIFIER PK`, `slug`, `display_name`, `status (active/suspended)`, `timezone`, `created_at`. Seed `Colorado Alpine` with a stable UUID stored as `DEFAULT_TENANT_ID`.
+2. Add `dbo.tenant_branding`: per-tenant `org_long_name`, `org_short_name`, `support_email`, `accessibility_email`, `logo_url`, `logo_dark_url`, `hero_image_urls (JSON)`, `primary_color`, `accent_color`, `dark_color`, `program_tagline`, `portal_login_url`, `mission_blurb`.
+3. Add `dbo.tenant_messaging`: per-tenant `email_from`, `email_reply_to`, `email_bcc_monitor`, `sms_provider (acs/twilio/telnyx)`, `sms_from`, `twilio_messaging_service_sid`, `telnyx_messaging_profile_id`, `telnyx_from_number`. Secret values resolved from Key Vault references keyed by `tenant_id`, not stored in plaintext.
+4. Add `dbo.tenant_admin (tenant_id, user_id, role)` join to allow one admin user across many tenants. Add `is_root BIT` and `root_role` (root_admin / support) columns to `dbo.[user]`.
+5. Add reusable migration helpers (idempotent schema patches following the existing `IF NOT EXISTS` pattern in `database/schema.sql`).
+
+### Phase 2 — tenant_id on every domain row
+6. Add nullable `tenant_id UNIQUEIDENTIFIER` to: `member`, `[group]`, `member_group`, `member_persona`, `event`, `event_response`, `event_assignment`, `event_notification_target`, `waitlist_promotion_offer`, `notification_template`, `notification_template_version`, `notification_log`, `sms_consent_log`, `email_preference_log`, `inbound_sms_log`, `import_log`, `member_identity_link`, `identity_invite_claim`, `identity_invite_trace`, `tavf_posting`, `tavf_application`, `tavf_match`, `support_email_relay_config`, `support_inbound_email_log`, `rsvp_short_link`. *(Parallel migration; one ALTER per table.)*
+7. Backfill all existing rows with `DEFAULT_TENANT_ID` ("Colorado Alpine"). *(Depends on step 6.)*
+8. Add FK to `dbo.tenant`, then enforce `NOT NULL` on `tenant_id`. *(Depends on step 7.)*
+9. Add covering indexes prefixed with `tenant_id` on hot lookup paths: `(tenant_id, member_id)`, `(tenant_id, event_id)`, `(tenant_id, event_date)`, `(tenant_id, status)` on tavf tables, `(tenant_id, channel, template_name)` on `notification_template`.
+10. Replace the `UNIQUE(email)` on `dbo.member` with `UNIQUE(tenant_id, email)` so the same person can register in two programs as separate member rows. Same for `member.mobile_phone`, `notification_template.template_name`, `[group].group_name`.
+
+### Phase 3 — Tenant resolution + auth (server side)
+11. Introduce `resolveTenantContext` middleware after `authenticate`: derives `req.tenantId` from (a) `X-Tenant-Id` header set by frontend after tenant selection, or (b) the only tenant the user belongs to, or (c) the JWT-bound `tenantId` cookie issued at tenant selection time. Reject if user is not a root admin and the requested `tenant_id` is not in their `tenant_admin`/`member.tenant_id` set.
+12. Add `req.user.roleByTenant: Map<tenantId, role>` and a `root` flag. Refactor `backend/src/middleware/rbac.ts` so `requireAdmin`, `requireEventCreator`, `requireTavfCreator` check the role against `req.tenantId` (root admins always pass).
+13. Update `backend/src/middleware/auth.ts` member-link logic to resolve identities per-tenant: `member_identity_link` lookups become `(tenant_id, entra_object_id)` and `(tenant_id, email)`. The invite-claim flow already produces a token; extend it to encode `tenant_id` so a claim deterministically lands in the right tenant.
+14. Replace `AUTH_BOOTSTRAP_ADMIN_EMAILS` (single list) with `AUTH_BOOTSTRAP_ROOT_ADMIN_EMAILS` (root) plus per-tenant bootstrap rows seeded from `dbo.tenant_admin`. Update `adminBootstrapService.ts` accordingly.
+
+### Phase 4 — Tenant-aware data access
+15. Add a thin repository wrapper `forTenant(tenantId)` exposing helpers (`db.tenant.member.findById`, etc.) that automatically inject `AND tenant_id = @tenantId` into every query. Migrate every service file (memberService, rsvpService, eventService, tavfService, groupService, personaService, csvImportService, notificationService, identityProvisioningService, identityInviteClaimService, rsvpLinkService, emailPreferenceLinkService, …) to use it.
+16. Add ESLint rule or CI grep guard that fails if a `*.ts` file under `backend/src/services` or `backend/src/routes` issues raw SQL without referencing `tenant_id` (allow-list the few tenant-management services).
+17. Apply SQL Server **Row-Level Security** policies as defense-in-depth: a `SESSION_CONTEXT('tenant_id')` security predicate on each tenant-scoped table. Wrapper sets it per request. Root admins bypass via a `root_bypass` predicate. *(Optional but strongly recommended; can ship after step 15.)*
+18. Update background jobs (`reminderJob.ts`, `waitlistLifecycleJob.ts`, `retentionJob.ts`, TAVF expiry) to iterate tenants and process each in its own scope, so per-tenant outages don't poison other tenants' jobs.
+
+### Phase 5 — Per-tenant branding & messaging
+19. Move all hardcoded brand strings out of `backend/src/templates/*` into template variables sourced from `dbo.tenant_branding`. Update `renderTemplate()` to inject `{{org.shortName}}`, `{{org.longName}}`, `{{org.primaryColor}}`, `{{org.logoUrl}}`, `{{org.supportEmail}}`, `{{org.portalLoginUrl}}`, `{{org.tagline}}`. Audit list to fix:
+    - `eventInvite.ts`, `eventCancellation.ts`, `eventThankYou.ts`, `eventUpdate.ts`, `eventReminder.ts`, `rsvpConfirmation.ts`, `rsvpWaitlisted.ts`, `waitlistPromotion.ts`, `assignmentConfirmation.ts`, `assignmentAdminAdded.ts`
+    - Inline strings in `backend/src/services/notifications.ts` (lines ~432, ~1537, ~1961, ~2228, ~2323, ~2365, ~2447, ~2545)
+    - `backend/src/routes/sms.ts` — 15+ `"PHW Alpine:"` prefixes
+    - `backend/src/services/aiInviteService.ts`
+    - `backend/src/routes/admin.ts` — `DEFAULT_PORTAL_LOGIN_URL`
+    - `backend/src/routes/events.ts` — iCal `PRODID` and PDF title
+20. Replace single-sender Email/SMS construction in `backend/src/services/notifications.ts` with a `getMessagingForTenant(tenantId)` factory that returns the right `AcsEmailService`/`AcsSmsService`/`TwilioSmsService`/`TelnyxSmsService` configured from `dbo.tenant_messaging`. Cache instances per tenant.
+21. Per-tenant unsubscribe routing: include `tenant_id` (or short `tenant_slug`) in unsubscribe and RSVP short-link tokens; `emailPreferenceLinkService.ts` and `rsvpLinkService.ts` load/write logs scoped to the resolving tenant.
+22. SMS STOP/HELP compliance per-sender: inbound webhook in `backend/src/routes/sms.ts` resolves tenant from the *destination* phone number (the `To` field), then writes consent rows scoped to that tenant. Reply text uses that tenant's `org_short_name`.
+23. Notification templates become tenant-scoped (`(tenant_id, template_name)` unique). Add inheritance: if a tenant row is missing, fall back to a `tenant_id = NULL` "global default" row owned by root. Template editor UI exposes "Customize for my tenant" which copies the global row.
+
+### Phase 6 — Frontend (single domain, post-login tenant switch)
+24. New tenant-context API: `GET /api/v1/me/tenants` returns `[{tenant_id, slug, display_name, role, branding}]` for the signed-in user. Frontend stores active `tenant_id` in localStorage and forwards it as `X-Tenant-Id` header from `frontend/src/api/client.ts` (sibling to the existing `X-Member-Invite-Token`).
+25. New `<TenantProvider>` React context wrapping the app (after MSAL). On login: if user has 1 tenant → auto-select; if >1 → show a `TenantPicker` page; if 0 → show "no access" state with support contact. Root admins see an additional "Operate as: root / Colorado Alpine / Montrose" switcher in the header, persisting their chosen scope.
+26. Drive all branding from the active tenant: replace hardcoded strings in `frontend/src/components/Layout.tsx` (titles, footer org name, accessibility email, logo paths) and `frontend/src/pages/LoginPage.tsx` (hero photos, tagline, logo, description) with values from `tenant.branding`. Login page is generic until tenant is chosen; per-tenant hero shows after selection.
+27. Add `frontend/public/branding/<tenant_slug>/` asset convention; tenant rows store relative paths. Existing PHW Alpine assets move to `branding/colorado-alpine/`.
+28. Tenant-scoped admin nav: hide cross-tenant admin items from non-root admins. Add a `/root` admin section visible only to `is_root` users (tenant CRUD, branding defaults, suspend/reactivate, cross-tenant analytics).
+
+### Phase 7 — Root admin surfaces
+29. Root-admin REST surface (under `/api/v1/root/`):
+    - `POST /tenants` — create tenant
+    - `PATCH /tenants/:id` — update metadata
+    - `POST /tenants/:id/admins` — grant tenant admin
+    - `DELETE /tenants/:id/admins/:userId` — revoke tenant admin
+    - `POST /tenants/:id/branding` — upsert branding
+    - `POST /tenants/:id/messaging` — upsert messaging config
+    - `POST /tenants/:id/suspend` — suspend/reactivate
+    - `GET /tenants/:id/usage` — per-tenant usage metrics
+
+    All guarded by a new `requireRoot` middleware independent of any tenant context.
+30. Tenant provisioning workflow: creating a tenant clones the seed `notification_template` set, seeds the four system groups (ALL, ADMIN, VOLUNTEERS, PARTICIPANTS) for that tenant, sets up an empty branding/messaging row that the root admin must fill before the tenant is marked `active`.
+31. Cross-tenant analytics endpoints (root only) aggregate by `tenant_id`: members, events, RSVPs, send volume, opt-out rates, error rates.
+
+### Phase 8 — Rollout, migration, and cleanup
+32. Introduce `MULTI_TENANT_ENABLED` env flag. When `false`: backend ignores tenant context (assumes `DEFAULT_TENANT_ID`), frontend hides tenant switcher and pickers. When `true`: full tenant resolution active.
+33. Run schema migrations (Phases 1+2) in production with the flag **off**. Backfill `tenant_id` on every existing row to `DEFAULT_TENANT_ID`. Validate row counts and FKs.
+34. Flip `MULTI_TENANT_ENABLED=true` in a staging slot; run the full E2E matrix scoped to the default tenant (parity check with single-tenant behavior).
+35. Promote to production via blue/green slot swap. Existing PHW Colorado Alpine continues as the default tenant; nothing visible changes for current members.
+36. Onboard first second tenant ("Montrose") via the root admin UI: create tenant → upload branding/logo → configure messaging (provision SMTP `From` and Twilio Messaging Service SID via Key Vault) → seed admins → import members.
+37. Remove `MULTI_TENANT_ENABLED` once a second tenant has been live for a stabilization period; multi-tenant becomes the only mode.
+
+---
+
+## Files to touch
+
+### Schema
+- `database/schema.sql` — add `tenant`, `tenant_branding`, `tenant_messaging`, `tenant_admin`; add `tenant_id` to all domain tables; replace single-column unique constraints; add covering indexes; optional RLS policies.
+
+### Backend — auth & RBAC
+- `backend/src/middleware/auth.ts` — tenant-aware identity link, set `req.tenantId`, set SQL `SESSION_CONTEXT`.
+- `backend/src/middleware/authRoleResolver.ts` — resolve `roleByTenant` and `is_root` from `dbo.tenant_admin` + `dbo.[user]`.
+- `backend/src/middleware/rbac.ts` — every guard becomes tenant-scoped; root bypass.
+- `backend/src/services/adminBootstrapService.ts` — seed root admins from `AUTH_BOOTSTRAP_ROOT_ADMIN_EMAILS`; per-tenant bootstrap from config table.
+- `backend/src/services/identityInviteClaimService.ts` — encode `tenant_id` in the claim so onboarding lands in the correct tenant.
+- **New:** `backend/src/middleware/resolveTenantContext.ts`
+- **New:** `backend/src/middleware/requireRoot.ts`
+
+### Backend — data access (every service must add tenant filter)
+- `backend/src/services/memberService.ts`, `rsvpService.ts`, `groupService.ts`, `personaService.ts`, `tavfService.ts`, `csvImportService.ts`, `rsvpLinkService.ts`, `emailPreferenceLinkService.ts`, `identityProvisioningService.ts`
+- All route handlers: `backend/src/routes/events.ts`, `members.ts`, `rsvp.ts`, `tavf.ts`, `groups.ts`, `admin.ts`, `import.ts`, `templates.ts`, `sms.ts`, `preferences.ts`, `support.ts`, `reports.ts`, `calendar.ts`, `publicRsvp.ts`
+- **New:** `backend/src/routes/root.ts` — tenant CRUD / branding / messaging / analytics
+- **New:** `backend/src/services/tenantService.ts`, `tenantBrandingService.ts`, `tenantMessagingService.ts`
+
+### Backend — notifications & branding
+- `backend/src/services/notifications.ts` — `getMessagingForTenant(tenantId)` factory; per-tenant ACS/Twilio/Telnyx clients; tenant-aware unsubscribe footer.
+- `backend/src/templates/*` — extract every hardcoded "PHW Alpine" / "Colorado Alpine" / color / footer to template variables.
+- `backend/src/services/aiInviteService.ts` — tenant-aware copy; replace literal mission strings.
+- `backend/src/routes/sms.ts` — resolve tenant from inbound `To` number; tenant-aware reply prefix and STOP/HELP.
+- `backend/src/routes/events.ts` — iCal `PRODID` and PDF title from tenant branding.
+
+### Backend — jobs
+- `backend/src/jobs/reminderJob.ts`, `waitlistLifecycleJob.ts`, `retentionJob.ts` — iterate tenants; isolate failures per tenant.
+
+### Frontend
+- `frontend/src/authConfig.ts` — single Entra config (no per-tenant client IDs needed).
+- `frontend/src/api/client.ts` — forward `X-Tenant-Id` header.
+- `frontend/src/api/baseUrl.ts` — unchanged (single domain).
+- `frontend/src/components/Layout.tsx` — branding from active tenant.
+- `frontend/src/pages/LoginPage.tsx` — generic pre-tenant; per-tenant hero after selection.
+- **New:** `frontend/src/contexts/TenantContext.tsx`
+- **New:** `frontend/src/pages/TenantPickerPage.tsx`
+- **New:** `frontend/public/branding/<tenant_slug>/` asset convention (move existing assets to `branding/colorado-alpine/`)
+- **New:** `frontend/src/pages/root/` — root-admin tenant management pages
+
+### CI/CD & infra
+- `.github/workflows/ci-cd.yml` — seed a second test tenant; tenant matrix on E2E suites; cross-tenant denial test in `e2e_api_role_matrix`.
+- `deploy/azuredeploy.json` — Key Vault references for per-tenant messaging secrets; naming convention: `tenant-<slug>-twilio-auth-token`, `tenant-<slug>-acs-connection-string`, etc.
+
+---
+
+## Verification checklist
+
+1. **Unit:** `tenantService.spec.ts` covers tenant CRUD + admin grants; `forTenant` repository wrapper tests prove every helper injects `tenant_id`. Negative test: a manually-constructed query without `tenant_id` is caught by the CI lint/grep guard.
+2. **Integration (backend):** seed two tenants in test DB; assert `GET /events` as tenant-A admin **never** returns tenant-B events; assert root admin can list across both via `/root`.
+3. **Identity:** invite-claim flow end-to-end — invite a member into tenant B, complete sign-in, confirm `member_identity_link.tenant_id = B` and that the user is invisible to tenant-A admins.
+4. **RLS (if enabled):** force a query without `SESSION_CONTEXT('tenant_id')` set and confirm zero rows return on tenant-scoped tables.
+5. **Notifications:** for each tenant, verify (a) outbound email `From` matches `tenant_messaging.email_from`, (b) outbound SMS uses the tenant's Messaging Service SID, (c) inbound STOP to tenant-A's number opts the member out for tenant A only, (d) unsubscribe link in a tenant-B email writes to `email_preference_log` with `tenant_id = B`.
+6. **Branding:** snapshot tests for each rendered email template under two different `tenant_branding` rows; visual check of frontend Layout/Login under each tenant context.
+7. **Migration parity:** before flipping `MULTI_TENANT_ENABLED`, diff member count, event count, and last-30-days `notification_log` totals before vs after backfill — all rows must have `tenant_id = DEFAULT_TENANT_ID` and totals must match exactly.
+8. **CI E2E matrix:** `e2e_api_role_matrix` runs once per seeded tenant; include a cross-tenant denial case asserting tenant-A's admin token gets `403` on tenant-B resources.
+9. **Smoke after rollout:** existing `deploy_backend_smoke` and `deploy_frontend_smoke` continue passing scoped to the default tenant; add a second smoke run scoped to the new tenant once it exists.
+10. **Rollback:** confirm migrations are reversible — documented script to drop `tenant_id` columns from a backup snapshot if a critical issue is found before the second tenant launches.
+
+---
+
+## Decisions (locked)
+
+| Decision | Choice |
+|---|---|
+| Data isolation | Shared DB, `tenant_id` on every row. SQL Server Row-Level Security added as defense-in-depth but `forTenant` application-level filtering is the primary boundary. |
+| URL routing | Single domain. Tenant resolved post-login from DB memberships, carried as `X-Tenant-Id` header. No subdomains, no path prefixes. |
+| Identity provider | One Entra External ID tenant for all PHW programs. Tenant membership is purely an app-DB concept. |
+| User-to-tenant cardinality | Members belong to exactly one tenant. Admins may belong to multiple tenants and/or hold a `root` role above all tenants. |
+| Rollout | Incremental behind `MULTI_TENANT_ENABLED`. Backfill all current data into the default Colorado Alpine tenant first; second tenant onboarded only after the flag has been live and stable. |
+
+### Out of scope for v1
+- Per-tenant subdomains or wildcard certs
+- Per-tenant Entra app registrations
+- Per-tenant database or schema isolation
+- Cross-tenant data sharing (shared events or members between programs)
+- Billing / metering / SaaS commerce
+- White-label custom domains for tenants
+
+---
+
+## Risks (ranked)
+
+| # | Risk | Mitigation |
+|---|---|---|
+| 1 | **Cross-tenant data leakage** from a missing `tenant_id` filter — highest impact risk | Every read/write through `forTenant` wrapper; CI grep-guard against raw SQL missing `tenant_id`; RLS as belt-and-suspenders; integration tests seed two tenants and assert isolation on every list endpoint. |
+| 2 | **Auth boundary error** elevating a tenant admin to root | `is_root` lives on `dbo.[user]` only, never on a JWT claim; `requireRoot` reads it from DB on each request; root scope is never inferred from token roles. |
+| 3 | **Member identity collision** — same Entra account could match member rows in two tenants | `member_identity_link` keyed by `(tenant_id, entra_object_id)`; invite-claim token carries target `tenant_id` so first sign-in lands deterministically; UI shows tenant picker in the rare case a person is in two tenants. |
+| 4 | **Notification cross-talk** — tenant-B email sent from tenant-A `From` address | `getMessagingForTenant(tenantId)` is the only path to a sender; templates resolve branding strictly from `req.tenantId`; unit tests assert `From` matches tenant. |
+| 5 | **SMS STOP/HELP miswiring** — consent must route per sender number | Inbound webhook resolves tenant from the `To` number; `sms_consent_log` carries `tenant_id`; per-tenant STOP keyword tests. |
+| 6 | **Migration risk under load** on large tables (esp. `notification_log`) | Three-step: nullable add → batch backfill → NOT NULL constraint; run in a maintenance window; row-count validation and tested rollback script. |
+| 7 | **Background jobs leaking failures across tenants** | Per-tenant `try/catch` isolation per iteration; job runner logs `tenant_id` on each cycle. |
+| 8 | **Cost & ops per tenant** — each needs Twilio number, SMTP domain (SPF/DKIM), Key Vault secrets | Standardize a tenant-onboarding checklist; root-admin UI captures these values; Key Vault references rather than env vars. |
+| 9 | **Observability regression** — logs/metrics without `tenant_id` leave root admins blind | Add `tenant_id` to every structured log line and as an App Insights custom dimension; per-tenant dashboards. |
+| 10 | **Test debt** — existing E2E and smoke jobs assume single-tenant | Seed a second test tenant in fixtures early in Phase 1 so test suite evolves in parallel with implementation. |
+| 11 | **Stale reminders to suspended tenants** | Jobs filter `WHERE tenant.status = 'active'` at the top of each per-tenant loop. |
+| 12 | **Splash site coupling** — `splash/` is hardcoded to `phwcoloradoalpine.org` | Treat as a separate property; defer multi-tenant marketing pages to a later wave. |

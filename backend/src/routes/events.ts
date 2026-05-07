@@ -2146,6 +2146,17 @@ function parseEventRole(value: unknown): 'MENTOR' | 'PARTICIPANT' {
   return normalized === 'MENTOR' ? 'MENTOR' : 'PARTICIPANT';
 }
 
+async function ensureMemberTestAccountColumn(pool: Awaited<ReturnType<typeof getPool>>): Promise<void> {
+  await pool.request().query(`
+    IF OBJECT_ID(N'dbo.member', N'U') IS NOT NULL
+      AND COL_LENGTH(N'dbo.member', N'is_test_account') IS NULL
+    BEGIN
+      ALTER TABLE dbo.member
+      ADD is_test_account BIT NOT NULL CONSTRAINT DF_member_is_test_account DEFAULT(0);
+    END
+  `);
+}
+
 function responseBias(response: string): number {
   if (response === 'yes') {
     return -0.2;
@@ -2315,6 +2326,7 @@ router.get('/:id/assignment-recommendations', apiLimiter, authenticate, requireE
     const limit = Number.isFinite(rawLimit) ? Math.max(1, Math.min(rawLimit, 100)) : 20;
 
     const pool = await getPool();
+    await ensureMemberTestAccountColumn(pool);
     const result = await pool
       .request()
       .input('event_id', sql.UniqueIdentifier, req.params.id)
@@ -2347,6 +2359,7 @@ router.get('/:id/assignment-recommendations', apiLimiter, authenticate, requireE
          LEFT JOIN event e_hist ON e_hist.event_id = ea.event_id AND e_hist.status = 'completed'
          WHERE er.event_id = @event_id
            AND er.response IN ('yes', 'maybe', 'waitlist')
+           AND COALESCE(m.is_test_account, 0) = 0
          GROUP BY er.member_id, m.first_name, m.last_name, er.response
          ORDER BY role_attended_year ASC, role_attended_prior_year ASC, total_attended_year ASC, total_attended_prior_year ASC, er.response ASC, m.last_name ASC, m.first_name ASC`
       );
