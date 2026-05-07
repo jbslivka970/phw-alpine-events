@@ -275,7 +275,8 @@ async function ensureMemberAuthenticatedSession(page: Page): Promise<boolean> {
 
   // Use a single establishment attempt to stay inside the test timeout budget.
   // Playwright already retries this whole test once on failure.
-  await clearBrowserSession(page);
+  // Do NOT clear the browser session here: storageState includes CIAM session cookies
+  // that allow the popup to fast-path without full username/password re-entry.
   try {
     // loginWithCredentials validates immediate login transition; follow with
     // a longer dashboard stabilization check before considering auth established.

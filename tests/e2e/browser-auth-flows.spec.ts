@@ -380,7 +380,12 @@ async function ensureAuthenticatedSession(page: Page, account: BrowserAccount): 
   }
 
   for (let attempt = 1; attempt <= authSessionAttempts; attempt += 1) {
-    await clearBrowserSession(page);
+    // On attempt 1, preserve the browser session (and CIAM session cookies from storageState)
+    // so CIAM can fast-path through the popup without requiring full username/password entry.
+    // Only clear on retries to avoid stale state from a partially completed auth flow.
+    if (attempt > 1) {
+      await clearBrowserSession(page);
+    }
     try {
       await loginWithCredentials(page, account.username, account.password, account.label);
       for (let verifyAttempt = 1; verifyAttempt <= 3; verifyAttempt += 1) {

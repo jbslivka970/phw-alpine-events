@@ -475,12 +475,12 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: playwright-browser-auth-flows-artifacts-${{ github.run_id }}
-                  tests/e2e/.auth/*.png
         if-no-files-found: ignore
         retention-days: 14
         path: |
           playwright-report/**
           test-results/**
+          tests/e2e/.auth/*.png
 
   e2e_browser_persona_matrix:
     runs-on: ubuntu-latest
@@ -534,12 +534,12 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: playwright-browser-persona-artifacts-${{ github.run_id }}
-                  tests/e2e/.auth/*.png
         if-no-files-found: ignore
         retention-days: 14
         path: |
           playwright-report/**
           test-results/**
+          tests/e2e/.auth/*.png
 
   e2e_browser_postdeploy_smoke:
     runs-on: ubuntu-latest
@@ -591,12 +591,12 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: playwright-browser-postdeploy-smoke-artifacts-${{ github.run_id }}
-                  tests/e2e/.auth/*.png
         if-no-files-found: ignore
         retention-days: 14
         path: |
           playwright-report/**
           test-results/**
+          tests/e2e/.auth/*.png
 
   deploy:
     runs-on: ubuntu-latest
