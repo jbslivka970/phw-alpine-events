@@ -386,9 +386,10 @@ test.describe('Browser persona flow matrix', () => {
 
   for (const persona of personas) {
     test.describe(persona.label, () => {
-      // Note: storageState loading disabled. Browser tests fall back to credential login
-      // via ensureAuthenticatedSession(), which is the reliable auth path for deployed environments.
-      // test.use({ storageState: persona.statePath });
+      // Load pre-captured MSAL v5 browser storage state from the refresh job.
+      // ensureAuthenticatedSession will detect auth from storageState and skip popup login.
+      // Falls back to credential popup login if storageState is empty or tokens are expired.
+      test.use({ storageState: persona.statePath });
 
       test.skip(!localE2EAuthEnabled && (!persona.username || !persona.password), `${persona.label} credentials are required when local auth is disabled.`);
 

@@ -1,4 +1,5 @@
 import { expect, test, type Frame, type Page } from '@playwright/test';
+import path from 'path';
 
 const appBaseUrl = (process.env.E2E_APP_URL ?? '').trim().replace(/\/$/, '');
 const localE2EAuthEnabled = /^(1|true|yes|on)$/i.test(process.env.E2E_LOCAL_AUTH_ENABLED ?? '');
@@ -6,6 +7,7 @@ const memberUsername = (process.env.PW_MEMBER_USER ?? '').trim();
 const memberPassword = (process.env.PW_MEMBER_PASS ?? '').trim();
 const authStepMaxAttempts = 60;
 const authStepSleepMs = 800;
+const memberStatePath = path.join(process.cwd(), 'tests/e2e/.auth/member.json');
 
 function scopes(page: Page): Array<Page | Frame> {
   return [page, ...page.frames()];
@@ -291,7 +293,9 @@ test.describe('Post-deploy browser smoke (member)', () => {
     test.setTimeout(210_000);
     test.skip(!localE2EAuthEnabled && (!memberUsername || !memberPassword), 'PW_MEMBER_USER/PW_MEMBER_PASS are required when local auth is disabled.');
 
-    const context = await browser.newContext();
+    // Load pre-captured MSAL v5 browser storage state from the refresh job so
+    // ensureMemberAuthenticatedSession can skip popup login when tokens are valid.
+    const context = await browser.newContext({ storageState: memberStatePath });
     const page = await context.newPage();
     const memberRsvp403s: string[] = [];
     let rsvpCleanup: { eventId: string; memberId: string } | null = null;
