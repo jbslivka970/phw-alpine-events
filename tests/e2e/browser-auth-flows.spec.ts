@@ -225,6 +225,8 @@ async function loginWithCredentials(page: Page, username: string, password: stri
     await captureCiamDebug(authPage, label, 'password-ui-not-found');
     // Some CIAM account-tile/session-resume paths complete sign-in without rendering
     // a password field. Try to finalize and validate authenticated app navigation.
+    // Only use safe confirmation-button selectors — avoid generic role=button selectors
+    // that can accidentally click CIAM "back" or "privacy" links and break the auth flow.
     for (let clickAttempt = 1; clickAttempt <= 5; clickAttempt += 1) {
       await clickInAnyScope(authPage, [
         'button:has-text("No")',
@@ -237,9 +239,6 @@ async function loginWithCredentials(page: Page, username: string, password: stri
         'button:has-text("Next")',
         'input[type="submit"]#idSIButton9',
         'button[type="submit"]',
-        'button[role="button"][type="button"]',
-        'a[role="button"]',
-        '[role="button"]',
       ]);
       if (popup && popup.isClosed()) {
         break;
@@ -266,6 +265,8 @@ async function loginWithCredentials(page: Page, username: string, password: stri
 
   await authPage.waitForLoadState('domcontentloaded').catch(() => {});
   // CIAM can show multiple intermediate prompts after password entry.
+  // Only use safe confirmation-button selectors — avoid generic role=button selectors
+  // that can accidentally click CIAM "back" or "privacy" links and break the auth flow.
   for (let clickAttempt = 1; clickAttempt <= 5; clickAttempt += 1) {
     await clickInAnyScope(authPage, [
       'button:has-text("No")',
@@ -278,9 +279,6 @@ async function loginWithCredentials(page: Page, username: string, password: stri
       'button:has-text("Next")',
       'input[type="submit"]#idSIButton9',
       'button[type="submit"]',
-      'button[role="button"][type="button"]',
-      'a[role="button"]',
-      '[role="button"]',
     ]);
     if (popup && popup.isClosed()) {
       break;

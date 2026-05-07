@@ -260,6 +260,8 @@ async function loginWithCredentials(page: Page, username: string, password: stri
     await captureCiamDebug(authPage, label, 'password-ui-not-found');
     // Some CIAM account-tile/session-resume paths complete sign-in without rendering
     // a password field. Try to finalize and validate authenticated app navigation.
+    // Only use safe confirmation-button selectors — avoid generic role=button selectors
+    // that can accidentally click CIAM "back" or "privacy" links and break the auth flow.
     for (let clickAttempt = 1; clickAttempt <= 5; clickAttempt += 1) {
       await clickInAnyScope(authPage, [
         'button:has-text("No")',
@@ -272,9 +274,6 @@ async function loginWithCredentials(page: Page, username: string, password: stri
         'button:has-text("Next")',
         'input[type="submit"]#idSIButton9',
         'button[type="submit"]',
-        'button[role="button"][type="button"]',
-        'a[role="button"]',
-        '[role="button"]',
       ]);
       if (popup && popup.isClosed()) {
         break;
@@ -296,6 +295,8 @@ async function loginWithCredentials(page: Page, username: string, password: stri
   }
 
   // CIAM can show multiple intermediate prompts after password entry.
+  // Only use safe confirmation-button selectors — avoid generic role=button selectors
+  // that can accidentally click CIAM "back" or "privacy" links and break the auth flow.
   for (let clickAttempt = 1; clickAttempt <= 5; clickAttempt += 1) {
     await clickInAnyScope(authPage, [
       'button:has-text("No")',
@@ -308,9 +309,6 @@ async function loginWithCredentials(page: Page, username: string, password: stri
       'button:has-text("Next")',
       'input[type="submit"]#idSIButton9',
       'button[type="submit"]',
-      'button[role="button"][type="button"]',
-      'a[role="button"]',
-      '[role="button"]',
     ]);
 
     if (popup && popup.isClosed()) {
@@ -324,6 +322,16 @@ async function loginWithCredentials(page: Page, username: string, password: stri
   }
 
   await captureCiamDebug(authPage, label, 'post-click-state');
+
+  // After popup auth, force navigation to a protected page to allow MSAL to process
+  // the auth response before verifying the session.
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    await page.goto(`${appBaseUrl}/dashboard`, { waitUntil: 'domcontentloaded' }).catch(() => {});
+    if (!/\/login(\?|$)/i.test(page.url())) {
+      return;
+    }
+    await page.waitForTimeout(2_500);
+  }
 }
 
 async function ensureAuthenticatedSession(page: Page, persona: Persona): Promise<boolean> {

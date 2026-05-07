@@ -652,17 +652,9 @@ async function main() {
     }
 
     // ── Strategy 2: Browser login for real storageState (preferred for browser suites) ──
-    // When --soft-skip is set and ROPC already acquired a token, skip the browser step entirely
-    // and write a synthetic storage state — avoids the 180s browser timeout per role.
-    if (token && softSkip) {
-      console.log(`[refresh-playwright-tokens] ${role.name}: --soft-skip set with ROPC token, writing synthetic storage state`);
-      const origin = appUrl ? (() => { try { return new URL(appUrl).origin; } catch { return appUrl; } })() : '';
-      if (origin && ropcResult) {
-        const storageState = buildSyntheticStorageState(ropcResult, origin);
-        fs.writeFileSync(role.statePath, JSON.stringify(storageState, null, 2), 'utf8');
-        hasBrowserStorageState = true;
-      }
-    } else {
+    // Always attempt browser login to capture real MSAL v5 encrypted storage state.
+    // ROPC token is kept for API tests even if browser capture fails.
+    {
       try {
         const browserToken = await loginAndCaptureWithTimeout({
           username: role.username,
