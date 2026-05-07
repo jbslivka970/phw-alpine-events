@@ -2119,15 +2119,24 @@ async function getInviteTraceByMemberId(memberId: string, limit: number): Promis
 // ── Blast message / SMS ──────────────────────────────────────────────────────
 //
 // Admin-only feature: send a one-off email or SMS blast to a filtered set of
-// active members. Opt-outs are always respected (email_opt_out=1 and
-// sms_opt_in=0 are excluded from the respective channels).
+// active members.
+//
+// Audiences:
+//   'all'     — all active members (email_opt_out / sms_opt_in respected by default)
+//   'group'   — members in a named group (same opt filters)
+//   'invited' — members with a pending identity invite (linked_at IS NULL)
+//               used to prompt users who were invited but never signed in
+//
+// opt_override: when true, email sends to email_opt_out=1 members and SMS sends
+//               to sms_opt_in=0 members — for "sign up for notifications" prompts.
+//               Requires a valid contact address regardless.
 //
 // Two endpoints:
 //   POST /admin/blast/preview  — dry-run, returns recipient count only
 //   POST /admin/blast/send     — sends the blast and writes an audit record
 
 interface BlastTarget {
-  audience: 'all' | 'group';
+  audience: 'all' | 'group' | 'invited';
   groupId?: string;
 }
 
@@ -2136,6 +2145,7 @@ interface BlastBody {
   subject?: string;      // required for email
   body: string;          // plain-text body; used as-is for SMS; wrapped in HTML for email
   target: BlastTarget;
+  opt_override?: boolean; // when true, bypasses opt-out/opt-in filter (for notification sign-up prompts)
 }
 
 /** Validate and parse the blast request body. Returns an error string or null. */
@@ -2160,14 +2170,17 @@ function validateBlastBody(body: Partial<BlastBody>): string | null {
   if (body.channel === 'sms' && body.body.trim().length > 1_600) {
     return 'SMS body must be 1 600 characters or fewer (10 segments)';
   }
-  if (!body.target || !['all', 'group'].includes(body.target.audience)) {
-    return 'target.audience must be "all" or "group"';
+  if (!body.target || !['all', 'group', 'invited'].includes(body.target.audience)) {
+    return 'target.audience must be "all", "group", or "invited"';
   }
   if (body.target.audience === 'group') {
     const gid = body.target.groupId?.trim();
     if (!gid || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(gid)) {
       return 'target.groupId must be a valid UUID when audience is "group"';
     }
+  }
+  if (body.opt_override !== undefined && typeof body.opt_override !== 'boolean') {
+    return 'opt_override must be a boolean';
   }
   return null;
 }
@@ -2182,15 +2195,33 @@ async function queryBlastRecipients(
   let whereClause = `m.is_active = 1`;
 
   if (body.channel === 'email') {
-    whereClause += ` AND m.email_opt_out = 0 AND m.email IS NOT NULL AND LEN(m.email) > 0`;
+    // When opt_override is true we still require a valid email address, but skip
+    // the email_opt_out filter so opted-out members can receive a notification
+    // sign-up prompt.
+    if (!body.opt_override) {
+      whereClause += ` AND m.email_opt_out = 0`;
+    }
+    whereClause += ` AND m.email IS NOT NULL AND LEN(m.email) > 0`;
   } else {
-    whereClause += ` AND m.sms_opt_in = 1 AND m.mobile_phone IS NOT NULL AND LEN(m.mobile_phone) > 0`;
+    // When opt_override is true we still require a mobile_phone, but skip the
+    // sms_opt_in filter so non-opted-in members can receive a sign-up prompt.
+    if (!body.opt_override) {
+      whereClause += ` AND m.sms_opt_in = 1`;
+    }
+    whereClause += ` AND m.mobile_phone IS NOT NULL AND LEN(m.mobile_phone) > 0`;
   }
 
   let joinClause = '';
   if (body.target.audience === 'group') {
     req.input('group_id', sql.UniqueIdentifier, body.target.groupId!);
     joinClause = `INNER JOIN dbo.member_group mg ON mg.member_id = m.member_id AND mg.group_id = @group_id`;
+  } else if (body.target.audience === 'invited') {
+    // Target members who have a pending identity invite but have never signed in
+    // (linked_at IS NULL means they received an invite email but never completed it).
+    joinClause = `INNER JOIN dbo.member_identity_link mil
+       ON mil.member_id = m.member_id
+      AND mil.status = 'invited'
+      AND mil.linked_at IS NULL`;
   }
 
   const result = await req.query<{
@@ -2220,6 +2251,7 @@ async function ensureBlastLogTable(pool: Awaited<ReturnType<typeof getPool>>): P
       body_preview      NVARCHAR(500)    NOT NULL,
       audience          NVARCHAR(20)     NOT NULL,
       group_id          UNIQUEIDENTIFIER NULL,
+      opt_override      BIT              NOT NULL DEFAULT 0,
       recipient_count   INT              NOT NULL,
       sent_count        INT              NOT NULL,
       skipped_count     INT              NOT NULL,
@@ -2321,16 +2353,17 @@ router.post('/blast/send', writeLimiter, async (req, res) => {
       .input('body_preview', sql.NVarChar(500), bodyPreview)
       .input('audience', sql.NVarChar(20), blastBody.target.audience)
       .input('group_id', sql.UniqueIdentifier, blastBody.target.audience === 'group' ? blastBody.target.groupId! : null)
+      .input('opt_override', sql.Bit, blastBody.opt_override ? 1 : 0)
       .input('recipient_count', sql.Int, recipients.length)
       .input('sent_count', sql.Int, sentCount)
       .input('skipped_count', sql.Int, skippedCount)
       .input('failed_count', sql.Int, failedCount)
       .query(`
         INSERT INTO dbo.blast_log
-          (blast_id, sent_by, channel, subject, body_preview, audience, group_id,
+          (blast_id, sent_by, channel, subject, body_preview, audience, group_id, opt_override,
            recipient_count, sent_count, skipped_count, failed_count)
         VALUES
-          (@blast_id, @sent_by, @channel, @subject, @body_preview, @audience, @group_id,
+          (@blast_id, @sent_by, @channel, @subject, @body_preview, @audience, @group_id, @opt_override,
            @recipient_count, @sent_count, @skipped_count, @failed_count)
       `);
 
@@ -2361,6 +2394,7 @@ router.get('/blast/log', async (req, res) => {
         body_preview: string;
         audience: string;
         group_id: string | null;
+        opt_override: boolean;
         recipient_count: number;
         sent_count: number;
         skipped_count: number;
@@ -2368,7 +2402,7 @@ router.get('/blast/log', async (req, res) => {
         sent_at: Date;
       }>(
         `SELECT TOP (@limit)
-           blast_id, sent_by, channel, subject, body_preview, audience, group_id,
+           blast_id, sent_by, channel, subject, body_preview, audience, group_id, opt_override,
            recipient_count, sent_count, skipped_count, failed_count, sent_at
          FROM dbo.blast_log
          ORDER BY sent_at DESC`,

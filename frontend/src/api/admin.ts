@@ -234,7 +234,7 @@ const adminApi = {
 export { adminApi };
 
 interface BlastTarget {
-  audience: 'all' | 'group';
+  audience: 'all' | 'group' | 'invited';
   groupId?: string;
 }
 
@@ -243,6 +243,7 @@ interface BlastRequest {
   subject?: string;
   body: string;
   target: BlastTarget;
+  opt_override?: boolean;
 }
 
 interface BlastLogEntry {
@@ -253,6 +254,7 @@ interface BlastLogEntry {
   body_preview: string;
   audience: string;
   group_id: string | null;
+  opt_override: boolean;
   recipient_count: number;
   sent_count: number;
   skipped_count: number;

@@ -102,8 +102,9 @@ function AdminPage() {
 
   // ── Blast state ────────────────────────────────────────────────────────────
   const [blastChannel, setBlastChannel] = useState<'email' | 'sms'>('email')
-  const [blastAudience, setBlastAudience] = useState<'all' | 'group'>('all')
+  const [blastAudience, setBlastAudience] = useState<'all' | 'group' | 'invited'>('all')
   const [blastGroupId, setBlastGroupId] = useState('')
+  const [blastOptOverride, setBlastOptOverride] = useState(false)
   const [blastSubject, setBlastSubject] = useState('')
   const [blastBody, setBlastBody] = useState('')
   const [blastConfirm, setBlastConfirm] = useState('')
@@ -943,9 +944,9 @@ function AdminPage() {
         <section className="card admin-tools-card">
           <h2 className="admin-section-title">Blast Message / SMS</h2>
           <p style={{ marginBottom: '1rem', color: '#555', fontSize: '0.9rem' }}>
-            Send a one-off email or SMS to all active members or a specific group.
-            Opt-outs are always respected. Use <strong>Preview</strong> first to confirm
-            recipient count, then type <code>SEND</code> to confirm.
+            Send a one-off email or SMS to all active members, a specific group, or members with pending invites.
+            By default, opt-outs are respected. Use <strong>Override opt-outs</strong> only for notification sign-up prompts.
+            Always use <strong>Preview</strong> first to confirm recipient count, then type <code>SEND</code> to confirm.
           </p>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', maxWidth: 560 }}>
@@ -965,13 +966,21 @@ function AdminPage() {
               Audience
               <select
                 value={blastAudience}
-                onChange={(e) => { setBlastAudience(e.target.value as 'all' | 'group'); setBlastPreviewCount(null); }}
+                onChange={(e) => { setBlastAudience(e.target.value as 'all' | 'group' | 'invited'); setBlastPreviewCount(null); }}
                 style={{ marginLeft: '0.5rem' }}
               >
                 <option value="all">All active members</option>
                 <option value="group">Specific group</option>
+                <option value="invited">Pending invites (sent but never signed in)</option>
               </select>
             </label>
+
+            {blastAudience === 'invited' && (
+              <p className="ui-notice ui-notice--info" style={{ margin: 0, fontSize: '0.85rem' }}>
+                This targets members who received an invite email but have not yet signed in.
+                Great for follow-up "click your invite link" nudges.
+              </p>
+            )}
 
             {blastAudience === 'group' && (
               <label style={{ fontWeight: 600 }}>
@@ -1020,6 +1029,26 @@ function AdminPage() {
               />
             </label>
 
+            <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.6rem', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={blastOptOverride}
+                style={{ marginTop: 3, flexShrink: 0 }}
+                onChange={(e) => { setBlastOptOverride(e.target.checked); setBlastPreviewCount(null); }}
+              />
+              <span style={{ fontSize: '0.875rem' }}>
+                <strong>Override opt-outs</strong> — include members who have opted out of {blastChannel === 'email' ? 'email' : 'SMS'}.
+                {' '}<em style={{ color: '#b45309' }}>Use only for "sign up for notifications" prompts, not regular messaging.</em>
+              </span>
+            </label>
+
+            {blastOptOverride && (
+              <p className="ui-notice ui-notice--warning" style={{ margin: 0, fontSize: '0.85rem' }}>
+                ⚠ Opt-out override is active. This message will be sent to members who have opted out.
+                Only use this for notification enrollment messages, not event updates or general announcements.
+              </p>
+            )}
+
             <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
               <button
                 className="btn-secondary"
@@ -1035,7 +1064,8 @@ function AdminPage() {
                       channel: blastChannel,
                       subject: blastChannel === 'email' ? blastSubject : undefined,
                       body: blastBody,
-                      target: blastAudience === 'group' ? { audience: 'group', groupId: blastGroupId } : { audience: 'all' },
+                      target: blastAudience === 'group' ? { audience: 'group', groupId: blastGroupId } : { audience: blastAudience },
+                      opt_override: blastOptOverride || undefined,
                     })
                     setBlastPreviewCount(result.recipient_count)
                   } catch (err) {
@@ -1081,7 +1111,8 @@ function AdminPage() {
                       channel: blastChannel,
                       subject: blastChannel === 'email' ? blastSubject : undefined,
                       body: blastBody,
-                      target: blastAudience === 'group' ? { audience: 'group', groupId: blastGroupId } : { audience: 'all' },
+                      target: blastAudience === 'group' ? { audience: 'group', groupId: blastGroupId } : { audience: blastAudience },
+                      opt_override: blastOptOverride || undefined,
                     })
                     setBlastSuccess(`Sent ${result.sent} message${result.sent !== 1 ? 's' : ''}. Skipped: ${result.skipped}. Failed: ${result.failed}.`)
                     setBlastConfirm(''); setBlastPreviewCount(null)
@@ -1116,6 +1147,7 @@ function AdminPage() {
                   <th>By</th>
                   <th>Channel</th>
                   <th>Audience</th>
+                  <th>Opt Override</th>
                   <th>Subject / Preview</th>
                   <th>Sent</th>
                   <th>Skipped</th>
@@ -1128,7 +1160,8 @@ function AdminPage() {
                     <td>{new Date(entry.sent_at).toLocaleString()}</td>
                     <td>{entry.sent_by}</td>
                     <td>{entry.channel.toUpperCase()}</td>
-                    <td>{entry.audience === 'group' ? `Group` : 'All'}</td>
+                    <td>{entry.audience === 'group' ? 'Group' : entry.audience === 'invited' ? 'Invited' : 'All'}</td>
+                    <td style={{ textAlign: 'center' }}>{entry.opt_override ? '⚠ Yes' : '—'}</td>
                     <td style={{ maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {entry.subject ?? entry.body_preview}
                     </td>
