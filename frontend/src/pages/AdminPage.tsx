@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { adminApi } from '../api/admin'
-import type { AdminUser, AppRoleAvailable, UserRoleAssignment, UserRoleAssignmentsResponse } from '../api/admin'
+import type { AdminUser, AppRoleAvailable, UserRoleAssignment, UserRoleAssignmentsResponse, BlastLogEntry } from '../api/admin'
 import { eventsApi } from '../api/events'
 import { groupsApi } from '../api/groups'
 import { membersApi } from '../api/members'
@@ -99,6 +99,28 @@ function AdminPage() {
   const [roleAssignBusy, setRoleAssignBusy] = useState(false)
   const [roleAssignError, setRoleAssignError] = useState<string | null>(null)
   const [roleRemovingId, setRoleRemovingId] = useState<string | null>(null)
+
+  // ── Blast state ────────────────────────────────────────────────────────────
+  const [blastChannel, setBlastChannel] = useState<'email' | 'sms'>('email')
+  const [blastAudience, setBlastAudience] = useState<'all' | 'group'>('all')
+  const [blastGroupId, setBlastGroupId] = useState('')
+  const [blastSubject, setBlastSubject] = useState('')
+  const [blastBody, setBlastBody] = useState('')
+  const [blastConfirm, setBlastConfirm] = useState('')
+  const [blastPreviewCount, setBlastPreviewCount] = useState<number | null>(null)
+  const [blastPreviewBusy, setBlastPreviewBusy] = useState(false)
+  const [blastSendBusy, setBlastSendBusy] = useState(false)
+  const [blastError, setBlastError] = useState<string | null>(null)
+  const [blastSuccess, setBlastSuccess] = useState<string | null>(null)
+  const [blastLog, setBlastLog] = useState<BlastLogEntry[]>([])
+  const [blastLogLoading, setBlastLogLoading] = useState(false)
+  const [blastGroups, setBlastGroups] = useState<Array<{ group_id: string; group_name: string }>>([])
+
+  useEffect(() => {
+    groupsApi.list().then(setBlastGroups).catch(() => {})
+    setBlastLogLoading(true)
+    adminApi.blastLog(20).then((r) => setBlastLog(r.data)).catch(() => {}).finally(() => setBlastLogLoading(false))
+  }, [])
 
   useEffect(() => {
     const base = getApiBaseUrl()
@@ -910,6 +932,209 @@ function AdminPage() {
                     <td>{row.target}</td>
                     <td>{row.retentionDays}</td>
                     <td>{row.affectedRows.toLocaleString()}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </section>
+
+        {/* ── Blast message / SMS ─────────────────────────────────────────── */}
+        <section className="card admin-tools-card">
+          <h2 className="admin-section-title">Blast Message / SMS</h2>
+          <p style={{ marginBottom: '1rem', color: '#555', fontSize: '0.9rem' }}>
+            Send a one-off email or SMS to all active members or a specific group.
+            Opt-outs are always respected. Use <strong>Preview</strong> first to confirm
+            recipient count, then type <code>SEND</code> to confirm.
+          </p>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', maxWidth: 560 }}>
+            <label style={{ fontWeight: 600 }}>
+              Channel
+              <select
+                value={blastChannel}
+                onChange={(e) => { setBlastChannel(e.target.value as 'email' | 'sms'); setBlastPreviewCount(null); setBlastError(null); setBlastSuccess(null); }}
+                style={{ marginLeft: '0.5rem' }}
+              >
+                <option value="email">Email</option>
+                <option value="sms">SMS (opted-in members only)</option>
+              </select>
+            </label>
+
+            <label style={{ fontWeight: 600 }}>
+              Audience
+              <select
+                value={blastAudience}
+                onChange={(e) => { setBlastAudience(e.target.value as 'all' | 'group'); setBlastPreviewCount(null); }}
+                style={{ marginLeft: '0.5rem' }}
+              >
+                <option value="all">All active members</option>
+                <option value="group">Specific group</option>
+              </select>
+            </label>
+
+            {blastAudience === 'group' && (
+              <label style={{ fontWeight: 600 }}>
+                Group
+                <select
+                  value={blastGroupId}
+                  onChange={(e) => { setBlastGroupId(e.target.value); setBlastPreviewCount(null); }}
+                  style={{ marginLeft: '0.5rem' }}
+                >
+                  <option value="">— select a group —</option>
+                  {blastGroups.map((g) => (
+                    <option key={g.group_id} value={g.group_id}>{g.group_name}</option>
+                  ))}
+                </select>
+              </label>
+            )}
+
+            {blastChannel === 'email' && (
+              <label style={{ fontWeight: 600 }}>
+                Subject
+                <input
+                  type="text"
+                  value={blastSubject}
+                  maxLength={200}
+                  onChange={(e) => setBlastSubject(e.target.value)}
+                  placeholder="Email subject line"
+                  style={{ display: 'block', width: '100%', marginTop: '0.25rem', padding: '0.4rem 0.6rem', border: '1px solid #ccc', borderRadius: 4 }}
+                />
+              </label>
+            )}
+
+            <label style={{ fontWeight: 600 }}>
+              Message body
+              {blastChannel === 'sms' && (
+                <span style={{ fontWeight: 400, fontSize: '0.8rem', marginLeft: '0.5rem', color: '#888' }}>
+                  {blastBody.length}/1600 chars
+                </span>
+              )}
+              <textarea
+                value={blastBody}
+                onChange={(e) => setBlastBody(e.target.value)}
+                rows={6}
+                maxLength={blastChannel === 'sms' ? 1600 : 10000}
+                placeholder={blastChannel === 'sms' ? 'Plain-text SMS message…' : 'Email body text (plain text; will be wrapped in basic HTML)…'}
+                style={{ display: 'block', width: '100%', marginTop: '0.25rem', padding: '0.4rem 0.6rem', border: '1px solid #ccc', borderRadius: 4, resize: 'vertical' }}
+              />
+            </label>
+
+            <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
+              <button
+                className="btn-secondary"
+                disabled={blastPreviewBusy || blastSendBusy}
+                onClick={async () => {
+                  setBlastError(null); setBlastSuccess(null); setBlastPreviewCount(null)
+                  if (!blastBody.trim()) { setBlastError('Body is required.'); return }
+                  if (blastChannel === 'email' && !blastSubject.trim()) { setBlastError('Subject is required for email.'); return }
+                  if (blastAudience === 'group' && !blastGroupId) { setBlastError('Please select a group.'); return }
+                  setBlastPreviewBusy(true)
+                  try {
+                    const result = await adminApi.blastPreview({
+                      channel: blastChannel,
+                      subject: blastChannel === 'email' ? blastSubject : undefined,
+                      body: blastBody,
+                      target: blastAudience === 'group' ? { audience: 'group', groupId: blastGroupId } : { audience: 'all' },
+                    })
+                    setBlastPreviewCount(result.recipient_count)
+                  } catch (err) {
+                    setBlastError(toUserErrorMessage(err, 'Preview failed.'))
+                  } finally {
+                    setBlastPreviewBusy(false)
+                  }
+                }}
+              >
+                {blastPreviewBusy ? 'Checking…' : 'Preview recipient count'}
+              </button>
+
+              {blastPreviewCount !== null && (
+                <span style={{ fontWeight: 600, color: '#2563eb' }}>
+                  {blastPreviewCount} recipient{blastPreviewCount !== 1 ? 's' : ''} will receive this message.
+                </span>
+              )}
+            </div>
+
+            {blastPreviewCount !== null && blastPreviewCount > 0 && (
+              <label style={{ fontWeight: 600 }}>
+                Type <code>SEND</code> to confirm and send
+                <input
+                  type="text"
+                  value={blastConfirm}
+                  onChange={(e) => setBlastConfirm(e.target.value)}
+                  placeholder="SEND"
+                  style={{ display: 'block', width: '120px', marginTop: '0.25rem', padding: '0.4rem 0.6rem', border: '1px solid #ccc', borderRadius: 4 }}
+                />
+              </label>
+            )}
+
+            {blastPreviewCount !== null && blastPreviewCount > 0 && (
+              <button
+                className="btn-primary"
+                disabled={blastSendBusy || blastConfirm !== 'SEND'}
+                onClick={async () => {
+                  setBlastError(null); setBlastSuccess(null)
+                  setBlastSendBusy(true)
+                  try {
+                    const result = await adminApi.blastSend({
+                      confirm: 'SEND',
+                      channel: blastChannel,
+                      subject: blastChannel === 'email' ? blastSubject : undefined,
+                      body: blastBody,
+                      target: blastAudience === 'group' ? { audience: 'group', groupId: blastGroupId } : { audience: 'all' },
+                    })
+                    setBlastSuccess(`Sent ${result.sent} message${result.sent !== 1 ? 's' : ''}. Skipped: ${result.skipped}. Failed: ${result.failed}.`)
+                    setBlastConfirm(''); setBlastPreviewCount(null)
+                    setBlastLogLoading(true)
+                    adminApi.blastLog(20).then((r) => setBlastLog(r.data)).catch(() => {}).finally(() => setBlastLogLoading(false))
+                  } catch (err) {
+                    setBlastError(toUserErrorMessage(err, 'Send failed.'))
+                  } finally {
+                    setBlastSendBusy(false)
+                  }
+                }}
+              >
+                {blastSendBusy ? 'Sending…' : `Send blast to ${blastPreviewCount} recipient${blastPreviewCount !== 1 ? 's' : ''}`}
+              </button>
+            )}
+
+            {blastError && <p style={{ color: '#c0392b', marginTop: '0.25rem' }}>{blastError}</p>}
+            {blastSuccess && <p style={{ color: '#27ae60', marginTop: '0.25rem' }}>{blastSuccess}</p>}
+          </div>
+
+          {/* Blast audit log */}
+          <h3 style={{ marginTop: '1.5rem', marginBottom: '0.5rem', fontSize: '1rem' }}>Recent blasts</h3>
+          {blastLogLoading ? (
+            <p style={{ color: '#888', fontSize: '0.9rem' }}>Loading…</p>
+          ) : blastLog.length === 0 ? (
+            <p style={{ color: '#888', fontSize: '0.9rem' }}>No blasts sent yet.</p>
+          ) : (
+            <table className="members-table" style={{ fontSize: '0.82rem' }}>
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>By</th>
+                  <th>Channel</th>
+                  <th>Audience</th>
+                  <th>Subject / Preview</th>
+                  <th>Sent</th>
+                  <th>Skipped</th>
+                  <th>Failed</th>
+                </tr>
+              </thead>
+              <tbody>
+                {blastLog.map((entry) => (
+                  <tr key={entry.blast_id}>
+                    <td>{new Date(entry.sent_at).toLocaleString()}</td>
+                    <td>{entry.sent_by}</td>
+                    <td>{entry.channel.toUpperCase()}</td>
+                    <td>{entry.audience === 'group' ? `Group` : 'All'}</td>
+                    <td style={{ maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {entry.subject ?? entry.body_preview}
+                    </td>
+                    <td>{entry.sent_count}</td>
+                    <td>{entry.skipped_count}</td>
+                    <td>{entry.failed_count}</td>
                   </tr>
                 ))}
               </tbody>

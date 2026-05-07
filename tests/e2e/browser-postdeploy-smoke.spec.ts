@@ -294,11 +294,24 @@ test.describe('Post-deploy browser smoke (member)', () => {
     const context = await browser.newContext();
     const page = await context.newPage();
     const memberRsvp403s: string[] = [];
+    let rsvpCleanup: { eventId: string; memberId: string } | null = null;
 
     const responseListener = (response: { url(): string; status(): number }) => {
       const url = response.url();
       if (/\/api\/v1\/members\/[^/]+\/rsvps/i.test(url) && response.status() === 403) {
         memberRsvp403s.push(url);
+      }
+      // Capture RSVP upsert so we can clean up after the test.
+      const rsvpMatch = url.match(/\/api\/v1\/events\/([0-9a-f-]{36})\/rsvp$/i);
+      if (rsvpMatch && response.status() >= 200 && response.status() < 300) {
+        // Attempt to extract memberId from the JSON body asynchronously.
+        void (response as import('@playwright/test').Response).json()
+          .then((body: { member_id?: string }) => {
+            if (rsvpMatch[1] && body?.member_id) {
+              rsvpCleanup = { eventId: rsvpMatch[1], memberId: body.member_id };
+            }
+          })
+          .catch(() => {});
       }
     };
 
@@ -357,6 +370,17 @@ test.describe('Post-deploy browser smoke (member)', () => {
       }
     } finally {
       page.off('response', responseListener);
+
+      // Clean up any RSVP that was saved during this test run.
+      if (rsvpCleanup) {
+        const { eventId, memberId } = rsvpCleanup;
+        const apiBase = (process.env.E2E_API_URL ?? appBaseUrl.replace(/\/+$/, '')).replace(/\/+$/, '');
+        await page.request.delete(`${apiBase}/api/v1/events/${eventId}/rsvp/${memberId}`)
+          .catch((err: unknown) => {
+            console.warn('[smoke] RSVP cleanup failed (non-fatal):', err);
+          });
+      }
+
       await context.close().catch(() => {});
     }
   });

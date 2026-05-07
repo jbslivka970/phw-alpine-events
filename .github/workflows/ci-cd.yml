@@ -1160,6 +1160,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     needs: build
+    permissions:
+      contents: read
+      id-token: write
     if: >-
       github.event_name == 'push' &&
       github.ref == 'refs/heads/main' &&
@@ -1286,6 +1289,8 @@ jobs:
   deploy_backend_smoke:
     runs-on: ubuntu-latest
     needs: deploy
+    permissions:
+      contents: read
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.AZURE_WEBAPP_NAME != ''
 
     steps:
@@ -1408,6 +1413,8 @@ jobs:
     - deploy
     - deploy_backend_smoke
     - deploy_frontend
+    permissions:
+      contents: read
     if: >-
       github.event_name == 'push' &&
       github.ref == 'refs/heads/main'
@@ -1504,6 +1511,8 @@ jobs:
 
   release_smoke:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     if: github.event_name == 'release' && github.event.action == 'published'
 
     steps:

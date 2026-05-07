@@ -205,7 +205,7 @@ router.patch('/postings/:id', writeLimiter, requireEventCreatorOrAdmin, async (r
 /**
  * DELETE /api/tavf/postings/:id
  */
-router.delete('/postings/:id', requireEventCreatorOrAdmin, async (req: Request, res: Response): Promise<void> => {
+router.delete('/postings/:id', writeLimiter, requireEventCreatorOrAdmin, async (req: Request, res: Response): Promise<void> => {
   try {
     const deleted = await tavf.deletePosting(req.params['id']!);
     if (!deleted) {
@@ -251,7 +251,7 @@ router.get('/postings/:id/applications', apiLimiter, async (req: Request, res: R
  * POST /api/tavf/postings/:id/applications
  * Body: { vet_member_id, notes? }
  */
-router.post('/postings/:id/applications', async (req: Request, res: Response): Promise<void> => {
+router.post('/postings/:id/applications', writeLimiter, async (req: Request, res: Response): Promise<void> => {
   try {
     const { vet_member_id: requestedVetMemberId, notes } = req.body as { vet_member_id?: string; notes?: string };
     const elevatedAccess = hasElevatedTavfAccess(req.user);
@@ -317,7 +317,7 @@ router.post('/postings/:id/applications', async (req: Request, res: Response): P
 /**
  * GET /api/tavf/applications/:id
  */
-router.get('/applications/:id', requireEventCreatorOrAdmin, async (req: Request, res: Response): Promise<void> => {
+router.get('/applications/:id', apiLimiter, requireEventCreatorOrAdmin, async (req: Request, res: Response): Promise<void> => {
   try {
     const application = await tavf.getApplication(req.params['id']!);
     if (!application) {
@@ -335,7 +335,7 @@ router.get('/applications/:id', requireEventCreatorOrAdmin, async (req: Request,
  * PATCH /api/tavf/applications/:id/status
  * Body: { status: ApplicationStatus }
  */
-router.patch('/applications/:id/status', requireEventCreatorOrAdmin, async (req: Request, res: Response): Promise<void> => {
+router.patch('/applications/:id/status', writeLimiter, requireEventCreatorOrAdmin, async (req: Request, res: Response): Promise<void> => {
   try {
     const { status } = req.body as { status: tavf.ApplicationStatus };
     if (!status) {
@@ -376,7 +376,7 @@ router.get('/matches', apiLimiter, requireEventCreatorOrAdmin, async (_req: Requ
 /**
  * GET /api/tavf/postings/:id/matches
  */
-router.get('/postings/:id/matches', requireEventCreatorOrAdmin, async (req: Request, res: Response): Promise<void> => {
+router.get('/postings/:id/matches', apiLimiter, requireEventCreatorOrAdmin, async (req: Request, res: Response): Promise<void> => {
   try {
     const matches = await tavf.listMatchesForPosting(req.params['id']!);
     res.json(matches);
@@ -390,7 +390,7 @@ router.get('/postings/:id/matches', requireEventCreatorOrAdmin, async (req: Requ
  * POST /api/tavf/matches
  * Body: CreateMatchInput
  */
-router.post('/matches', requireEventCreatorOrAdmin, async (req: Request, res: Response): Promise<void> => {
+router.post('/matches', writeLimiter, requireEventCreatorOrAdmin, async (req: Request, res: Response): Promise<void> => {
   try {
     const { posting_id, application_id, matched_by, notes } = req.body as tavf.CreateMatchInput;
     if (!posting_id || !application_id) {
@@ -408,7 +408,7 @@ router.post('/matches', requireEventCreatorOrAdmin, async (req: Request, res: Re
 /**
  * GET /api/tavf/matches/:id
  */
-router.get('/matches/:id', requireEventCreatorOrAdmin, async (req: Request, res: Response): Promise<void> => {
+router.get('/matches/:id', apiLimiter, requireEventCreatorOrAdmin, async (req: Request, res: Response): Promise<void> => {
   try {
     const match = await tavf.getMatch(req.params['id']!);
     if (!match) {
@@ -426,7 +426,7 @@ router.get('/matches/:id', requireEventCreatorOrAdmin, async (req: Request, res:
  * DELETE /api/tavf/matches/:id
  * Cancels the match (does not hard-delete)
  */
-router.delete('/matches/:id', requireEventCreatorOrAdmin, async (req: Request, res: Response): Promise<void> => {
+router.delete('/matches/:id', writeLimiter, requireEventCreatorOrAdmin, async (req: Request, res: Response): Promise<void> => {
   try {
     const updated = await tavf.cancelMatch(req.params['id']!);
     if (!updated) {

@@ -223,9 +223,43 @@ const adminApi = {
     apiPost<UserRoleAssignment>('/admin/app-roles/assign', { email, role }),
   removeAppRole: (assignmentId: string) =>
     apiDelete<{ message: string }>(`/admin/app-roles/assignments/${assignmentId}`),
+  blastPreview: (payload: BlastRequest) =>
+    apiPost<{ recipient_count: number }>('/admin/blast/preview', payload),
+  blastSend: (payload: BlastRequest & { confirm: 'SEND' }) =>
+    apiPost<{ sent: number; skipped: number; failed: number; recipient_count: number }>('/admin/blast/send', payload),
+  blastLog: (limit?: number) =>
+    apiGet<{ data: BlastLogEntry[] }>(`/admin/blast/log${limit ? `?limit=${limit}` : ''}`),
 };
 
 export { adminApi };
+
+interface BlastTarget {
+  audience: 'all' | 'group';
+  groupId?: string;
+}
+
+interface BlastRequest {
+  channel: 'email' | 'sms';
+  subject?: string;
+  body: string;
+  target: BlastTarget;
+}
+
+interface BlastLogEntry {
+  blast_id: string;
+  sent_by: string;
+  channel: string;
+  subject: string | null;
+  body_preview: string;
+  audience: string;
+  group_id: string | null;
+  recipient_count: number;
+  sent_count: number;
+  skipped_count: number;
+  failed_count: number;
+  sent_at: string;
+}
+
 export type {
   InviteDraftRequest,
   InviteDraftResponse,
@@ -245,4 +279,7 @@ export type {
   AppRoleAvailable,
   UserRoleAssignment,
   UserRoleAssignmentsResponse,
+  BlastRequest,
+  BlastTarget,
+  BlastLogEntry,
 };

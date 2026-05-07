@@ -17,6 +17,7 @@ import {
   removeAppRole,
 } from '../services/graphRoleService';
 import { notificationService } from '../services/notifications';
+import type { SendEmailOptions, SendSmsOptions } from '../services/notifications';
 import { runRetentionJob } from '../jobs/retentionJob';
 
 const router = Router();
@@ -2114,5 +2115,269 @@ async function getInviteTraceByMemberId(memberId: string, limit: number): Promis
 
   return result.recordset;
 }
+
+// ── Blast message / SMS ──────────────────────────────────────────────────────
+//
+// Admin-only feature: send a one-off email or SMS blast to a filtered set of
+// active members. Opt-outs are always respected (email_opt_out=1 and
+// sms_opt_in=0 are excluded from the respective channels).
+//
+// Two endpoints:
+//   POST /admin/blast/preview  — dry-run, returns recipient count only
+//   POST /admin/blast/send     — sends the blast and writes an audit record
+
+interface BlastTarget {
+  audience: 'all' | 'group';
+  groupId?: string;
+}
+
+interface BlastBody {
+  channel: 'email' | 'sms';
+  subject?: string;      // required for email
+  body: string;          // plain-text body; used as-is for SMS; wrapped in HTML for email
+  target: BlastTarget;
+}
+
+/** Validate and parse the blast request body. Returns an error string or null. */
+function validateBlastBody(body: Partial<BlastBody>): string | null {
+  if (!body.channel || !['email', 'sms'].includes(body.channel)) {
+    return 'channel must be "email" or "sms"';
+  }
+  if (!body.body || typeof body.body !== 'string' || body.body.trim().length === 0) {
+    return 'body is required';
+  }
+  if (body.body.length > 10_000) {
+    return 'body must be 10 000 characters or fewer';
+  }
+  if (body.channel === 'email') {
+    if (!body.subject || typeof body.subject !== 'string' || body.subject.trim().length === 0) {
+      return 'subject is required for email blasts';
+    }
+    if (body.subject.length > 200) {
+      return 'subject must be 200 characters or fewer';
+    }
+  }
+  if (body.channel === 'sms' && body.body.trim().length > 1_600) {
+    return 'SMS body must be 1 600 characters or fewer (10 segments)';
+  }
+  if (!body.target || !['all', 'group'].includes(body.target.audience)) {
+    return 'target.audience must be "all" or "group"';
+  }
+  if (body.target.audience === 'group') {
+    const gid = body.target.groupId?.trim();
+    if (!gid || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(gid)) {
+      return 'target.groupId must be a valid UUID when audience is "group"';
+    }
+  }
+  return null;
+}
+
+/** Build a parameterised query that returns eligible recipients for a blast. */
+async function queryBlastRecipients(
+  pool: Awaited<ReturnType<typeof getPool>>,
+  body: BlastBody,
+): Promise<Array<{ member_id: string; email: string; mobile_phone: string | null; first_name: string }>> {
+  const req = pool.request().input('channel', sql.NVarChar(10), body.channel);
+
+  let whereClause = `m.is_active = 1`;
+
+  if (body.channel === 'email') {
+    whereClause += ` AND m.email_opt_out = 0 AND m.email IS NOT NULL AND LEN(m.email) > 0`;
+  } else {
+    whereClause += ` AND m.sms_opt_in = 1 AND m.mobile_phone IS NOT NULL AND LEN(m.mobile_phone) > 0`;
+  }
+
+  let joinClause = '';
+  if (body.target.audience === 'group') {
+    req.input('group_id', sql.UniqueIdentifier, body.target.groupId!);
+    joinClause = `INNER JOIN dbo.member_group mg ON mg.member_id = m.member_id AND mg.group_id = @group_id`;
+  }
+
+  const result = await req.query<{
+    member_id: string;
+    email: string;
+    mobile_phone: string | null;
+    first_name: string;
+  }>(
+    `SELECT m.member_id, m.email, m.mobile_phone, m.first_name
+     FROM dbo.member m
+     ${joinClause}
+     WHERE ${whereClause}`,
+  );
+
+  return result.recordset;
+}
+
+/** Ensure the blast_log table exists (idempotent). */
+async function ensureBlastLogTable(pool: Awaited<ReturnType<typeof getPool>>): Promise<void> {
+  await pool.request().query(`
+    IF OBJECT_ID(N'dbo.blast_log', N'U') IS NULL
+    CREATE TABLE dbo.blast_log (
+      blast_id          UNIQUEIDENTIFIER NOT NULL DEFAULT NEWID(),
+      sent_by           NVARCHAR(255)    NOT NULL,
+      channel           NVARCHAR(10)     NOT NULL,
+      subject           NVARCHAR(200)    NULL,
+      body_preview      NVARCHAR(500)    NOT NULL,
+      audience          NVARCHAR(20)     NOT NULL,
+      group_id          UNIQUEIDENTIFIER NULL,
+      recipient_count   INT              NOT NULL,
+      sent_count        INT              NOT NULL,
+      skipped_count     INT              NOT NULL,
+      failed_count      INT              NOT NULL,
+      sent_at           DATETIME         NOT NULL DEFAULT GETUTCDATE(),
+      CONSTRAINT PK_blast_log PRIMARY KEY (blast_id)
+    );
+  `);
+}
+
+router.post('/blast/preview', writeLimiter, async (req, res) => {
+  const body = req.body as Partial<BlastBody>;
+  const validationError = validateBlastBody(body);
+  if (validationError) {
+    res.status(400).json({ error: validationError });
+    return;
+  }
+
+  try {
+    const pool = await getPool();
+    const recipients = await queryBlastRecipients(pool, body as BlastBody);
+    res.status(200).json({ recipient_count: recipients.length });
+  } catch (error) {
+    console.error('POST /admin/blast/preview failed', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.post('/blast/send', writeLimiter, async (req, res) => {
+  const body = req.body as Partial<BlastBody & { confirm: string }>;
+
+  if (body.confirm !== 'SEND') {
+    res.status(400).json({ error: 'confirm must equal "SEND" to proceed' });
+    return;
+  }
+
+  const validationError = validateBlastBody(body);
+  if (validationError) {
+    res.status(400).json({ error: validationError });
+    return;
+  }
+
+  const blastBody = body as BlastBody;
+  const sentBy = req.user?.email ?? req.user?.sub ?? 'unknown';
+
+  try {
+    const pool = await getPool();
+    await ensureBlastLogTable(pool);
+    const recipients = await queryBlastRecipients(pool, blastBody);
+
+    if (recipients.length === 0) {
+      res.status(200).json({ sent: 0, skipped: 0, failed: 0, message: 'No eligible recipients found.' });
+      return;
+    }
+
+    let sentCount = 0;
+    let skippedCount = 0;
+    let failedCount = 0;
+
+    const htmlBody = `<!doctype html><html lang="en"><head><meta charset="utf-8"/></head><body><p>${
+      blastBody.body.replace(/\n/g, '<br/>')
+    }</p></body></html>`;
+
+    for (const member of recipients) {
+      try {
+        if (blastBody.channel === 'email') {
+          const opts: SendEmailOptions = {
+            to: member.email,
+            subject: blastBody.subject!,
+            htmlBody,
+          };
+          await notificationService.sendEmail(opts);
+          sentCount += 1;
+        } else {
+          if (!member.mobile_phone) {
+            skippedCount += 1;
+            continue;
+          }
+          const opts: SendSmsOptions = {
+            to: member.mobile_phone,
+            message: blastBody.body,
+          };
+          await notificationService.sendSms(opts);
+          sentCount += 1;
+        }
+      } catch (sendErr) {
+        console.error(`[blast] send failed for member ${member.member_id}`, sendErr);
+        failedCount += 1;
+      }
+    }
+
+    // Audit record
+    const bodyPreview = blastBody.body.slice(0, 497).replace(/'/g, "''") + (blastBody.body.length > 497 ? '…' : '');
+    await pool.request()
+      .input('blast_id', sql.UniqueIdentifier, randomUUID())
+      .input('sent_by', sql.NVarChar(255), sentBy)
+      .input('channel', sql.NVarChar(10), blastBody.channel)
+      .input('subject', sql.NVarChar(200), blastBody.subject ?? null)
+      .input('body_preview', sql.NVarChar(500), bodyPreview)
+      .input('audience', sql.NVarChar(20), blastBody.target.audience)
+      .input('group_id', sql.UniqueIdentifier, blastBody.target.audience === 'group' ? blastBody.target.groupId! : null)
+      .input('recipient_count', sql.Int, recipients.length)
+      .input('sent_count', sql.Int, sentCount)
+      .input('skipped_count', sql.Int, skippedCount)
+      .input('failed_count', sql.Int, failedCount)
+      .query(`
+        INSERT INTO dbo.blast_log
+          (blast_id, sent_by, channel, subject, body_preview, audience, group_id,
+           recipient_count, sent_count, skipped_count, failed_count)
+        VALUES
+          (@blast_id, @sent_by, @channel, @subject, @body_preview, @audience, @group_id,
+           @recipient_count, @sent_count, @skipped_count, @failed_count)
+      `);
+
+    res.status(200).json({
+      sent: sentCount,
+      skipped: skippedCount,
+      failed: failedCount,
+      recipient_count: recipients.length,
+    });
+  } catch (error) {
+    console.error('POST /admin/blast/send failed', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.get('/blast/log', async (req, res) => {
+  try {
+    const pool = await getPool();
+    await ensureBlastLogTable(pool);
+    const limit = Math.min(parsePositiveInt(req.query.limit as string | undefined, 50), 200);
+    const result = await pool.request()
+      .input('limit', sql.Int, limit)
+      .query<{
+        blast_id: string;
+        sent_by: string;
+        channel: string;
+        subject: string | null;
+        body_preview: string;
+        audience: string;
+        group_id: string | null;
+        recipient_count: number;
+        sent_count: number;
+        skipped_count: number;
+        failed_count: number;
+        sent_at: Date;
+      }>(
+        `SELECT TOP (@limit)
+           blast_id, sent_by, channel, subject, body_preview, audience, group_id,
+           recipient_count, sent_count, skipped_count, failed_count, sent_at
+         FROM dbo.blast_log
+         ORDER BY sent_at DESC`,
+      );
+    res.status(200).json({ data: result.recordset });
+  } catch (error) {
+    console.error('GET /admin/blast/log failed', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
 
 export default router;

@@ -6,7 +6,7 @@ const appBaseUrl = (process.env.E2E_APP_URL ?? '').trim().replace(/\/$/, '');
 const localE2EAuthEnabled = /^(1|true|yes|on)$/i.test(process.env.E2E_LOCAL_AUTH_ENABLED ?? '');
 const authStepMaxAttempts = 30;
 const authStepSleepMs = 800;
-const authSessionAttempts = 2;
+const authSessionAttempts = 3;
 
 type BrowserAccount = {
   label: string;
