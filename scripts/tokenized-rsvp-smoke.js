@@ -33,11 +33,12 @@ async function getJson(path) {
     headers: { 'Content-Type': 'application/json' },
   });
 
+  const text = await response.text();
   let body;
   try {
-    body = await response.json();
+    body = JSON.parse(text);
   } catch {
-    body = { raw: await response.text() };
+    body = { raw: text };
   }
 
   return { status: response.status, body };
@@ -50,11 +51,12 @@ async function postJson(path, payload) {
     body: JSON.stringify(payload),
   });
 
+  const text = await response.text();
   let body;
   try {
-    body = await response.json();
+    body = JSON.parse(text);
   } catch {
-    body = { raw: await response.text() };
+    body = { raw: text };
   }
 
   return { status: response.status, body };
