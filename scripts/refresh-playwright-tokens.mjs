@@ -226,35 +226,41 @@ async function loginAndCaptureWithTimeout(role) {
     return loginAndCaptureWithRetries(role);
   }
 
+  const abortState = { aborted: false };
   return Promise.race([
-    loginAndCaptureWithRetries(role),
+    loginAndCaptureWithRetries(role, abortState),
     new Promise((_, reject) => {
       setTimeout(() => {
+        abortState.aborted = true;
         reject(new Error(`Timed out after ${perRoleTimeoutMs}ms while refreshing ${role.name}.`));
       }, perRoleTimeoutMs);
     }),
   ]);
 }
 
-async function loginAndCaptureWithRetries(role) {
+async function loginAndCaptureWithRetries(role, abortState = { aborted: false }) {
   let lastError = null;
   const attemptLimit = Number.isFinite(maxRefreshAttempts) && maxRefreshAttempts > 0
     ? maxRefreshAttempts
     : 1;
   for (let attempt = 1; attempt <= attemptLimit; attempt += 1) {
+    if (abortState.aborted) break;
     try {
       return await loginAndCapture(role);
     } catch (error) {
+      if (abortState.aborted) break;
       lastError = error;
       const reason = error instanceof Error ? error.message : String(error);
       console.warn(`[refresh-playwright-tokens] attempt ${attempt} failed for ${role.name}: ${reason}`);
     }
   }
 
-  if (lastError instanceof Error) {
-    throw lastError;
+  if (!abortState.aborted) {
+    if (lastError instanceof Error) {
+      throw lastError;
+    }
+    throw new Error(`Failed to refresh ${role.name} token after retries.`);
   }
-  throw new Error(`Failed to refresh ${role.name} token after retries.`);
 }
 
 function failOrSkip(message) {
@@ -630,10 +636,11 @@ async function main() {
 
     // ── Strategy 1: ROPC (fast, no browser) ──────────────────────────────
     let token = null;
+    let ropcResult = null;
     let hasBrowserStorageState = false;
     if (ropcEnabled) {
       try {
-        const ropcResult = await acquireTokenByROPC(role);
+        ropcResult = await acquireTokenByROPC(role);
         if (ropcResult) {
           token = ropcResult.accessToken;
           console.log(`[refresh-playwright-tokens] ${role.name}: acquired via ROPC (no browser needed)`);
@@ -645,37 +652,41 @@ async function main() {
     }
 
     // ── Strategy 2: Browser login for real storageState (preferred for browser suites) ──
-    try {
-      const browserToken = await loginAndCaptureWithTimeout({
-        username: role.username,
-        password: role.password,
-        name: role.name,
-        statePath: role.statePath,
-      });
-      hasBrowserStorageState = true;
-      if (!token) {
-        token = browserToken;
+    // When --soft-skip is set and ROPC already acquired a token, skip the browser step entirely
+    // and write a synthetic storage state — avoids the 180s browser timeout per role.
+    if (token && softSkip) {
+      console.log(`[refresh-playwright-tokens] ${role.name}: --soft-skip set with ROPC token, writing synthetic storage state`);
+      const origin = appUrl ? (() => { try { return new URL(appUrl).origin; } catch { return appUrl; } })() : '';
+      if (origin && ropcResult) {
+        const storageState = buildSyntheticStorageState(ropcResult, origin);
+        fs.writeFileSync(role.statePath, JSON.stringify(storageState, null, 2), 'utf8');
+        hasBrowserStorageState = true;
       }
-      console.log(`[refresh-playwright-tokens] ${role.name}: captured browser storage state`);
-    } catch (error) {
-      const reason = error instanceof Error ? error.message : String(error);
-      if (!token) {
-        if (!softSkip) {
-          throw error;
+    } else {
+      try {
+        const browserToken = await loginAndCaptureWithTimeout({
+          username: role.username,
+          password: role.password,
+          name: role.name,
+          statePath: role.statePath,
+        });
+        hasBrowserStorageState = true;
+        if (!token) {
+          token = browserToken;
         }
-        console.warn(`[refresh-playwright-tokens] skipped ${role.name}: ${reason}`);
-      } else {
-        console.warn(`[refresh-playwright-tokens] ${role.name}: browser storage capture failed, retaining token-only auth state path: ${reason}`);
+        console.log(`[refresh-playwright-tokens] ${role.name}: captured browser storage state`);
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        if (!token) {
+          if (!softSkip) {
+            throw error;
+          }
+          console.warn(`[refresh-playwright-tokens] skipped ${role.name}: ${reason}`);
+        } else {
+          console.warn(`[refresh-playwright-tokens] ${role.name}: browser storage capture failed, retaining token-only auth state path: ${reason}`);
+        }
       }
     }
-
-    // Skip synthetic state fallback: ROPC-only state lacks MSAL session context needed for browser tests.
-    // Browser tests have credential fallback; failing to capture browser session surfaces the auth issue
-    // rather than masking it with incomplete synthetic state.
-    // if (!hasBrowserStorageState && token) {
-    //   const storageState = buildSyntheticStorageState(...);
-    //   fs.writeFileSync(...);
-    // }
 
     if (token) {
       exportToken(role.tokenEnv, token);
