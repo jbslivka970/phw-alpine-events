@@ -2259,6 +2259,13 @@ async function ensureBlastLogTable(pool: Awaited<ReturnType<typeof getPool>>): P
       sent_at           DATETIME         NOT NULL DEFAULT GETUTCDATE(),
       CONSTRAINT PK_blast_log PRIMARY KEY (blast_id)
     );
+
+    IF OBJECT_ID(N'dbo.blast_log', N'U') IS NOT NULL
+      AND COL_LENGTH(N'dbo.blast_log', N'opt_override') IS NULL
+    BEGIN
+      ALTER TABLE dbo.blast_log
+      ADD opt_override BIT NOT NULL CONSTRAINT DF_blast_log_opt_override DEFAULT(0);
+    END
   `);
 }
 
