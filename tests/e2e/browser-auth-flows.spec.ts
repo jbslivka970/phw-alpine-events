@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { authenticateWithVariantA } from './helpers/e2eExchangeAuth';
 
 declare const process: { env: Record<string, string | undefined> };
 
@@ -368,6 +369,10 @@ async function ensureAuthenticatedSession(page: Page, account: BrowserAccount): 
     await seedLocalAuthRole(page, account.label);
     await page.goto(`${appBaseUrl}/dashboard`, { waitUntil: 'domcontentloaded' });
     return appearsAuthenticated(page);
+  }
+
+  if (await authenticateWithVariantA(page, { appBaseUrl, persona: account.label })) {
+    return true;
   }
 
   await page.goto(`${appBaseUrl}/dashboard`, { waitUntil: 'domcontentloaded' }).catch(() => {});

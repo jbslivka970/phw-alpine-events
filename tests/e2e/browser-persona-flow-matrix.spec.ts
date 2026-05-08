@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { authenticateWithVariantA } from './helpers/e2eExchangeAuth';
 
 const appBaseUrl = (process.env.E2E_APP_URL ?? '').trim().replace(/\/$/, '');
 const localE2EAuthEnabled = /^(1|true|yes|on)$/i.test(process.env.E2E_LOCAL_AUTH_ENABLED ?? '');
@@ -335,6 +336,10 @@ async function loginWithCredentials(page: Page, username: string, password: stri
 }
 
 async function ensureAuthenticatedSession(page: Page, persona: Persona): Promise<boolean> {
+  if (await authenticateWithVariantA(page, { appBaseUrl, persona: persona.label })) {
+    return true;
+  }
+
   if (await hasAuthenticatedSession(page, appBaseUrl)) {
     return true;
   }

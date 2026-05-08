@@ -35,6 +35,10 @@ type SharedRoleState = {
 
 const LOCAL_E2E_AUTH_TOGGLE_KEY = 'phw_e2e_local_auth'
 const LOCAL_E2E_AUTH_ROLE_KEY = 'phw_e2e_role'
+const EXTERNAL_E2E_AUTH_TOGGLE_KEY = 'phw_e2e_external_auth'
+const EXTERNAL_E2E_AUTH_TOKEN_KEY = 'phw_e2e_external_token'
+const EXTERNAL_E2E_AUTH_EMAIL_KEY = 'phw_e2e_external_email'
+const EXTERNAL_E2E_AUTH_USER_ID_KEY = 'phw_e2e_external_user_id'
 let sharedRoleState: SharedRoleState = {
   accountKey: null,
   roles: [],
@@ -44,6 +48,10 @@ const sharedRoleSubscribers = new Set<(state: SharedRoleState) => void>()
 
 function isLocalE2EAuthEnabled(): boolean {
   return (import.meta.env.VITE_E2E_LOCAL_AUTH as string | undefined) === '1'
+}
+
+function isExternalE2EAuthEnabled(): boolean {
+  return (import.meta.env.VITE_E2E_EXTERNAL_AUTH as string | undefined) === '1'
 }
 
 function mapLocalRole(raw: string | null | undefined): AppRole {
@@ -65,6 +73,38 @@ function readLocalE2ERole(): AppRole {
     return ROLES.USER
   }
   return mapLocalRole(window.localStorage.getItem(LOCAL_E2E_AUTH_ROLE_KEY))
+}
+
+function readExternalE2EToken(): string | null {
+  if (typeof window === 'undefined') {
+    return null
+  }
+
+  const enabled = window.localStorage.getItem(EXTERNAL_E2E_AUTH_TOGGLE_KEY) === '1'
+  if (!enabled) {
+    return null
+  }
+
+  const token = (window.localStorage.getItem(EXTERNAL_E2E_AUTH_TOKEN_KEY) ?? '').trim()
+  return token.length > 0 ? token : null
+}
+
+function readExternalE2EEmail(): string | null {
+  if (typeof window === 'undefined') {
+    return null
+  }
+
+  const value = (window.localStorage.getItem(EXTERNAL_E2E_AUTH_EMAIL_KEY) ?? '').trim()
+  return value.length > 0 ? value : null
+}
+
+function readExternalE2EUserId(): string | null {
+  if (typeof window === 'undefined') {
+    return null
+  }
+
+  const value = (window.localStorage.getItem(EXTERNAL_E2E_AUTH_USER_ID_KEY) ?? '').trim()
+  return value.length > 0 ? value : null
 }
 
 function localRoleSet(role: AppRole): AppRole[] {
@@ -124,6 +164,7 @@ function publishSharedRoles(accountKey: string | null, roles: AppRole[], rolesRe
 
 function useAuth() {
   const localE2EAuth = isLocalE2EAuthEnabled()
+  const externalE2EAuth = isExternalE2EAuthEnabled()
   const { accounts, instance, inProgress } = useMsal()
   const interactionBusy = inProgress !== InteractionStatus.None
   const isAuthenticated = useIsAuthenticated()
@@ -150,17 +191,37 @@ function useAuth() {
   const [isLoggingIn, setIsLoggingIn] = useState(false)
   const [loginError, setLoginError] = useState<string | null>(null)
   const [localE2ERole, setLocalE2ERole] = useState<AppRole>(() => readLocalE2ERole())
+  const [externalE2EToken, setExternalE2EToken] = useState<string | null>(() => readExternalE2EToken())
+  const [externalE2EEmail, setExternalE2EEmail] = useState<string | null>(() => readExternalE2EEmail())
+  const [externalE2EUserId, setExternalE2EUserId] = useState<string | null>(() => readExternalE2EUserId())
+
+  const externalE2ESessionActive = externalE2EAuth && Boolean(externalE2EToken)
+  const e2eModeActive = localE2EAuth || externalE2ESessionActive
 
   useEffect(() => {
-    if (!localE2EAuth || typeof window === 'undefined') {
+    if ((!localE2EAuth && !externalE2EAuth) || typeof window === 'undefined') {
       return
     }
 
-    setLocalE2ERole(readLocalE2ERole())
+    const syncE2EState = () => {
+      setLocalE2ERole(readLocalE2ERole())
+      setExternalE2EToken(readExternalE2EToken())
+      setExternalE2EEmail(readExternalE2EEmail())
+      setExternalE2EUserId(readExternalE2EUserId())
+    }
+
+    syncE2EState()
 
     const onStorage = (event: StorageEvent) => {
-      if (event.key === LOCAL_E2E_AUTH_ROLE_KEY || event.key === LOCAL_E2E_AUTH_TOGGLE_KEY) {
-        setLocalE2ERole(readLocalE2ERole())
+      if (
+        event.key === LOCAL_E2E_AUTH_ROLE_KEY
+        || event.key === LOCAL_E2E_AUTH_TOGGLE_KEY
+        || event.key === EXTERNAL_E2E_AUTH_TOGGLE_KEY
+        || event.key === EXTERNAL_E2E_AUTH_TOKEN_KEY
+        || event.key === EXTERNAL_E2E_AUTH_EMAIL_KEY
+        || event.key === EXTERNAL_E2E_AUTH_USER_ID_KEY
+      ) {
+        syncE2EState()
       }
     }
 
@@ -168,7 +229,7 @@ function useAuth() {
     return () => {
       window.removeEventListener('storage', onStorage)
     }
-  }, [localE2EAuth])
+  }, [externalE2EAuth, localE2EAuth])
 
   useEffect(() => {
     const nextRoles = mergeWithSharedRoles(accountKey, mapRoles(accountClaims))
@@ -582,7 +643,7 @@ function useAuth() {
     : null
 
   function hasRole(role: AppRole): boolean {
-    if (localE2EAuth) {
+    if (e2eModeActive) {
       return localRoleSet(localE2ERole).includes(role)
     }
     return user?.roles.includes(role) ?? false
@@ -597,6 +658,9 @@ function useAuth() {
   }
 
   function canCreateTavfPostings(): boolean {
+    if (e2eModeActive) {
+      return true
+    }
     return Boolean(user)
   }
 
@@ -613,7 +677,7 @@ function useAuth() {
   }, [accounts.length, inProgress, interactionBusy, isAuthenticated, isLoggingIn, loginError, instance])
 
   async function login() {
-    if (localE2EAuth) {
+    if (e2eModeActive) {
       if (typeof window !== 'undefined') {
         window.localStorage.setItem(LOCAL_E2E_AUTH_TOGGLE_KEY, '1')
         if (!window.localStorage.getItem(LOCAL_E2E_AUTH_ROLE_KEY)) {
@@ -621,6 +685,9 @@ function useAuth() {
         }
       }
       setLocalE2ERole(readLocalE2ERole())
+      setExternalE2EToken(readExternalE2EToken())
+      setExternalE2EEmail(readExternalE2EEmail())
+      setExternalE2EUserId(readExternalE2EUserId())
       setLoginError(null)
       return
     }
@@ -660,7 +727,7 @@ function useAuth() {
         const loginResult = await withTimeout(instance.loginPopup({
           ...loginRequest,
           redirectUri: popupRedirectUri ?? window.location.origin,
-          prompt: 'select_account',
+          prompt: 'login',
         }), LOGIN_POPUP_TIMEOUT_MS)
         authDebugLog('login:popup:resolved', {
           hasResultAccount: Boolean(loginResult?.account),
@@ -738,12 +805,19 @@ function useAuth() {
   }
 
   async function logout() {
-    if (localE2EAuth) {
+    if (e2eModeActive) {
       if (typeof window !== 'undefined') {
         window.localStorage.removeItem(LOCAL_E2E_AUTH_ROLE_KEY)
+        window.localStorage.removeItem(EXTERNAL_E2E_AUTH_TOGGLE_KEY)
+        window.localStorage.removeItem(EXTERNAL_E2E_AUTH_TOKEN_KEY)
+        window.localStorage.removeItem(EXTERNAL_E2E_AUTH_EMAIL_KEY)
+        window.localStorage.removeItem(EXTERNAL_E2E_AUTH_USER_ID_KEY)
       }
       setMemberInviteToken(null)
       setLocalE2ERole(ROLES.USER)
+      setExternalE2EToken(null)
+      setExternalE2EEmail(null)
+      setExternalE2EUserId(null)
       return
     }
 
@@ -757,6 +831,12 @@ function useAuth() {
   }
 
   useEffect(() => {
+    if (externalE2ESessionActive && externalE2EToken) {
+      setTokenGetter(async () => externalE2EToken)
+      setEmailHint(null)
+      return
+    }
+
     if (localE2EAuth) {
       setTokenGetter(async () => localRoleToken(localE2ERole))
       setEmailHint(null)
@@ -766,7 +846,7 @@ function useAuth() {
     setEmailHint(resolveEmailHintHeader(accountClaims, account?.username))
 
     setTokenGetter(acquireAccessToken)
-  }, [account, accountClaims, acquireAccessToken, localE2EAuth, localE2ERole])
+  }, [account, accountClaims, acquireAccessToken, externalE2ESessionActive, externalE2EToken, localE2EAuth, localE2ERole])
 
   const localUser: AuthUser = {
     id: `e2e-${localE2ERole.toLowerCase()}`,
@@ -775,10 +855,17 @@ function useAuth() {
     roles: localRoleSet(localE2ERole),
   }
 
-  const effectiveUser = localE2EAuth ? localUser : user
-  const effectiveIsAuthenticated = localE2EAuth ? true : isAuthenticated
-  const effectiveInteractionBusy = localE2EAuth ? false : interactionBusy
-  const effectiveRolesReady = localE2EAuth ? true : rolesReady
+  const externalUser: AuthUser = {
+    id: externalE2EUserId ?? `e2e-external-${localE2ERole.toLowerCase()}`,
+    name: `E2E ${localE2ERole}`,
+    email: externalE2EEmail ?? `${localE2ERole.toLowerCase()}@external.e2e`,
+    roles: localRoleSet(localE2ERole),
+  }
+
+  const effectiveUser = localE2EAuth ? localUser : (externalE2ESessionActive ? externalUser : user)
+  const effectiveIsAuthenticated = e2eModeActive ? true : isAuthenticated
+  const effectiveInteractionBusy = e2eModeActive ? false : interactionBusy
+  const effectiveRolesReady = e2eModeActive ? true : rolesReady
 
   return {
     hasRole,

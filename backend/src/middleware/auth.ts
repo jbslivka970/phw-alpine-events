@@ -588,6 +588,67 @@ function inferIdentityProvider(claims: JwtPayload): string {
   return 'unknown';
 }
 
+function parseInternalE2ERoles(claims: JwtPayload): AppRole[] {
+  const rawRoles = claims['roles'];
+  const values = Array.isArray(rawRoles)
+    ? rawRoles.filter((value): value is string => typeof value === 'string')
+    : (typeof rawRoles === 'string' ? [rawRoles] : []);
+
+  const allowed = new Set<AppRole>(['ADMIN', 'EVENT_CREATOR', 'USER', 'TAVF_CREATOR']);
+  const normalized: AppRole[] = [];
+
+  for (const value of values) {
+    const candidate = value.trim().toUpperCase().replace(/[\s-]+/g, '_') as AppRole;
+    if (allowed.has(candidate) && !normalized.includes(candidate)) {
+      normalized.push(candidate);
+    }
+  }
+
+  return normalized;
+}
+
+function verifyInternalE2EToken(token: string): AuthenticatedUser | null {
+  const signingKey = (process.env['E2E_AUTH_INTERNAL_SIGNING_KEY'] ?? '').trim();
+  if (!signingKey) {
+    return null;
+  }
+
+  const issuer = (process.env['E2E_AUTH_INTERNAL_ISSUER'] ?? 'phw-e2e-exchange').trim();
+  const audience = (process.env['E2E_AUTH_INTERNAL_AUDIENCE'] ?? 'phw-e2e-internal').trim();
+
+  try {
+    const decoded = jwt.verify(token, signingKey, {
+      algorithms: ['HS256'],
+      issuer,
+      audience,
+    }) as JwtPayload;
+
+    if (decoded['e2e_internal'] !== true) {
+      return null;
+    }
+
+    const roles = parseInternalE2ERoles(decoded);
+    if (roles.length === 0) {
+      return null;
+    }
+
+    const sub = getStringClaim(decoded, 'sub');
+    if (!sub) {
+      return null;
+    }
+
+    return {
+      sub,
+      email: getStringClaim(decoded, 'email'),
+      name: getStringClaim(decoded, 'name'),
+      roles,
+      rawClaims: decoded,
+    };
+  } catch {
+    return null;
+  }
+}
+
 async function upsertMemberIdentityLink(
   claims: JwtPayload,
   email: string | undefined,
@@ -752,8 +813,6 @@ async function upsertMemberIdentityLink(
 }
 
 function authenticate(req: Request, res: Response, next: NextFunction): void {
-  const authConfig = loadAuthConfig();
-
   // In test mode, bypass JWT validation and inject a default test user
   if (process.env.NODE_ENV === 'test') {
     req.user = {
@@ -810,11 +869,6 @@ function authenticate(req: Request, res: Response, next: NextFunction): void {
     return;
   }
 
-  if (!authConfig.isConfigured) {
-    res.status(503).json({ error: 'Authentication is not configured' });
-    return;
-  }
-
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     res.status(401).json({ error: 'Missing or invalid Authorization header' });
@@ -822,6 +876,18 @@ function authenticate(req: Request, res: Response, next: NextFunction): void {
   }
 
   const token = authHeader.slice('Bearer '.length);
+  const internalE2EUser = verifyInternalE2EToken(token);
+  if (internalE2EUser) {
+    req.user = internalE2EUser;
+    next();
+    return;
+  }
+
+  const authConfig = loadAuthConfig();
+  if (!authConfig.isConfigured) {
+    res.status(503).json({ error: 'Authentication is not configured' });
+    return;
+  }
 
   jwt.verify(
     token,

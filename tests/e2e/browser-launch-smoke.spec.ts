@@ -21,6 +21,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
+import { authenticateWithVariantA } from './helpers/e2eExchangeAuth';
 
 // ---------------------------------------------------------------------------
 // Environment
@@ -212,6 +213,10 @@ async function ensureSession(page: Page, persona: Persona): Promise<boolean> {
     await seedLocalAuth(page, persona.localRole);
     await page.goto(`${appBaseUrl}/dashboard`, { waitUntil: 'domcontentloaded' });
     return appearsAuthenticated(page);
+  }
+
+  if (await authenticateWithVariantA(page, { appBaseUrl, persona: persona.label })) {
+    return true;
   }
 
   const hasState = Boolean(persona.statePath) && fs.existsSync(persona.statePath);

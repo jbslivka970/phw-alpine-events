@@ -1,4 +1,5 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
+import authRouter from './auth';
 import adminRouter from './admin';
 import calendarRouter from './calendar';
 import eventsRouter from './events';
@@ -271,6 +272,7 @@ if (localE2EAuthEnabled) {
 }
 
 router.use('/health', healthRouter);
+router.use('/auth', authRouter);
 router.use('/admin', adminRouter);
 router.use('/calendar', calendarRouter);
 router.use('/events', eventsRouter);

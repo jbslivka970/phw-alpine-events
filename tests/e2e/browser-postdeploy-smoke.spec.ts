@@ -1,5 +1,6 @@
 import { expect, test, type Frame, type Page } from '@playwright/test';
 import path from 'path';
+import { authenticateWithVariantA } from './helpers/e2eExchangeAuth';
 
 const appBaseUrl = (process.env.E2E_APP_URL ?? '').trim().replace(/\/$/, '');
 const localE2EAuthEnabled = /^(1|true|yes|on)$/i.test(process.env.E2E_LOCAL_AUTH_ENABLED ?? '');
@@ -263,6 +264,10 @@ async function ensureMemberAuthenticatedSession(page: Page): Promise<boolean> {
   if (localE2EAuthEnabled) {
     await seedLocalMemberAuth(page);
     return hasStableDashboardAccess(page);
+  }
+
+  if (await authenticateWithVariantA(page, { appBaseUrl, persona: 'member' })) {
+    return true;
   }
 
   if (await hasStableDashboardAccess(page)) {

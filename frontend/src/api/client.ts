@@ -2,9 +2,36 @@ type TokenGetter = () => Promise<string | null>;
 
 import { getApiBaseUrl } from './baseUrl';
 
+const EXTERNAL_E2E_AUTH_TOGGLE_KEY = 'phw_e2e_external_auth';
+const EXTERNAL_E2E_AUTH_TOKEN_KEY = 'phw_e2e_external_token';
+
+function getExternalE2EToken(): string | null {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  const envEnabled = (import.meta.env.VITE_E2E_EXTERNAL_AUTH as string | undefined) === '1';
+  if (!envEnabled) {
+    return null;
+  }
+
+  const toggle = (window.localStorage.getItem(EXTERNAL_E2E_AUTH_TOGGLE_KEY) ?? '').trim();
+  if (toggle !== '1') {
+    return null;
+  }
+
+  const token = (window.localStorage.getItem(EXTERNAL_E2E_AUTH_TOKEN_KEY) ?? '').trim();
+  return token.length > 0 ? token : null;
+}
+
 function getLocalE2EToken(): string | null {
   if (typeof window === 'undefined') {
     return null;
+  }
+
+  const externalToken = getExternalE2EToken();
+  if (externalToken) {
+    return externalToken;
   }
 
   const envEnabled = (import.meta.env.VITE_E2E_LOCAL_AUTH as string | undefined) === '1';
