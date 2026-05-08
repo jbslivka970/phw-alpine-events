@@ -30,6 +30,7 @@ import { authenticateWithVariantA } from './helpers/e2eExchangeAuth';
 const appBaseUrl = (process.env.E2E_APP_URL ?? '').trim().replace(/\/$/, '');
 const apiBaseUrl = (process.env.E2E_API_BASE_URL ?? process.env.BACKEND_BASE_URL ?? '').trim().replace(/\/$/, '');
 const localMode = /^(1|true|yes|on)$/i.test(process.env.E2E_LOCAL_AUTH_ENABLED ?? '');
+const variantAEnabled = /^(1|true|yes|on)$/i.test(process.env.E2E_AUTH_VARIANT_A_ENABLED ?? '');
 
 // ---------------------------------------------------------------------------
 // Persona definitions
@@ -41,8 +42,6 @@ type Persona = {
   label: PersonaLabel;
   localRole: string;
   statePath: string;
-  username: string;
-  password: string;
   /** Routes the persona should reach without being redirected away. */
   allowedRoutes: string[];
   /** Routes that must redirect (to /dashboard) for this persona. */
@@ -58,8 +57,6 @@ const personas: Persona[] = [
     label: 'admin',
     localRole: 'ADMIN',
     statePath: path.resolve(process.cwd(), 'tests/e2e/.auth/admin.json'),
-    username: process.env.PW_ADMIN_USER ?? '',
-    password: process.env.PW_ADMIN_PASS ?? '',
     allowedRoutes: ['/dashboard', '/events', '/calendar', '/preferences', '/members', '/admin'],
     blockedRoutes: [],
     canCreateEvents: true,
@@ -70,8 +67,6 @@ const personas: Persona[] = [
     label: 'event_creator',
     localRole: 'EVENT_CREATOR',
     statePath: path.resolve(process.cwd(), 'tests/e2e/.auth/event-creator.json'),
-    username: process.env.PW_EVENT_CREATOR_USER ?? '',
-    password: process.env.PW_EVENT_CREATOR_PASS ?? '',
     allowedRoutes: ['/dashboard', '/events', '/calendar', '/preferences', '/tavf/new'],
     blockedRoutes: ['/admin', '/members'],
     canCreateEvents: true,
@@ -82,8 +77,6 @@ const personas: Persona[] = [
     label: 'member',
     localRole: 'USER',
     statePath: path.resolve(process.cwd(), 'tests/e2e/.auth/member.json'),
-    username: process.env.PW_MEMBER_USER ?? '',
-    password: process.env.PW_MEMBER_PASS ?? '',
     allowedRoutes: ['/dashboard', '/events', '/calendar', '/preferences', '/tavf'],
     blockedRoutes: ['/admin', '/members'],
     canCreateEvents: false,
@@ -110,104 +103,6 @@ async function appearsAuthenticated(page: Page): Promise<boolean> {
   return !signInVisible;
 }
 
-// Reused login helpers (identical pattern to browser-auth-flows.spec.ts).
-
-function scopes(page: Page) {
-  return [page, ...page.frames()];
-}
-
-async function fillIfVisible(scope: Page, selectors: string[], value: string): Promise<boolean> {
-  for (const sel of selectors) {
-    const loc = scope.locator(sel).first();
-    if (await loc.isVisible().catch(() => false)) { await loc.fill(value); return true; }
-  }
-  return false;
-}
-
-async function clickIfVisible(scope: Page, selectors: string[]): Promise<boolean> {
-  for (const sel of selectors) {
-    const loc = scope.locator(sel).first();
-    if (await loc.isVisible().catch(() => false)) { await loc.click(); return true; }
-  }
-  return false;
-}
-
-async function fillInAnyScope(page: Page, selectors: string[], value: string): Promise<boolean> {
-  for (const scope of scopes(page)) {
-    if (await fillIfVisible(scope as unknown as Page, selectors, value)) return true;
-  }
-  return false;
-}
-
-async function clickInAnyScope(page: Page, selectors: string[]): Promise<boolean> {
-  for (const scope of scopes(page)) {
-    if (await clickIfVisible(scope as unknown as Page, selectors)) return true;
-  }
-  return false;
-}
-
-const maxSteps = 18;
-const stepDelay = 500;
-
-async function fillUsernameStep(authPage: Page, username: string): Promise<boolean> {
-  for (let i = 0; i < maxSteps; i++) {
-    const entered = await fillInAnyScope(authPage, [
-      'input[type="email"]', 'input[name="loginfmt"]', 'input#i0116',
-      'input[name="signInName"]', 'input[placeholder*="Email"]',
-    ], username);
-    if (entered) {
-      await clickInAnyScope(authPage, [
-        'button:has-text("Next")', 'input[type="submit"]#idSIButton9', 'button[type="submit"]',
-      ]);
-      return true;
-    }
-    await clickInAnyScope(authPage, [
-      `text="${username}"`, 'div[role="button"]:has-text("Use another account")',
-      'button:has-text("Sign in")', 'button:has-text("Continue")',
-    ]);
-    await authPage.waitForTimeout(stepDelay);
-  }
-  return false;
-}
-
-async function fillPasswordStep(authPage: Page, password: string): Promise<boolean> {
-  for (let i = 0; i < maxSteps; i++) {
-    const entered = await fillInAnyScope(authPage, [
-      'input[type="password"]', 'input[name="passwd"]', 'input#i0118', 'input[name="password"]',
-    ], password);
-    if (entered) {
-      await clickInAnyScope(authPage, [
-        'button:has-text("Sign in")', 'button:has-text("Continue")',
-        'input[type="submit"]#idSIButton9', 'button[type="submit"]',
-      ]);
-      return true;
-    }
-    await authPage.waitForTimeout(stepDelay);
-  }
-  return false;
-}
-
-async function loginWithCredentials(page: Page, username: string, password: string): Promise<void> {
-  await page.goto(`${appBaseUrl}/login`, { waitUntil: 'domcontentloaded' });
-  const signInButton = page.getByRole('button', { name: /sign in/i });
-  await signInButton.waitFor({ state: 'visible', timeout: 20_000 }).catch(() => null);
-  const popupPromise = page.waitForEvent('popup', { timeout: 12_000 }).catch(() => null);
-  if (await signInButton.isVisible().catch(() => false)) await signInButton.click();
-  const popup = await popupPromise;
-  const authPage = popup ?? page;
-  await authPage.waitForLoadState('domcontentloaded').catch(() => {});
-  await fillUsernameStep(authPage, username);
-  await authPage.waitForLoadState('domcontentloaded').catch(() => {});
-  await fillPasswordStep(authPage, password);
-  await authPage.waitForLoadState('domcontentloaded').catch(() => {});
-  await clickInAnyScope(authPage, [
-    'button:has-text("No")', 'button:has-text("Yes")',
-    'button:has-text("Accept")', 'button:has-text("Continue")',
-    'input[type="submit"]#idSIButton9', 'button[type="submit"]',
-  ]);
-  if (popup) await popup.waitForEvent('close', { timeout: 90_000 }).catch(() => {});
-}
-
 async function ensureSession(page: Page, persona: Persona): Promise<boolean> {
   if (localMode) {
     await seedLocalAuth(page, persona.localRole);
@@ -225,9 +120,7 @@ async function ensureSession(page: Page, persona: Persona): Promise<boolean> {
     if (await appearsAuthenticated(page)) return true;
   }
 
-  if (!persona.username || !persona.password) return false;
-  await loginWithCredentials(page, persona.username, persona.password).catch(() => {});
-  return appearsAuthenticated(page);
+  return false;
 }
 
 // ---------------------------------------------------------------------------
@@ -262,8 +155,8 @@ test.describe('Browser launch smoke', () => {
       }
 
       test.skip(
-        !localMode && !fs.existsSync(persona.statePath) && (!persona.username || !persona.password),
-        `${persona.label}: either E2E_LOCAL_AUTH_ENABLED=1 or storage state or credentials (PW_${persona.label.toUpperCase()}_USER/PASS) required.`,
+        !localMode && !fs.existsSync(persona.statePath) && !variantAEnabled,
+        `${persona.label}: E2E_LOCAL_AUTH_ENABLED, storage state, or E2E_AUTH_VARIANT_A_ENABLED is required.`,
       );
 
       // ── protected routes stay authenticated ────────────────────────────
