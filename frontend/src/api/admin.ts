@@ -120,6 +120,13 @@ interface SupportEmailRelayConfig {
   updatedBy: string | null;
 }
 
+interface EventSummaryEmailConfig {
+  programLeadEmail: string | null;
+  assistantProgramLeadEmails: string[];
+  updatedAt: string | null;
+  updatedBy: string | null;
+}
+
 interface AdminUser {
   user_id: string;
   azure_oid: string | null;
@@ -197,6 +204,13 @@ const adminApi = {
     relay_to: string[];
     enabled: boolean;
   }) => apiPut<SupportEmailRelayConfig>('/support/relay-config', payload),
+  getEventSummaryEmailConfig: () =>
+    apiGet<EventSummaryEmailConfig>('/admin/event-summary-email-config'),
+  updateEventSummaryEmailConfig: (payload: {
+    program_lead_email?: string | null;
+    assistant_program_lead_email_1?: string | null;
+    assistant_program_lead_email_2?: string | null;
+  }) => apiPut<EventSummaryEmailConfig>('/admin/event-summary-email-config', payload),
   listAdminUsers: (params?: {
     page?: number;
     pageSize?: number;

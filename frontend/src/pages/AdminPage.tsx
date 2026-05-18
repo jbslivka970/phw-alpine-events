@@ -86,6 +86,15 @@ function AdminPage() {
   const [supportRelayEnabled, setSupportRelayEnabled] = useState(false)
   const [supportRelayUpdatedAt, setSupportRelayUpdatedAt] = useState<string | null>(null)
   const [supportRelayUpdatedBy, setSupportRelayUpdatedBy] = useState<string | null>(null)
+  const [eventSummaryEmailLoading, setEventSummaryEmailLoading] = useState(true)
+  const [eventSummaryEmailSaving, setEventSummaryEmailSaving] = useState(false)
+  const [eventSummaryEmailError, setEventSummaryEmailError] = useState<string | null>(null)
+  const [eventSummaryEmailSuccess, setEventSummaryEmailSuccess] = useState<string | null>(null)
+  const [programLeadEmail, setProgramLeadEmail] = useState('')
+  const [assistantProgramLeadEmail1, setAssistantProgramLeadEmail1] = useState('')
+  const [assistantProgramLeadEmail2, setAssistantProgramLeadEmail2] = useState('')
+  const [eventSummaryEmailUpdatedAt, setEventSummaryEmailUpdatedAt] = useState<string | null>(null)
+  const [eventSummaryEmailUpdatedBy, setEventSummaryEmailUpdatedBy] = useState<string | null>(null)
   const [adminUsers, setAdminUsers] = useState<AdminUser[]>([])
   const [adminUsersLoading, setAdminUsersLoading] = useState(true)
   const [adminUsersError, setAdminUsersError] = useState<string | null>(null)
@@ -216,6 +225,29 @@ function AdminPage() {
     return () => { active = false }
   }, [])
 
+  useEffect(() => {
+    let active = true
+    setEventSummaryEmailLoading(true)
+    adminApi.getEventSummaryEmailConfig()
+      .then((config) => {
+        if (!active) return
+        setProgramLeadEmail(config.programLeadEmail ?? '')
+        setAssistantProgramLeadEmail1(config.assistantProgramLeadEmails[0] ?? '')
+        setAssistantProgramLeadEmail2(config.assistantProgramLeadEmails[1] ?? '')
+        setEventSummaryEmailUpdatedAt(config.updatedAt)
+        setEventSummaryEmailUpdatedBy(config.updatedBy)
+      })
+      .catch((error) => {
+        if (!active) return
+        setEventSummaryEmailError(toUserErrorMessage(error, 'Failed to load event summary email configuration.'))
+      })
+      .finally(() => {
+        if (active) setEventSummaryEmailLoading(false)
+      })
+
+    return () => { active = false }
+  }, [])
+
   async function handleGenerateInviteDraft() {
     if (!selectedEventId) {
       setInviteError('Select an event first.')
@@ -339,6 +371,31 @@ function AdminPage() {
       setSupportRelayError(toUserErrorMessage(error, 'Failed to save support relay configuration.'))
     } finally {
       setSupportRelaySaving(false)
+    }
+  }
+
+  async function handleSaveEventSummaryEmailConfig() {
+    setEventSummaryEmailSaving(true)
+    setEventSummaryEmailError(null)
+    setEventSummaryEmailSuccess(null)
+
+    try {
+      const config = await adminApi.updateEventSummaryEmailConfig({
+        program_lead_email: programLeadEmail.trim() || null,
+        assistant_program_lead_email_1: assistantProgramLeadEmail1.trim() || null,
+        assistant_program_lead_email_2: assistantProgramLeadEmail2.trim() || null,
+      })
+
+      setProgramLeadEmail(config.programLeadEmail ?? '')
+      setAssistantProgramLeadEmail1(config.assistantProgramLeadEmails[0] ?? '')
+      setAssistantProgramLeadEmail2(config.assistantProgramLeadEmails[1] ?? '')
+      setEventSummaryEmailUpdatedAt(config.updatedAt)
+      setEventSummaryEmailUpdatedBy(config.updatedBy)
+      setEventSummaryEmailSuccess('Event summary email configuration saved.')
+    } catch (error) {
+      setEventSummaryEmailError(toUserErrorMessage(error, 'Failed to save event summary email configuration.'))
+    } finally {
+      setEventSummaryEmailSaving(false)
     }
   }
 
@@ -876,6 +933,47 @@ function AdminPage() {
           {(supportRelayUpdatedAt || supportRelayUpdatedBy) && (
             <small style={{ color: 'var(--muted)', display: 'block', marginTop: 10 }}>
               Last updated{supportRelayUpdatedBy ? ` by ${supportRelayUpdatedBy}` : ''}{supportRelayUpdatedAt ? ` at ${new Date(supportRelayUpdatedAt).toLocaleString()}` : ''}
+            </small>
+          )}
+        </section>
+
+        <section className="card admin-tools-card">
+          <h2 className="admin-section-title">Event Summary Email CCs</h2>
+          <p className="page-subtitle" style={{ marginBottom: '0.9rem' }}>
+            These addresses are copied on event summary emails sent to the event lead.
+          </p>
+
+          <div style={{ display: 'grid', gap: 8, marginBottom: 10 }}>
+            <input
+              className="members-input"
+              value={programLeadEmail}
+              onChange={(e) => setProgramLeadEmail(e.target.value)}
+              placeholder="Program lead email"
+            />
+            <input
+              className="members-input"
+              value={assistantProgramLeadEmail1}
+              onChange={(e) => setAssistantProgramLeadEmail1(e.target.value)}
+              placeholder="Assistant program lead email #1"
+            />
+            <input
+              className="members-input"
+              value={assistantProgramLeadEmail2}
+              onChange={(e) => setAssistantProgramLeadEmail2(e.target.value)}
+              placeholder="Assistant program lead email #2"
+            />
+          </div>
+
+          <button className="btn btn--primary btn--sm" disabled={eventSummaryEmailLoading || eventSummaryEmailSaving} onClick={() => void handleSaveEventSummaryEmailConfig()}>
+            {eventSummaryEmailSaving ? 'Saving…' : 'Save Event Summary CCs'}
+          </button>
+
+          {eventSummaryEmailLoading && <p className="page-subtitle" style={{ marginTop: 10 }}>Loading event summary email settings…</p>}
+          {eventSummaryEmailError && <p className="ui-notice ui-notice--error" style={{ marginTop: 10 }}>{eventSummaryEmailError}</p>}
+          {eventSummaryEmailSuccess && <p className="ui-notice ui-notice--success" style={{ marginTop: 10 }}>{eventSummaryEmailSuccess}</p>}
+          {(eventSummaryEmailUpdatedAt || eventSummaryEmailUpdatedBy) && (
+            <small style={{ color: 'var(--muted)', display: 'block', marginTop: 10 }}>
+              Last updated{eventSummaryEmailUpdatedBy ? ` by ${eventSummaryEmailUpdatedBy}` : ''}{eventSummaryEmailUpdatedAt ? ` at ${new Date(eventSummaryEmailUpdatedAt).toLocaleString()}` : ''}
             </small>
           )}
         </section>

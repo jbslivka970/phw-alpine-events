@@ -65,6 +65,15 @@ interface RetentionPreviewRequestBody {
   format?: 'json' | 'csv';
 }
 
+interface EventSummaryEmailConfigRow {
+  event_summary_email_config_id: string;
+  program_lead_email: string | null;
+  assistant_program_lead_email_1: string | null;
+  assistant_program_lead_email_2: string | null;
+  updated_at: Date;
+  updated_by: string | null;
+}
+
 interface IdentityStatusRow {
   member_id: string;
   status: 'pending' | 'invited' | 'linked' | 'disabled';
@@ -129,6 +138,98 @@ interface IdentityInviteTraceRow {
   redirect_url_override: string | null;
   status: 'invited' | 'failed';
   error: string | null;
+}
+
+function normalizeOptionalEmailInput(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) {
+    return null;
+  }
+
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized) ? normalized : null;
+}
+
+async function getEventSummaryEmailConfig(): Promise<{
+  programLeadEmail: string | null;
+  assistantProgramLeadEmails: string[];
+  updatedAt: string | null;
+  updatedBy: string | null;
+}> {
+  const pool = await getPool();
+  const result = await pool.request().query<EventSummaryEmailConfigRow>(
+    `SELECT TOP (1)
+        event_summary_email_config_id,
+        program_lead_email,
+        assistant_program_lead_email_1,
+        assistant_program_lead_email_2,
+        updated_at,
+        updated_by
+     FROM dbo.event_summary_email_config
+     ORDER BY updated_at DESC`
+  );
+
+  const row = result.recordset[0];
+  const assistantProgramLeadEmails = [row?.assistant_program_lead_email_1, row?.assistant_program_lead_email_2]
+    .map((value) => normalizeOptionalEmailInput(value))
+    .filter((value): value is string => Boolean(value));
+
+  return {
+    programLeadEmail: normalizeOptionalEmailInput(row?.program_lead_email),
+    assistantProgramLeadEmails,
+    updatedAt: row?.updated_at ? row.updated_at.toISOString() : null,
+    updatedBy: row?.updated_by ?? null,
+  };
+}
+
+async function upsertEventSummaryEmailConfig(args: {
+  programLeadEmail: string | null;
+  assistantProgramLeadEmail1: string | null;
+  assistantProgramLeadEmail2: string | null;
+  updatedBy: string;
+}): Promise<void> {
+  const pool = await getPool();
+  await pool
+    .request()
+    .input('program_lead_email', sql.NVarChar(255), args.programLeadEmail)
+    .input('assistant_program_lead_email_1', sql.NVarChar(255), args.assistantProgramLeadEmail1)
+    .input('assistant_program_lead_email_2', sql.NVarChar(255), args.assistantProgramLeadEmail2)
+    .input('updated_by', sql.NVarChar(255), args.updatedBy)
+    .query(
+      `IF EXISTS (SELECT 1 FROM dbo.event_summary_email_config)
+         BEGIN
+           UPDATE dbo.event_summary_email_config
+           SET program_lead_email = @program_lead_email,
+               assistant_program_lead_email_1 = @assistant_program_lead_email_1,
+               assistant_program_lead_email_2 = @assistant_program_lead_email_2,
+               updated_by = @updated_by,
+               updated_at = GETUTCDATE();
+         END
+       ELSE
+         BEGIN
+           INSERT INTO dbo.event_summary_email_config (
+             event_summary_email_config_id,
+             program_lead_email,
+             assistant_program_lead_email_1,
+             assistant_program_lead_email_2,
+             created_at,
+             updated_at,
+             updated_by
+           )
+           VALUES (
+             NEWID(),
+             @program_lead_email,
+             @assistant_program_lead_email_1,
+             @assistant_program_lead_email_2,
+             GETUTCDATE(),
+             GETUTCDATE(),
+             @updated_by
+           );
+         END`
+    );
 }
 
 interface IdentityReconcileResponse {
@@ -821,6 +922,50 @@ router.post('/retention/preview', async (req, res) => {
     });
   } catch (error) {
     console.error('POST /admin/retention/preview failed', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.get('/event-summary-email-config', apiLimiter, authenticate, requireAdmin, async (_req, res) => {
+  try {
+    const config = await getEventSummaryEmailConfig();
+    res.status(200).json(config);
+  } catch (error) {
+    console.error('GET /admin/event-summary-email-config failed', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.put('/event-summary-email-config', writeLimiter, authenticate, requireAdmin, async (req, res) => {
+  try {
+    const programLeadEmail = normalizeOptionalEmailInput(req.body?.program_lead_email);
+    const assistantProgramLeadEmail1 = normalizeOptionalEmailInput(req.body?.assistant_program_lead_email_1);
+    const assistantProgramLeadEmail2 = normalizeOptionalEmailInput(req.body?.assistant_program_lead_email_2);
+
+    if (req.body?.program_lead_email && !programLeadEmail) {
+      res.status(400).json({ error: 'program_lead_email must be a valid email address when provided.' });
+      return;
+    }
+    if (req.body?.assistant_program_lead_email_1 && !assistantProgramLeadEmail1) {
+      res.status(400).json({ error: 'assistant_program_lead_email_1 must be a valid email address when provided.' });
+      return;
+    }
+    if (req.body?.assistant_program_lead_email_2 && !assistantProgramLeadEmail2) {
+      res.status(400).json({ error: 'assistant_program_lead_email_2 must be a valid email address when provided.' });
+      return;
+    }
+
+    await upsertEventSummaryEmailConfig({
+      programLeadEmail,
+      assistantProgramLeadEmail1,
+      assistantProgramLeadEmail2,
+      updatedBy: req.user?.email ?? req.user?.sub ?? 'unknown',
+    });
+
+    const config = await getEventSummaryEmailConfig();
+    res.status(200).json(config);
+  } catch (error) {
+    console.error('PUT /admin/event-summary-email-config failed', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

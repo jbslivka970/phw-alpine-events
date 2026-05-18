@@ -464,6 +464,18 @@ CREATE TABLE dbo.support_email_relay_config (
     CONSTRAINT PK_support_email_relay_config PRIMARY KEY (support_relay_config_id)
 );
 
+IF OBJECT_ID(N'dbo.event_summary_email_config', N'U') IS NULL
+CREATE TABLE dbo.event_summary_email_config (
+    event_summary_email_config_id UNIQUEIDENTIFIER NOT NULL DEFAULT NEWID(),
+    program_lead_email            NVARCHAR(255)    NULL,
+    assistant_program_lead_email_1 NVARCHAR(255)    NULL,
+    assistant_program_lead_email_2 NVARCHAR(255)    NULL,
+    created_at                    DATETIME         NOT NULL DEFAULT GETUTCDATE(),
+    updated_at                    DATETIME         NOT NULL DEFAULT GETUTCDATE(),
+    updated_by                    NVARCHAR(255)    NULL,
+    CONSTRAINT PK_event_summary_email_config PRIMARY KEY (event_summary_email_config_id)
+);
+
 IF OBJECT_ID(N'dbo.support_inbound_email_log', N'U') IS NULL
 CREATE TABLE dbo.support_inbound_email_log (
     support_inbound_email_log_id UNIQUEIDENTIFIER NOT NULL DEFAULT NEWID(),

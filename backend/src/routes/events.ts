@@ -1543,6 +1543,7 @@ interface EventReportData {
     event_date: Date | string;
     end_date: Date | string | null;
     status: string;
+    event_lead_email: string | null;
     mentor_capacity: number | null;
     participant_capacity: number | null;
     capacity: number | null;
@@ -1555,6 +1556,7 @@ interface EventReportData {
     first_name: string;
     last_name: string;
     email: string;
+    mobile_phone: string | null;
     role: string;
     assigned_at: Date | string;
     attended: boolean | null;
@@ -1566,12 +1568,43 @@ interface EventReportData {
     first_name: string;
     last_name: string;
     email: string;
+    mobile_phone: string | null;
     response: string;
     response_role: string | null;
     response_channel: string | null;
     responded_at: Date | string;
     notes: string | null;
   }>;
+}
+
+interface EventSummaryEmailConfig {
+  programLeadEmail: string | null;
+  assistantProgramLeadEmails: string[];
+}
+
+function normalizeEmail(value: string | null | undefined): string | null {
+  if (!value) {
+    return null;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) {
+    return null;
+  }
+
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized) ? normalized : null;
+}
+
+function normalizeEmailList(values: Array<string | null | undefined>): string[] {
+  const emails = values
+    .map((value) => normalizeEmail(value))
+    .filter((value): value is string => Boolean(value));
+
+  return Array.from(new Set(emails));
+}
+
+function formatContact(email: string | null, mobilePhone: string | null): string {
+  return `email: ${email?.trim() || 'n/a'} | phone: ${mobilePhone?.trim() || 'n/a'}`;
 }
 
 function parseRecipientList(raw: unknown): string[] {
@@ -1674,13 +1707,18 @@ function buildEventReportText(report: EventReportData): string {
 
   const assignmentLines = report.assignments.length === 0
     ? ['- none']
-    : report.assignments.map((row) => `- ${row.first_name} ${row.last_name} (${row.role}) attended=${row.attended === null ? 'n/a' : String(Boolean(row.attended))}`);
+    : report.assignments.map((row) => `- ${row.first_name} ${row.last_name} (${row.role}) | ${formatContact(row.email, row.mobile_phone)} | attended=${row.attended === null ? 'n/a' : String(Boolean(row.attended))}`);
 
   const responseLines = report.responses.length === 0
     ? ['- none']
-    : report.responses.map((row) => `- ${row.first_name} ${row.last_name}: ${row.response}${row.response_role ? ` (${row.response_role})` : ''}`);
+    : report.responses.map((row) => `- ${row.first_name} ${row.last_name}: ${row.response}${row.response_role ? ` (${row.response_role})` : ''} | ${formatContact(row.email, row.mobile_phone)}`);
 
   return [
+    'Hi there,',
+    '',
+    'Thanks for leading this event. This summary includes everyone who signed up, the role they were assigned, and their contact information so you can coordinate prep and follow up as needed.',
+    'The Program Lead and Assistant Program Leads are CC\'d on this email and can help answer questions so the event is ready to go.',
+    '',
     `Event Record: ${report.event.title}`,
     `Event ID: ${report.event.event_id}`,
     `Status: ${report.event.status}`,
@@ -1703,6 +1741,33 @@ function buildEventReportText(report: EventReportData): string {
     '',
     `Generated at: ${new Date().toISOString()}`,
   ].join('\n');
+}
+
+async function loadEventSummaryEmailConfig(): Promise<EventSummaryEmailConfig> {
+  const pool = await getPool();
+  const result = await pool
+    .request()
+    .query<{
+      program_lead_email: string | null;
+      assistant_program_lead_email_1: string | null;
+      assistant_program_lead_email_2: string | null;
+    }>(
+      `SELECT TOP (1)
+         program_lead_email,
+         assistant_program_lead_email_1,
+         assistant_program_lead_email_2
+       FROM dbo.event_summary_email_config
+       ORDER BY updated_at DESC`
+    );
+
+  const row = result.recordset[0];
+  return {
+    programLeadEmail: normalizeEmail(row?.program_lead_email),
+    assistantProgramLeadEmails: normalizeEmailList([
+      row?.assistant_program_lead_email_1,
+      row?.assistant_program_lead_email_2,
+    ]),
+  };
 }
 
 async function buildEventReportPdf(report: EventReportData): Promise<Buffer> {
@@ -1762,7 +1827,7 @@ async function loadEventReportData(eventId: string): Promise<EventReportData | n
     .request()
     .input('event_id', sql.UniqueIdentifier, eventId)
     .query<EventReportData['event']>(
-      `SELECT event_id, title, description, location, event_date, end_date, status,
+      `SELECT event_id, title, description, location, event_date, end_date, status, event_lead_email,
               mentor_capacity, participant_capacity, capacity, created_at, updated_at
        FROM event
        WHERE event_id = @event_id`
@@ -1777,7 +1842,7 @@ async function loadEventReportData(eventId: string): Promise<EventReportData | n
     .request()
     .input('event_id', sql.UniqueIdentifier, eventId)
     .query<EventReportData['assignments'][number]>(
-      `SELECT ea.assignment_id, ea.member_id, m.first_name, m.last_name, m.email,
+      `SELECT ea.assignment_id, ea.member_id, m.first_name, m.last_name, m.email, m.mobile_phone,
               ea.role, ea.assigned_at, ea.attended, ea.attendance_notes
        FROM event_assignment ea
        INNER JOIN member m ON m.member_id = ea.member_id
@@ -1789,7 +1854,7 @@ async function loadEventReportData(eventId: string): Promise<EventReportData | n
     .request()
     .input('event_id', sql.UniqueIdentifier, eventId)
     .query<EventReportData['responses'][number]>(
-      `SELECT er.response_id, er.member_id, m.first_name, m.last_name, m.email,
+      `SELECT er.response_id, er.member_id, m.first_name, m.last_name, m.email, m.mobile_phone,
               er.response, er.response_role, er.response_channel, er.responded_at, er.notes
        FROM event_response er
        INNER JOIN member m ON m.member_id = er.member_id
@@ -1881,44 +1946,44 @@ router.post('/:id/report/email', writeLimiter, authenticate, requireEventCreator
       return;
     }
 
-    if (report.event.status !== 'completed') {
-      res.status(409).json({ error: 'Event report email is available when event status is completed.' });
+    const leadEmail = normalizeEmail(report.event.event_lead_email);
+    if (!leadEmail) {
+      res.status(400).json({ error: 'event_lead_email is required before sending the event lead summary.' });
       return;
     }
 
-    const envRecipients = parseRecipientList(process.env['EVENT_RECORD_EMAIL_TO'] ?? process.env['ACS_EMAIL_TO']);
-    const bodyRecipients = parseRecipientList(req.body?.recipients);
-    const recipients = bodyRecipients.length > 0 ? bodyRecipients : envRecipients;
-
-    if (recipients.length === 0) {
-      res.status(400).json({ error: 'No recipients configured. Provide recipients, or set EVENT_RECORD_EMAIL_TO (preferred) / ACS_EMAIL_TO in backend/.env.' });
-      return;
-    }
+    const summaryConfig = await loadEventSummaryEmailConfig();
+    const ccRecipients = normalizeEmailList([
+      summaryConfig.programLeadEmail,
+      ...summaryConfig.assistantProgramLeadEmails,
+    ]).filter((value) => value !== leadEmail);
 
     const reportText = buildEventReportText(report);
     const actor = req.user?.email ?? req.user?.sub ?? 'unknown';
-    const subject = `Completed Event Record: ${report.event.title}`;
-    const htmlBody = `<p>Completed event record generated by ${actor}.</p><pre>${reportText
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')}</pre>`;
+    const subject = `Event Signup Summary: ${report.event.title}`;
+    const htmlBody = [
+      '<p>Hi there,</p>',
+      '<p>Thanks for leading this event. This summary includes everyone who signed up, the role they were assigned, and their contact information so you can coordinate prep and follow up as needed. The Program Lead and Assistant Program Leads are CC&#39;d on this email and can help answer questions so the event is ready to go.</p>',
+      `<p>Event signup summary generated by ${escapeHtml(actor)}.</p>`,
+      `<pre>${escapeHtml(reportText)}</pre>`,
+    ].join('');
 
-    for (const recipient of recipients) {
-      await notificationService.sendEmail({
-        to: recipient,
-        subject,
-        htmlBody,
-        textBody: reportText,
-        eventId: report.event.event_id,
-        operationType: 'event_record_email',
-        operationReason: `Sent by ${actor}`,
-      });
-    }
+    await notificationService.sendEmail({
+      to: leadEmail,
+      cc: ccRecipients,
+      subject,
+      htmlBody,
+      textBody: reportText,
+      eventId: report.event.event_id,
+      operationType: 'event_lead_summary_email',
+      operationReason: `Sent by ${actor}`,
+    });
 
     res.status(200).json({
       event_id: report.event.event_id,
-      recipients,
-      sent: recipients.length,
+      to: leadEmail,
+      cc: ccRecipients,
+      sent: 1,
     });
   } catch (error) {
     console.error('POST /events/:id/report/email failed', error);

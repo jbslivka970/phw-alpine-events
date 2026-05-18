@@ -420,9 +420,9 @@ function DashboardPage() {
                               <span className="phw-event-action-pill__icon" aria-hidden="true">PF</span>
                               <span className="phw-event-action-pill__label">PDF</span>
                             </button>
-                            <button className="btn btn--outline btn--sm phw-event-action-pill" disabled={event.status !== 'completed' || eventEmailingId === event.event_id} onClick={() => void emailEventRecord(event)}>
+                            <button className="btn btn--outline btn--sm phw-event-action-pill" disabled={eventEmailingId === event.event_id} onClick={() => void emailEventRecord(event)}>
                               <span className="phw-event-action-pill__icon" aria-hidden="true">EM</span>
-                              <span className="phw-event-action-pill__label">{eventEmailingId === event.event_id ? 'Emailing...' : 'Email'}</span>
+                              <span className="phw-event-action-pill__label">{eventEmailingId === event.event_id ? 'Emailing...' : 'Lead Email'}</span>
                             </button>
                           </>
                         )}

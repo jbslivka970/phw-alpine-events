@@ -234,4 +234,60 @@ describe('admin routes', () => {
     expect(res.text).toContain('target,retention_days,candidate_rows,mode,generated_at,generated_by');
     expect(res.text).toContain('"notification_log"');
   });
+
+  it('GET /api/admin/event-summary-email-config returns the stored email configuration', async () => {
+    const lookupRequest = createRequest(async () => ({
+      recordset: [
+        {
+          event_summary_email_config_id: 'config-1',
+          program_lead_email: 'program@example.com',
+          assistant_program_lead_email_1: 'apl1@example.com',
+          assistant_program_lead_email_2: 'apl2@example.com',
+          updated_at: new Date('2026-05-01T12:00:00.000Z'),
+          updated_by: 'admin@example.com',
+        },
+      ],
+    }));
+    (getPool as jest.Mock).mockResolvedValue({ request: () => lookupRequest });
+
+    const res = await request(app).get('/api/admin/event-summary-email-config');
+
+    expect(res.status).toBe(200);
+    expect(res.body.programLeadEmail).toBe('program@example.com');
+    expect(res.body.assistantProgramLeadEmails).toEqual(['apl1@example.com', 'apl2@example.com']);
+  });
+
+  it('PUT /api/admin/event-summary-email-config saves the configured CC recipients', async () => {
+    const requestMock = createRequest(async (query: string) => {
+      if (query.includes('IF EXISTS (SELECT 1 FROM dbo.event_summary_email_config)')) {
+        return { rowsAffected: [1] };
+      }
+
+      return {
+        recordset: [
+          {
+            event_summary_email_config_id: 'config-1',
+            program_lead_email: 'program@example.com',
+            assistant_program_lead_email_1: 'apl1@example.com',
+            assistant_program_lead_email_2: null,
+            updated_at: new Date('2026-05-01T12:00:00.000Z'),
+            updated_by: 'admin@example.com',
+          },
+        ],
+      };
+    });
+    (getPool as jest.Mock).mockResolvedValue({ request: () => requestMock });
+
+    const res = await request(app)
+      .put('/api/admin/event-summary-email-config')
+      .send({
+        program_lead_email: 'program@example.com',
+        assistant_program_lead_email_1: 'apl1@example.com',
+        assistant_program_lead_email_2: '',
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.programLeadEmail).toBe('program@example.com');
+    expect(res.body.assistantProgramLeadEmails).toEqual(['apl1@example.com']);
+  });
 });

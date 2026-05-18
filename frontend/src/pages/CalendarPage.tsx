@@ -296,8 +296,8 @@ function ListItem({
             <button className="btn btn--outline btn--sm" disabled={event.status !== 'completed'} onClick={() => void downloadReportText()}>
               Record
             </button>
-            <button className="btn btn--outline btn--sm" disabled={event.status !== 'completed'} onClick={() => void emailReport()}>
-              Email
+            <button className="btn btn--outline btn--sm" onClick={() => void emailReport()}>
+              Lead Email
             </button>
           </>
         )}
