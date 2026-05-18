@@ -1901,9 +1901,11 @@ router.get('/:id/report.pdf', apiLimiter, authenticate, requireEventCreatorOrAdm
 const sendLeadPrepSummary = async (req: Request, res: Response): Promise<void> => {
   try {
     const actor = req.user?.email ?? req.user?.sub ?? 'unknown';
+    const actorName = req.user?.name;
     const result = await sendPreEventLeadSummaryEmail({
       eventId: req.params.id,
       actor,
+      actorName,
       operationReason: `Manual lead prep summary sent by ${actor}`,
     });
 

@@ -18,6 +18,7 @@ async function runPreEventLeadSummaryJob(lookAheadHours = 72): Promise<void> {
       await sendPreEventLeadSummaryEmail({
         eventId: row.eventId,
         actor: 'system',
+        actorName: 'PHW Scheduler',
         operationReason: `auto_lookahead_${lookAheadHours}h`,
       });
       await markPreEventLeadSummarySent(row.eventId, row.claimToken);
