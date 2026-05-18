@@ -147,6 +147,7 @@ describe('EventsPage flow pattern', () => {
         invitation_stage: 'both',
         event_lead_name: null,
         event_lead_email: null,
+        scheduler_email: null,
         end_date: null,
         mentor_capacity: 1,
         participant_capacity: 2,
