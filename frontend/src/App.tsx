@@ -63,6 +63,14 @@ function App() {
             <Route path="/preferences" element={<NotificationPreferencesPage />} />
             <Route path="/events" element={<EventsPage />} />
             <Route
+              path="/events/:id/manage"
+              element={
+                <ProtectedRoute requiredRole={ROLES.ADMIN}>
+                  <EventAssignmentPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
               path="/events/:id/assign"
               element={
                 <ProtectedRoute requiredRole={ROLES.ADMIN}>

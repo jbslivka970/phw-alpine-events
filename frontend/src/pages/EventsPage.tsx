@@ -1824,8 +1824,8 @@ function EventsPage() {
                   )}
 
                   {isAdmin() && (
-                    <button className="btn btn--outline btn--sm" onClick={() => navigate(`/events/${event.event_id}/assign`)}>
-                      Assign
+                    <button className="btn btn--outline btn--sm" onClick={() => navigate(`/events/${event.event_id}/manage`)}>
+                      Manage
                     </button>
                   )}
 

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { assignmentsApi, eventsApi, rsvpApi } from '../api/events'
 import { membersApi } from '../api/members'
-import type { AssignmentRecommendationRow } from '../api/events'
+import type { AssignmentRecommendationRow, EventRecord } from '../api/events'
 
 type Assignment = {
   assignment_id: string
@@ -54,11 +54,59 @@ const EMPTY_PARTICIPATION: ParticipationSummary = {
   participant_attended_prior_year: 0,
 }
 
+function formatDateTime(value: string | null | undefined): string {
+  if (!value) {
+    return 'Not set'
+  }
+
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) {
+    return value
+  }
+
+  return parsed.toLocaleString('en-GB', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  })
+}
+
+function parseDispositionFilename(headerValue: string | null): string | null {
+  if (!headerValue) {
+    return null
+  }
+
+  const utf8Match = /filename\*=UTF-8''([^;]+)/i.exec(headerValue)
+  if (utf8Match?.[1]) {
+    return decodeURIComponent(utf8Match[1])
+  }
+
+  const plainMatch = /filename="?([^";]+)"?/i.exec(headerValue)
+  return plainMatch?.[1] ?? null
+}
+
+function downloadBlobFile(blob: Blob, headers: Headers, fallbackFilename: string): void {
+  const objectUrl = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  const fromHeader = parseDispositionFilename(headers.get('content-disposition'))
+  anchor.href = objectUrl
+  anchor.download = fromHeader ?? fallbackFilename
+  document.body.appendChild(anchor)
+  anchor.click()
+  anchor.remove()
+  URL.revokeObjectURL(objectUrl)
+}
+
 function EventAssignmentPage() {
   const navigate = useNavigate()
   const { id } = useParams<{ id: string }>()
   const eventId = id ?? ''
 
+  const [eventDetail, setEventDetail] = useState<EventRecord | null>(null)
   const [assignments, setAssignments] = useState<Assignment[]>([])
   const [rsvps, setRsvps] = useState<RsvpPoolRow[]>([])
   const [participation, setParticipation] = useState<Record<string, ParticipationSummary>>({})
@@ -69,6 +117,7 @@ function EventAssignmentPage() {
   const [manualResults, setManualResults] = useState<MemberSearchRow[]>([])
   const [manualLoading, setManualLoading] = useState(false)
   const [closingAtCapacity, setClosingAtCapacity] = useState(false)
+  const [reportActionBusy, setReportActionBusy] = useState<'csv' | 'pdf' | 'record' | 'summary' | null>(null)
   const [eventCapacity, setEventCapacity] = useState<EventCapacitySnapshot | null>(null)
   const [closeAtCapacityNotice, setCloseAtCapacityNotice] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -82,6 +131,7 @@ function EventAssignmentPage() {
       eventsApi.get(targetEventId),
     ])
 
+    setEventDetail(eventDetail)
     setAssignments(asns as Assignment[])
     setEventCapacity(eventDetail ? {
       mentor_capacity: eventDetail.mentor_capacity,
@@ -364,6 +414,51 @@ function EventAssignmentPage() {
   const volunteerCapacity = eventCapacity?.mentor_capacity ?? null
   const participantCapacity = eventCapacity?.participant_capacity ?? null
   const totalCapacity = eventCapacity?.capacity ?? null
+  const yesCount = useMemo(() => rsvps.filter((row) => row.response === 'yes').length, [rsvps])
+  const maybeCount = useMemo(() => rsvps.filter((row) => row.response === 'maybe').length, [rsvps])
+  const waitlistCount = useMemo(() => rsvps.filter((row) => row.response === 'waitlist').length, [rsvps])
+
+  async function runReportAction<T extends 'csv' | 'pdf' | 'record' | 'summary'>(
+    action: T,
+    runner: () => Promise<void>
+  ): Promise<void> {
+    setReportActionBusy(action)
+    setError(null)
+    try {
+      await runner()
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to complete event summary action')
+    } finally {
+      setReportActionBusy(null)
+    }
+  }
+
+  async function downloadReportCsv(): Promise<void> {
+    await runReportAction('csv', async () => {
+      const { blob, headers } = await eventsApi.downloadReportCsv(eventId)
+      downloadBlobFile(blob, headers, `event-report-${eventId}.csv`)
+    })
+  }
+
+  async function downloadReportPdf(): Promise<void> {
+    await runReportAction('pdf', async () => {
+      const { blob, headers } = await eventsApi.downloadReportPdf(eventId)
+      downloadBlobFile(blob, headers, `event-report-${eventId}.pdf`)
+    })
+  }
+
+  async function downloadReportText(): Promise<void> {
+    await runReportAction('record', async () => {
+      const { blob, headers } = await eventsApi.downloadReportText(eventId)
+      downloadBlobFile(blob, headers, `event-report-${eventId}.txt`)
+    })
+  }
+
+  async function sendLeadSummary(): Promise<void> {
+    await runReportAction('summary', async () => {
+      await eventsApi.emailReport(eventId)
+    })
+  }
 
   function quotaText(assigned: number, quota: number | null): string {
     if (quota === null) {
@@ -403,12 +498,83 @@ function EventAssignmentPage() {
     <div className="page event-assignments-page">
       <div className="event-assignments-header">
         <div>
-          <h1 className="page__title">Event Assignments</h1>
-          <p className="page__subtitle">Assign members from the RSVP pool and track attendance.</p>
+          <h1 className="page__title">{eventDetail?.title ?? 'Event Details'}</h1>
+          <p className="page__subtitle">Review event details, RSVP activity, assignments, and lead summary actions in one place.</p>
         </div>
         <button className="btn btn--outline btn--sm" onClick={() => navigate('/events')}>Back to Events</button>
       </div>
       {error && <p className="members-error">{error}</p>}
+
+      <section className="card members-table-wrap" style={{ display: 'grid', gap: 18 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+          <div style={{ flex: '1 1 420px' }}>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+              <span className={`status-pill status-pill--${eventDetail?.status ?? 'draft'}`}>{eventDetail?.status ?? 'draft'}</span>
+              <span className="assignment-role-chip assignment-role-chip--participant">{formatDateTime(eventDetail?.event_date)}</span>
+              <span className="assignment-role-chip assignment-role-chip--unknown">{eventDetail?.location ?? 'Location TBD'}</span>
+            </div>
+            {eventDetail?.description && (
+              <p style={{ margin: '0 0 12px', lineHeight: 1.6 }}>{eventDetail.description}</p>
+            )}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
+              <div>
+                <p style={{ margin: '0 0 4px', fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.08em', opacity: 0.7 }}>Event Lead</p>
+                <p style={{ margin: 0, fontWeight: 600 }}>{eventDetail?.event_lead_name ?? 'Not set'}</p>
+                <p style={{ margin: '4px 0 0' }}>{eventDetail?.event_lead_email ?? 'No lead email set'}</p>
+              </div>
+              <div>
+                <p style={{ margin: '0 0 4px', fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.08em', opacity: 0.7 }}>Schedule</p>
+                <p style={{ margin: 0 }}>Start: {formatDateTime(eventDetail?.event_date)}</p>
+                <p style={{ margin: '4px 0 0' }}>End: {formatDateTime(eventDetail?.end_date)}</p>
+              </div>
+            </div>
+          </div>
+
+          <div style={{ flex: '0 1 380px', display: 'grid', gap: 10, minWidth: 280 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 10 }}>
+              <div className="assignment-capacity-card">
+                <p className="assignment-capacity-label">RSVP Yes</p>
+                <p className="assignment-capacity-value">{yesCount}</p>
+                <p className="assignment-capacity-meta">Ready to assign</p>
+              </div>
+              <div className="assignment-capacity-card">
+                <p className="assignment-capacity-label">Maybe / Waitlist</p>
+                <p className="assignment-capacity-value">{maybeCount + waitlistCount}</p>
+                <p className="assignment-capacity-meta">{maybeCount} maybe, {waitlistCount} waitlist</p>
+              </div>
+              <div className="assignment-capacity-card">
+                <p className="assignment-capacity-label">Assigned</p>
+                <p className="assignment-capacity-value">{assignedTotalCount}</p>
+                <p className="assignment-capacity-meta">{assignedVolunteerCount} volunteer, {assignedParticipantCount} participant</p>
+              </div>
+              <div className="assignment-capacity-card">
+                <p className="assignment-capacity-label">Lead Summary</p>
+                <p className="assignment-capacity-value">{eventDetail?.event_lead_email ? 'Ready' : 'Blocked'}</p>
+                <p className="assignment-capacity-meta">{eventDetail?.event_lead_email ? 'Lead email present' : 'Add lead email first'}</p>
+              </div>
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              <button
+                className="btn btn--sm"
+                onClick={() => void sendLeadSummary()}
+                disabled={eventDetail?.status !== 'completed' || !eventDetail?.event_lead_email || reportActionBusy !== null}
+                title={eventDetail?.status !== 'completed' ? 'Set status to Completed before sending the lead summary.' : !eventDetail?.event_lead_email ? 'Add an event lead email before sending the summary.' : undefined}
+              >
+                {reportActionBusy === 'summary' ? 'Sending…' : 'Send Lead Summary'}
+              </button>
+              <button className="btn btn--outline btn--sm" disabled={eventDetail?.status !== 'completed' || reportActionBusy !== null} onClick={() => void downloadReportCsv()}>
+                {reportActionBusy === 'csv' ? 'Preparing…' : 'CSV'}
+              </button>
+              <button className="btn btn--outline btn--sm" disabled={eventDetail?.status !== 'completed' || reportActionBusy !== null} onClick={() => void downloadReportPdf()}>
+                {reportActionBusy === 'pdf' ? 'Preparing…' : 'PDF'}
+              </button>
+              <button className="btn btn--outline btn--sm" disabled={eventDetail?.status !== 'completed' || reportActionBusy !== null} onClick={() => void downloadReportText()}>
+                {reportActionBusy === 'record' ? 'Preparing…' : 'Roster Record'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
 
       <section className="card members-table-wrap">
         <h2>Capacity Controls</h2>

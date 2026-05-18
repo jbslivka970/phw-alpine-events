@@ -407,7 +407,7 @@ function DashboardPage() {
                               <span className="phw-event-action-pill__icon" aria-hidden="true">PF</span>
                               <span className="phw-event-action-pill__label">PDF</span>
                             </button>
-                            <button className="btn btn--outline btn--sm phw-event-action-pill" onClick={() => navigate(`/events/${event.event_id}/assign`)}>
+                            <button className="btn btn--outline btn--sm phw-event-action-pill" onClick={() => navigate(`/events/${event.event_id}/manage`)}>
                               <span className="phw-event-action-pill__icon" aria-hidden="true">MG</span>
                               <span className="phw-event-action-pill__label">Manage</span>
                             </button>

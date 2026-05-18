@@ -289,7 +289,7 @@ function ListItem({
             <button className="btn btn--outline btn--sm" disabled={event.status !== 'completed'} onClick={() => void downloadReportText()}>
               Record
             </button>
-            <button className="btn btn--outline btn--sm" onClick={() => navigate(`/events/${event.event_id}/assign`)}>
+            <button className="btn btn--outline btn--sm" onClick={() => navigate(`/events/${event.event_id}/manage`)}>
               Manage
             </button>
           </>
