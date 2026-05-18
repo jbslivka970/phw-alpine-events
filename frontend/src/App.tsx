@@ -65,7 +65,7 @@ function App() {
             <Route
               path="/events/:id/manage"
               element={
-                <ProtectedRoute requiredRole={ROLES.ADMIN}>
+                <ProtectedRoute requiredRoles={[ROLES.ADMIN, ROLES.EVENT_CREATOR]}>
                   <EventAssignmentPage />
                 </ProtectedRoute>
               }
@@ -73,7 +73,7 @@ function App() {
             <Route
               path="/events/:id/assign"
               element={
-                <ProtectedRoute requiredRole={ROLES.ADMIN}>
+                <ProtectedRoute requiredRoles={[ROLES.ADMIN, ROLES.EVENT_CREATOR]}>
                   <EventAssignmentPage />
                 </ProtectedRoute>
               }

@@ -117,7 +117,7 @@ function EventAssignmentPage() {
   const [manualResults, setManualResults] = useState<MemberSearchRow[]>([])
   const [manualLoading, setManualLoading] = useState(false)
   const [closingAtCapacity, setClosingAtCapacity] = useState(false)
-  const [reportActionBusy, setReportActionBusy] = useState<'csv' | 'pdf' | 'record' | 'summary' | null>(null)
+  const [reportActionBusy, setReportActionBusy] = useState<'csv' | 'pdf' | 'record' | 'lead' | 'participation' | null>(null)
   const [eventCapacity, setEventCapacity] = useState<EventCapacitySnapshot | null>(null)
   const [closeAtCapacityNotice, setCloseAtCapacityNotice] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -418,7 +418,7 @@ function EventAssignmentPage() {
   const maybeCount = useMemo(() => rsvps.filter((row) => row.response === 'maybe').length, [rsvps])
   const waitlistCount = useMemo(() => rsvps.filter((row) => row.response === 'waitlist').length, [rsvps])
 
-  async function runReportAction<T extends 'csv' | 'pdf' | 'record' | 'summary'>(
+  async function runReportAction<T extends 'csv' | 'pdf' | 'record' | 'lead' | 'participation'>(
     action: T,
     runner: () => Promise<void>
   ): Promise<void> {
@@ -454,9 +454,15 @@ function EventAssignmentPage() {
     })
   }
 
-  async function sendLeadSummary(): Promise<void> {
-    await runReportAction('summary', async () => {
-      await eventsApi.emailReport(eventId)
+  async function sendLeadPrepSummary(): Promise<void> {
+    await runReportAction('lead', async () => {
+      await eventsApi.sendLeadPrepSummary(eventId)
+    })
+  }
+
+  async function sendParticipationSummary(): Promise<void> {
+    await runReportAction('participation', async () => {
+      await eventsApi.sendParticipationSummary(eventId)
     })
   }
 
@@ -499,7 +505,7 @@ function EventAssignmentPage() {
       <div className="event-assignments-header">
         <div>
           <h1 className="page__title">{eventDetail?.title ?? 'Event Details'}</h1>
-          <p className="page__subtitle">Review event details, RSVP activity, assignments, and lead summary actions in one place.</p>
+          <p className="page__subtitle">Review event details, RSVP activity, assignments, pre-event lead prep, and post-event participation summary actions in one place.</p>
         </div>
         <button className="btn btn--outline btn--sm" onClick={() => navigate('/events')}>Back to Events</button>
       </div>
@@ -521,6 +527,11 @@ function EventAssignmentPage() {
                 <p style={{ margin: '0 0 4px', fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.08em', opacity: 0.7 }}>Event Lead</p>
                 <p style={{ margin: 0, fontWeight: 600 }}>{eventDetail?.event_lead_name ?? 'Not set'}</p>
                 <p style={{ margin: '4px 0 0' }}>{eventDetail?.event_lead_email ?? 'No lead email set'}</p>
+              </div>
+              <div>
+                <p style={{ margin: '0 0 4px', fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.08em', opacity: 0.7 }}>Scheduler Summary Recipient</p>
+                <p style={{ margin: 0, fontWeight: 600 }}>{eventDetail?.scheduler_email ?? 'Using event creator fallback'}</p>
+                <p style={{ margin: '4px 0 0' }}>{eventDetail?.scheduler_email ? 'Post-event participation summary will send here.' : 'If blank, the post-event summary falls back to the event creator email.'}</p>
               </div>
               <div>
                 <p style={{ margin: '0 0 4px', fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.08em', opacity: 0.7 }}>Schedule</p>
@@ -548,7 +559,7 @@ function EventAssignmentPage() {
                 <p className="assignment-capacity-meta">{assignedVolunteerCount} volunteer, {assignedParticipantCount} participant</p>
               </div>
               <div className="assignment-capacity-card">
-                <p className="assignment-capacity-label">Lead Summary</p>
+                <p className="assignment-capacity-label">Lead Prep</p>
                 <p className="assignment-capacity-value">{eventDetail?.event_lead_email ? 'Ready' : 'Blocked'}</p>
                 <p className="assignment-capacity-meta">{eventDetail?.event_lead_email ? 'Lead email present' : 'Add lead email first'}</p>
               </div>
@@ -556,11 +567,19 @@ function EventAssignmentPage() {
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
               <button
                 className="btn btn--sm"
-                onClick={() => void sendLeadSummary()}
-                disabled={eventDetail?.status !== 'completed' || !eventDetail?.event_lead_email || reportActionBusy !== null}
-                title={eventDetail?.status !== 'completed' ? 'Set status to Completed before sending the lead summary.' : !eventDetail?.event_lead_email ? 'Add an event lead email before sending the summary.' : undefined}
+                onClick={() => void sendLeadPrepSummary()}
+                disabled={eventDetail?.status === 'completed' || eventDetail?.status === 'cancelled' || !eventDetail?.event_lead_email || reportActionBusy !== null}
+                title={eventDetail?.status === 'completed' ? 'Use the participation summary after the event is completed.' : eventDetail?.status === 'cancelled' ? 'Lead prep is not available for cancelled events.' : !eventDetail?.event_lead_email ? 'Add an event lead email before sending the lead prep summary.' : undefined}
               >
-                {reportActionBusy === 'summary' ? 'Sending…' : 'Send Lead Summary'}
+                {reportActionBusy === 'lead' ? 'Sending…' : 'Send Lead Prep Summary'}
+              </button>
+              <button
+                className="btn btn--sm btn--outline"
+                onClick={() => void sendParticipationSummary()}
+                disabled={eventDetail?.status !== 'completed' || reportActionBusy !== null}
+                title={eventDetail?.status !== 'completed' ? 'Complete the event before sending the participation summary.' : undefined}
+              >
+                {reportActionBusy === 'participation' ? 'Sending…' : 'Send Participation Summary'}
               </button>
               <button className="btn btn--outline btn--sm" disabled={eventDetail?.status !== 'completed' || reportActionBusy !== null} onClick={() => void downloadReportCsv()}>
                 {reportActionBusy === 'csv' ? 'Preparing…' : 'CSV'}

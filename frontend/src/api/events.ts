@@ -9,6 +9,7 @@ interface EventRecord {
   invitation_stage: 'volunteer' | 'participant' | 'both';
   event_lead_name: string | null;
   event_lead_email: string | null;
+  scheduler_email?: string | null;
   event_date: string;
   end_date: string | null;
   mentor_capacity: number | null;
@@ -34,6 +35,7 @@ interface UpdateEventPayload {
   invitation_stage?: 'volunteer' | 'participant' | 'both';
   event_lead_name?: string | null;
   event_lead_email?: string | null;
+  scheduler_email?: string | null;
   event_date?: string;
   end_date?: string | null;
   mentor_capacity?: number | null;
@@ -154,6 +156,7 @@ const eventsApi = {
     invitation_stage?: 'volunteer' | 'participant' | 'both';
     event_lead_name?: string | null;
     event_lead_email?: string | null;
+    scheduler_email?: string | null;
     end_date?: string | null;
     mentor_capacity?: number | null;
     participant_capacity?: number | null;
@@ -172,9 +175,8 @@ const eventsApi = {
   downloadReportCsv: (id: string) => apiGetBlob(`/events/${id}/report.csv`),
   downloadReportPdf: (id: string) => apiGetBlob(`/events/${id}/report.pdf`),
   downloadReportText: (id: string) => apiGetBlob(`/events/${id}/report.txt`),
-  emailReport: (id: string, recipients?: string[]) => apiPost<{ event_id: string; recipients: string[]; sent: number }>(`/events/${id}/report/email`, {
-    ...(Array.isArray(recipients) && recipients.length > 0 ? { recipients } : {}),
-  }),
+  sendLeadPrepSummary: (id: string) => apiPost<{ event_id: string; to: string; cc: string[]; sent: number }>(`/events/${id}/lead-summary/email`, {}),
+  sendParticipationSummary: (id: string) => apiPost<{ event_id: string; to: string; cc: string[]; fallback_used: 'scheduler' | 'creator' | 'actor'; sent: number }>(`/events/${id}/participation-summary/email`, {}),
   generateAiDraft: (id: string, tone: 'friendly' | 'professional' | 'casual' | 'exciting' = 'friendly') =>
     apiPost<EventAiDraftResponse>(`/events/${id}/ai-draft`, { tone }),
   generateAiDraftPreview: (

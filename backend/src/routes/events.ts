@@ -1,5 +1,4 @@
-import { ensureEventSummaryEmailConfigTable } from '../services/eventSummaryEmailConfig';
-import { Router } from 'express';
+import { Router, type Request, type Response } from 'express';
 import crypto from 'crypto';
 import PDFDocument from 'pdfkit';
 import { getPool, sql } from '../db';
@@ -22,6 +21,8 @@ import {
 import { inferResponseRoleForMember, recordRsvpResponse, RsvpError, VALID_RESPONSES, type RsvpResponse } from '../services/rsvpService';
 import { resolveShortRsvpToken, verifyRsvpToken } from '../services/rsvpLinkService';
 import { generateDescriptionDraft, generateInviteDraft } from '../services/aiInviteService';
+import { getEventEmailWorkflowSettings, upsertEventEmailWorkflowSettings } from '../services/eventEmailWorkflowService';
+import { sendPostEventParticipationSummaryEmail, sendPreEventLeadSummaryEmail } from '../services/eventSummaryEmailService';
 import { formatInProgramTimeZone } from '../utils/dateTime';
 
 const router = Router();
@@ -566,6 +567,8 @@ router.get('/:id', apiLimiter, authenticate, requireAnyAuthenticatedRole, async 
       return;
     }
 
+    const workflow = await getEventEmailWorkflowSettings(req.params.id);
+
     const targets = await pool
       .request()
       .input('event_id', sql.UniqueIdentifier, req.params.id)
@@ -576,7 +579,7 @@ router.get('/:id', apiLimiter, authenticate, requireAnyAuthenticatedRole, async 
          WHERE ent.event_id = @event_id`
       );
 
-    res.json({ ...event, notification_targets: targets.recordset });
+    res.json({ ...event, scheduler_email: workflow.schedulerEmail, notification_targets: targets.recordset });
   } catch (error) {
     console.error('GET /events/:id failed', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -602,6 +605,11 @@ router.post('/', writeLimiter, authenticate, requireEventCreatorOrAdmin, async (
       return;
     }
     const eventLeadEmail = parseOptionalEmail(req.body?.event_lead_email);
+    if (req.body?.scheduler_email !== undefined && normalizeString(req.body?.scheduler_email) && !parseOptionalEmail(req.body?.scheduler_email)) {
+      res.status(400).json({ error: 'scheduler_email must be a valid email address when provided' });
+      return;
+    }
+    const schedulerEmail = parseOptionalEmail(req.body?.scheduler_email);
     const endDate = (req.body?.end_date as string | undefined) ?? null;
     const mentorCapacity = parseCapacity(req.body?.mentor_capacity);
     const participantCapacity = parseCapacity(req.body?.participant_capacity);
@@ -610,6 +618,7 @@ router.post('/', writeLimiter, authenticate, requireEventCreatorOrAdmin, async (
     const capacity = computedCapacity > 0 ? computedCapacity : legacyCapacity;
     const rawTargets = Array.isArray(req.body?.notification_targets) ? req.body.notification_targets : [];
     const createdBy = null;
+    const creatorEmail = parseOptionalEmail(req.user?.email ?? req.user?.sub);
 
     const parsedEventDate = new Date(eventDate);
     if (Number.isNaN(parsedEventDate.getTime())) {
@@ -721,6 +730,13 @@ router.post('/', writeLimiter, authenticate, requireEventCreatorOrAdmin, async (
 
     const event = created.recordset[0];
 
+    await upsertEventEmailWorkflowSettings({
+      eventId: event.event_id,
+      schedulerEmail,
+      creatorEmail,
+      updatedBy: req.user?.email ?? req.user?.sub ?? 'unknown',
+    });
+
     for (const groupId of targetGroupIds) {
       try {
         await pool
@@ -741,7 +757,7 @@ router.post('/', writeLimiter, authenticate, requireEventCreatorOrAdmin, async (
       }
     }
 
-    res.status(201).json(event);
+    res.status(201).json({ ...event, scheduler_email: schedulerEmail });
   } catch (error) {
     console.error('POST /events failed', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -807,6 +823,7 @@ router.put('/:id', writeLimiter, authenticate, requireEventCreatorOrAdmin, async
     const proposedInvitationStage = req.body?.invitation_stage;
     const proposedEventLeadName = req.body?.event_lead_name;
     const proposedEventLeadEmail = req.body?.event_lead_email;
+    const proposedSchedulerEmail = req.body?.scheduler_email;
     const proposedEventDate = req.body?.event_date;
     const proposedEndDate = req.body?.end_date;
     const proposedMentorCapacity = req.body?.mentor_capacity;
@@ -833,6 +850,9 @@ router.put('/:id', writeLimiter, authenticate, requireEventCreatorOrAdmin, async
     }
     if (eventColumns.hasEventLeadEmail && proposedEventLeadEmail !== undefined && normalizeString(proposedEventLeadEmail) !== normalizeString(existing.event_lead_email)) {
       changedFields.push('event_lead_email');
+    }
+    if (proposedSchedulerEmail !== undefined) {
+      changedFields.push('scheduler_email');
     }
     if (proposedEventDate !== undefined && toUtcMillis(proposedEventDate) !== toUtcMillis(existing.event_date)) {
       changedFields.push('event_date');
@@ -884,6 +904,10 @@ router.put('/:id', writeLimiter, authenticate, requireEventCreatorOrAdmin, async
       }
       updates.push('event_lead_email = @event_lead_email');
       request.input('event_lead_email', sql.NVarChar(255), parseOptionalEmail(req.body.event_lead_email));
+    }
+    if (req.body?.scheduler_email !== undefined && normalizeString(req.body?.scheduler_email) && !parseOptionalEmail(req.body?.scheduler_email)) {
+      res.status(400).json({ error: 'scheduler_email must be a valid email address when provided' });
+      return;
     }
     if (req.body?.event_date !== undefined) {
       updates.push('event_date = @event_date');
@@ -975,6 +999,15 @@ router.put('/:id', writeLimiter, authenticate, requireEventCreatorOrAdmin, async
       }
     }
 
+    if (req.body?.scheduler_email !== undefined) {
+      await upsertEventEmailWorkflowSettings({
+        eventId: req.params.id,
+        schedulerEmail: parseOptionalEmail(req.body?.scheduler_email),
+        creatorEmail: parseOptionalEmail(req.user?.email ?? req.user?.sub),
+        updatedBy: req.user?.email ?? req.user?.sub ?? 'unknown',
+      });
+    }
+
     let notificationWarning: string | null = null;
     if (existing.status === 'published' && addedTargetGroupIds.length > 0) {
       const updatedEvent = updated.recordset[0] as {
@@ -1016,7 +1049,8 @@ router.put('/:id', writeLimiter, authenticate, requireEventCreatorOrAdmin, async
       notificationWarning = 'Event saved. Invite notifications to newly added target groups are being sent in the background.';
     }
 
-    const responsePayload = updated.recordset[0];
+    const workflow = await getEventEmailWorkflowSettings(req.params.id);
+    const responsePayload = { ...updated.recordset[0], scheduler_email: workflow.schedulerEmail };
     res.json(notificationWarning ? { ...responsePayload, notification_warning: notificationWarning } : responsePayload);
   } catch (error) {
     if (isNotificationConfigurationError(error)) {
@@ -1578,51 +1612,8 @@ interface EventReportData {
   }>;
 }
 
-interface EventSummaryEmailConfig {
-  programLeadEmail: string | null;
-  assistantProgramLeadEmails: string[];
-}
-
-function normalizeEmail(value: string | null | undefined): string | null {
-  if (!value) {
-    return null;
-  }
-
-  const normalized = value.trim().toLowerCase();
-  if (!normalized) {
-    return null;
-  }
-
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized) ? normalized : null;
-}
-
-function normalizeEmailList(values: Array<string | null | undefined>): string[] {
-  const emails = values
-    .map((value) => normalizeEmail(value))
-    .filter((value): value is string => Boolean(value));
-
-  return Array.from(new Set(emails));
-}
-
 function formatContact(email: string | null, mobilePhone: string | null): string {
   return `email: ${email?.trim() || 'n/a'} | phone: ${mobilePhone?.trim() || 'n/a'}`;
-}
-
-function parseRecipientList(raw: unknown): string[] {
-  if (Array.isArray(raw)) {
-    return raw
-      .map((value) => (typeof value === 'string' ? value.trim().toLowerCase() : ''))
-      .filter((value) => value.length > 0);
-  }
-
-  if (typeof raw !== 'string') {
-    return [];
-  }
-
-  return raw
-    .split(',')
-    .map((value) => value.trim().toLowerCase())
-    .filter((value) => value.length > 0);
 }
 
 function csvCell(value: unknown): string {
@@ -1715,11 +1706,6 @@ function buildEventReportText(report: EventReportData): string {
     : report.responses.map((row) => `- ${row.first_name} ${row.last_name}: ${row.response}${row.response_role ? ` (${row.response_role})` : ''} | ${formatContact(row.email, row.mobile_phone)}`);
 
   return [
-    'Hi there,',
-    '',
-    'Thanks for leading this event. This summary includes everyone who signed up, the role they were assigned, and their contact information so you can coordinate prep and follow up as needed.',
-    'The Program Lead and Assistant Program Leads are CC\'d on this email and can help answer questions so the event is ready to go.',
-    '',
     `Event Record: ${report.event.title}`,
     `Event ID: ${report.event.event_id}`,
     `Status: ${report.event.status}`,
@@ -1742,34 +1728,6 @@ function buildEventReportText(report: EventReportData): string {
     '',
     `Generated at: ${new Date().toISOString()}`,
   ].join('\n');
-}
-
-async function loadEventSummaryEmailConfig(): Promise<EventSummaryEmailConfig> {
-  await ensureEventSummaryEmailConfigTable();
-  const pool = await getPool();
-  const result = await pool
-    .request()
-    .query<{
-      program_lead_email: string | null;
-      assistant_program_lead_email_1: string | null;
-      assistant_program_lead_email_2: string | null;
-    }>(
-      `SELECT TOP (1)
-         program_lead_email,
-         assistant_program_lead_email_1,
-         assistant_program_lead_email_2
-       FROM dbo.event_summary_email_config
-       ORDER BY updated_at DESC`
-    );
-
-  const row = result.recordset[0];
-  return {
-    programLeadEmail: normalizeEmail(row?.program_lead_email),
-    assistantProgramLeadEmails: normalizeEmailList([
-      row?.assistant_program_lead_email_1,
-      row?.assistant_program_lead_email_2,
-    ]),
-  };
 }
 
 async function buildEventReportPdf(report: EventReportData): Promise<Buffer> {
@@ -1940,55 +1898,73 @@ router.get('/:id/report.pdf', apiLimiter, authenticate, requireEventCreatorOrAdm
   }
 });
 
-router.post('/:id/report/email', writeLimiter, authenticate, requireEventCreatorOrAdmin, async (req, res) => {
+const sendLeadPrepSummary = async (req: Request, res: Response): Promise<void> => {
   try {
-    const report = await loadEventReportData(req.params.id);
-    if (!report) {
-      res.status(404).json({ error: 'Event not found' });
-      return;
-    }
-
-    const leadEmail = normalizeEmail(report.event.event_lead_email);
-    if (!leadEmail) {
-      res.status(400).json({ error: 'event_lead_email is required before sending the event lead summary.' });
-      return;
-    }
-
-    const summaryConfig = await loadEventSummaryEmailConfig();
-    const ccRecipients = normalizeEmailList([
-      summaryConfig.programLeadEmail,
-      ...summaryConfig.assistantProgramLeadEmails,
-    ]).filter((value) => value !== leadEmail);
-
-    const reportText = buildEventReportText(report);
     const actor = req.user?.email ?? req.user?.sub ?? 'unknown';
-    const subject = `Event Signup Summary: ${report.event.title}`;
-    const htmlBody = [
-      '<p>Hi there,</p>',
-      '<p>Thanks for leading this event. This summary includes everyone who signed up, the role they were assigned, and their contact information so you can coordinate prep and follow up as needed. The Program Lead and Assistant Program Leads are CC&#39;d on this email and can help answer questions so the event is ready to go.</p>',
-      `<p>Event signup summary generated by ${escapeHtml(actor)}.</p>`,
-      `<pre>${escapeHtml(reportText)}</pre>`,
-    ].join('');
-
-    await notificationService.sendEmail({
-      to: leadEmail,
-      cc: ccRecipients,
-      subject,
-      htmlBody,
-      textBody: reportText,
-      eventId: report.event.event_id,
-      operationType: 'event_lead_summary_email',
-      operationReason: `Sent by ${actor}`,
+    const result = await sendPreEventLeadSummaryEmail({
+      eventId: req.params.id,
+      actor,
+      operationReason: `Manual lead prep summary sent by ${actor}`,
     });
 
     res.status(200).json({
-      event_id: report.event.event_id,
-      to: leadEmail,
-      cc: ccRecipients,
+      event_id: req.params.id,
+      to: result.to,
+      cc: result.cc,
       sent: 1,
     });
   } catch (error) {
-    console.error('POST /events/:id/report/email failed', error);
+    if (error instanceof Error && error.message === 'Event not found') {
+      res.status(404).json({ error: error.message });
+      return;
+    }
+    if (error instanceof Error && error.message.includes('required before sending')) {
+      res.status(400).json({ error: error.message });
+      return;
+    }
+    console.error('POST /events/:id/lead-summary/email failed', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+router.post('/:id/lead-summary/email', writeLimiter, authenticate, requireEventCreatorOrAdmin, async (req, res) => {
+  await sendLeadPrepSummary(req, res);
+});
+
+router.post('/:id/report/email', writeLimiter, authenticate, requireEventCreatorOrAdmin, async (req, res) => {
+  await sendLeadPrepSummary(req, res);
+});
+
+router.post('/:id/participation-summary/email', writeLimiter, authenticate, requireEventCreatorOrAdmin, async (req, res) => {
+  try {
+    const actor = req.user?.email ?? req.user?.sub ?? 'unknown';
+    const result = await sendPostEventParticipationSummaryEmail({
+      eventId: req.params.id,
+      actor,
+      operationReason: `Manual participation summary sent by ${actor}`,
+    });
+
+    res.status(200).json({
+      event_id: req.params.id,
+      to: result.to,
+      cc: result.cc,
+      fallback_used: result.fallbackUsed,
+      sent: 1,
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message === 'Event not found') {
+      res.status(404).json({ error: error.message });
+      return;
+    }
+    if (error instanceof Error && error.message.includes('must be completed')) {
+      res.status(409).json({ error: error.message });
+      return;
+    }
+    if (error instanceof Error && error.message.includes('required before sending')) {
+      res.status(400).json({ error: error.message });
+      return;
+    }
+    console.error('POST /events/:id/participation-summary/email failed', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

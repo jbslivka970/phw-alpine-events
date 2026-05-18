@@ -779,7 +779,7 @@ describe('events routes', () => {
     expect(res.headers['content-disposition']).toContain('.pdf');
   });
 
-  it('POST /api/events/:id/report/email sends the event lead summary with CC recipients', async () => {
+  it('POST /api/events/:id/report/email sends the pre-event lead prep summary with CC recipients', async () => {
     const notifications = jest.requireMock('../services/notifications') as {
       notificationService: { sendEmail: jest.Mock };
     };
@@ -867,9 +867,111 @@ describe('events routes', () => {
     expect(notifications.notificationService.sendEmail).toHaveBeenCalledWith(expect.objectContaining({
       to: 'lead@example.com',
       cc: ['program@example.com', 'apl1@example.com', 'apl2@example.com'],
-      subject: 'Event Signup Summary: Fly Tying 101',
+      subject: 'Lead Prep Summary: Fly Tying 101',
       eventId: '00000000-0000-0000-0000-000000000101',
-      operationType: 'event_lead_summary_email',
+      operationType: 'event_lead_prep_email',
+    }));
+  });
+
+  it('POST /api/events/:id/participation-summary/email sends completed participation summary to scheduler with CC recipients', async () => {
+    const notifications = jest.requireMock('../services/notifications') as {
+      notificationService: { sendEmail: jest.Mock };
+    };
+
+    const queue = [
+      {
+        recordset: [
+          {
+            event_id: '00000000-0000-0000-0000-000000000101',
+            title: 'Fly Tying 101',
+            description: 'Intro event',
+            location: 'Denver',
+            event_date: new Date('2026-04-01T18:00:00.000Z'),
+            end_date: null,
+            status: 'completed',
+            event_lead_email: 'lead@example.com',
+            mentor_capacity: 1,
+            participant_capacity: 12,
+            capacity: 13,
+            created_at: new Date('2026-03-01T00:00:00.000Z'),
+            updated_at: new Date('2026-04-01T00:00:00.000Z'),
+          },
+        ],
+      },
+      {
+        recordset: [
+          {
+            assignment_id: 'assignment-1',
+            member_id: 'member-1',
+            first_name: 'Pat',
+            last_name: 'Lead',
+            email: 'pat@example.com',
+            mobile_phone: '+13035551212',
+            role: 'MENTOR',
+            assigned_at: new Date('2026-03-18T12:00:00.000Z'),
+            attended: true,
+            attendance_notes: null,
+          },
+        ],
+      },
+      {
+        recordset: [
+          {
+            response_id: 'response-1',
+            member_id: 'member-2',
+            first_name: 'Sam',
+            last_name: 'Rider',
+            email: 'sam@example.com',
+            mobile_phone: null,
+            response: 'yes',
+            response_role: 'PARTICIPANT',
+            response_channel: 'web',
+            responded_at: new Date('2026-03-19T12:00:00.000Z'),
+            notes: null,
+          },
+        ],
+      },
+      { recordset: [] },
+      {
+        recordset: [
+          {
+            scheduler_email: 'scheduler@example.com',
+            creator_email: 'creator@example.com',
+            pre_event_auto_sent_at: null,
+          },
+        ],
+      },
+      { recordset: [] },
+      {
+        recordset: [
+          {
+            program_lead_email: 'program@example.com',
+            assistant_program_lead_email_1: 'apl1@example.com',
+            assistant_program_lead_email_2: 'apl2@example.com',
+          },
+        ],
+      },
+    ];
+
+    const mockRequest = {
+      input: jest.fn().mockReturnThis(),
+      query: jest.fn().mockImplementation(async () => queue.shift() ?? { recordset: [] }),
+    };
+    (getPool as jest.Mock).mockResolvedValue({ request: () => mockRequest });
+
+    const res = await request(app).post('/api/events/00000000-0000-0000-0000-000000000101/participation-summary/email').send({});
+
+    expect(res.status).toBe(200);
+    expect(res.body.to).toBe('scheduler@example.com');
+    expect(res.body.fallback_used).toBe('scheduler');
+    expect(res.body.cc).toEqual(['program@example.com', 'apl1@example.com', 'apl2@example.com']);
+    expect(notifications.notificationService.sendEmail).toHaveBeenCalledTimes(1);
+    expect(notifications.notificationService.sendEmail).toHaveBeenCalledWith(expect.objectContaining({
+      to: 'scheduler@example.com',
+      cc: ['program@example.com', 'apl1@example.com', 'apl2@example.com'],
+      subject: 'Participation Summary: Fly Tying 101',
+      eventId: '00000000-0000-0000-0000-000000000101',
+      operationType: 'event_participation_summary_email',
     }));
   });
 

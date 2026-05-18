@@ -25,6 +25,7 @@ if (aiKey) {
 import { loadServerConfig } from './config';
 import { errorHandler, notFoundHandler } from './middleware/error';
 import { runReminderJob } from './jobs/reminderJob';
+import { runPreEventLeadSummaryJob } from './jobs/preEventLeadSummaryJob';
 import { runTavfExpiryJob } from './jobs/tavfExpiryJob';
 import { runWaitlistLifecycleJob } from './jobs/waitlistLifecycleJob';
 import { runRetentionJob } from './jobs/retentionJob';
@@ -85,6 +86,7 @@ app.use(notFoundHandler);
 app.use(errorHandler);
 
 let reminderTimer: NodeJS.Timeout | undefined;
+let preEventLeadSummaryTimer: NodeJS.Timeout | undefined;
 let tavfExpiryTimer: NodeJS.Timeout | undefined;
 let waitlistLifecycleTimer: NodeJS.Timeout | undefined;
 let retentionTimer: NodeJS.Timeout | undefined;
@@ -120,6 +122,8 @@ function scheduleJobs(): void {
 
   const reminderIntervalMs = parseMs(process.env['REMINDER_JOB_INTERVAL_MS'], 60 * 60 * 1000);
   const reminderLookAheadHours = parseMs(process.env['REMINDER_LOOKAHEAD_HOURS'], 48);
+  const preEventLeadSummaryIntervalMs = parseMs(process.env['PRE_EVENT_LEAD_SUMMARY_JOB_INTERVAL_MS'], 60 * 60 * 1000);
+  const preEventLeadSummaryLookAheadHours = parseMs(process.env['PRE_EVENT_LEAD_SUMMARY_LOOKAHEAD_HOURS'], 72);
   const tavfExpiryIntervalMs = parseMs(process.env['TAVF_EXPIRY_JOB_INTERVAL_MS'], 24 * 60 * 60 * 1000);
   const waitlistLifecycleIntervalMs = parseMs(process.env['WAITLIST_JOB_INTERVAL_MS'], 15 * 60 * 1000);
   const retentionEnabled = parseBool(process.env['RETENTION_JOB_ENABLED'], false);
@@ -130,6 +134,14 @@ function scheduleJobs(): void {
       await runReminderJob(reminderLookAheadHours);
     } catch (error) {
       console.error('[scheduler] reminder job failed', error);
+    }
+  };
+
+  const runPreEventLeadSummary = async (): Promise<void> => {
+    try {
+      await runPreEventLeadSummaryJob(preEventLeadSummaryLookAheadHours);
+    } catch (error) {
+      console.error('[scheduler] pre-event lead summary job failed', error);
     }
   };
 
@@ -158,6 +170,7 @@ function scheduleJobs(): void {
   };
 
   void runReminder();
+  void runPreEventLeadSummary();
   void runTavfExpiry();
   void runWaitlistLifecycle();
   if (retentionEnabled) {
@@ -167,6 +180,9 @@ function scheduleJobs(): void {
   reminderTimer = setInterval(() => {
     void runReminder();
   }, reminderIntervalMs);
+  preEventLeadSummaryTimer = setInterval(() => {
+    void runPreEventLeadSummary();
+  }, preEventLeadSummaryIntervalMs);
   tavfExpiryTimer = setInterval(() => {
     void runTavfExpiry();
   }, tavfExpiryIntervalMs);
@@ -184,6 +200,8 @@ function scheduleJobs(): void {
     event: 'jobs_scheduled',
     reminderIntervalMs,
     reminderLookAheadHours,
+    preEventLeadSummaryIntervalMs,
+    preEventLeadSummaryLookAheadHours,
     tavfExpiryIntervalMs,
     waitlistLifecycleIntervalMs,
     retentionEnabled,

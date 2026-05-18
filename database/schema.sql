@@ -476,6 +476,22 @@ CREATE TABLE dbo.event_summary_email_config (
     CONSTRAINT PK_event_summary_email_config PRIMARY KEY (event_summary_email_config_id)
 );
 
+IF OBJECT_ID(N'dbo.event_email_workflow', N'U') IS NULL
+CREATE TABLE dbo.event_email_workflow (
+    event_id                     UNIQUEIDENTIFIER NOT NULL,
+    scheduler_email              NVARCHAR(255)    NULL,
+    creator_email                NVARCHAR(255)    NULL,
+    pre_event_auto_sent_at       DATETIME         NULL,
+    pre_event_auto_claimed_at    DATETIME         NULL,
+    pre_event_auto_claim_token   UNIQUEIDENTIFIER NULL,
+    created_at                   DATETIME         NOT NULL DEFAULT GETUTCDATE(),
+    updated_at                   DATETIME         NOT NULL DEFAULT GETUTCDATE(),
+    updated_by                   NVARCHAR(255)    NULL,
+    CONSTRAINT PK_event_email_workflow PRIMARY KEY (event_id),
+    CONSTRAINT FK_event_email_workflow_event FOREIGN KEY (event_id)
+        REFERENCES dbo.event (event_id) ON DELETE CASCADE
+);
+
 IF OBJECT_ID(N'dbo.support_inbound_email_log', N'U') IS NULL
 CREATE TABLE dbo.support_inbound_email_log (
     support_inbound_email_log_id UNIQUEIDENTIFIER NOT NULL DEFAULT NEWID(),

@@ -126,6 +126,7 @@ interface EventFormPayload {
   invitation_stage: 'volunteer' | 'participant' | 'both'
   event_lead_name: string
   event_lead_email: string
+  scheduler_email: string
   end_date: string
   mentor_capacity: string
   participant_capacity: string
@@ -277,6 +278,7 @@ function buildDefaultEventForm(): EventFormPayload {
     invitation_stage: 'both',
     event_lead_name: '',
     event_lead_email: '',
+    scheduler_email: '',
     end_date: toLocalDateTimeInputValue(end),
     mentor_capacity: '',
     participant_capacity: '',
@@ -481,6 +483,7 @@ function payloadFromRecord(e: EventRecord): EventFormPayload {
     invitation_stage: e.invitation_stage ?? 'both',
     event_lead_name: e.event_lead_name ?? '',
     event_lead_email: e.event_lead_email ?? '',
+    scheduler_email: e.scheduler_email ?? '',
     end_date: e.end_date ? toLocalDateTimeFromApi(e.end_date) : '',
     mentor_capacity: e.mentor_capacity != null ? String(e.mentor_capacity) : '',
     participant_capacity: e.participant_capacity != null
@@ -596,6 +599,7 @@ interface FormFieldErrors {
   end_date?: string
   end_time?: string
   event_lead_email?: string
+  scheduler_email?: string
   mentor_capacity?: string
   participant_capacity?: string
 }
@@ -880,6 +884,13 @@ function EventFormModal({ initial, groups, onSave, onGenerateAiDescriptionPrevie
       }
     }
 
+    if (form.scheduler_email.trim()) {
+      const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+      if (!emailPattern.test(form.scheduler_email.trim().toLowerCase())) {
+        nextErrors.scheduler_email = 'Enter a valid email address.'
+      }
+    }
+
     const eventDate = toCanonicalDate(eventDateParts.date)
     const eventTime = toCanonicalTime(eventDateParts.time)
     if (!eventDate) {
@@ -1082,6 +1093,13 @@ function EventFormModal({ initial, groups, onSave, onGenerateAiDescriptionPrevie
               <input className="form-input" type="email" value={form.event_lead_email} onChange={e => set('event_lead_email', e.target.value)} placeholder="lead@example.org" />
               <p className="form-field-hint">RSVP confirmations and event notifications will CC this address.</p>
               {fieldErrors.event_lead_email && <p className="form-field-error">{fieldErrors.event_lead_email}</p>}
+            </div>
+
+            <div className="form-field form-field--full">
+              <label className="form-label">Scheduler Email</label>
+              <input className="form-input" type="email" value={form.scheduler_email} onChange={e => set('scheduler_email', e.target.value)} placeholder="scheduler@example.org" />
+              <p className="form-field-hint">Used for the post-event participation summary after the event is closed. If blank, the system falls back to the event creator email when available.</p>
+              {fieldErrors.scheduler_email && <p className="form-field-error">{fieldErrors.scheduler_email}</p>}
             </div>
 
             <div className="form-field">
@@ -1380,6 +1398,7 @@ function EventsPage() {
         invitation_stage: form.invitation_stage,
         event_lead_name: form.event_lead_name.trim() || null,
         event_lead_email: form.event_lead_email.trim().toLowerCase() || null,
+        scheduler_email: form.scheduler_email.trim().toLowerCase() || null,
         end_date: form.end_date || null,
         mentor_capacity: mentorCapacity,
         participant_capacity: participantCapacity,
