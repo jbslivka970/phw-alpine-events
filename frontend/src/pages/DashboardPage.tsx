@@ -111,7 +111,6 @@ function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [eventActionError, setEventActionError] = useState<string | null>(null);
-  const [eventEmailingId, setEventEmailingId] = useState<string | null>(null);
   const [upcoming, setUpcoming] = useState<EventRecord[]>([]);
   const [myRsvps, setMyRsvps] = useState<DashboardRsvp[]>([]);
   const [openPostings, setOpenPostings] = useState<TavfPosting[]>([]);
@@ -300,18 +299,6 @@ function DashboardPage() {
     }
   }
 
-  async function emailEventRecord(event: EventRecord): Promise<void> {
-    setEventEmailingId(event.event_id);
-    try {
-      await eventsApi.emailReport(event.event_id);
-      setEventActionError(null);
-    } catch {
-      setEventActionError('Unable to email event record right now.');
-    } finally {
-      setEventEmailingId(null);
-    }
-  }
-
   return (
     <div className="phw-dashboard" style={{ maxWidth: 1040, margin: '0 auto' }}>
       <HeroBanner userName={displayName} />
@@ -420,9 +407,9 @@ function DashboardPage() {
                               <span className="phw-event-action-pill__icon" aria-hidden="true">PF</span>
                               <span className="phw-event-action-pill__label">PDF</span>
                             </button>
-                            <button className="btn btn--outline btn--sm phw-event-action-pill" disabled={eventEmailingId === event.event_id} onClick={() => void emailEventRecord(event)}>
-                              <span className="phw-event-action-pill__icon" aria-hidden="true">EM</span>
-                              <span className="phw-event-action-pill__label">{eventEmailingId === event.event_id ? 'Emailing...' : 'Lead Email'}</span>
+                            <button className="btn btn--outline btn--sm phw-event-action-pill" onClick={() => navigate(`/events/${event.event_id}/assign`)}>
+                              <span className="phw-event-action-pill__icon" aria-hidden="true">MG</span>
+                              <span className="phw-event-action-pill__label">Manage</span>
                             </button>
                           </>
                         )}

@@ -1833,13 +1833,13 @@ function EventsPage() {
                     <button
                       className="btn btn--outline btn--sm"
                       onClick={() => {
-                        if (!ensureCompletedForReport(event, 'Email Record')) return
+                        if (!ensureCompletedForReport(event, 'Lead Summary')) return
                         void emailEventRecord(event)
                       }}
                       disabled={reportEmailingEventId === event.event_id}
-                      title={event.status !== 'completed' ? 'Set status to Completed to enable event record email' : undefined}
+                      title={event.status !== 'completed' ? 'Set status to Completed to enable the lead summary email' : undefined}
                     >
-                      {reportEmailingEventId === event.event_id ? 'Emailing…' : 'Email Record'}
+                      {reportEmailingEventId === event.event_id ? 'Sending…' : 'Lead Summary'}
                     </button>
                   )}
 

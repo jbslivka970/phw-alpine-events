@@ -1,3 +1,4 @@
+import { ensureEventSummaryEmailConfigTable } from '../services/eventSummaryEmailConfig';
 import { Router } from 'express';
 import { randomUUID } from 'crypto';
 import { getPool, sql } from '../db';
@@ -159,6 +160,7 @@ async function getEventSummaryEmailConfig(): Promise<{
   updatedAt: string | null;
   updatedBy: string | null;
 }> {
+  await ensureEventSummaryEmailConfigTable();
   const pool = await getPool();
   const result = await pool.request().query<EventSummaryEmailConfigRow>(
     `SELECT TOP (1)
@@ -191,6 +193,7 @@ async function upsertEventSummaryEmailConfig(args: {
   assistantProgramLeadEmail2: string | null;
   updatedBy: string;
 }): Promise<void> {
+  await ensureEventSummaryEmailConfigTable();
   const pool = await getPool();
   await pool
     .request()

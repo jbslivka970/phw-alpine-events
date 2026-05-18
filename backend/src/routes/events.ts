@@ -1,3 +1,4 @@
+import { ensureEventSummaryEmailConfigTable } from '../services/eventSummaryEmailConfig';
 import { Router } from 'express';
 import crypto from 'crypto';
 import PDFDocument from 'pdfkit';
@@ -1744,6 +1745,7 @@ function buildEventReportText(report: EventReportData): string {
 }
 
 async function loadEventSummaryEmailConfig(): Promise<EventSummaryEmailConfig> {
+  await ensureEventSummaryEmailConfigTable();
   const pool = await getPool();
   const result = await pool
     .request()

@@ -838,6 +838,9 @@ describe('events routes', () => {
         ],
       },
       {
+        recordset: [],
+      },
+      {
         recordset: [
           {
             program_lead_email: 'program@example.com',

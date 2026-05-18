@@ -222,6 +222,7 @@ function ListItem({
   onOpenEvent: (event: CalendarEvent) => void;
   onActionError: (message: string) => void;
 }) {
+  const navigate = useNavigate();
   const start = isoToDate(event.event_date);
   const dateStr = start.toLocaleDateString(undefined, {
     weekday: 'short', month: 'short', day: 'numeric',
@@ -252,14 +253,6 @@ function ListItem({
       downloadBlobFile(blob, headers, `event-report-${event.event_id}.txt`);
     } catch {
       onActionError('Unable to download event record summary right now.');
-    }
-  }
-
-  async function emailReport(): Promise<void> {
-    try {
-      await eventsApi.emailReport(event.event_id);
-    } catch {
-      onActionError('Unable to email event record right now.');
     }
   }
 
@@ -296,8 +289,8 @@ function ListItem({
             <button className="btn btn--outline btn--sm" disabled={event.status !== 'completed'} onClick={() => void downloadReportText()}>
               Record
             </button>
-            <button className="btn btn--outline btn--sm" onClick={() => void emailReport()}>
-              Lead Email
+            <button className="btn btn--outline btn--sm" onClick={() => navigate(`/events/${event.event_id}/assign`)}>
+              Manage
             </button>
           </>
         )}
