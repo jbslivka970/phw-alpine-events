@@ -600,7 +600,7 @@ jobs:
 
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 60
     needs:
     - build
     - e2e_browser_launch_smoke_local
@@ -615,7 +615,34 @@ jobs:
     steps:
     - uses: actions/checkout@v5
 
+    - name: Check for stale main deploy
+      id: stale_guard
+      env:
+        GITHUB_SHA: ${{ github.sha }}
+      run: |
+        LATEST_MAIN_SHA="$(git ls-remote origin refs/heads/main | awk '{print $1}')"
+        if [ -z "$LATEST_MAIN_SHA" ]; then
+          echo "Unable to resolve origin/main head; proceeding with deploy."
+          echo "stale_run=0" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        echo "Current run SHA: $GITHUB_SHA"
+        echo "Latest main SHA: $LATEST_MAIN_SHA"
+        if [ "$LATEST_MAIN_SHA" != "$GITHUB_SHA" ]; then
+          echo "Newer main commit detected; skipping stale deploy run."
+          echo "stale_run=1" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        echo "stale_run=0" >> "$GITHUB_OUTPUT"
+
+    - name: Skip stale deploy run
+      if: ${{ steps.stale_guard.outputs.stale_run == '1' }}
+      run: echo "Skipping deploy for stale run ${{ github.run_id }}; a newer main commit is queued or running."
+
     - name: Setup Node.js
+      if: ${{ steps.stale_guard.outputs.stale_run != '1' }}
       uses: actions/setup-node@v5
       with:
         node-version: '22'
@@ -623,30 +650,46 @@ jobs:
         cache-dependency-path: backend/package-lock.json
 
     - name: Install backend dependencies
+      if: ${{ steps.stale_guard.outputs.stale_run != '1' }}
       run: cd backend && npm ci
 
     - name: Build backend
+      if: ${{ steps.stale_guard.outputs.stale_run != '1' }}
       run: cd backend && npm run build
 
-    - name: Prune backend dev dependencies
-      run: cd backend && npm prune --omit=dev
-
-    - name: Prepare deployment package
+    - name: Prepare deployment package (mode-aware)
+      if: ${{ steps.stale_guard.outputs.stale_run != '1' }}
+      env:
+        BACKEND_DEPLOY_INCLUDE_NODE_MODULES: ${{ vars.BACKEND_DEPLOY_INCLUDE_NODE_MODULES }}
       run: |
         rm -rf deploy-package
         rm -f release.zip
         mkdir -p deploy-package
         cp -R backend/dist deploy-package/dist
-        cp -R backend/node_modules deploy-package/node_modules
         cp backend/package.json deploy-package/package.json
         cp backend/package-lock.json deploy-package/package-lock.json
         cp backend/server.js deploy-package/server.js
         cp backend/web.config deploy-package/web.config
+
+        if [ "${BACKEND_DEPLOY_INCLUDE_NODE_MODULES:-0}" = "1" ]; then
+          echo "Using legacy backend packaging (includes node_modules)."
+          (cd backend && npm prune --omit=dev)
+          cp -R backend/node_modules deploy-package/node_modules
+        else
+          echo "Using slim backend packaging (package-manager restore during deploy)."
+          cat > deploy-package/.deployment <<'EOF'
+          [config]
+          SCM_DO_BUILD_DURING_DEPLOYMENT=true
+          ENABLE_ORYX_BUILD=true
+          EOF
+        fi
+
         cd deploy-package
         zip -r ../release.zip .
 
     - name: Determine backend deploy mode
       id: backend_deploy_mode
+      if: ${{ steps.stale_guard.outputs.stale_run != '1' }}
       env:
         BACKEND_BLUE_GREEN_ENABLED: ${{ vars.BACKEND_BLUE_GREEN_ENABLED }}
         AZURE_BACKEND_RESOURCE_GROUP: ${{ vars.AZURE_BACKEND_RESOURCE_GROUP }}
@@ -667,7 +710,7 @@ jobs:
         fi
 
     - name: Azure CLI login (backend blue-green)
-      if: ${{ steps.backend_deploy_mode.outputs.use_blue_green == '1' }}
+      if: ${{ steps.stale_guard.outputs.stale_run != '1' && steps.backend_deploy_mode.outputs.use_blue_green == '1' }}
       env:
         AZURE_BACKEND_DEPLOY_CREDENTIALS: ${{ secrets.AZURE_BACKEND_DEPLOY_CREDENTIALS }}
       run: |
@@ -717,7 +760,7 @@ jobs:
       # source-of-truth flag.  Idempotent: re-applying does not change values.
       # If the secrets are not provided we leave existing values alone (blank
       # secret => skip, never wipe).
-      if: ${{ steps.backend_deploy_mode.outputs.use_blue_green == '1' }}
+      if: ${{ steps.stale_guard.outputs.stale_run != '1' && steps.backend_deploy_mode.outputs.use_blue_green == '1' }}
       env:
         AZURE_WEBAPP_NAME: ${{ vars.AZURE_WEBAPP_NAME }}
         AZURE_BACKEND_RESOURCE_GROUP: ${{ vars.AZURE_BACKEND_RESOURCE_GROUP }}
@@ -756,7 +799,7 @@ jobs:
         echo "AUTHZ slot-sticky settings applied."
 
     - name: Deploy backend package to staging slot
-      if: ${{ steps.backend_deploy_mode.outputs.use_blue_green == '1' }}
+      if: ${{ steps.stale_guard.outputs.stale_run != '1' && steps.backend_deploy_mode.outputs.use_blue_green == '1' }}
       env:
         AZURE_WEBAPP_NAME: ${{ vars.AZURE_WEBAPP_NAME }}
         AZURE_BACKEND_RESOURCE_GROUP: ${{ vars.AZURE_BACKEND_RESOURCE_GROUP }}
@@ -810,7 +853,7 @@ jobs:
         exit 1
 
     - name: Wait for staging slot health before swap
-      if: ${{ steps.backend_deploy_mode.outputs.use_blue_green == '1' }}
+      if: ${{ steps.stale_guard.outputs.stale_run != '1' && steps.backend_deploy_mode.outputs.use_blue_green == '1' }}
       env:
         AZURE_WEBAPP_NAME: ${{ vars.AZURE_WEBAPP_NAME }}
         AZURE_BACKEND_SLOT_NAME: ${{ vars.AZURE_BACKEND_SLOT_NAME }}
@@ -842,7 +885,7 @@ jobs:
         exit 1
 
     - name: Run staging slot core compliance smokes
-      if: ${{ steps.backend_deploy_mode.outputs.use_blue_green == '1' }}
+      if: ${{ steps.stale_guard.outputs.stale_run != '1' && steps.backend_deploy_mode.outputs.use_blue_green == '1' }}
       env:
         AZURE_WEBAPP_NAME: ${{ vars.AZURE_WEBAPP_NAME }}
         AZURE_BACKEND_SLOT_NAME: ${{ vars.AZURE_BACKEND_SLOT_NAME }}
@@ -876,7 +919,7 @@ jobs:
         fi
 
     - name: Swap staging slot to production
-      if: ${{ steps.backend_deploy_mode.outputs.use_blue_green == '1' }}
+      if: ${{ steps.stale_guard.outputs.stale_run != '1' && steps.backend_deploy_mode.outputs.use_blue_green == '1' }}
       env:
         AZURE_WEBAPP_NAME: ${{ vars.AZURE_WEBAPP_NAME }}
         AZURE_BACKEND_RESOURCE_GROUP: ${{ vars.AZURE_BACKEND_RESOURCE_GROUP }}
@@ -929,7 +972,7 @@ jobs:
 
     - name: Wait for production health after swap
       id: post_swap_health
-      if: ${{ steps.backend_deploy_mode.outputs.use_blue_green == '1' }}
+      if: ${{ steps.stale_guard.outputs.stale_run != '1' && steps.backend_deploy_mode.outputs.use_blue_green == '1' }}
       continue-on-error: true
       env:
         AZURE_WEBAPP_NAME: ${{ vars.AZURE_WEBAPP_NAME }}
@@ -961,7 +1004,7 @@ jobs:
 
     - name: Run production core smokes after swap
       id: post_swap_smoke
-      if: ${{ steps.backend_deploy_mode.outputs.use_blue_green == '1' }}
+      if: ${{ steps.stale_guard.outputs.stale_run != '1' && steps.backend_deploy_mode.outputs.use_blue_green == '1' }}
       continue-on-error: true
       env:
         AZURE_WEBAPP_NAME: ${{ vars.AZURE_WEBAPP_NAME }}
@@ -995,7 +1038,7 @@ jobs:
         fi
 
     - name: Auto-rollback swap back on post-swap failure
-      if: ${{ steps.backend_deploy_mode.outputs.use_blue_green == '1' && (steps.post_swap_health.outcome == 'failure' || steps.post_swap_smoke.outcome == 'failure') }}
+      if: ${{ steps.stale_guard.outputs.stale_run != '1' && steps.backend_deploy_mode.outputs.use_blue_green == '1' && (steps.post_swap_health.outcome == 'failure' || steps.post_swap_smoke.outcome == 'failure') }}
       env:
         AZURE_WEBAPP_NAME: ${{ vars.AZURE_WEBAPP_NAME }}
         AZURE_BACKEND_RESOURCE_GROUP: ${{ vars.AZURE_BACKEND_RESOURCE_GROUP }}
@@ -1033,13 +1076,13 @@ jobs:
         exit 1
 
     - name: Fail deploy after rollback
-      if: ${{ steps.backend_deploy_mode.outputs.use_blue_green == '1' && (steps.post_swap_health.outcome == 'failure' || steps.post_swap_smoke.outcome == 'failure') }}
+      if: ${{ steps.stale_guard.outputs.stale_run != '1' && steps.backend_deploy_mode.outputs.use_blue_green == '1' && (steps.post_swap_health.outcome == 'failure' || steps.post_swap_smoke.outcome == 'failure') }}
       run: |
         echo "::error::Blue-green deploy swapped to production but post-swap checks failed. Auto-rollback executed."
         exit 1
 
     - name: Deploy to Azure via Kudu zipdeploy
-      if: ${{ steps.backend_deploy_mode.outputs.use_blue_green != '1' }}
+      if: ${{ steps.stale_guard.outputs.stale_run != '1' && steps.backend_deploy_mode.outputs.use_blue_green != '1' }}
       env:
         AZURE_WEBAPP_NAME: ${{ vars.AZURE_WEBAPP_NAME }}
         AZUREAPPSERVICE_PUBLISHPROFILE: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE }}
