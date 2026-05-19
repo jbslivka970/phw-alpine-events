@@ -141,7 +141,7 @@ describe('EventsPage flow pattern', () => {
     mockedMembersApi.list.mockResolvedValue({
       data: [
         {
-          member_id: '00000000-0000-0000-0000-000000000201',
+          member_id: '11111111-1111-4111-8111-111111111111',
           first_name: 'Lead',
           last_name: 'Member',
           email: 'lead.member@example.com',
@@ -202,7 +202,7 @@ describe('EventsPage flow pattern', () => {
     expect(leadAlsoVolunteer).toBeDisabled();
 
     const leadSelect = getSelectByLabel('Event Lead');
-    await userEvent.selectOptions(leadSelect, '00000000-0000-0000-0000-000000000201');
+    await userEvent.selectOptions(leadSelect, '11111111-1111-4111-8111-111111111111');
 
     expect(leadAlsoVolunteer).not.toBeDisabled();
     await userEvent.click(leadAlsoVolunteer);
@@ -212,7 +212,7 @@ describe('EventsPage flow pattern', () => {
 
     await waitFor(() => {
       expect(mockedEventsApi.create).toHaveBeenCalledWith(expect.objectContaining({
-        event_lead_member_id: '00000000-0000-0000-0000-000000000201',
+        event_lead_member_id: '11111111-1111-4111-8111-111111111111',
         event_lead_secondary_roles: ['MENTOR'],
       }));
     });
