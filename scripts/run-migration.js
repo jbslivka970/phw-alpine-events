@@ -48,7 +48,6 @@ const migrationSql = fs.readFileSync(
 );
 
 (async () => {
-(async () => {
   console.log('Connecting to:', env.DB_HOST, '/', env.DB_NAME);
   // Split at the phase marker so SQL Server compiles each batch independently.
   // Phase 1 adds columns; Phase 2 can then safely reference them.

@@ -10,19 +10,19 @@ const fs = require('fs');
   const searchTerms = ['ImaTestAccount', 'sumco75@gmail.com', 'phwalpine.onmicrosoft.com', 'JB Test3'];
 
   async function checkPage(url, label) {
-    console.log(\`--- Visiting \${label}: \${url} ---\`);
+    console.log(`--- Visiting ${label}: ${url} ---`);
     try {
       await page.goto(url, { waitUntil: 'networkidle' });
       const body = await page.innerText('body');
       
       searchTerms.forEach(term => {
         if (body.includes(term)) {
-          console.log(\`MATCH FOUND: "\${term}" on \${label}\`);
+          console.log(`MATCH FOUND: "${term}" on ${label}`);
         }
       });
 
       // Body snippet (first 500 chars)
-      console.log(\`Snippet: \${body.substring(0, 500).replace(/\n+/g, ' ')}...\`);
+      console.log(`Snippet: ${body.substring(0, 500).replace(/\n+/g, ' ')}...`);
 
       // Find Admin/User links
       const links = await page.$$eval('a, button', elements => 
@@ -32,10 +32,10 @@ const fs = require('fs');
       );
       if (links.length > 0) {
         console.log('Relevant Links/Buttons:');
-        links.forEach(l => console.log(\` - [\${l.text.trim()}] (\${l.href})\`));
+        links.forEach(l => console.log(` - [${l.text.trim()}] (${l.href})`));
       }
     } catch (e) {
-      console.log(\`Error visiting \${url}: \${e.message}\`);
+      console.log(`Error visiting ${url}: ${e.message}`);
     }
     console.log('');
   }
