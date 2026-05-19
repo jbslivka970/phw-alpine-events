@@ -1,7 +1,30 @@
 #!/usr/bin/env node
 import fs from 'node:fs';
 import path from 'node:path';
-import { chromium } from 'playwright';
+
+let chromiumLoader = null;
+
+async function getChromium() {
+  if (!chromiumLoader) {
+    chromiumLoader = (async () => {
+      try {
+        const playwright = await import('playwright');
+        return playwright.chromium;
+      } catch {
+        try {
+          const playwrightTest = await import('@playwright/test');
+          return playwrightTest.chromium;
+        } catch {
+          throw new Error(
+            'Playwright browser runtime is unavailable. Install either "playwright" or "@playwright/test" before running browser token refresh.'
+          );
+        }
+      }
+    })();
+  }
+
+  return chromiumLoader;
+}
 
 const args = new Set(process.argv.slice(2));
 const softSkip = args.has('--soft-skip');
@@ -453,6 +476,7 @@ async function completePasswordStep(authPage, password) {
 }
 
 async function loginAndCapture({ username, password, name, statePath }) {
+  const chromium = await getChromium();
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext();
   const page = await context.newPage();
