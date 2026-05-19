@@ -6,6 +6,7 @@ import { groupsApi } from '../api/groups'
 import type { GroupRecord } from '../api/groups'
 import { useAuth } from '../hooks/useAuth'
 import { membersApi } from '../api/members'
+import type { MemberRecord } from '../api/members'
 import LoadingSkeleton from '../components/LoadingSkeleton'
 import { toUserErrorMessage } from '../utils/errorMessage'
 
@@ -124,8 +125,8 @@ interface EventFormPayload {
   location: string
   photo_url: string
   invitation_stage: 'volunteer' | 'participant' | 'both'
-  event_lead_name: string
-  event_lead_email: string
+  event_lead_member_id: string
+  event_lead_secondary_roles: Array<'MENTOR' | 'PARTICIPANT'>
   scheduler_email: string
   end_date: string
   mentor_capacity: string
@@ -137,6 +138,13 @@ interface EventFormPayload {
 type RsvpDraft = {
   response: 'yes' | 'maybe' | 'no'
   role: 'MENTOR' | 'PARTICIPANT'
+}
+
+type LeadDirectoryMember = {
+  member_id: string
+  first_name: string
+  last_name: string
+  email: string
 }
 
 const DEFAULT_RSVP_DRAFT: RsvpDraft = {
@@ -276,8 +284,8 @@ function buildDefaultEventForm(): EventFormPayload {
     location: '',
     photo_url: '',
     invitation_stage: 'both',
-    event_lead_name: '',
-    event_lead_email: '',
+    event_lead_member_id: '',
+    event_lead_secondary_roles: [],
     scheduler_email: '',
     end_date: toLocalDateTimeInputValue(end),
     mentor_capacity: '',
@@ -481,8 +489,8 @@ function payloadFromRecord(e: EventRecord): EventFormPayload {
     location: e.location ?? '',
     photo_url: e.photo_url ?? '',
     invitation_stage: e.invitation_stage ?? 'both',
-    event_lead_name: e.event_lead_name ?? '',
-    event_lead_email: e.event_lead_email ?? '',
+    event_lead_member_id: e.event_lead_member_id ?? '',
+    event_lead_secondary_roles: e.event_lead_secondary_roles ?? [],
     scheduler_email: e.scheduler_email ?? '',
     end_date: e.end_date ? toLocalDateTimeFromApi(e.end_date) : '',
     mentor_capacity: e.mentor_capacity != null ? String(e.mentor_capacity) : '',
@@ -577,6 +585,7 @@ function RsvpPanel({ eventId, onClose }: { eventId: string; onClose: () => void 
 interface EventFormModalProps {
   initial: EventFormPayload
   groups: GroupRecord[]
+  leadMembers: LeadDirectoryMember[]
   onSave: (data: EventFormPayload) => Promise<void>
   onGenerateAiDescriptionPreview: (
     payload: { title: string; description: string; event_date?: string; location?: string | null; event_lead_name?: string | null },
@@ -594,17 +603,17 @@ interface EventFormModalProps {
 
 interface FormFieldErrors {
   title?: string
+  event_lead_member_id?: string
   event_date?: string
   event_time?: string
   end_date?: string
   end_time?: string
-  event_lead_email?: string
   scheduler_email?: string
   mentor_capacity?: string
   participant_capacity?: string
 }
 
-function EventFormModal({ initial, groups, onSave, onGenerateAiDescriptionPreview, onGenerateAiDraftPreview, onCancel, saving, error, isEdit }: EventFormModalProps) {
+function EventFormModal({ initial, groups, leadMembers, onSave, onGenerateAiDescriptionPreview, onGenerateAiDraftPreview, onCancel, saving, error, isEdit }: EventFormModalProps) {
   const [form, setForm] = useState<EventFormPayload>(initial)
   const [endDateManuallyEdited, setEndDateManuallyEdited] = useState<boolean>(isEdit)
   const [fieldErrors, setFieldErrors] = useState<FormFieldErrors>({})
@@ -626,10 +635,26 @@ function EventFormModal({ initial, groups, onSave, onGenerateAiDescriptionPrevie
   const [validatingLocation, setValidatingLocation] = useState(false)
   const eventDateParts = splitDateTime(form.event_date)
   const endDateParts = splitDateTime(form.end_date)
+  const selectedLeadMember = leadMembers.find((member) => member.member_id === form.event_lead_member_id) ?? null
+  const aiLeadName = selectedLeadMember
+    ? `${selectedLeadMember.first_name} ${selectedLeadMember.last_name}`.trim()
+    : null
 
   function set(field: keyof EventFormPayload, value: string) {
     setForm(f => ({ ...f, [field]: value }))
     setFieldErrors(prev => ({ ...prev, [field]: undefined }))
+  }
+
+  function toggleLeadSecondaryRole(role: 'MENTOR' | 'PARTICIPANT') {
+    setForm((current) => {
+      const hasRole = current.event_lead_secondary_roles.includes(role)
+      return {
+        ...current,
+        event_lead_secondary_roles: hasRole
+          ? current.event_lead_secondary_roles.filter((existing) => existing !== role)
+          : [...current.event_lead_secondary_roles, role],
+      }
+    })
   }
 
   function setDateTimeField(field: 'event_date' | 'end_date', date: string, time: string) {
@@ -796,7 +821,7 @@ function EventFormModal({ initial, groups, onSave, onGenerateAiDescriptionPrevie
         description,
         event_date: eventDateForAi,
         location: form.location.trim() || null,
-        event_lead_name: form.event_lead_name.trim() || null,
+        event_lead_name: aiLeadName,
       }, aiTone)
       setAiDescriptionProvider(draft.provider)
       setAiDescriptionDraft(draft.polished_description)
@@ -822,7 +847,7 @@ function EventFormModal({ initial, groups, onSave, onGenerateAiDescriptionPrevie
         event_date: toApiUtcDateTime(normalizedDate),
         location: form.location.trim() || null,
         description: aiDescriptionDraft.trim() || form.description.trim() || null,
-        event_lead_name: form.event_lead_name.trim() || null,
+        event_lead_name: aiLeadName,
       }, aiTone)
       setAiDraftResult(draft)
       setAiSubjectDraft(draft.subject)
@@ -877,18 +902,15 @@ function EventFormModal({ initial, groups, onSave, onGenerateAiDescriptionPrevie
       nextErrors.title = 'Title is required.'
     }
 
-    if (form.event_lead_email.trim()) {
-      const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-      if (!emailPattern.test(form.event_lead_email.trim().toLowerCase())) {
-        nextErrors.event_lead_email = 'Enter a valid email address.'
-      }
-    }
-
     if (form.scheduler_email.trim()) {
       const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
       if (!emailPattern.test(form.scheduler_email.trim().toLowerCase())) {
         nextErrors.scheduler_email = 'Enter a valid email address.'
       }
+    }
+
+    if (!form.event_lead_member_id && form.event_lead_secondary_roles.length > 0) {
+      nextErrors.event_lead_member_id = 'Choose an event lead before selecting lead secondary roles.'
     }
 
     const eventDate = toCanonicalDate(eventDateParts.date)
@@ -939,6 +961,7 @@ function EventFormModal({ initial, groups, onSave, onGenerateAiDescriptionPrevie
     await onSave({
       ...form,
       title: form.title.trim(),
+      event_lead_secondary_roles: form.event_lead_member_id ? form.event_lead_secondary_roles : [],
       event_date: toApiUtcDateTime(joinDateTime(eventDate!, eventTime!)),
       end_date: endHasInput ? toApiUtcDateTime(joinDateTime(canonicalEndDate!, canonicalEndTime!)) : '',
       mentor_capacity: mentorCapacity == null ? '' : String(mentorCapacity),
@@ -1084,15 +1107,53 @@ function EventFormModal({ initial, groups, onSave, onGenerateAiDescriptionPrevie
             </div>
 
             <div className="form-field">
-              <label className="form-label">Event Lead Name</label>
-              <input className="form-input" value={form.event_lead_name} onChange={e => set('event_lead_name', e.target.value)} />
+              <label className="form-label">Event Lead</label>
+              <select
+                className="form-input"
+                value={form.event_lead_member_id}
+                onChange={(e) => {
+                  const memberId = e.target.value
+                  setForm((current) => ({
+                    ...current,
+                    event_lead_member_id: memberId,
+                    event_lead_secondary_roles: memberId ? current.event_lead_secondary_roles : [],
+                  }))
+                  setFieldErrors((prev) => ({ ...prev, event_lead_member_id: undefined }))
+                }}
+              >
+                <option value="">None</option>
+                {leadMembers.map((member) => (
+                  <option key={member.member_id} value={member.member_id}>
+                    {member.first_name} {member.last_name} ({member.email})
+                  </option>
+                ))}
+              </select>
+              {fieldErrors.event_lead_member_id && <p className="form-field-error">{fieldErrors.event_lead_member_id}</p>}
             </div>
 
             <div className="form-field form-field--full">
-              <label className="form-label">Event Lead Email</label>
-              <input className="form-input" type="email" value={form.event_lead_email} onChange={e => set('event_lead_email', e.target.value)} placeholder="lead@example.org" />
-              <p className="form-field-hint">RSVP confirmations and event notifications will CC this address.</p>
-              {fieldErrors.event_lead_email && <p className="form-field-error">{fieldErrors.event_lead_email}</p>}
+              <label className="form-label">Event Lead Secondary Roles</label>
+              <div className="group-checks">
+                <label className="group-check">
+                  <input
+                    type="checkbox"
+                    checked={form.event_lead_secondary_roles.includes('MENTOR')}
+                    onChange={() => toggleLeadSecondaryRole('MENTOR')}
+                    disabled={!form.event_lead_member_id}
+                  />
+                  Lead also serves as Volunteer
+                </label>
+                <label className="group-check">
+                  <input
+                    type="checkbox"
+                    checked={form.event_lead_secondary_roles.includes('PARTICIPANT')}
+                    onChange={() => toggleLeadSecondaryRole('PARTICIPANT')}
+                    disabled={!form.event_lead_member_id}
+                  />
+                  Lead also serves as Participant
+                </label>
+              </div>
+              <p className="form-field-hint">Leave both unchecked when the lead should be LEAD-only.</p>
             </div>
 
             <div className="form-field form-field--full">
@@ -1295,6 +1356,7 @@ function EventsPage() {
 
   const [events, setEvents] = useState<EventRecord[]>([])
   const [groups, setGroups] = useState<GroupRecord[]>([])
+  const [leadMembers, setLeadMembers] = useState<LeadDirectoryMember[]>([])
   const [filter, setFilter] = useState<EventRecord['status'] | 'all'>('all')
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
@@ -1347,6 +1409,17 @@ function EventsPage() {
     void loadEvents()
     if (canEdit) {
       groupsApi.list().then(setGroups).catch(() => setGroups([]))
+      membersApi.list({ page: 1, pageSize: 200, isActive: true })
+        .then((response) => {
+          const rows = response.data.map((member: MemberRecord) => ({
+            member_id: member.member_id,
+            first_name: member.first_name,
+            last_name: member.last_name,
+            email: member.email,
+          }))
+          setLeadMembers(rows)
+        })
+        .catch(() => setLeadMembers([]))
     }
   }, [loadEvents, canEdit])
 
@@ -1396,8 +1469,8 @@ function EventsPage() {
         location: form.location || null,
         photo_url: form.photo_url.trim() || null,
         invitation_stage: form.invitation_stage,
-        event_lead_name: form.event_lead_name.trim() || null,
-        event_lead_email: form.event_lead_email.trim().toLowerCase() || null,
+        event_lead_member_id: form.event_lead_member_id || null,
+        event_lead_secondary_roles: form.event_lead_member_id ? form.event_lead_secondary_roles : [],
         scheduler_email: form.scheduler_email.trim().toLowerCase() || null,
         end_date: form.end_date || null,
         mentor_capacity: mentorCapacity,
@@ -1525,7 +1598,7 @@ function EventsPage() {
         .map(t => t.group_id)
         .filter((id): id is string => typeof id === 'string')
       setEditInitialTargets(groupIds)
-      setEditTarget(event)
+      setEditTarget(detail)
       setShowForm(true)
     } catch (e: unknown) {
       setFormError(toUserErrorMessage(e, 'Failed to load event details.'))
@@ -1912,6 +1985,7 @@ function EventsPage() {
         <EventFormModal
           initial={editTarget ? { ...payloadFromRecord(editTarget), notification_targets: editInitialTargets } : buildDefaultEventForm()}
           groups={groups}
+          leadMembers={leadMembers}
           onSave={handleSave}
           onGenerateAiDescriptionPreview={generateAiDescriptionPreview}
           onGenerateAiDraftPreview={generateAiDraftPreview}

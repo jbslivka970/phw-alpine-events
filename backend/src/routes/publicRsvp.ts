@@ -45,6 +45,7 @@ router.get('/', apiLimiter, async (req, res) => {
         title: string;
         description: string | null;
         location: string | null;
+        event_lead_member_id: string | null;
         event_date: string;
         end_date: string | null;
         capacity: number | null;
@@ -59,6 +60,7 @@ router.get('/', apiLimiter, async (req, res) => {
             e.title,
             e.description,
             e.location,
+            e.event_lead_member_id,
             e.event_date,
             e.end_date,
             e.capacity,
@@ -81,6 +83,7 @@ router.get('/', apiLimiter, async (req, res) => {
 
     res.json({
       ...row,
+      is_event_lead_member: row.event_lead_member_id === token.memberId,
       inferred_response_role: (await inferResponseRoleForMember({
         memberId: token.memberId,
         groupContextId: token.groupContextId ?? null,
@@ -96,6 +99,18 @@ router.get('/', apiLimiter, async (req, res) => {
 router.post('/', writeLimiter, async (req, res) => {
   try {
     const token = verifyRsvpToken(getToken(req.query));
+    const pool = await getPool();
+    const eventLeadResult = await pool
+      .request()
+      .input('event_id', sql.UniqueIdentifier, token.eventId)
+      .query<{ event_lead_member_id: string | null }>('SELECT event_lead_member_id FROM event WHERE event_id = @event_id');
+
+    const eventLeadMemberId = eventLeadResult.recordset[0]?.event_lead_member_id ?? null;
+    if (eventLeadMemberId && eventLeadMemberId === token.memberId) {
+      res.status(409).json({ error: 'Event lead RSVP changes are managed by event coordinators.' });
+      return;
+    }
+
     const response = (req.body?.response as string | undefined)?.toLowerCase();
     const parsedResponseRole = parseResponseRole(req.body?.response_role);
     const inferredResponseRole = parsedResponseRole

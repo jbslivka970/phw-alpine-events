@@ -564,16 +564,62 @@ router.post('/ai-description-preview', writeLimiter, authenticate, requireEventC
 router.get('/:id', apiLimiter, authenticate, requireAnyAuthenticatedRole, async (req, res) => {
   try {
     const pool = await getPool();
+    const eventColumns = await getEventColumnSupport(pool);
     const eventResult = await pool
       .request()
       .input('event_id', sql.UniqueIdentifier, req.params.id)
-      .query('SELECT * FROM event WHERE event_id = @event_id');
+      .query<{
+        event_id: string;
+        title: string;
+        description: string | null;
+        location: string | null;
+        photo_url: string | null;
+        invitation_stage: 'volunteer' | 'participant' | 'both';
+        event_lead_member_id: string | null;
+        event_lead_name: string | null;
+        event_lead_email: string | null;
+        event_date: Date | string;
+        end_date: Date | string | null;
+        mentor_capacity: number | null;
+        participant_capacity: number | null;
+        capacity: number | null;
+        status: 'draft' | 'published' | 'completed' | 'cancelled';
+        created_by: string | null;
+        created_at: Date | string;
+        updated_at: Date | string;
+      }>(
+        `SELECT
+           event_id,
+           title,
+           description,
+           location,
+           ${eventColumns.hasPhotoUrl ? 'photo_url' : 'CAST(NULL AS NVARCHAR(1024)) AS photo_url'},
+           ${eventColumns.hasInvitationStage ? 'invitation_stage' : "CAST('both' AS NVARCHAR(20)) AS invitation_stage"},
+           event_lead_member_id,
+           ${EVENT_LEAD_NAME_SELECT},
+           ${EVENT_LEAD_EMAIL_SELECT},
+           event_date,
+           end_date,
+           mentor_capacity,
+           participant_capacity,
+           capacity,
+           status,
+           created_by,
+           created_at,
+           updated_at
+         FROM event
+         WHERE event_id = @event_id`
+      );
 
     const event = eventResult.recordset[0];
     if (!event) {
       res.status(404).json({ error: 'Event not found' });
       return;
     }
+
+    const eventLeadSecondaryRoles = event.event_lead_member_id
+      ? await loadLeadSecondaryRoles(pool, req.params.id, event.event_lead_member_id)
+      : [];
 
     const workflow = await getEventEmailWorkflowSettings(req.params.id);
 
@@ -587,7 +633,12 @@ router.get('/:id', apiLimiter, authenticate, requireAnyAuthenticatedRole, async 
          WHERE ent.event_id = @event_id`
       );
 
-    res.json({ ...event, scheduler_email: workflow.schedulerEmail, notification_targets: targets.recordset });
+    res.json({
+      ...event,
+      event_lead_secondary_roles: eventLeadSecondaryRoles,
+      scheduler_email: workflow.schedulerEmail,
+      notification_targets: targets.recordset,
+    });
   } catch (error) {
     console.error('GET /events/:id failed', error);
     res.status(500).json({ error: 'Internal server error' });

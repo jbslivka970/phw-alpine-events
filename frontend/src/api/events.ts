@@ -7,6 +7,8 @@ interface EventRecord {
   location: string | null;
   photo_url: string | null;
   invitation_stage: 'volunteer' | 'participant' | 'both';
+  event_lead_member_id: string | null;
+  event_lead_secondary_roles?: Array<'MENTOR' | 'PARTICIPANT'>;
   event_lead_name: string | null;
   event_lead_email: string | null;
   scheduler_email?: string | null;
@@ -33,8 +35,8 @@ interface UpdateEventPayload {
   location?: string | null;
   photo_url?: string | null;
   invitation_stage?: 'volunteer' | 'participant' | 'both';
-  event_lead_name?: string | null;
-  event_lead_email?: string | null;
+  event_lead_member_id?: string | null;
+  event_lead_secondary_roles?: Array<'MENTOR' | 'PARTICIPANT'>;
   scheduler_email?: string | null;
   event_date?: string;
   end_date?: string | null;
@@ -86,6 +88,8 @@ interface PublicRsvpContext {
   participant_capacity: number | null;
   capacity: number | null;
   status: 'draft' | 'published' | 'completed' | 'cancelled';
+  event_lead_member_id: string | null;
+  is_event_lead_member?: boolean;
   member_id: string;
   first_name: string | null;
   current_response: RsvpRecord['response'] | null;
@@ -99,7 +103,7 @@ interface EventAssignmentRecord {
   member_id: string;
   first_name: string;
   last_name: string;
-  role: 'MENTOR' | 'PARTICIPANT' | string;
+  role: 'LEAD' | 'MENTOR' | 'PARTICIPANT' | string;
   assigned_at: string;
   attended: boolean;
   attendance_notes?: string | null;
@@ -154,8 +158,8 @@ const eventsApi = {
     location?: string | null;
     photo_url?: string | null;
     invitation_stage?: 'volunteer' | 'participant' | 'both';
-    event_lead_name?: string | null;
-    event_lead_email?: string | null;
+    event_lead_member_id?: string | null;
+    event_lead_secondary_roles?: Array<'MENTOR' | 'PARTICIPANT'>;
     scheduler_email?: string | null;
     end_date?: string | null;
     mentor_capacity?: number | null;

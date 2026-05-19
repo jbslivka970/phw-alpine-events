@@ -490,7 +490,10 @@ function EventAssignmentPage() {
   const assignmentRolesByMember = useMemo(() => {
     const roleMap = new Map<string, Array<'MENTOR' | 'PARTICIPANT'>>()
     assignments.forEach((assignment) => {
-      const role = assignment.role === 'MENTOR' ? 'MENTOR' : 'PARTICIPANT'
+      if (assignment.role !== 'MENTOR' && assignment.role !== 'PARTICIPANT') {
+        return
+      }
+      const role = assignment.role
       const existingRoles = roleMap.get(assignment.member_id) ?? []
       if (!existingRoles.includes(role)) {
         existingRoles.push(role)
@@ -499,6 +502,15 @@ function EventAssignmentPage() {
     })
     return roleMap
   }, [assignments])
+
+  const leadAssignments = useMemo(
+    () => assignments.filter((assignment) => assignment.role === 'LEAD'),
+    [assignments]
+  )
+  const derivedLeadName = leadAssignments.length > 0
+    ? leadAssignments.map((assignment) => `${assignment.first_name} ${assignment.last_name}`.trim()).join(', ')
+    : (eventDetail?.event_lead_name ?? 'Not set')
+  const hasLeadConfigured = Boolean(eventDetail?.event_lead_member_id || leadAssignments.length > 0)
 
   return (
     <div className="page event-assignments-page">
@@ -525,7 +537,7 @@ function EventAssignmentPage() {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
               <div>
                 <p style={{ margin: '0 0 4px', fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.08em', opacity: 0.7 }}>Event Lead</p>
-                <p style={{ margin: 0, fontWeight: 600 }}>{eventDetail?.event_lead_name ?? 'Not set'}</p>
+                <p style={{ margin: 0, fontWeight: 600 }}>{derivedLeadName}</p>
                 <p style={{ margin: '4px 0 0' }}>{eventDetail?.event_lead_email ?? 'No lead email set'}</p>
               </div>
               <div>
@@ -560,16 +572,16 @@ function EventAssignmentPage() {
               </div>
               <div className="assignment-capacity-card">
                 <p className="assignment-capacity-label">Lead Prep</p>
-                <p className="assignment-capacity-value">{eventDetail?.event_lead_email ? 'Ready' : 'Blocked'}</p>
-                <p className="assignment-capacity-meta">{eventDetail?.event_lead_email ? 'Lead email present' : 'Add lead email first'}</p>
+                <p className="assignment-capacity-value">{hasLeadConfigured ? 'Ready' : 'Blocked'}</p>
+                <p className="assignment-capacity-meta">{hasLeadConfigured ? 'Lead assignment present' : 'Assign an event lead first'}</p>
               </div>
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
               <button
                 className="btn btn--sm"
                 onClick={() => void sendLeadPrepSummary()}
-                disabled={eventDetail?.status === 'completed' || eventDetail?.status === 'cancelled' || !eventDetail?.event_lead_email || reportActionBusy !== null}
-                title={eventDetail?.status === 'completed' ? 'Use the participation summary after the event is completed.' : eventDetail?.status === 'cancelled' ? 'Lead prep is not available for cancelled events.' : !eventDetail?.event_lead_email ? 'Add an event lead email before sending the lead prep summary.' : undefined}
+                disabled={eventDetail?.status === 'completed' || eventDetail?.status === 'cancelled' || !hasLeadConfigured || reportActionBusy !== null}
+                title={eventDetail?.status === 'completed' ? 'Use the participation summary after the event is completed.' : eventDetail?.status === 'cancelled' ? 'Lead prep is not available for cancelled events.' : !hasLeadConfigured ? 'Assign an event lead before sending the lead prep summary.' : undefined}
               >
                 {reportActionBusy === 'lead' ? 'Sending…' : 'Send Lead Prep Summary'}
               </button>

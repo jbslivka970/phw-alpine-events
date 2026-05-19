@@ -56,6 +56,7 @@ function PublicRsvpPage() {
   const directFallbackAttempted = useRef(false)
 
   const roleRequiredResponses: Array<RsvpRecord['response']> = ['yes', 'maybe', 'waitlist']
+  const isEventLead = context?.is_event_lead_member ?? false
 
   useEffect(() => {
     let cancelled = false
@@ -128,6 +129,11 @@ function PublicRsvpPage() {
       return
     }
 
+    if (isEventLead) {
+      setError('Event lead RSVP changes are managed by event coordinators.')
+      return
+    }
+
     const requiresRole = roleRequiredResponses.includes(response)
     if (requiresRole && !selectedRole) {
       setError('Select Volunteer or Participant before saving this RSVP response.')
@@ -155,6 +161,10 @@ function PublicRsvpPage() {
             <p className="public-rsvp__status">Event status: <strong>{context.status}</strong></p>
             {context.token_expires_at && <p className="public-rsvp__expires">Link expires {formatDate(context.token_expires_at)}</p>}
 
+            {isEventLead && (
+              <p className="public-rsvp__notice">You are assigned as event lead. RSVP role/attendance for leads is managed by event coordinators.</p>
+            )}
+
             <fieldset className="public-rsvp__role-picker">
               <legend>Select RSVP role</legend>
               <label>
@@ -164,7 +174,7 @@ function PublicRsvpPage() {
                   value="MENTOR"
                   checked={selectedRole === 'MENTOR'}
                   onChange={() => setSelectedRole('MENTOR')}
-                  disabled={submitting || context.status !== 'published'}
+                  disabled={submitting || context.status !== 'published' || isEventLead}
                 />
                 Volunteer
               </label>
@@ -175,7 +185,7 @@ function PublicRsvpPage() {
                   value="PARTICIPANT"
                   checked={selectedRole === 'PARTICIPANT'}
                   onChange={() => setSelectedRole('PARTICIPANT')}
-                  disabled={submitting || context.status !== 'published'}
+                  disabled={submitting || context.status !== 'published' || isEventLead}
                 />
                 Participant
               </label>
@@ -188,7 +198,7 @@ function PublicRsvpPage() {
                 <button
                   key={option.value}
                   className={`btn public-rsvp__option ${option.className}`}
-                  disabled={submitting || context.status !== 'published'}
+                  disabled={submitting || context.status !== 'published' || isEventLead}
                   onClick={() => void handleSubmit(option.value)}
                 >
                   {submitting ? 'Saving…' : option.label}
