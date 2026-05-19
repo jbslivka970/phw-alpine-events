@@ -35,8 +35,6 @@ const STATUS_TRANSITIONS: Record<string, string[]> = {
 };
 
 type EventColumnSupport = {
-  hasEventLeadName: boolean;
-  hasEventLeadEmail: boolean;
   hasPhotoUrl: boolean;
   hasInvitationStage: boolean;
 };
@@ -50,24 +48,25 @@ async function getEventColumnSupport(pool: Awaited<ReturnType<typeof getPool>>):
 
   const result = await pool
     .request()
-    .query<{ has_event_lead_name: number; has_event_lead_email: number; has_photo_url: number; has_invitation_stage: number }>(
+    .query<{ has_photo_url: number; has_invitation_stage: number }>(
       `SELECT
-         CASE WHEN COL_LENGTH('dbo.event', 'event_lead_name') IS NULL THEN 0 ELSE 1 END AS has_event_lead_name,
-         CASE WHEN COL_LENGTH('dbo.event', 'event_lead_email') IS NULL THEN 0 ELSE 1 END AS has_event_lead_email,
          CASE WHEN COL_LENGTH('dbo.event', 'photo_url') IS NULL THEN 0 ELSE 1 END AS has_photo_url,
          CASE WHEN COL_LENGTH('dbo.event', 'invitation_stage') IS NULL THEN 0 ELSE 1 END AS has_invitation_stage`
     );
 
   const row = result.recordset[0];
   cachedEventColumnSupport = {
-    hasEventLeadName: row?.has_event_lead_name === 1,
-    hasEventLeadEmail: row?.has_event_lead_email === 1,
     hasPhotoUrl: row?.has_photo_url === 1,
     hasInvitationStage: row?.has_invitation_stage === 1,
   };
 
   return cachedEventColumnSupport;
 }
+
+// Derived projections that overlay event.event_lead_member_id with member name/email.
+// Used as drop-in replacements for legacy event_lead_name/event_lead_email column reads.
+const EVENT_LEAD_NAME_SELECT = `(SELECT TOP 1 LTRIM(RTRIM(ISNULL(lm.first_name, N'') + N' ' + ISNULL(lm.last_name, N''))) FROM dbo.member lm WHERE lm.member_id = event_lead_member_id) AS event_lead_name`;
+const EVENT_LEAD_EMAIL_SELECT = `(SELECT TOP 1 lm.email FROM dbo.member lm WHERE lm.member_id = event_lead_member_id) AS event_lead_email`;
 
 function isNotificationConfigurationError(error: unknown): error is Error {
   return error instanceof Error && error.name === 'NotificationConfigurationError';
@@ -599,12 +598,14 @@ router.post('/', writeLimiter, authenticate, requireEventCreatorOrAdmin, async (
     const location = (req.body?.location as string | undefined) ?? null;
     const photoUrl = parsePhotoUrl(req.body?.photo_url);
     const invitationStage = parseInvitationStage(req.body?.invitation_stage);
-    const eventLeadName = normalizeString(req.body?.event_lead_name);
-    if (req.body?.event_lead_email !== undefined && normalizeString(req.body?.event_lead_email) && !parseOptionalEmail(req.body?.event_lead_email)) {
-      res.status(400).json({ error: 'event_lead_email must be a valid email address when provided' });
+    const eventLeadMemberIdRaw = req.body?.event_lead_member_id;
+    const eventLeadMemberId = eventLeadMemberIdRaw === null || eventLeadMemberIdRaw === undefined
+      ? null
+      : asUuidOrNull(eventLeadMemberIdRaw);
+    if (eventLeadMemberIdRaw !== undefined && eventLeadMemberIdRaw !== null && !eventLeadMemberId) {
+      res.status(400).json({ error: 'event_lead_member_id must be a valid UUID when provided' });
       return;
     }
-    const eventLeadEmail = parseOptionalEmail(req.body?.event_lead_email);
     if (req.body?.scheduler_email !== undefined && normalizeString(req.body?.scheduler_email) && !parseOptionalEmail(req.body?.scheduler_email)) {
       res.status(400).json({ error: 'scheduler_email must be a valid email address when provided' });
       return;
@@ -710,16 +711,11 @@ router.post('/', writeLimiter, authenticate, requireEventCreatorOrAdmin, async (
       createRequest.input('invitation_stage', sql.NVarChar(20), invitationStage);
     }
 
-    if (eventColumns.hasEventLeadName) {
-      insertColumns.splice(6, 0, 'event_lead_name');
-      insertValues.splice(6, 0, '@event_lead_name');
-      createRequest.input('event_lead_name', sql.NVarChar(200), eventLeadName);
-    }
-    if (eventColumns.hasEventLeadEmail) {
-      const insertIndex = eventColumns.hasEventLeadName ? 7 : 6;
-      insertColumns.splice(insertIndex, 0, 'event_lead_email');
-      insertValues.splice(insertIndex, 0, '@event_lead_email');
-      createRequest.input('event_lead_email', sql.NVarChar(255), eventLeadEmail);
+    // Event lead is now a FK to member; persist only when caller supplied a valid UUID.
+    if (eventLeadMemberId) {
+      insertColumns.push('event_lead_member_id');
+      insertValues.push('@event_lead_member_id');
+      createRequest.input('event_lead_member_id', sql.UniqueIdentifier, eventLeadMemberId);
     }
 
     const created = await createRequest.query(
@@ -778,6 +774,7 @@ router.put('/:id', writeLimiter, authenticate, requireEventCreatorOrAdmin, async
         location: string | null;
         photo_url: string | null;
         invitation_stage: 'volunteer' | 'participant' | 'both';
+        event_lead_member_id: string | null;
         event_lead_name: string | null;
         event_lead_email: string | null;
         event_date: Date | string;
@@ -793,8 +790,9 @@ router.put('/:id', writeLimiter, authenticate, requireEventCreatorOrAdmin, async
            location,
            ${eventColumns.hasPhotoUrl ? 'photo_url' : 'CAST(NULL AS NVARCHAR(1024)) AS photo_url'},
            ${eventColumns.hasInvitationStage ? 'invitation_stage' : "CAST('both' AS NVARCHAR(20)) AS invitation_stage"},
-           ${eventColumns.hasEventLeadName ? 'event_lead_name' : 'CAST(NULL AS NVARCHAR(200)) AS event_lead_name'},
-           ${eventColumns.hasEventLeadEmail ? 'event_lead_email' : 'CAST(NULL AS NVARCHAR(255)) AS event_lead_email'},
+           event_lead_member_id,
+           ${EVENT_LEAD_NAME_SELECT},
+           ${EVENT_LEAD_EMAIL_SELECT},
            event_date,
            end_date,
            mentor_capacity,
@@ -821,8 +819,7 @@ router.put('/:id', writeLimiter, authenticate, requireEventCreatorOrAdmin, async
     const proposedLocation = req.body?.location;
     const proposedPhotoUrl = req.body?.photo_url;
     const proposedInvitationStage = req.body?.invitation_stage;
-    const proposedEventLeadName = req.body?.event_lead_name;
-    const proposedEventLeadEmail = req.body?.event_lead_email;
+    const proposedEventLeadMemberIdRaw = req.body?.event_lead_member_id;
     const proposedSchedulerEmail = req.body?.scheduler_email;
     const proposedEventDate = req.body?.event_date;
     const proposedEndDate = req.body?.end_date;
@@ -845,11 +842,15 @@ router.put('/:id', writeLimiter, authenticate, requireEventCreatorOrAdmin, async
     if (eventColumns.hasInvitationStage && proposedInvitationStage !== undefined && normalizeString(proposedInvitationStage) !== normalizeString(existing.invitation_stage)) {
       changedFields.push('invitation_stage');
     }
-    if (eventColumns.hasEventLeadName && proposedEventLeadName !== undefined && normalizeString(proposedEventLeadName) !== normalizeString(existing.event_lead_name)) {
-      changedFields.push('event_lead_name');
-    }
-    if (eventColumns.hasEventLeadEmail && proposedEventLeadEmail !== undefined && normalizeString(proposedEventLeadEmail) !== normalizeString(existing.event_lead_email)) {
-      changedFields.push('event_lead_email');
+    if (proposedEventLeadMemberIdRaw !== undefined) {
+      const proposedEventLeadMemberId = proposedEventLeadMemberIdRaw === null ? null : asUuidOrNull(proposedEventLeadMemberIdRaw);
+      if (proposedEventLeadMemberIdRaw !== null && !proposedEventLeadMemberId) {
+        res.status(400).json({ error: 'event_lead_member_id must be a valid UUID when provided' });
+        return;
+      }
+      if ((proposedEventLeadMemberId ?? null) !== (existing.event_lead_member_id ?? null)) {
+        changedFields.push('event_lead_member_id');
+      }
     }
     if (proposedSchedulerEmail !== undefined) {
       changedFields.push('scheduler_email');
@@ -893,17 +894,14 @@ router.put('/:id', writeLimiter, authenticate, requireEventCreatorOrAdmin, async
       updates.push('invitation_stage = @invitation_stage');
       request.input('invitation_stage', sql.NVarChar(20), parseInvitationStage(req.body.invitation_stage));
     }
-    if (eventColumns.hasEventLeadName && req.body?.event_lead_name !== undefined) {
-      updates.push('event_lead_name = @event_lead_name');
-      request.input('event_lead_name', sql.NVarChar(200), normalizeString(req.body.event_lead_name));
-    }
-    if (eventColumns.hasEventLeadEmail && req.body?.event_lead_email !== undefined) {
-      if (normalizeString(req.body?.event_lead_email) && !parseOptionalEmail(req.body?.event_lead_email)) {
-        res.status(400).json({ error: 'event_lead_email must be a valid email address when provided' });
+    if (req.body?.event_lead_member_id !== undefined) {
+      const newLeadMemberId = req.body.event_lead_member_id === null ? null : asUuidOrNull(req.body.event_lead_member_id);
+      if (req.body.event_lead_member_id !== null && !newLeadMemberId) {
+        res.status(400).json({ error: 'event_lead_member_id must be a valid UUID when provided' });
         return;
       }
-      updates.push('event_lead_email = @event_lead_email');
-      request.input('event_lead_email', sql.NVarChar(255), parseOptionalEmail(req.body.event_lead_email));
+      updates.push('event_lead_member_id = @event_lead_member_id');
+      request.input('event_lead_member_id', sql.UniqueIdentifier, newLeadMemberId);
     }
     if (req.body?.scheduler_email !== undefined && normalizeString(req.body?.scheduler_email) && !parseOptionalEmail(req.body?.scheduler_email)) {
       res.status(400).json({ error: 'scheduler_email must be a valid email address when provided' });
@@ -1097,8 +1095,9 @@ router.post('/:id/send-update', writeLimiter, authenticate, requireEventCreatorO
            description,
            ${eventColumns.hasPhotoUrl ? 'photo_url' : 'CAST(NULL AS NVARCHAR(1024)) AS photo_url'},
            ${eventColumns.hasInvitationStage ? 'invitation_stage' : "CAST('both' AS NVARCHAR(20)) AS invitation_stage"},
-           ${eventColumns.hasEventLeadName ? 'event_lead_name' : 'CAST(NULL AS NVARCHAR(200)) AS event_lead_name'},
-           ${eventColumns.hasEventLeadEmail ? 'event_lead_email' : 'CAST(NULL AS NVARCHAR(255)) AS event_lead_email'}
+           event_lead_member_id,
+           ${EVENT_LEAD_NAME_SELECT},
+           ${EVENT_LEAD_EMAIL_SELECT}
          FROM event
          WHERE event_id = @event_id`
       );
@@ -1182,8 +1181,9 @@ router.post('/:id/send-reminder', writeLimiter, authenticate, requireEventCreato
            description,
            ${eventColumns.hasPhotoUrl ? 'photo_url' : 'CAST(NULL AS NVARCHAR(1024)) AS photo_url'},
            ${eventColumns.hasInvitationStage ? 'invitation_stage' : "CAST('both' AS NVARCHAR(20)) AS invitation_stage"},
-           ${eventColumns.hasEventLeadName ? 'event_lead_name' : 'CAST(NULL AS NVARCHAR(200)) AS event_lead_name'},
-           ${eventColumns.hasEventLeadEmail ? 'event_lead_email' : 'CAST(NULL AS NVARCHAR(255)) AS event_lead_email'}
+           event_lead_member_id,
+           ${EVENT_LEAD_NAME_SELECT},
+           ${EVENT_LEAD_EMAIL_SELECT}
          FROM event
          WHERE event_id = @event_id`
       );
@@ -1348,8 +1348,9 @@ router.post('/:id/close-at-capacity', writeLimiter, authenticate, requireEventCr
            description,
            ${eventColumns.hasPhotoUrl ? 'photo_url' : 'CAST(NULL AS NVARCHAR(1024)) AS photo_url'},
            ${eventColumns.hasInvitationStage ? 'invitation_stage' : "CAST('both' AS NVARCHAR(20)) AS invitation_stage"},
-           ${eventColumns.hasEventLeadName ? 'event_lead_name' : 'CAST(NULL AS NVARCHAR(200)) AS event_lead_name'},
-           ${eventColumns.hasEventLeadEmail ? 'event_lead_email' : 'CAST(NULL AS NVARCHAR(255)) AS event_lead_email'}
+           event_lead_member_id,
+           ${EVENT_LEAD_NAME_SELECT},
+           ${EVENT_LEAD_EMAIL_SELECT}
          FROM event
          WHERE event_id = @event_id`
       );
