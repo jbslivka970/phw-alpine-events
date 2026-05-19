@@ -1,5 +1,6 @@
 -- Migration: replace event.event_lead_name / event.event_lead_email with
 -- event.event_lead_member_id (FK to member). Idempotent — safe to re-run.
+-- allow-breaking-migration: DROP_COLUMN
 --
 -- Run via: MIGRATION_DB_PASSWORD=... node scripts/run-event-lead-migration.js
 --
