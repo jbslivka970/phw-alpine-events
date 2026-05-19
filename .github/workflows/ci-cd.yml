@@ -122,7 +122,7 @@ jobs:
         PW_MEMBER_PASS: ${{ secrets.PW_MEMBER_PASS }}
       run: npm run e2e:refresh-tokens -- --soft-skip
 
-    - name: Run Playwright API role matrix
+    - name: Run Playwright API role matrix and event lead lifecycle
       env:
         E2E_API_BASE_URL: ${{ vars.E2E_API_BASE_URL }}
         PW_ADMIN_TOKEN: ${{ secrets.PW_ADMIN_TOKEN }}
@@ -131,7 +131,7 @@ jobs:
         PW_WORKERS: '3'
         PW_RETRIES: '0'
         PW_MAX_FAILURES: '3'
-      run: npx playwright test tests/e2e/api-role-matrix.spec.ts --workers=3 --max-failures=3
+      run: npm run test:e2e:role-matrix -- --workers=3 --max-failures=3
 
     - name: Upload Playwright artifacts on failure
       if: ${{ failure() || cancelled() }}
@@ -1339,6 +1339,8 @@ jobs:
       env:
         RSVP_TEST_TOKEN: ${{ secrets.RSVP_TEST_TOKEN }}
       run: |
+        set -o pipefail
+        mkdir -p ci-artifacts
         BACKEND_BASE_URL="${{ vars.BACKEND_BASE_URL }}"
         if [ -z "$BACKEND_BASE_URL" ]; then
           BACKEND_BASE_URL="https://${{ vars.AZURE_WEBAPP_NAME }}.azurewebsites.net"
@@ -1347,15 +1349,15 @@ jobs:
         export BACKEND_BASE_URL
 
         # Email unsubscribe smoke is a hard gate
-        npm --prefix backend run smoke:email
+        npm --prefix backend run smoke:email 2>&1 | tee -a ci-artifacts/deploy-backend-smoke.log
 
         # RSVP contract-only check (no live token required) is a hard gate
-        npm --prefix backend run smoke:rsvp
+        npm --prefix backend run smoke:rsvp 2>&1 | tee -a ci-artifacts/deploy-backend-smoke.log
 
         # Live RSVP token check is best-effort
         if [ -n "$RSVP_TEST_TOKEN" ]; then
           set +e
-          RSVP_TEST_ENABLE_LIVE=1 RSVP_TEST_LIGHTWEIGHT=1 npm --prefix backend run smoke:rsvp
+          RSVP_TEST_ENABLE_LIVE=1 RSVP_TEST_LIGHTWEIGHT=1 npm --prefix backend run smoke:rsvp 2>&1 | tee -a ci-artifacts/deploy-backend-smoke.log
           RSVP_EXIT=$?
           set -e
           if [ "$RSVP_EXIT" -ne 0 ]; then
@@ -1370,6 +1372,7 @@ jobs:
       if: ${{ vars.SMS_SMOKE_ENABLED == '1' || vars.SMS_COMPLIANCE_REQUIRED == '1' }}
       continue-on-error: ${{ vars.SMS_COMPLIANCE_REQUIRED != '1' }}
       run: |
+        mkdir -p ci-artifacts
         BACKEND_BASE_URL="${{ vars.BACKEND_BASE_URL }}"
         if [ -z "$BACKEND_BASE_URL" ]; then
           BACKEND_BASE_URL="https://${{ vars.AZURE_WEBAPP_NAME }}.azurewebsites.net"
@@ -1380,7 +1383,16 @@ jobs:
         export BACKEND_BASE_URL
         export SMS_TEST_PHONE
         export SMS_TEST_ENABLE_LIVE
-        npm --prefix backend run smoke:sms
+        npm --prefix backend run smoke:sms 2>&1 | tee -a ci-artifacts/deploy-backend-smoke.log
+
+    - name: Upload deploy backend smoke logs
+      if: ${{ always() }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: deploy-backend-smoke-logs-${{ github.run_id }}
+        if-no-files-found: ignore
+        retention-days: 14
+        path: ci-artifacts/deploy-backend-smoke.log
 
     - name: Warn when optional SMS smoke fails
       if: ${{ steps.sms_smoke.outcome == 'failure' && vars.SMS_COMPLIANCE_REQUIRED != '1' }}
@@ -1510,7 +1522,19 @@ jobs:
         E2E_APP_URL: ${{ steps.smoke_target.outputs.target_url }}
         PW_MEMBER_USER: ${{ secrets.PW_MEMBER_USER }}
         PW_MEMBER_PASS: ${{ secrets.PW_MEMBER_PASS }}
-      run: npx playwright test tests/e2e/browser-postdeploy-smoke.spec.ts
+      run: |
+        set -o pipefail
+        mkdir -p ci-artifacts
+        npx playwright test tests/e2e/browser-postdeploy-smoke.spec.ts 2>&1 | tee -a ci-artifacts/deploy-frontend-smoke.log
+
+    - name: Upload deploy frontend smoke logs
+      if: ${{ always() }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: deploy-frontend-smoke-logs-${{ github.run_id }}
+        if-no-files-found: ignore
+        retention-days: 14
+        path: ci-artifacts/deploy-frontend-smoke.log
 
   release_smoke:
     runs-on: ubuntu-latest

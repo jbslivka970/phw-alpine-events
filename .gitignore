@@ -46,6 +46,8 @@ deploy-package/
 slot-release.zip
 frontend/dist-deploy-slim/
 frontend/frontend-release-*.zip
+frontend-release.zip
+tmp-rbac-*.png
 
 # Azure
 .azure/
