@@ -677,11 +677,7 @@ jobs:
           cp -R backend/node_modules deploy-package/node_modules
         else
           echo "Using slim backend packaging (package-manager restore during deploy)."
-          cat > deploy-package/.deployment <<'EOF'
-          [config]
-          SCM_DO_BUILD_DURING_DEPLOYMENT=true
-          ENABLE_ORYX_BUILD=true
-          EOF
+          printf '%s\n' '[config]' 'SCM_DO_BUILD_DURING_DEPLOYMENT=true' 'ENABLE_ORYX_BUILD=true' > deploy-package/.deployment
         fi
 
         cd deploy-package
