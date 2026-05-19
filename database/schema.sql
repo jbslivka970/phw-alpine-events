@@ -89,8 +89,7 @@ CREATE TABLE dbo.event (
     capacity          INT              NULL,
     invitation_stage  NVARCHAR(20)     NOT NULL DEFAULT 'both'
         CHECK (invitation_stage IN ('volunteer', 'participant', 'both')),
-    event_lead_name   NVARCHAR(200)    NULL,
-    event_lead_email  NVARCHAR(255)    NULL,
+    event_lead_member_id UNIQUEIDENTIFIER NULL,
     status            NVARCHAR(20)     NOT NULL DEFAULT 'draft'
         CHECK (status IN ('draft', 'published', 'cancelled', 'completed')),
     created_by        UNIQUEIDENTIFIER NULL,  -- FK to dbo.[user] added after that table is created
@@ -114,11 +113,25 @@ BEGIN
         ALTER TABLE dbo.event ADD invitation_stage NVARCHAR(20) NOT NULL CONSTRAINT DF_event_invitation_stage DEFAULT 'both';
 
     IF COL_LENGTH('dbo.event', 'event_lead_name') IS NULL
-        ALTER TABLE dbo.event ADD event_lead_name NVARCHAR(200) NULL;
+    -- Event lead is now a FK to member. Legacy free-text columns are dropped.
+    IF COL_LENGTH('dbo.event', 'event_lead_member_id') IS NULL
+        ALTER TABLE dbo.event ADD event_lead_member_id UNIQUEIDENTIFIER NULL;
 
-    IF COL_LENGTH('dbo.event', 'event_lead_email') IS NULL
-        ALTER TABLE dbo.event ADD event_lead_email NVARCHAR(255) NULL;
+    IF NOT EXISTS (
+        SELECT 1
+        FROM sys.foreign_keys
+        WHERE name = N'FK_event_event_lead_member'
+          AND parent_object_id = OBJECT_ID(N'dbo.event')
+    )
+        ALTER TABLE dbo.event
+        ADD CONSTRAINT FK_event_event_lead_member FOREIGN KEY (event_lead_member_id)
+            REFERENCES dbo.member (member_id);
 
+    IF COL_LENGTH('dbo.event', 'event_lead_name') IS NOT NULL
+        ALTER TABLE dbo.event DROP COLUMN event_lead_name;
+
+    IF COL_LENGTH('dbo.event', 'event_lead_email') IS NOT NULL
+        ALTER TABLE dbo.event DROP COLUMN event_lead_email
     IF NOT EXISTS (
         SELECT 1
         FROM sys.check_constraints
