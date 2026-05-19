@@ -197,6 +197,13 @@ describe('EventsPage flow pattern', () => {
     await setFieldByLabel('Title *', 'Lead Role Coverage Event');
     await setFieldByLabel('Event Date *', '2026-07-10');
     await setFieldByLabel('Event Time (24-hour) *', '09:30');
+    await setFieldByLabel('End Date', '');
+    await setFieldByLabel('End Time (24-hour)', '');
+    await setFieldByLabel('Location', 'Blue Mesa');
+    await setFieldByLabel('Volunteer Capacity', '1');
+    await setFieldByLabel('Participant Capacity', '2');
+
+    await screen.findByRole('option', { name: /Lead Member \(lead\.member@example\.com\)/i });
 
     const leadAlsoVolunteer = screen.getByLabelText('Lead also serves as Volunteer') as HTMLInputElement;
     expect(leadAlsoVolunteer).toBeDisabled();
@@ -211,6 +218,7 @@ describe('EventsPage flow pattern', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Create Event' }));
 
     await waitFor(() => {
+      expect(mockedEventsApi.create).toHaveBeenCalledTimes(1);
       expect(mockedEventsApi.create).toHaveBeenCalledWith(expect.objectContaining({
         event_lead_member_id: '11111111-1111-4111-8111-111111111111',
         event_lead_secondary_roles: ['MENTOR'],
