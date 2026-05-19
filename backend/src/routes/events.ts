@@ -39,6 +39,15 @@ type EventColumnSupport = {
   hasInvitationStage: boolean;
 };
 
+type LeadSecondaryRole = 'MENTOR' | 'PARTICIPANT';
+
+class HttpError extends Error {
+  constructor(message: string, readonly statusCode: number) {
+    super(message);
+    this.name = 'HttpError';
+  }
+}
+
 let cachedEventColumnSupport: EventColumnSupport | null = null;
 
 async function getEventColumnSupport(pool: Awaited<ReturnType<typeof getPool>>): Promise<EventColumnSupport> {
@@ -602,8 +611,17 @@ router.post('/', writeLimiter, authenticate, requireEventCreatorOrAdmin, async (
     const eventLeadMemberId = eventLeadMemberIdRaw === null || eventLeadMemberIdRaw === undefined
       ? null
       : asUuidOrNull(eventLeadMemberIdRaw);
+    const eventLeadSecondaryRoles = parseEventLeadSecondaryRoles(req.body?.event_lead_secondary_roles);
     if (eventLeadMemberIdRaw !== undefined && eventLeadMemberIdRaw !== null && !eventLeadMemberId) {
       res.status(400).json({ error: 'event_lead_member_id must be a valid UUID when provided' });
+      return;
+    }
+    if (eventLeadSecondaryRoles === null) {
+      res.status(400).json({ error: 'event_lead_secondary_roles must be an array of MENTOR/PARTICIPANT' });
+      return;
+    }
+    if (!eventLeadMemberId && eventLeadSecondaryRoles.length > 0) {
+      res.status(400).json({ error: 'event_lead_secondary_roles requires event_lead_member_id' });
       return;
     }
     if (req.body?.scheduler_email !== undefined && normalizeString(req.body?.scheduler_email) && !parseOptionalEmail(req.body?.scheduler_email)) {
@@ -655,6 +673,10 @@ router.post('/', writeLimiter, authenticate, requireEventCreatorOrAdmin, async (
 
     const pool = await getPool();
     const eventColumns = await getEventColumnSupport(pool);
+
+    if (eventLeadMemberId) {
+      await assertEventLeadEligibility(pool, eventLeadMemberId);
+    }
 
     const createRequest = pool
       .request()
@@ -726,6 +748,10 @@ router.post('/', writeLimiter, authenticate, requireEventCreatorOrAdmin, async (
 
     const event = created.recordset[0];
 
+    if (eventLeadMemberId) {
+      await ensureEventLeadAssignments(pool, event.event_id, eventLeadMemberId, eventLeadSecondaryRoles);
+    }
+
     await upsertEventEmailWorkflowSettings({
       eventId: event.event_id,
       schedulerEmail,
@@ -755,6 +781,10 @@ router.post('/', writeLimiter, authenticate, requireEventCreatorOrAdmin, async (
 
     res.status(201).json({ ...event, scheduler_email: schedulerEmail });
   } catch (error) {
+    if (error instanceof HttpError) {
+      res.status(error.statusCode).json({ error: error.message });
+      return;
+    }
     console.error('POST /events failed', error);
     res.status(500).json({ error: 'Internal server error' });
   }
@@ -820,6 +850,8 @@ router.put('/:id', writeLimiter, authenticate, requireEventCreatorOrAdmin, async
     const proposedPhotoUrl = req.body?.photo_url;
     const proposedInvitationStage = req.body?.invitation_stage;
     const proposedEventLeadMemberIdRaw = req.body?.event_lead_member_id;
+    const hasEventLeadSecondaryRolesInput = req.body?.event_lead_secondary_roles !== undefined;
+    const proposedEventLeadSecondaryRoles = parseEventLeadSecondaryRoles(req.body?.event_lead_secondary_roles);
     const proposedSchedulerEmail = req.body?.scheduler_email;
     const proposedEventDate = req.body?.event_date;
     const proposedEndDate = req.body?.end_date;
@@ -851,6 +883,13 @@ router.put('/:id', writeLimiter, authenticate, requireEventCreatorOrAdmin, async
       if ((proposedEventLeadMemberId ?? null) !== (existing.event_lead_member_id ?? null)) {
         changedFields.push('event_lead_member_id');
       }
+    }
+    if (hasEventLeadSecondaryRolesInput) {
+      if (proposedEventLeadSecondaryRoles === null) {
+        res.status(400).json({ error: 'event_lead_secondary_roles must be an array of MENTOR/PARTICIPANT' });
+        return;
+      }
+      changedFields.push('event_lead_secondary_roles');
     }
     if (proposedSchedulerEmail !== undefined) {
       changedFields.push('scheduler_email');
@@ -902,6 +941,36 @@ router.put('/:id', writeLimiter, authenticate, requireEventCreatorOrAdmin, async
       }
       updates.push('event_lead_member_id = @event_lead_member_id');
       request.input('event_lead_member_id', sql.UniqueIdentifier, newLeadMemberId);
+    }
+
+    const nextLeadMemberId = req.body?.event_lead_member_id !== undefined
+      ? (req.body.event_lead_member_id === null ? null : asUuidOrNull(req.body.event_lead_member_id))
+      : (existing.event_lead_member_id ?? null);
+    const existingLeadSecondaryRoles = existing.event_lead_member_id
+      ? await loadLeadSecondaryRoles(pool, req.params.id, existing.event_lead_member_id)
+      : [];
+    const nextLeadSecondaryRoles = hasEventLeadSecondaryRolesInput
+      ? (proposedEventLeadSecondaryRoles ?? [])
+      : (nextLeadMemberId && nextLeadMemberId === existing.event_lead_member_id ? existingLeadSecondaryRoles : []);
+
+    if (!nextLeadMemberId && nextLeadSecondaryRoles.length > 0) {
+      res.status(400).json({ error: 'event_lead_secondary_roles requires event_lead_member_id' });
+      return;
+    }
+
+    const nextMentorCapacity = req.body?.mentor_capacity !== undefined
+      ? parseCapacity(req.body.mentor_capacity)
+      : normalizeNumber(existing.mentor_capacity);
+    const nextParticipantCapacity = req.body?.participant_capacity !== undefined
+      ? parseCapacity(req.body.participant_capacity)
+      : normalizeNumber(existing.participant_capacity);
+
+    if (nextLeadMemberId && (req.body?.event_lead_member_id !== undefined || hasEventLeadSecondaryRolesInput || req.body?.mentor_capacity !== undefined || req.body?.participant_capacity !== undefined)) {
+      await assertEventLeadEligibility(pool, nextLeadMemberId);
+      await assertLeadSecondaryRoleCapacity(pool, req.params.id, nextLeadMemberId, nextLeadSecondaryRoles, {
+        mentorCapacity: nextMentorCapacity,
+        participantCapacity: nextParticipantCapacity,
+      });
     }
     if (req.body?.scheduler_email !== undefined && normalizeString(req.body?.scheduler_email) && !parseOptionalEmail(req.body?.scheduler_email)) {
       res.status(400).json({ error: 'scheduler_email must be a valid email address when provided' });
@@ -1006,6 +1075,10 @@ router.put('/:id', writeLimiter, authenticate, requireEventCreatorOrAdmin, async
       });
     }
 
+    if (req.body?.event_lead_member_id !== undefined || hasEventLeadSecondaryRolesInput) {
+      await ensureEventLeadAssignments(pool, req.params.id, nextLeadMemberId, nextLeadSecondaryRoles);
+    }
+
     let notificationWarning: string | null = null;
     if (existing.status === 'published' && addedTargetGroupIds.length > 0) {
       const updatedEvent = updated.recordset[0] as {
@@ -1051,6 +1124,10 @@ router.put('/:id', writeLimiter, authenticate, requireEventCreatorOrAdmin, async
     const responsePayload = { ...updated.recordset[0], scheduler_email: workflow.schedulerEmail };
     res.json(notificationWarning ? { ...responsePayload, notification_warning: notificationWarning } : responsePayload);
   } catch (error) {
+    if (error instanceof HttpError) {
+      res.status(error.statusCode).json({ error: error.message });
+      return;
+    }
     if (isNotificationConfigurationError(error)) {
       res.status(503).json({ error: error.message });
       return;
@@ -1788,7 +1865,8 @@ async function loadEventReportData(eventId: string): Promise<EventReportData | n
     .request()
     .input('event_id', sql.UniqueIdentifier, eventId)
     .query<EventReportData['event']>(
-      `SELECT event_id, title, description, location, event_date, end_date, status, event_lead_email,
+      `SELECT event_id, title, description, location, event_date, end_date, status,
+              ${EVENT_LEAD_EMAIL_SELECT},
               mentor_capacity, participant_capacity, capacity, created_at, updated_at
        FROM event
        WHERE event_id = @event_id`
@@ -1985,10 +2063,7 @@ router.post('/:id/ai-draft', writeLimiter, authenticate, requireEventCreatorOrAd
            event_date,
            location,
            description,
-           CASE WHEN COL_LENGTH('dbo.event', 'event_lead_name') IS NULL
-             THEN CAST(NULL AS NVARCHAR(200))
-             ELSE event_lead_name
-           END AS event_lead_name
+           ${EVENT_LEAD_NAME_SELECT}
          FROM event
          WHERE event_id = @event_id`
       );
@@ -2161,6 +2236,244 @@ function parseOptionalEmail(value: unknown): string | null {
   }
 
   return lower;
+}
+
+function parseEventLeadSecondaryRoles(value: unknown): LeadSecondaryRole[] | null {
+  if (value === undefined || value === null) {
+    return [];
+  }
+  if (!Array.isArray(value)) {
+    return null;
+  }
+
+  const parsed = new Set<LeadSecondaryRole>();
+  for (const item of value) {
+    if (typeof item !== 'string') {
+      return null;
+    }
+    const normalized = item.trim().toUpperCase();
+    if (normalized !== 'MENTOR' && normalized !== 'PARTICIPANT') {
+      return null;
+    }
+    parsed.add(normalized as LeadSecondaryRole);
+  }
+
+  return Array.from(parsed);
+}
+
+async function assertEventLeadEligibility(pool: Awaited<ReturnType<typeof getPool>>, memberId: string): Promise<void> {
+  const result = await pool
+    .request()
+    .input('member_id', sql.UniqueIdentifier, memberId)
+    .query<{ member_id: string }>(
+      `SELECT TOP 1 m.member_id
+       FROM member m
+       WHERE m.member_id = @member_id
+         AND m.is_active = 1
+         AND (
+           EXISTS (
+             SELECT 1
+             FROM member_group mg
+             INNER JOIN [group] g ON g.group_id = mg.group_id
+             WHERE mg.member_id = m.member_id
+               AND (
+                 UPPER(g.group_name) LIKE '%MENTOR%'
+                 OR UPPER(g.group_name) LIKE '%VOLUNTEER%'
+               )
+           )
+           OR EXISTS (
+             SELECT 1
+             FROM event_assignment ea
+             WHERE ea.member_id = m.member_id
+               AND ea.role = 'MENTOR'
+           )
+         )`
+    );
+
+  if (!result.recordset[0]) {
+    throw new HttpError('event_lead_member_id must be an active volunteer-eligible member', 400);
+  }
+}
+
+async function loadLeadSecondaryRoles(
+  pool: Awaited<ReturnType<typeof getPool>>,
+  eventId: string,
+  memberId: string
+): Promise<LeadSecondaryRole[]> {
+  const result = await pool
+    .request()
+    .input('event_id', sql.UniqueIdentifier, eventId)
+    .input('member_id', sql.UniqueIdentifier, memberId)
+    .query<{ role: string }>(
+      `SELECT role
+       FROM event_assignment
+       WHERE event_id = @event_id
+         AND member_id = @member_id
+         AND role IN ('MENTOR', 'PARTICIPANT')`
+    );
+
+  const roles = new Set<LeadSecondaryRole>();
+  for (const row of result.recordset) {
+    if (row.role === 'MENTOR' || row.role === 'PARTICIPANT') {
+      roles.add(row.role);
+    }
+  }
+  return Array.from(roles);
+}
+
+async function assertLeadSecondaryRoleCapacity(
+  pool: Awaited<ReturnType<typeof getPool>>,
+  eventId: string,
+  leadMemberId: string,
+  secondaryRoles: LeadSecondaryRole[],
+  capacities: { mentorCapacity: number | null; participantCapacity: number | null }
+): Promise<void> {
+  const needsMentorCapacity = secondaryRoles.includes('MENTOR') && capacities.mentorCapacity !== null;
+  const needsParticipantCapacity = secondaryRoles.includes('PARTICIPANT') && capacities.participantCapacity !== null;
+
+  if (!needsMentorCapacity && !needsParticipantCapacity) {
+    return;
+  }
+
+  const countsResult = await pool
+    .request()
+    .input('event_id', sql.UniqueIdentifier, eventId)
+    .input('lead_member_id', sql.UniqueIdentifier, leadMemberId)
+    .query<{ mentor_count: number; participant_count: number }>(
+      `SELECT
+          SUM(CASE WHEN role = 'MENTOR' THEN 1 ELSE 0 END) AS mentor_count,
+          SUM(CASE WHEN role = 'PARTICIPANT' THEN 1 ELSE 0 END) AS participant_count
+       FROM event_assignment
+       WHERE event_id = @event_id
+         AND member_id <> @lead_member_id
+         AND role IN ('MENTOR', 'PARTICIPANT')`
+    );
+
+  const counts = countsResult.recordset[0] ?? { mentor_count: 0, participant_count: 0 };
+  if (needsMentorCapacity && (counts.mentor_count ?? 0) >= (capacities.mentorCapacity as number)) {
+    throw new HttpError('Cannot assign event lead as MENTOR because mentor_capacity is full', 409);
+  }
+  if (needsParticipantCapacity && (counts.participant_count ?? 0) >= (capacities.participantCapacity as number)) {
+    throw new HttpError('Cannot assign event lead as PARTICIPANT because participant_capacity is full', 409);
+  }
+}
+
+async function ensureEventLeadAssignments(
+  pool: Awaited<ReturnType<typeof getPool>>,
+  eventId: string,
+  leadMemberId: string | null,
+  secondaryRoles: LeadSecondaryRole[]
+): Promise<void> {
+  const transaction = new sql.Transaction(pool);
+  await transaction.begin();
+  try {
+    if (!leadMemberId) {
+      await transaction
+        .request()
+        .input('event_id', sql.UniqueIdentifier, eventId)
+        .query(
+          `DELETE FROM event_assignment
+           WHERE event_id = @event_id
+             AND role = 'LEAD'`
+        );
+      await transaction.commit();
+      return;
+    }
+
+    await transaction
+      .request()
+      .input('event_id', sql.UniqueIdentifier, eventId)
+      .input('lead_member_id', sql.UniqueIdentifier, leadMemberId)
+      .query(
+        `DELETE FROM event_assignment
+         WHERE event_id = @event_id
+           AND role = 'LEAD'
+           AND member_id <> @lead_member_id`
+      );
+
+    await transaction
+      .request()
+      .input('event_id', sql.UniqueIdentifier, eventId)
+      .input('lead_member_id', sql.UniqueIdentifier, leadMemberId)
+      .query(
+        `MERGE event_assignment AS target
+         USING (SELECT @event_id AS event_id, @lead_member_id AS member_id, 'LEAD' AS role) AS source
+         ON target.event_id = source.event_id
+            AND target.member_id = source.member_id
+            AND target.role = source.role
+         WHEN NOT MATCHED THEN
+           INSERT (assignment_id, event_id, member_id, role, assigned_at, notes)
+           VALUES (NEWID(), source.event_id, source.member_id, source.role, GETUTCDATE(), NULL);`
+      );
+
+    const hasMentor = secondaryRoles.includes('MENTOR');
+    const hasParticipant = secondaryRoles.includes('PARTICIPANT');
+
+    if (hasMentor) {
+      await transaction
+        .request()
+        .input('event_id', sql.UniqueIdentifier, eventId)
+        .input('lead_member_id', sql.UniqueIdentifier, leadMemberId)
+        .query(
+          `MERGE event_assignment AS target
+           USING (SELECT @event_id AS event_id, @lead_member_id AS member_id, 'MENTOR' AS role) AS source
+           ON target.event_id = source.event_id
+              AND target.member_id = source.member_id
+              AND target.role = source.role
+           WHEN NOT MATCHED THEN
+             INSERT (assignment_id, event_id, member_id, role, assigned_at, notes)
+             VALUES (NEWID(), source.event_id, source.member_id, source.role, GETUTCDATE(), NULL);`
+        );
+    } else {
+      await transaction
+        .request()
+        .input('event_id', sql.UniqueIdentifier, eventId)
+        .input('lead_member_id', sql.UniqueIdentifier, leadMemberId)
+        .query(
+          `DELETE FROM event_assignment
+           WHERE event_id = @event_id
+             AND member_id = @lead_member_id
+             AND role = 'MENTOR'`
+        );
+    }
+
+    if (hasParticipant) {
+      await transaction
+        .request()
+        .input('event_id', sql.UniqueIdentifier, eventId)
+        .input('lead_member_id', sql.UniqueIdentifier, leadMemberId)
+        .query(
+          `MERGE event_assignment AS target
+           USING (SELECT @event_id AS event_id, @lead_member_id AS member_id, 'PARTICIPANT' AS role) AS source
+           ON target.event_id = source.event_id
+              AND target.member_id = source.member_id
+              AND target.role = source.role
+           WHEN NOT MATCHED THEN
+             INSERT (assignment_id, event_id, member_id, role, assigned_at, notes)
+             VALUES (NEWID(), source.event_id, source.member_id, source.role, GETUTCDATE(), NULL);`
+        );
+    } else {
+      await transaction
+        .request()
+        .input('event_id', sql.UniqueIdentifier, eventId)
+        .input('lead_member_id', sql.UniqueIdentifier, leadMemberId)
+        .query(
+          `DELETE FROM event_assignment
+           WHERE event_id = @event_id
+             AND member_id = @lead_member_id
+             AND role = 'PARTICIPANT'`
+        );
+    }
+
+    await transaction.commit();
+  } catch (error) {
+    try {
+      await transaction.rollback();
+    } catch {
+      // Ignore rollback failures; surface original error.
+    }
+    throw error;
+  }
 }
 
 function toUtcMillis(value: unknown): number | null {

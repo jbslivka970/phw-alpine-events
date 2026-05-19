@@ -81,6 +81,7 @@ async function runReminderJob(lookAheadHours = 48): Promise<void> {
        WHERE e.status = 'published'
          AND er.response = 'yes'
          AND ISNULL(er.reminder_sent, 0) = 0
+         AND (e.event_lead_member_id IS NULL OR er.member_id <> e.event_lead_member_id)
          AND e.event_date BETWEEN GETUTCDATE() AND DATEADD(HOUR, @lookAheadHours, GETUTCDATE())
          AND m.is_active = 1
          AND (
@@ -111,7 +112,8 @@ async function runReminderJob(lookAheadHours = 48): Promise<void> {
        FROM event_response er
        INNER JOIN event e ON e.event_id = er.event_id
        INNER JOIN member m ON m.member_id = er.member_id
-       WHERE er.reminder_claim_token = @claimToken`
+       WHERE er.reminder_claim_token = @claimToken
+         AND (e.event_lead_member_id IS NULL OR er.member_id <> e.event_lead_member_id)`
     );
 
   let attempted = 0;

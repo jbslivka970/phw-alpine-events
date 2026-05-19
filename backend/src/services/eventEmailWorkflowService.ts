@@ -138,7 +138,7 @@ export async function claimDuePreEventLeadSummaryEvents(lookAheadHours = 72): Pr
        FROM dbo.event_email_workflow workflow
        INNER JOIN dbo.event e ON e.event_id = workflow.event_id
        WHERE e.status = 'published'
-         AND e.event_lead_email IS NOT NULL
+         AND e.event_lead_member_id IS NOT NULL
          AND e.event_date > GETUTCDATE()
          AND e.event_date <= DATEADD(HOUR, @lookAheadHours, GETUTCDATE())
          AND workflow.pre_event_auto_sent_at IS NULL

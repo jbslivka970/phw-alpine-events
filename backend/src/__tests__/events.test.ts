@@ -524,7 +524,6 @@ describe('events routes', () => {
     );
     const queue = [
       { recordset: [{ group_name: 'Participants' }] },
-      { recordset: [{ has_event_lead_email: 1 }] },
       { recordset: [{ event_id: '00000000-0000-0000-0000-000000000101', title: 'Fly Tying 101', status: 'published', mentor_capacity: null, participant_capacity: 12, capacity: 12, event_date: new Date('2026-04-01T18:00:00.000Z') }] },
       { recordset: [] },
       { recordset: [{ assigned_count: 0 }] },
@@ -563,7 +562,6 @@ describe('events routes', () => {
     );
     const queue = [
       { recordset: [{ group_name: 'Participants' }] },
-      { recordset: [{ has_event_lead_email: 1 }] },
       { recordset: [{ event_id: '00000000-0000-0000-0000-000000000101', title: 'Fly Tying 101', status: 'published', mentor_capacity: null, participant_capacity: 12, capacity: 12, event_date: new Date('2026-04-01T18:00:00.000Z') }] },
       { recordset: [] },
       { recordset: [{ assigned_count: 0 }] },
@@ -591,13 +589,6 @@ describe('events routes', () => {
         recordset: [
           {
             group_name: 'Participants',
-          },
-        ],
-      },
-      {
-        recordset: [
-          {
-            has_event_lead_email: 1,
           },
         ],
       },

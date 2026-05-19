@@ -1127,12 +1127,14 @@ async function sendEventPublishedNotification(
           m.sms_opt_in,
           m.email_opt_out
        FROM event_notification_target ent
+       INNER JOIN event e ON e.event_id = ent.event_id
        LEFT JOIN member_group mg ON mg.group_id = ent.group_id
        LEFT JOIN [group] g ON g.group_id = ent.group_id
        LEFT JOIN member m ON m.member_id = COALESCE(ent.member_id, mg.member_id)
        WHERE ent.event_id = @event_id
           ${targetGroupPredicate ? `AND ent.group_id IN (${targetGroupPredicate})` : ''}
-         AND m.member_id IS NOT NULL`
+         AND m.member_id IS NOT NULL
+         AND (e.event_lead_member_id IS NULL OR m.member_id <> e.event_lead_member_id)`
       );
 
   let sentEmailCount = 0;
@@ -1506,6 +1508,7 @@ async function sendEventRsvpReminderToNonResponders(payload: EventNotificationPa
               ORDER BY CASE WHEN ent.group_id IS NULL THEN 1 ELSE 0 END, ent.group_id
             ) AS row_num
           FROM event_notification_target ent
+          INNER JOIN event e ON e.event_id = ent.event_id
           LEFT JOIN member_group mg ON mg.group_id = ent.group_id
           LEFT JOIN [group] g ON g.group_id = ent.group_id
           LEFT JOIN member m ON m.member_id = COALESCE(ent.member_id, mg.member_id)
@@ -1513,6 +1516,7 @@ async function sendEventRsvpReminderToNonResponders(payload: EventNotificationPa
           WHERE ent.event_id = @event_id
             AND m.member_id IS NOT NULL
             AND m.is_active = 1
+            AND (e.event_lead_member_id IS NULL OR m.member_id <> e.event_lead_member_id)
             AND er.response_id IS NULL
         )
         SELECT

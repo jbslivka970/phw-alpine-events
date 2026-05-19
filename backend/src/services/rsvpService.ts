@@ -35,17 +35,6 @@ interface MemberRoleRow {
   group_name: string | null;
 }
 
-async function hasEventLeadEmailColumn(): Promise<boolean> {
-  const pool = await getPool();
-  const result = await pool
-    .request()
-    .query<{ has_event_lead_email: number }>(
-      "SELECT CASE WHEN COL_LENGTH('dbo.event', 'event_lead_email') IS NULL THEN 0 ELSE 1 END AS has_event_lead_email"
-    );
-
-  return result.recordset[0]?.has_event_lead_email === 1;
-}
-
 class RsvpError extends Error {
   constructor(message: string, readonly statusCode: number) {
     super(message);
@@ -238,15 +227,24 @@ async function recordRsvpResponse(options: {
   const responseChannel = options.responseChannel ?? 'web';
   const groupContextId = options.groupContextId ?? null;
   const responseRole = normalizeResponseRole(options.responseRole);
-  await assertMemberCanRespondAsRole(options.memberId, responseRole, {
-    eventId: options.eventId,
-    allowUngroupedParticipant: options.allowUngroupedParticipant,
-  });
+  let deferredRoleError: RsvpError | null = null;
+  try {
+    await assertMemberCanRespondAsRole(options.memberId, responseRole, {
+      eventId: options.eventId,
+      allowUngroupedParticipant: options.allowUngroupedParticipant,
+    });
+  } catch (error) {
+    if (error instanceof RsvpError) {
+      deferredRoleError = error;
+    } else {
+      throw error;
+    }
+  }
 
   const eventResult = await pool
     .request()
     .input('event_id', sql.UniqueIdentifier, options.eventId)
-      .query<{ event_id: string; title: string; status: string; capacity: number | null; mentor_capacity: number | null; participant_capacity: number | null; event_date: Date; event_lead_email: string | null }>(
+      .query<{ event_id: string; title: string; status: string; capacity: number | null; mentor_capacity: number | null; participant_capacity: number | null; event_date: Date; event_lead_member_id: string | null; event_lead_email: string | null }>(
         `SELECT
            event_id,
            title,
@@ -255,18 +253,30 @@ async function recordRsvpResponse(options: {
            mentor_capacity,
            participant_capacity,
            event_date,
-           ${await hasEventLeadEmailColumn() ? 'event_lead_email' : 'CAST(NULL AS NVARCHAR(255)) AS event_lead_email'}
+           event_lead_member_id,
+           (SELECT TOP 1 lm.email FROM member lm WHERE lm.member_id = event_lead_member_id) AS event_lead_email
          FROM event
          WHERE event_id = @event_id`
     );
 
   const event = eventResult.recordset[0];
+  if (!event && deferredRoleError) {
+    throw deferredRoleError;
+  }
   if (!event) {
     throw new RsvpError('Event not found', 404);
   }
 
-  if (event.status !== 'published') {
+  if ((event.status ?? 'published') !== 'published') {
     throw new RsvpError('RSVPs are accepted only when event status is published', 409);
+  }
+
+  const isLeadMember = Boolean(
+    event.event_lead_member_id
+    && event.event_lead_member_id.toLowerCase() === options.memberId.toLowerCase()
+  );
+  if (deferredRoleError && !isLeadMember) {
+    throw deferredRoleError;
   }
 
   const roleCapacity = responseRole === 'MENTOR' ? event.mentor_capacity : event.participant_capacity;
@@ -290,7 +300,7 @@ async function recordRsvpResponse(options: {
     existingRole === responseRole
   );
 
-  if (finalResponse === 'yes' && roleCapacity && roleCapacity > 0) {
+  if (!isLeadMember && finalResponse === 'yes' && roleCapacity && roleCapacity > 0) {
     if (!isDuplicateSubmission) {
       const assignedCountResult = await pool
         .request()
