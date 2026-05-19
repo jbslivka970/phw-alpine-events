@@ -794,6 +794,45 @@ jobs:
 
         echo "AUTHZ slot-sticky settings applied."
 
+    - name: Ensure deploy build settings are slot-sticky on prod and staging
+      if: ${{ steps.stale_guard.outputs.stale_run != '1' && steps.backend_deploy_mode.outputs.use_blue_green == '1' }}
+      env:
+        AZURE_WEBAPP_NAME: ${{ vars.AZURE_WEBAPP_NAME }}
+        AZURE_BACKEND_RESOURCE_GROUP: ${{ vars.AZURE_BACKEND_RESOURCE_GROUP }}
+        AZURE_BACKEND_SLOT_NAME: ${{ vars.AZURE_BACKEND_SLOT_NAME }}
+        BACKEND_DEPLOY_INCLUDE_NODE_MODULES: ${{ vars.BACKEND_DEPLOY_INCLUDE_NODE_MODULES }}
+      run: |
+        if [ "${BACKEND_DEPLOY_INCLUDE_NODE_MODULES:-0}" = "1" ]; then
+          BUILD_SETTINGS=(
+            "SCM_DO_BUILD_DURING_DEPLOYMENT=false"
+            "ENABLE_ORYX_BUILD=false"
+          )
+          echo "Using legacy packaging; disabling remote build settings."
+        else
+          BUILD_SETTINGS=(
+            "SCM_DO_BUILD_DURING_DEPLOYMENT=true"
+            "ENABLE_ORYX_BUILD=true"
+          )
+          echo "Using slim packaging; enabling remote build settings."
+        fi
+
+        echo "Applying deploy build settings to production slot."
+        az webapp config appsettings set \
+          --resource-group "$AZURE_BACKEND_RESOURCE_GROUP" \
+          --name "$AZURE_WEBAPP_NAME" \
+          --slot-settings "${BUILD_SETTINGS[@]}" \
+          --output none
+
+        echo "Applying deploy build settings to staging slot."
+        az webapp config appsettings set \
+          --resource-group "$AZURE_BACKEND_RESOURCE_GROUP" \
+          --name "$AZURE_WEBAPP_NAME" \
+          --slot "$AZURE_BACKEND_SLOT_NAME" \
+          --slot-settings "${BUILD_SETTINGS[@]}" \
+          --output none
+
+        echo "Deploy build settings applied."
+
     - name: Deploy backend package to staging slot
       if: ${{ steps.stale_guard.outputs.stale_run != '1' && steps.backend_deploy_mode.outputs.use_blue_green == '1' }}
       env:
