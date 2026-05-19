@@ -1,25 +1,33 @@
 #!/usr/bin/env node
 import fs from 'node:fs';
 import path from 'node:path';
+import { createRequire } from 'node:module';
+
+// Use CJS require.resolve() to check package existence — this is always
+// synchronous and catchable, avoiding the ESM _link-phase crash that
+// occurs in Node.js 22+ when import() targets a non-existent package.
+const _require = createRequire(import.meta.url);
+function packageInstalled(name) {
+  try { _require.resolve(name); return true; } catch { return false; }
+}
 
 let chromiumLoader = null;
 
 async function getChromium() {
   if (!chromiumLoader) {
     chromiumLoader = (async () => {
-      try {
-        const playwright = await import('playwright');
-        return playwright.chromium;
-      } catch {
-        try {
-          const playwrightTest = await import('@playwright/test');
-          return playwrightTest.chromium;
-        } catch {
-          throw new Error(
-            'Playwright browser runtime is unavailable. Install either "playwright" or "@playwright/test" before running browser token refresh.'
-          );
-        }
+      // Prefer @playwright/test (always present after `npm ci`), then playwright.
+      if (packageInstalled('@playwright/test')) {
+        const m = await import('@playwright/test');
+        return m.chromium;
       }
+      if (packageInstalled('playwright')) {
+        const m = await import('playwright');
+        return m.chromium;
+      }
+      throw new Error(
+        'Playwright browser runtime is unavailable. Install either "@playwright/test" or "playwright" before running browser token refresh.'
+      );
     })();
   }
 
