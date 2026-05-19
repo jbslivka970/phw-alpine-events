@@ -4,6 +4,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { eventsApi, rsvpApi } from '../../api/events';
 import { groupsApi } from '../../api/groups';
+import { membersApi } from '../../api/members';
 import { useAuth } from '../../hooks/useAuth';
 import { EventsPage } from '../EventsPage';
 
@@ -27,6 +28,12 @@ vi.mock('../../api/groups', () => ({
   },
 }));
 
+vi.mock('../../api/members', () => ({
+  membersApi: {
+    list: vi.fn(),
+  },
+}));
+
 vi.mock('../../hooks/useAuth', () => ({
   useAuth: vi.fn(),
 }));
@@ -45,6 +52,10 @@ const mockedRsvpApi = rsvpApi as unknown as {
 };
 
 const mockedGroupsApi = groupsApi as unknown as {
+  list: ReturnType<typeof vi.fn>;
+};
+
+const mockedMembersApi = membersApi as unknown as {
   list: ReturnType<typeof vi.fn>;
 };
 
@@ -103,6 +114,15 @@ function getFieldByLabel(labelText: string) {
   return field;
 }
 
+function getSelectByLabel(labelText: string) {
+  const label = screen.getByText(labelText);
+  const field = label.parentElement?.querySelector('select') as HTMLSelectElement | null;
+  if (!field) {
+    throw new Error(`Select not found for label: ${labelText}`);
+  }
+  return field;
+}
+
 describe('EventsPage flow pattern', () => {
   beforeEach(() => {
     mockedUseAuth.mockReturnValue({
@@ -118,6 +138,16 @@ describe('EventsPage flow pattern', () => {
     mockedEventsApi.downloadIcs.mockResolvedValue({ blob: new Blob(['x'], { type: 'text/calendar' }), headers: new Headers() });
     mockedGroupsApi.list.mockResolvedValue([]);
     mockedRsvpApi.list.mockResolvedValue([]);
+    mockedMembersApi.list.mockResolvedValue({
+      data: [
+        {
+          member_id: '00000000-0000-0000-0000-000000000201',
+          first_name: 'Lead',
+          last_name: 'Member',
+          email: 'lead.member@example.com',
+        },
+      ],
+    });
   });
 
   it('creates a new event with normalized payload', async () => {
@@ -155,6 +185,36 @@ describe('EventsPage flow pattern', () => {
         capacity: 3,
         notification_targets: [],
       });
+    });
+  });
+
+  it('enables lead secondary-role checkbox after lead selection and includes role in payload', async () => {
+    renderPage();
+
+    await screen.findByRole('heading', { name: 'Events' });
+    await userEvent.click(screen.getByRole('button', { name: /\+ New Event/i }));
+
+    await setFieldByLabel('Title *', 'Lead Role Coverage Event');
+    await setFieldByLabel('Event Date *', '2026-07-10');
+    await setFieldByLabel('Event Time (24-hour) *', '09:30');
+
+    const leadAlsoVolunteer = screen.getByLabelText('Lead also serves as Volunteer') as HTMLInputElement;
+    expect(leadAlsoVolunteer).toBeDisabled();
+
+    const leadSelect = getSelectByLabel('Event Lead');
+    await userEvent.selectOptions(leadSelect, '00000000-0000-0000-0000-000000000201');
+
+    expect(leadAlsoVolunteer).not.toBeDisabled();
+    await userEvent.click(leadAlsoVolunteer);
+    expect(leadAlsoVolunteer.checked).toBe(true);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Create Event' }));
+
+    await waitFor(() => {
+      expect(mockedEventsApi.create).toHaveBeenCalledWith(expect.objectContaining({
+        event_lead_member_id: '00000000-0000-0000-0000-000000000201',
+        event_lead_secondary_roles: ['MENTOR'],
+      }));
     });
   });
 

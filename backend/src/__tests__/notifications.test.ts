@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import {
   NotificationService,
   notificationService,
@@ -224,5 +226,14 @@ describe('notifications service', () => {
       operationType: 'unit_test',
       errorDetail: 'carrier down',
     }));
+  });
+
+  it('keeps event lead exclusion in publish and reminder recipient SQL', () => {
+    const sourcePath = path.resolve(__dirname, '../services/notifications.ts');
+    const source = fs.readFileSync(sourcePath, 'utf8');
+    const leadExclusion = '(e.event_lead_member_id IS NULL OR m.member_id <> e.event_lead_member_id)';
+    const occurrences = source.split(leadExclusion).length - 1;
+
+    expect(occurrences).toBeGreaterThanOrEqual(2);
   });
 });

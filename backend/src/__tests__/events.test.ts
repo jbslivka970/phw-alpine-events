@@ -16,6 +16,12 @@ jest.mock('../db', () => ({
     Bit: 'Bit',
     UniqueIdentifier: 'UniqueIdentifier',
     MAX: 'MAX',
+    Transaction: jest.fn().mockImplementation((pool: { request: () => unknown }) => ({
+      begin: jest.fn().mockResolvedValue(undefined),
+      commit: jest.fn().mockResolvedValue(undefined),
+      rollback: jest.fn().mockResolvedValue(undefined),
+      request: () => pool.request(),
+    })),
   },
 }));
 
@@ -557,6 +563,94 @@ describe('events routes', () => {
 
     expect(res.status).toBe(400);
     expect(res.body.error).toContain('title and event_date are required');
+  });
+
+  it('POST /api/events writes LEAD and MENTOR assignment rows when lead secondary role includes MENTOR', async () => {
+    const dbMock = jest.requireMock('../db') as { sql: { NVarChar: unknown } };
+    const originalNVarChar = dbMock.sql.NVarChar;
+    dbMock.sql.NVarChar = ((_: unknown) => 'NVarChar') as unknown;
+
+    const mockRequest = createRequest(async (query) => {
+      if (query.includes('COL_LENGTH')) {
+        return { recordset: [{ has_photo_url: 1, has_invitation_stage: 1 }] };
+      }
+      if (query.includes('SELECT TOP 1 m.member_id')) {
+        return { recordset: [{ member_id: '11111111-1111-4111-8111-111111111111' }] };
+      }
+      if (query.includes('INSERT INTO event')) {
+        return {
+          recordset: [{
+            event_id: '22222222-2222-4222-8222-222222222222',
+            title: 'Lead Role Test',
+          }],
+        };
+      }
+      return { recordset: [] };
+    });
+    (getPool as jest.Mock).mockResolvedValue({ request: () => mockRequest });
+
+    const res = await request(app)
+      .post('/api/events')
+      .send({
+        title: 'Lead Role Test',
+        event_date: '2026-06-21T12:00:00.000Z',
+        invitation_stage: 'both',
+        event_lead_member_id: '11111111-1111-4111-8111-111111111111',
+        event_lead_secondary_roles: ['MENTOR'],
+      });
+
+    dbMock.sql.NVarChar = originalNVarChar;
+
+    expect(res.status).toBe(201);
+
+    const executedSql = mockRequest.query.mock.calls
+      .map((call) => String(call[0]))
+      .join('\n');
+
+    expect(executedSql).toContain("'LEAD' AS role");
+    expect(executedSql).toContain("'MENTOR' AS role");
+    expect(executedSql).toContain("AND role = 'PARTICIPANT'");
+  });
+
+  it('PUT /api/events/:id rejects secondary roles when no lead member id is set', async () => {
+    const mockRequest = createRequest(async (query) => {
+      const q = query.toUpperCase();
+      if (q.includes('COL_LENGTH')) {
+        return { recordset: [{ has_photo_url: 1, has_invitation_stage: 1 }] };
+      }
+      if (q.includes('FROM EVENT') && q.includes('WHERE EVENT_ID = @EVENT_ID') && !q.includes('EVENT_ASSIGNMENT')) {
+        return {
+          recordset: [
+            {
+              status: 'draft',
+              title: 'Capacity Guard',
+              description: null,
+              location: null,
+              photo_url: null,
+              invitation_stage: 'both',
+              event_lead_member_id: null,
+              event_lead_name: 'Pat Lead',
+              event_lead_email: 'pat@example.com',
+              event_date: new Date('2026-07-01T10:00:00.000Z'),
+              end_date: null,
+              mentor_capacity: 1,
+              participant_capacity: 4,
+              capacity: 5,
+            },
+          ],
+        };
+      }
+
+      return { recordset: [] };
+    });
+    (getPool as jest.Mock).mockResolvedValue({ request: () => mockRequest });
+
+    const res = await request(app)
+      .put('/api/events/22222222-2222-4222-8222-222222222222')
+      .send({ event_lead_secondary_roles: ['MENTOR'] });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain('event_lead_secondary_roles requires event_lead_member_id');
   });
 
   it('GET /api/events/rsvp/:token returns public RSVP context', async () => {
