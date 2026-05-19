@@ -5,6 +5,7 @@ import { getPool } from '../db';
 import { createRsvpToken } from '../services/rsvpLinkService';
 import { sendEventPublishedNotification, sendEventUpdatedNotification } from '../services/notifications';
 import { generateInviteDraft } from '../services/aiInviteService';
+import { apiLimiter } from '../middleware/rateLimiter';
 
 jest.mock('../db', () => ({
   getPool: jest.fn(),
@@ -74,6 +75,7 @@ function createRequest(handler: (query: string, params: Record<string, unknown>)
 
 describe('events routes', () => {
   const app = express();
+  app.use(apiLimiter);
   app.use(express.json());
   app.use('/api/events', eventsRouter);
 

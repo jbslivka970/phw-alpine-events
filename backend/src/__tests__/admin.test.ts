@@ -4,6 +4,7 @@ import adminRouter from '../routes/admin';
 import { getPool } from '../db';
 import { generateInviteDraft } from '../services/aiInviteService';
 import { runRetentionJob } from '../jobs/retentionJob';
+import { apiLimiter } from '../middleware/rateLimiter';
 
 jest.mock('../db', () => ({
   getPool: jest.fn(),
@@ -58,6 +59,7 @@ function createRequest(handler: (query: string) => Promise<unknown>): MockReques
 
 describe('admin routes', () => {
   const app = express();
+  app.use(apiLimiter);
   app.use(express.json());
   app.use('/api/admin', adminRouter);
 

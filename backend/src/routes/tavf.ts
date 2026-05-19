@@ -92,6 +92,7 @@ function hasElevatedTavfAccess(user: Request['user']): boolean {
 }
 
 // All TAVF routes require authentication
+router.use(apiLimiter);
 router.use(authenticate);
 
 // ---------------------------------------------------------------------------

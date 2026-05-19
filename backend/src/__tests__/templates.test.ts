@@ -2,6 +2,7 @@ import express from 'express';
 import request from 'supertest';
 import templatesRouter from '../routes/templates';
 import { getPool } from '../db';
+import { apiLimiter } from '../middleware/rateLimiter';
 
 jest.mock('../db', () => ({
   getPool: jest.fn(),
@@ -34,6 +35,7 @@ jest.mock('../middleware/rateLimiter', () => ({
 
 describe('templates routes', () => {
   const app = express();
+  app.use(apiLimiter);
   app.use(express.json());
   app.use('/api/templates', templatesRouter);
 

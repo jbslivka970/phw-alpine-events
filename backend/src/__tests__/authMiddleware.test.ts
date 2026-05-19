@@ -68,6 +68,7 @@ import express, { Request, Response, NextFunction } from 'express';
 import request from 'supertest';
 import jwt from 'jsonwebtoken';
 import { getPool } from '../db';
+import { apiLimiter } from '../middleware/rateLimiter';
 
 // Import the middleware under test. NODE_ENV will be overridden per test so
 // that the "test-mode shortcut" inside authenticate() is bypassed.
@@ -120,6 +121,7 @@ function setVerifyClaims(claims: Record<string, unknown>): void {
 /** Build an Express app with the authenticate middleware and a probe route. */
 function buildApp(): express.Application {
   const app = express();
+  app.use(apiLimiter);
   app.use(authenticate);
   app.get('/probe', (req: Request, res: Response) => {
     res.json({ roles: req.user?.roles ?? null, email: req.user?.email ?? null });

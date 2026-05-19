@@ -2,6 +2,7 @@ import express from 'express';
 import request from 'supertest';
 import importRouter from '../routes/import';
 import * as csvImportService from '../services/csvImportService';
+import { apiLimiter } from '../middleware/rateLimiter';
 
 jest.mock('../services/csvImportService');
 
@@ -25,6 +26,7 @@ jest.mock('../middleware/rateLimiter', () => ({
 
 describe('import routes', () => {
   const app = express();
+  app.use(apiLimiter);
   app.use(express.json());
   app.use('/api/import', importRouter);
 

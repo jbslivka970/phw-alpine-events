@@ -74,6 +74,7 @@ import request from 'supertest';
 import jwt from 'jsonwebtoken';
 import { getPool } from '../db';
 import authenticate from '../middleware/auth';
+import { apiLimiter } from '../middleware/rateLimiter';
 
 // ---------------------------------------------------------------------------
 // Helpers — same shapes as authMiddleware.test.ts
@@ -113,6 +114,7 @@ function setVerifyClaims(claims: Record<string, unknown>): void {
 
 function buildApp(): express.Application {
   const app = express();
+  app.use(apiLimiter);
   app.use(authenticate);
   app.get('/probe', (req: Request, res: Response) => {
     res.json({ roles: req.user?.roles ?? null, email: req.user?.email ?? null });

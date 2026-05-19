@@ -3,6 +3,7 @@ import request from 'supertest';
 import groupsRouter from '../routes/groups';
 import * as groupService from '../services/groupService';
 import * as memberService from '../services/memberService';
+import { apiLimiter } from '../middleware/rateLimiter';
 
 jest.mock('../services/groupService');
 jest.mock('../services/memberService');
@@ -28,6 +29,7 @@ jest.mock('../middleware/rateLimiter', () => ({
 
 describe('groups routes', () => {
   const app = express();
+  app.use(apiLimiter);
   app.use(express.json());
   app.use('/api/groups', groupsRouter);
 

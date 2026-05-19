@@ -4,6 +4,7 @@ import { renderTemplate } from '../templates/NotificationTemplate';
 import { eventReminderTemplate } from '../templates/eventReminder';
 import { randomUUID } from 'crypto';
 import { formatInProgramTimeZone } from '../utils/dateTime';
+import { stripHtmlToText } from '../utils/htmlText';
 
 const REMINDER_CLAIM_TIMEOUT_MINUTES = 30;
 
@@ -24,18 +25,6 @@ interface UpcomingEventRow {
 interface RuntimeTemplateOverride {
   subject: string | null;
   body: string;
-}
-
-function stripHtmlToText(value: string): string {
-  return value
-    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
-    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-    // Use a narrower pattern (tag must start with a letter) to satisfy CodeQL bad-tag-filter.
-    // Output is used only for SMS plaintext — it is never re-rendered as HTML.
-    .replace(/<[a-z/][^>]*>/gi, ' ')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
 }
 
 async function getActiveTemplateOverride(

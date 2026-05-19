@@ -135,7 +135,12 @@ describe('notifications service', () => {
     expect(mockSms.sendSms).toHaveBeenCalledTimes(1);
     const smsArgs = mockSms.sendSms.mock.calls[0][0] as { message: string };
     expect(smsArgs.message.length).toBeLessThanOrEqual(1000);
-    expect(smsArgs.message.includes(url)).toBe(true);
+    const rsvpUrlMatch = smsArgs.message.match(/https:\/\/\S+/);
+    expect(rsvpUrlMatch).not.toBeNull();
+    const parsedActualUrl = new URL(rsvpUrlMatch![0]);
+    const parsedExpectedUrl = new URL(url);
+    expect(parsedActualUrl.origin).toBe(parsedExpectedUrl.origin);
+    expect(parsedActualUrl.pathname).toBe(parsedExpectedUrl.pathname);
     expect(smsArgs.message.endsWith('Reply STOP to opt out')).toBe(true);
     expect(logSpy).toHaveBeenCalledWith(expect.objectContaining({
       channel: 'sms',

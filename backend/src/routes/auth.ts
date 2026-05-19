@@ -4,6 +4,7 @@ import jwksRsa, { type JwksClient } from 'jwks-rsa';
 import { loadAuthConfig } from '../config';
 import { getPool, sql } from '../db';
 import type { AppRole } from '../middleware/auth';
+import { writeLimiter } from '../middleware/rateLimiter';
 
 const router = Router();
 
@@ -195,7 +196,7 @@ async function findActiveTestMemberByEmail(email: string): Promise<TestMemberRow
   return result.recordset[0] ?? null;
 }
 
-router.post('/e2e/exchange', async (req: Request, res: Response) => {
+router.post('/e2e/exchange', writeLimiter, async (req: Request, res: Response) => {
   if (!exchangeEnabled()) {
     res.status(404).json({ error: 'Not found' });
     return;

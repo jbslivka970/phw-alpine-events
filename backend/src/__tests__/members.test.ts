@@ -5,6 +5,7 @@ import * as memberService from '../services/memberService';
 import * as groupService from '../services/groupService';
 import { getPool } from '../db';
 import { notificationService } from '../services/notifications';
+import { apiLimiter } from '../middleware/rateLimiter';
 
 jest.mock('../services/memberService');
 
@@ -66,6 +67,7 @@ function createRequest(handler: () => Promise<unknown>): MockRequest {
 
 describe('members routes', () => {
   const app = express();
+  app.use(apiLimiter);
   app.use(express.json());
   app.use('/api/members', membersRouter);
   const originalEnv = { ...process.env };

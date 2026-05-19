@@ -5,6 +5,63 @@ export interface EventSummaryEmailConfig {
   assistantProgramLeadEmails: string[];
 }
 
+function isAsciiEmailChar(value: string): boolean {
+  const code = value.charCodeAt(0);
+  return (code >= 48 && code <= 57)
+    || (code >= 65 && code <= 90)
+    || (code >= 97 && code <= 122)
+    || value === '.'
+    || value === '_'
+    || value === '%'
+    || value === '+'
+    || value === '-';
+}
+
+function isValidEmailAddress(value: string): boolean {
+  if (value.length < 5 || value.length > 320 || value.includes(' ')) {
+    return false;
+  }
+
+  const atIndex = value.indexOf('@');
+  if (atIndex <= 0 || atIndex !== value.lastIndexOf('@') || atIndex >= value.length - 3) {
+    return false;
+  }
+
+  const local = value.slice(0, atIndex);
+  const domain = value.slice(atIndex + 1);
+  if (!local || !domain || !domain.includes('.')) {
+    return false;
+  }
+
+  for (const ch of local) {
+    if (!isAsciiEmailChar(ch)) {
+      return false;
+    }
+  }
+
+  const labels = domain.split('.');
+  if (labels.some((label) => label.length === 0)) {
+    return false;
+  }
+
+  for (const label of labels) {
+    if (label.startsWith('-') || label.endsWith('-')) {
+      return false;
+    }
+    for (const ch of label) {
+      const code = ch.charCodeAt(0);
+      const isAlnum = (code >= 48 && code <= 57)
+        || (code >= 65 && code <= 90)
+        || (code >= 97 && code <= 122);
+      if (!isAlnum && ch !== '-') {
+        return false;
+      }
+    }
+  }
+
+  return true;
+}
+
 export function normalizeEmail(value: string | null | undefined): string | null {
   if (!value) {
     return null;
@@ -15,7 +72,7 @@ export function normalizeEmail(value: string | null | undefined): string | null 
     return null;
   }
 
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized) ? normalized : null;
+  return isValidEmailAddress(normalized) ? normalized : null;
 }
 
 export function normalizeEmailList(values: Array<string | null | undefined>): string[] {

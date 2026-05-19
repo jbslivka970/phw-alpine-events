@@ -4,6 +4,7 @@ import preferencesRouter from '../routes/preferences';
 import { getPool } from '../db';
 import { createEmailUnsubscribeToken } from '../services/emailPreferenceLinkService';
 import { notificationService } from '../services/notifications';
+import { apiLimiter } from '../middleware/rateLimiter';
 
 jest.mock('../db', () => ({
   getPool: jest.fn(),
@@ -42,6 +43,7 @@ jest.mock('../middleware/rateLimiter', () => ({
 
 describe('preferences routes', () => {
   const app = express();
+  app.use(apiLimiter);
   app.use(express.json());
   app.use('/api/preferences', preferencesRouter);
 

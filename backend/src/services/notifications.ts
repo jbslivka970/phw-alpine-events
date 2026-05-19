@@ -16,6 +16,7 @@ import { waitlistPromotionTemplate } from '../templates/waitlistPromotion';
 import { buildMemberEmailUnsubscribeUrl } from './emailPreferenceLinkService';
 import { buildMemberRsvpUrls, createShortRsvpUrlFromLandingUrl, type ResponseRole } from './rsvpLinkService';
 import { formatInProgramTimeZone } from '../utils/dateTime';
+import { stripHtmlToText } from '../utils/htmlText';
 
 interface RsvpNotificationPayload {
   eventId: string;
@@ -640,18 +641,6 @@ class NotificationService {
       console.error('[NotificationService] Failed to write notification_log', error);
     }
   }
-}
-
-function stripHtmlToText(value: string): string {
-  return value
-    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
-    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-    // Use a narrower pattern (tag must start with a letter) to satisfy CodeQL bad-tag-filter.
-    // Output is used only for SMS plaintext — it is never re-rendered as HTML.
-    .replace(/<[a-z/][^>]*>/gi, ' ')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
 }
 
 function normalizeTemplateBody(value: string): string {

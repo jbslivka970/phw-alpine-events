@@ -9,6 +9,7 @@ import express from 'express';
 import authenticate from '../middleware/auth';
 import tavfRouter from '../routes/tavf';
 import * as tavfService from '../services/tavfService';
+import { apiLimiter } from '../middleware/rateLimiter';
 
 // Mock the entire service module
 jest.mock('../services/tavfService');
@@ -26,6 +27,7 @@ jest.mock('../middleware/auth', () => ({
 }));
 
 const app = express();
+app.use(apiLimiter);
 app.use(express.json());
 app.use('/api', authenticate);
 app.use('/api/tavf', tavfRouter);

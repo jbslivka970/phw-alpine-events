@@ -3,6 +3,7 @@ import request from 'supertest';
 import supportRouter from '../routes/support';
 import { getPool } from '../db';
 import { notificationService } from '../services/notifications';
+import { apiLimiter } from '../middleware/rateLimiter';
 
 jest.mock('../db', () => ({
   getPool: jest.fn(),
@@ -40,6 +41,7 @@ type QueryResult = { recordset?: unknown[]; rowsAffected?: number[] };
 
 describe('support routes', () => {
   const app = express();
+  app.use(apiLimiter);
   app.use(express.json());
   app.use('/api/support', supportRouter);
 
