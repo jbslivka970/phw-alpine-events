@@ -3,7 +3,7 @@ import request from 'supertest';
 import eventsRouter from '../routes/events';
 import { getPool } from '../db';
 import { createRsvpToken } from '../services/rsvpLinkService';
-import { sendEventPublishedNotification, sendEventUpdatedNotification } from '../services/notifications';
+import { sendEventCompletedNotification, sendEventPublishedNotification, sendEventUpdatedNotification } from '../services/notifications';
 import { generateInviteDraft } from '../services/aiInviteService';
 import { apiLimiter } from '../middleware/rateLimiter';
 
@@ -45,6 +45,7 @@ jest.mock('../services/notifications', () => ({
   sendEventPublishedNotification: jest.fn(),
   sendEventCancelledNotification: jest.fn(),
   sendEventUpdatedNotification: jest.fn(),
+  sendEventCompletedNotification: jest.fn(),
   sendRsvpConfirmation: jest.fn(),
   notificationService: {
     sendEmail: jest.fn().mockResolvedValue(undefined),
@@ -121,6 +122,35 @@ describe('events routes', () => {
     expect(res.body.rows).toHaveLength(1);
     expect(res.body.rows[0].rank).toBe(1);
     expect(mockRequest.input).toHaveBeenCalledWith('role', 'NVarChar', 'MENTOR');
+  });
+
+  it('GET /api/events/:id/assignment-recommendations applies lead+participant discount and total attended de-dupe in SQL', async () => {
+    let capturedQuery = '';
+    const mockRequest = createRequest(async (query) => {
+      capturedQuery = query;
+      return {
+        recordset: [
+          {
+            member_id: 'member-1',
+            first_name: 'Alex',
+            last_name: 'River',
+            response: 'yes',
+            role_attended_year: 0.5,
+            role_attended_prior_year: 1,
+            total_attended_year: 2,
+            total_attended_prior_year: 2,
+          },
+        ],
+      };
+    });
+    (getPool as jest.Mock).mockResolvedValue({ request: () => mockRequest });
+
+    const res = await request(app)
+      .get('/api/events/event-1/assignment-recommendations?role=PARTICIPANT&limit=5');
+
+    expect(res.status).toBe(200);
+    expect(capturedQuery).toContain('CASE WHEN attendance.lead_attended = 1 THEN 0.5 ELSE 1 END');
+    expect(capturedQuery).toContain('attendance.attended_any = 1');
   });
 
   it('PUT /api/events/:id/status rejects invalid transition', async () => {
@@ -283,6 +313,45 @@ describe('events routes', () => {
     expect(res.status).toBe(400);
     expect(res.body.error).toContain('At least one target group is required');
     expect(updateRequest.query).not.toHaveBeenCalled();
+  });
+
+  it('PUT /api/events/:id/status marks LEAD assignments attended when completing event', async () => {
+    const selectRequest = createRequest(async () => ({
+      recordset: [
+        {
+          event_id: 'event-1',
+          status: 'published',
+          title: 'Fly Tying 101',
+          event_date: new Date().toISOString(),
+          location: null,
+          description: null,
+          photo_url: null,
+          invitation_stage: 'both',
+          event_lead_member_id: '00000000-0000-0000-0000-000000000099',
+          event_lead_name: 'Pat Lead',
+          event_lead_email: 'pat@example.com',
+        },
+      ],
+    }));
+    const updateRequest = createRequest(async () => ({
+      recordset: [{ event_id: 'event-1', status: 'completed' }],
+    }));
+    const leadAttendanceRequest = createRequest(async () => ({ rowsAffected: [1], recordset: [] }));
+
+    const pool = {
+      request: jest
+        .fn()
+        .mockReturnValueOnce(selectRequest)
+        .mockReturnValueOnce(updateRequest)
+        .mockReturnValueOnce(leadAttendanceRequest),
+    };
+    (getPool as jest.Mock).mockResolvedValue(pool);
+
+    const res = await request(app).put('/api/events/event-1/status').send({ status: 'completed' });
+
+    expect(res.status).toBe(200);
+    expect(leadAttendanceRequest.query).toHaveBeenCalledWith(expect.stringContaining("role = 'LEAD'"));
+    expect(sendEventCompletedNotification).toHaveBeenCalled();
   });
 
   it('PUT /api/events/:id does not auto-send update notifications for published events', async () => {

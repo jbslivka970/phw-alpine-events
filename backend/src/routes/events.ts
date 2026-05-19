@@ -1160,6 +1160,7 @@ router.post('/:id/send-update', writeLimiter, authenticate, requireEventCreatorO
         description: string | null;
         photo_url: string | null;
         invitation_stage: 'volunteer' | 'participant' | 'both';
+        event_lead_member_id: string | null;
         event_lead_name: string | null;
         event_lead_email: string | null;
       }>(
@@ -1246,6 +1247,7 @@ router.post('/:id/send-reminder', writeLimiter, authenticate, requireEventCreato
         description: string | null;
         photo_url: string | null;
         invitation_stage: 'volunteer' | 'participant' | 'both';
+        event_lead_member_id: string | null;
         event_lead_name: string | null;
         event_lead_email: string | null;
       }>(
@@ -1413,6 +1415,7 @@ router.post('/:id/close-at-capacity', writeLimiter, authenticate, requireEventCr
         description: string | null;
         photo_url: string | null;
         invitation_stage: 'volunteer' | 'participant' | 'both';
+        event_lead_member_id: string | null;
         event_lead_name: string | null;
         event_lead_email: string | null;
       }>(
@@ -1542,6 +1545,19 @@ router.post('/:id/close-at-capacity', writeLimiter, authenticate, requireEventCr
       }
     }
     if (newStatus === 'completed') {
+      if (existing.event_lead_member_id) {
+        await pool
+          .request()
+          .input('event_id', sql.UniqueIdentifier, req.params.id)
+          .query(
+            `UPDATE event_assignment
+             SET attended = 1
+             WHERE event_id = @event_id
+               AND role = 'LEAD'
+               AND attended IS NULL`
+          );
+      }
+
       try {
         await sendEventCompletedNotification({
           event_id: existing.event_id,
@@ -2708,14 +2724,50 @@ router.get('/:id/assignment-recommendations', apiLimiter, authenticate, requireE
             m.first_name,
             m.last_name,
             er.response,
-            SUM(CASE WHEN YEAR(e_hist.event_date) = @current_year AND ea.role = @role AND ea.attended = 1 THEN 1 ELSE 0 END) AS role_attended_year,
-            SUM(CASE WHEN YEAR(e_hist.event_date) = @prior_year AND ea.role = @role AND ea.attended = 1 THEN 1 ELSE 0 END) AS role_attended_prior_year,
-            SUM(CASE WHEN YEAR(e_hist.event_date) = @current_year AND ea.attended = 1 THEN 1 ELSE 0 END) AS total_attended_year,
-            SUM(CASE WHEN YEAR(e_hist.event_date) = @prior_year AND ea.attended = 1 THEN 1 ELSE 0 END) AS total_attended_prior_year
+            SUM(
+              CASE
+                WHEN YEAR(attendance.event_date) = @current_year
+                  THEN CASE
+                    WHEN @role = 'PARTICIPANT' AND attendance.participant_attended = 1
+                      THEN CASE WHEN attendance.lead_attended = 1 THEN 0.5 ELSE 1 END
+                    WHEN @role = 'MENTOR' AND attendance.mentor_attended = 1
+                      THEN 1
+                    ELSE 0
+                  END
+                ELSE 0
+              END
+            ) AS role_attended_year,
+            SUM(
+              CASE
+                WHEN YEAR(attendance.event_date) = @prior_year
+                  THEN CASE
+                    WHEN @role = 'PARTICIPANT' AND attendance.participant_attended = 1
+                      THEN CASE WHEN attendance.lead_attended = 1 THEN 0.5 ELSE 1 END
+                    WHEN @role = 'MENTOR' AND attendance.mentor_attended = 1
+                      THEN 1
+                    ELSE 0
+                  END
+                ELSE 0
+              END
+            ) AS role_attended_prior_year,
+            SUM(CASE WHEN YEAR(attendance.event_date) = @current_year AND attendance.attended_any = 1 THEN 1 ELSE 0 END) AS total_attended_year,
+            SUM(CASE WHEN YEAR(attendance.event_date) = @prior_year AND attendance.attended_any = 1 THEN 1 ELSE 0 END) AS total_attended_prior_year
          FROM event_response er
          INNER JOIN member m ON m.member_id = er.member_id
-         LEFT JOIN event_assignment ea ON ea.member_id = er.member_id
-         LEFT JOIN event e_hist ON e_hist.event_id = ea.event_id AND e_hist.status = 'completed'
+         LEFT JOIN (
+           SELECT
+             ea.member_id,
+             ea.event_id,
+             e_hist.event_date,
+             MAX(CASE WHEN ea.attended = 1 THEN 1 ELSE 0 END) AS attended_any,
+             MAX(CASE WHEN ea.role = 'LEAD' AND ea.attended = 1 THEN 1 ELSE 0 END) AS lead_attended,
+             MAX(CASE WHEN ea.role = 'MENTOR' AND ea.attended = 1 THEN 1 ELSE 0 END) AS mentor_attended,
+             MAX(CASE WHEN ea.role = 'PARTICIPANT' AND ea.attended = 1 THEN 1 ELSE 0 END) AS participant_attended
+           FROM event_assignment ea
+           INNER JOIN event e_hist ON e_hist.event_id = ea.event_id
+           WHERE e_hist.status = 'completed'
+           GROUP BY ea.member_id, ea.event_id, e_hist.event_date
+         ) attendance ON attendance.member_id = er.member_id
          WHERE er.event_id = @event_id
            AND er.response IN ('yes', 'maybe', 'waitlist')
            AND COALESCE(m.is_test_account, 0) = 0
