@@ -122,7 +122,12 @@ function EventAssignmentPage() {
   const [closeAtCapacityNotice, setCloseAtCapacityNotice] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  const assignedMemberIds = useMemo(() => new Set(assignments.map((a) => a.member_id)), [assignments])
+  const seatAssignments = useMemo(
+    () => assignments.filter((assignment) => assignment.role === 'MENTOR' || assignment.role === 'PARTICIPANT'),
+    [assignments]
+  )
+
+  const assignedMemberIds = useMemo(() => new Set(seatAssignments.map((assignment) => assignment.member_id)), [seatAssignments])
 
   async function refreshEventData(targetEventId: string): Promise<void> {
     const [asns, eventRsvps, eventDetail] = await Promise.all([
@@ -401,16 +406,16 @@ function EventAssignmentPage() {
   )
 
   const assignedVolunteerCount = useMemo(
-    () => assignments.filter((assignment) => assignment.role === 'MENTOR').length,
-    [assignments]
+    () => seatAssignments.filter((assignment) => assignment.role === 'MENTOR').length,
+    [seatAssignments]
   )
 
   const assignedParticipantCount = useMemo(
-    () => assignments.filter((assignment) => assignment.role !== 'MENTOR').length,
-    [assignments]
+    () => seatAssignments.filter((assignment) => assignment.role === 'PARTICIPANT').length,
+    [seatAssignments]
   )
 
-  const assignedTotalCount = assignments.length
+  const assignedTotalCount = seatAssignments.length
   const volunteerCapacity = eventCapacity?.mentor_capacity ?? null
   const participantCapacity = eventCapacity?.participant_capacity ?? null
   const totalCapacity = eventCapacity?.capacity ?? null
@@ -489,10 +494,7 @@ function EventAssignmentPage() {
 
   const assignmentRolesByMember = useMemo(() => {
     const roleMap = new Map<string, Array<'MENTOR' | 'PARTICIPANT'>>()
-    assignments.forEach((assignment) => {
-      if (assignment.role !== 'MENTOR' && assignment.role !== 'PARTICIPANT') {
-        return
-      }
+    seatAssignments.forEach((assignment) => {
       const role = assignment.role
       const existingRoles = roleMap.get(assignment.member_id) ?? []
       if (!existingRoles.includes(role)) {
@@ -501,7 +503,7 @@ function EventAssignmentPage() {
       roleMap.set(assignment.member_id, existingRoles)
     })
     return roleMap
-  }, [assignments])
+  }, [seatAssignments])
 
   const leadAssignments = useMemo(
     () => assignments.filter((assignment) => assignment.role === 'LEAD'),
@@ -775,9 +777,9 @@ function EventAssignmentPage() {
             <tr><th>Name</th><th>Role</th><th>Role Y/PY</th><th>Total Y/PY</th><th>Attended</th><th>Action</th></tr>
           </thead>
           <tbody>
-            {assignments.length === 0 ? (
+            {seatAssignments.length === 0 ? (
               <tr><td colSpan={6}>No assignments yet.</td></tr>
-            ) : assignments.map((row) => {
+            ) : seatAssignments.map((row) => {
               const p = participationFor(row.member_id)
               const roleCurrent = row.role === 'MENTOR' ? p.mentor_attended : p.participant_attended
               const rolePrior = row.role === 'MENTOR' ? p.mentor_attended_prior_year : p.participant_attended_prior_year
