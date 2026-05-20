@@ -15,6 +15,17 @@ type Assignment = {
   attendance_notes?: string | null
 }
 
+type AssignmentRole = 'LEAD' | 'MENTOR' | 'PARTICIPANT'
+
+type GroupedAssignmentRow = {
+  member_id: string
+  first_name: string
+  last_name: string
+  roles: AssignmentRole[]
+  assignments: Assignment[]
+  attended: boolean
+}
+
 type MemberSearchRow = {
   member_id: string
   first_name: string
@@ -128,6 +139,46 @@ function EventAssignmentPage() {
   )
 
   const assignedMemberIds = useMemo(() => new Set(seatAssignments.map((assignment) => assignment.member_id)), [seatAssignments])
+
+  const groupedAssignments = useMemo<GroupedAssignmentRow[]>(() => {
+    const rolePriority: Record<AssignmentRole, number> = {
+      LEAD: 0,
+      MENTOR: 1,
+      PARTICIPANT: 2,
+    }
+    const grouped = new Map<string, GroupedAssignmentRow>()
+
+    assignments
+      .filter((assignment) => assignment.role === 'LEAD' || assignment.role === 'MENTOR' || assignment.role === 'PARTICIPANT')
+      .forEach((assignment) => {
+        const role = assignment.role as AssignmentRole
+        const existing = grouped.get(assignment.member_id)
+        if (existing) {
+          if (!existing.roles.includes(role)) {
+            existing.roles.push(role)
+            existing.roles.sort((a, b) => rolePriority[a] - rolePriority[b])
+          }
+          existing.assignments.push(assignment)
+          existing.attended = existing.attended || Boolean(assignment.attended)
+          return
+        }
+
+        grouped.set(assignment.member_id, {
+          member_id: assignment.member_id,
+          first_name: assignment.first_name,
+          last_name: assignment.last_name,
+          roles: [role],
+          assignments: [assignment],
+          attended: Boolean(assignment.attended),
+        })
+      })
+
+    return Array.from(grouped.values()).sort((a, b) => {
+      const aName = `${a.last_name} ${a.first_name}`.trim().toLowerCase()
+      const bName = `${b.last_name} ${b.first_name}`.trim().toLowerCase()
+      return aName.localeCompare(bName)
+    })
+  }, [assignments])
 
   async function refreshEventData(targetEventId: string): Promise<void> {
     const [asns, eventRsvps, eventDetail] = await Promise.all([
@@ -317,6 +368,18 @@ function EventAssignmentPage() {
     }
   }
 
+  async function updateGroupedAttendance(row: GroupedAssignmentRow, attended: boolean) {
+    if (!eventId) {
+      return
+    }
+    try {
+      await Promise.all(row.assignments.map((assignment) => assignmentsApi.setAttendance(eventId, assignment.assignment_id, { attended })))
+      await refreshEventData(eventId)
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to update attendance')
+    }
+  }
+
   async function deleteAssignment(assignmentId: string) {
     if (!eventId) {
       return
@@ -353,6 +416,42 @@ function EventAssignmentPage() {
     }
   }
 
+  async function setRsvpNoAndRemoveGrouped(row: GroupedAssignmentRow) {
+    if (!eventId) {
+      return
+    }
+    if (!window.confirm('Set RSVP to No and remove this person from all assignments?')) {
+      return
+    }
+
+    try {
+      await rsvpApi.upsert(eventId, {
+        member_id: row.member_id,
+        response: 'no',
+      })
+      await Promise.all(row.assignments.map((assignment) => assignmentsApi.remove(eventId, assignment.assignment_id)))
+      await refreshEventData(eventId)
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to set RSVP to No and remove assignments')
+    }
+  }
+
+  async function deleteGroupedAssignment(row: GroupedAssignmentRow) {
+    if (!eventId) {
+      return
+    }
+    if (!window.confirm('Are you sure you want to remove this person from all assignments?')) {
+      return
+    }
+
+    try {
+      await Promise.all(row.assignments.map((assignment) => assignmentsApi.remove(eventId, assignment.assignment_id)))
+      await refreshEventData(eventId)
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to remove assignments')
+    }
+  }
+
   function participationFor(memberId: string): ParticipationSummary {
     return participation[memberId] ?? EMPTY_PARTICIPATION
   }
@@ -365,6 +464,30 @@ function EventAssignmentPage() {
       return 'Participant'
     }
     return 'Unspecified'
+  }
+
+  function assignmentRoleChipLabel(role: AssignmentRole): string {
+    if (role === 'LEAD') {
+      return 'Event Lead'
+    }
+    if (role === 'MENTOR') {
+      return 'Volunteer'
+    }
+    return 'Participant'
+  }
+
+  function roleParticipationSummary(roles: AssignmentRole[], summary: ParticipationSummary): string {
+    const parts: string[] = []
+    if (roles.includes('MENTOR')) {
+      parts.push(`Vol ${summary.mentor_attended} / ${summary.mentor_attended_prior_year}`)
+    }
+    if (roles.includes('PARTICIPANT')) {
+      parts.push(`Part ${summary.participant_attended} / ${summary.participant_attended_prior_year}`)
+    }
+    if (parts.length === 0 && roles.includes('LEAD')) {
+      return 'Lead only'
+    }
+    return parts.join(' • ')
   }
 
   const rankedRsvps = useMemo(() => {
@@ -777,29 +900,38 @@ function EventAssignmentPage() {
             <tr><th>Name</th><th>Role</th><th>Role Y/PY</th><th>Total Y/PY</th><th>Attended</th><th>Action</th></tr>
           </thead>
           <tbody>
-            {seatAssignments.length === 0 ? (
+            {groupedAssignments.length === 0 ? (
               <tr><td colSpan={6}>No assignments yet.</td></tr>
-            ) : seatAssignments.map((row) => {
+            ) : groupedAssignments.map((row) => {
               const p = participationFor(row.member_id)
-              const roleCurrent = row.role === 'MENTOR' ? p.mentor_attended : p.participant_attended
-              const rolePrior = row.role === 'MENTOR' ? p.mentor_attended_prior_year : p.participant_attended_prior_year
               return (
-                <tr key={row.assignment_id}>
+                <tr key={row.member_id}>
                   <td>{row.first_name} {row.last_name}</td>
-                  <td>{row.role}</td>
-                  <td>{roleCurrent} / {rolePrior}</td>
+                  <td>
+                    <div className="assignment-status">
+                      {row.roles.map((role) => (
+                        <span
+                          key={`${row.member_id}-${role}`}
+                          className={`assignment-role-chip ${role === 'MENTOR' ? 'assignment-role-chip--mentor' : role === 'PARTICIPANT' ? 'assignment-role-chip--participant' : 'assignment-role-chip--unknown'}`}
+                        >
+                          {assignmentRoleChipLabel(role)}
+                        </span>
+                      ))}
+                    </div>
+                  </td>
+                  <td>{roleParticipationSummary(row.roles, p)}</td>
                   <td>{p.events_attended} / {p.events_attended_prior_year}</td>
                   <td>
                     <input
                       type="checkbox"
                       checked={Boolean(row.attended)}
-                      onChange={(e) => updateAttendance(row.assignment_id, e.target.checked)}
+                      onChange={(e) => void updateGroupedAttendance(row, e.target.checked)}
                     />
                   </td>
                   <td>
                     <div className="members-row-actions">
-                      <button className="btn btn--sm btn--outline" onClick={() => void deleteAssignment(row.assignment_id)}>Remove</button>
-                      <button className="btn btn--sm" onClick={() => void setRsvpNoAndRemove(row)}>RSVP No + Remove</button>
+                      <button className="btn btn--sm btn--outline" onClick={() => void deleteGroupedAssignment(row)}>Remove</button>
+                      <button className="btn btn--sm" onClick={() => void setRsvpNoAndRemoveGrouped(row)}>RSVP No + Remove</button>
                     </div>
                   </td>
                 </tr>
