@@ -663,11 +663,11 @@ function EventAssignmentPage() {
               <div>
                 <p style={{ margin: '0 0 4px', fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.08em', opacity: 0.7 }}>Event Lead</p>
                 <p style={{ margin: 0, fontWeight: 600 }}>{derivedLeadName}</p>
-                <p style={{ margin: '4px 0 0' }}>{eventDetail?.event_lead_email ?? 'No lead email set'}</p>
+                <p style={{ margin: '4px 0 0', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{eventDetail?.event_lead_email ?? 'No lead email set'}</p>
               </div>
               <div>
                 <p style={{ margin: '0 0 4px', fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.08em', opacity: 0.7 }}>Scheduler Summary Recipient</p>
-                <p style={{ margin: 0, fontWeight: 600 }}>{eventDetail?.scheduler_email ?? 'Using event creator fallback'}</p>
+                <p style={{ margin: 0, fontWeight: 600, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{eventDetail?.scheduler_email ?? 'Using event creator fallback'}</p>
                 <p style={{ margin: '4px 0 0' }}>{eventDetail?.scheduler_email ? 'Post-event participation summary will send here.' : 'If blank, the post-event summary falls back to the event creator email.'}</p>
               </div>
               <div>

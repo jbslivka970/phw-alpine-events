@@ -2248,7 +2248,7 @@ function parseCapacity(value: unknown): number | null {
     return null;
   }
 
-  if (!Number.isInteger(parsed) || parsed < 1) {
+  if (!Number.isInteger(parsed) || parsed < 0) {
     return null;
   }
 

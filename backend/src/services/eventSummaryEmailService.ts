@@ -22,7 +22,7 @@ interface EventSummaryReportData {
     member_id: string;
     first_name: string;
     last_name: string;
-    email: string;
+    email: string | null;
     mobile_phone: string | null;
     role: string;
     assigned_at: Date | string;
@@ -34,7 +34,7 @@ interface EventSummaryReportData {
     member_id: string;
     first_name: string;
     last_name: string;
-    email: string;
+    email: string | null;
     mobile_phone: string | null;
     response: string;
     response_role: string | null;
@@ -130,6 +130,10 @@ function escapeHtml(value: string): string {
 
 function formatContact(email: string | null, mobilePhone: string | null): string {
   return `email: ${email?.trim() || 'n/a'} | phone: ${mobilePhone?.trim() || 'n/a'}`;
+}
+
+function formatEmailForDisplay(email: string | null): string {
+  return email?.trim() || 'n/a';
 }
 
 function formatReportTimestamp(value: Date | string | null): string {
@@ -255,7 +259,7 @@ function buildLeadPrepRosterLines(report: EventSummaryReportData): string[] {
   const divider = '-'.repeat(header.length);
   const rows = report.assignments.map((row) => {
     const name = `${row.first_name} ${row.last_name}`.trim();
-    return `${padColumn(name, 24)} ${padColumn(row.role, 13)} ${padColumn(row.email, 34)} ${row.mobile_phone?.trim() || 'n/a'}`;
+    return `${padColumn(name, 24)} ${padColumn(row.role, 13)} ${padColumn(formatEmailForDisplay(row.email), 34)} ${row.mobile_phone?.trim() || 'n/a'}`;
   });
 
   return [header, divider, ...rows];
@@ -272,7 +276,7 @@ function buildWaitlistLines(report: EventSummaryReportData): string[] {
   const rows = waitlistRows.map((row) => {
     const name = `${row.first_name} ${row.last_name}`.trim();
     const role = row.response_role ?? 'n/a';
-    return `${padColumn(name, 24)} ${padColumn(role, 13)} ${padColumn(row.email, 34)} ${row.mobile_phone?.trim() || 'n/a'}`;
+    return `${padColumn(name, 24)} ${padColumn(role, 13)} ${padColumn(formatEmailForDisplay(row.email), 34)} ${row.mobile_phone?.trim() || 'n/a'}`;
   });
 
   return [header, divider, ...rows];
@@ -383,14 +387,16 @@ function statusChipColor(status: string): string {
 function buildRosterPersonRowHtml(args: {
   name: string;
   role: string;
-  email: string;
+  email: string | null;
   phone: string | null;
   waitlist?: boolean;
 }): string {
   const normalizedRole = args.role.toUpperCase() === 'PARTICIPANT' ? 'PARTICIPANT' : 'MENTOR';
   const badgeBg = normalizedRole === 'MENTOR' ? '#1f342f' : '#2d5a3d';
   const badgeText = args.waitlist ? `${normalizedRole} WAITLIST` : normalizedRole;
-  const emailHref = `mailto:${encodeURIComponent(args.email)}`;
+  const emailValue = args.email?.trim() || '';
+  const hasEmail = emailValue.length > 0;
+  const emailHref = hasEmail ? `mailto:${encodeURIComponent(emailValue)}` : '';
   const phoneHref = formatPhoneForHref(args.phone);
   const phoneDisplay = formatPhoneForDisplay(args.phone);
 
@@ -403,8 +409,10 @@ function buildRosterPersonRowHtml(args: {
     '      </tr>',
     '      <tr>',
     '        <td style="color:#6b6b6b;font-size:13px;">',
-    `          <a href="${emailHref}" style="color:#c8762a;text-decoration:none;">${escapeHtml(args.email)}</a>`,
-    `          ${phoneHref ? '&nbsp;&middot;&nbsp;' : ''}`,
+    hasEmail
+      ? `          <a href="${emailHref}" style="color:#c8762a;text-decoration:none;">${escapeHtml(emailValue)}</a>`
+      : '          <span style="color:#6b6b6b;">n/a</span>',
+    `          ${hasEmail && phoneHref ? '&nbsp;&middot;&nbsp;' : ''}`,
     phoneHref
       ? `          <a href="tel:${escapeHtml(phoneHref)}" style="color:#6b6b6b;text-decoration:none;">${escapeHtml(phoneDisplay)}</a>`
       : `          <span style="color:#6b6b6b;">${escapeHtml(phoneDisplay)}</span>`,
@@ -523,7 +531,11 @@ export async function sendPreEventLeadSummaryEmail(args: {
     phone: row.mobile_phone,
   }));
   const mapHref = buildLocationMapHref(report.event.location);
-  const assignedEmailList = Array.from(new Set(assignedRows.map((row) => row.email.trim()).filter((value) => Boolean(value))));
+  const assignedEmailList = Array.from(new Set(
+    assignedRows
+      .map((row) => row.email?.trim().toLowerCase() ?? '')
+      .filter((value) => Boolean(value))
+  ));
   const bccHref = assignedEmailList.length > 0
     ? `mailto:?bcc=${encodeURIComponent(assignedEmailList.join(','))}&subject=${encodeURIComponent(`${report.event.title} - ${formatMountainDateLong(report.event.event_date)}`)}`
     : null;

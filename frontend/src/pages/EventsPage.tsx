@@ -511,7 +511,7 @@ function parseCapacityValue(raw: string): number | null {
     return null
   }
   const numeric = Number(trimmed)
-  if (!Number.isInteger(numeric) || numeric < 1) {
+  if (!Number.isInteger(numeric) || numeric < 0) {
     return null
   }
   return numeric
@@ -939,10 +939,10 @@ function EventFormModal({ initial, groups, leadMembers, onSave, onGenerateAiDesc
     const mentorCapacity = parseCapacityValue(form.mentor_capacity)
     const participantCapacity = parseCapacityValue(form.participant_capacity)
     if (form.mentor_capacity.trim() && mentorCapacity === null) {
-      nextErrors.mentor_capacity = 'Use a whole number >= 1 or leave blank.'
+      nextErrors.mentor_capacity = 'Use a whole number >= 0 or leave blank.'
     }
     if (form.participant_capacity.trim() && participantCapacity === null) {
-      nextErrors.participant_capacity = 'Use a whole number >= 1 or leave blank.'
+      nextErrors.participant_capacity = 'Use a whole number >= 0 or leave blank.'
     }
 
     if (eventDate && eventTime && canonicalEndDate && canonicalEndTime) {
@@ -1168,7 +1168,7 @@ function EventFormModal({ initial, groups, leadMembers, onSave, onGenerateAiDesc
               <input
                 className="form-input"
                 type="number"
-                min="1"
+                min="0"
                 step="1"
                 value={form.mentor_capacity}
                 onChange={e => set('mentor_capacity', e.target.value)}
@@ -1181,12 +1181,12 @@ function EventFormModal({ initial, groups, leadMembers, onSave, onGenerateAiDesc
               <input
                 className="form-input"
                 type="number"
-                min="1"
+                min="0"
                 step="1"
                 value={form.participant_capacity}
                 onChange={e => set('participant_capacity', e.target.value)}
               />
-              <p className="form-field-hint">Leave both capacity fields blank for unlimited / kickoff-style events.</p>
+              <p className="form-field-hint">Leave both capacity fields blank for unlimited / kickoff-style events. Use 0 to disable a role.</p>
               {fieldErrors.participant_capacity && <p className="form-field-error">{fieldErrors.participant_capacity}</p>}
             </div>
 
