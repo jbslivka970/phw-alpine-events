@@ -47,6 +47,27 @@ interface EventSummaryReportData {
 export async function loadEventSummaryReportData(eventId: string): Promise<EventSummaryReportData | null> {
   const pool = await getPool();
 
+  const eventColumnPresenceResult = await pool
+    .request()
+    .query<{ has_event_lead_name: number; has_event_lead_email: number }>(
+      `SELECT
+         CASE WHEN COL_LENGTH('dbo.event', 'event_lead_name') IS NULL THEN 0 ELSE 1 END AS has_event_lead_name,
+         CASE WHEN COL_LENGTH('dbo.event', 'event_lead_email') IS NULL THEN 0 ELSE 1 END AS has_event_lead_email`
+    );
+
+  const eventColumnPresence = eventColumnPresenceResult.recordset[0] ?? {
+    has_event_lead_name: 0,
+    has_event_lead_email: 0,
+  };
+
+  const eventLeadNameSelect = eventColumnPresence.has_event_lead_name
+    ? 'event_lead_name AS event_lead_name'
+    : 'CAST(NULL AS NVARCHAR(200)) AS event_lead_name';
+
+  const eventLeadEmailSelect = eventColumnPresence.has_event_lead_email
+    ? 'event_lead_email AS event_lead_email'
+    : 'CAST(NULL AS NVARCHAR(255)) AS event_lead_email';
+
   const eventResult = await pool
     .request()
     .input('event_id', sql.UniqueIdentifier, eventId)
@@ -58,8 +79,8 @@ export async function loadEventSummaryReportData(eventId: string): Promise<Event
               event_date,
               end_date,
               status,
-              CASE WHEN COL_LENGTH('dbo.event', 'event_lead_name') IS NULL THEN CAST(NULL AS NVARCHAR(200)) ELSE event_lead_name END AS event_lead_name,
-              CASE WHEN COL_LENGTH('dbo.event', 'event_lead_email') IS NULL THEN CAST(NULL AS NVARCHAR(255)) ELSE event_lead_email END AS event_lead_email,
+                ${eventLeadNameSelect},
+                ${eventLeadEmailSelect},
               created_at,
               updated_at
        FROM dbo.event
