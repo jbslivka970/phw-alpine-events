@@ -47,44 +47,32 @@ interface EventSummaryReportData {
 export async function loadEventSummaryReportData(eventId: string): Promise<EventSummaryReportData | null> {
   const pool = await getPool();
 
-  const eventColumnPresenceResult = await pool
-    .request()
-    .query<{ has_event_lead_name: number; has_event_lead_email: number }>(
-      `SELECT
-         CASE WHEN COL_LENGTH('dbo.event', 'event_lead_name') IS NULL THEN 0 ELSE 1 END AS has_event_lead_name,
-         CASE WHEN COL_LENGTH('dbo.event', 'event_lead_email') IS NULL THEN 0 ELSE 1 END AS has_event_lead_email`
-    );
-
-  const eventColumnPresence = eventColumnPresenceResult.recordset[0] ?? {
-    has_event_lead_name: 0,
-    has_event_lead_email: 0,
-  };
-
-  const eventLeadNameSelect = eventColumnPresence.has_event_lead_name
-    ? 'event_lead_name AS event_lead_name'
-    : 'CAST(NULL AS NVARCHAR(200)) AS event_lead_name';
-
-  const eventLeadEmailSelect = eventColumnPresence.has_event_lead_email
-    ? 'event_lead_email AS event_lead_email'
-    : 'CAST(NULL AS NVARCHAR(255)) AS event_lead_email';
-
   const eventResult = await pool
     .request()
     .input('event_id', sql.UniqueIdentifier, eventId)
     .query<EventSummaryReportData['event']>(
-      `SELECT event_id,
-              title,
-              description,
-              location,
-              event_date,
-              end_date,
-              status,
-                ${eventLeadNameSelect},
-                ${eventLeadEmailSelect},
-              created_at,
-              updated_at
-       FROM dbo.event
-       WHERE event_id = @event_id`
+      `DECLARE @sql NVARCHAR(MAX) = N'
+         SELECT event_id,
+                title,
+                description,
+                location,
+                event_date,
+                end_date,
+                status,'
+         + CASE WHEN COL_LENGTH('dbo.event', 'event_lead_name') IS NULL
+             THEN N' CAST(NULL AS NVARCHAR(200)) AS event_lead_name,'
+             ELSE N' event_lead_name AS event_lead_name,'
+           END
+         + CASE WHEN COL_LENGTH('dbo.event', 'event_lead_email') IS NULL
+             THEN N' CAST(NULL AS NVARCHAR(255)) AS event_lead_email,'
+             ELSE N' event_lead_email AS event_lead_email,'
+           END
+         + N' created_at,
+                updated_at
+            FROM dbo.event
+           WHERE event_id = @event_id';
+
+       EXEC sp_executesql @sql, N'@event_id UNIQUEIDENTIFIER', @event_id = @event_id;`
     );
 
   const event = eventResult.recordset[0];
