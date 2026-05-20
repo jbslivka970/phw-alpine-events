@@ -238,15 +238,8 @@ test.describe('Browser launch smoke', () => {
 
         await page.goto(`${appBaseUrl}/tavf/new`, { waitUntil: 'domcontentloaded' });
 
-        // Admin is excluded from creating TAVF postings; everyone else can access /tavf/new.
-        if (persona.label === 'admin') {
-          // Local E2E mode uses deterministic role seeding and currently allows admin
-          // to remain on /tavf/new. Live mode may redirect based on runtime policy.
-          if (localMode) {
-            await expect(page).toHaveURL(/\/tavf\/new(\?|$)/, { timeout: 15_000 });
-          } else {
-            await expect(page).toHaveURL(/\/dashboard(\?|$)/, { timeout: 15_000 });
-          }
+        if (persona.tavfNewBlocked) {
+          await expect(page).toHaveURL(/\/dashboard(\?|$)/, { timeout: 15_000 });
         } else {
           await expect(page).toHaveURL(/\/tavf\/new(\?|$)/, { timeout: 15_000 });
         }

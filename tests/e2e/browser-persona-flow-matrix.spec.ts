@@ -142,7 +142,7 @@ test.describe('Browser persona flow matrix', () => {
         expect(isAuthenticated, `${persona.label} storage state is present but not authenticated for this environment.`).toBeTruthy();
 
         await page.goto(`${appBaseUrl}${assignmentRoute}`, { waitUntil: 'domcontentloaded' });
-        if (persona.canAccessAdmin) {
+        if (persona.canCreateEvents) {
           await expect(page).toHaveURL(/\/events\/.+\/assign(\?|$)/, { timeout: 15_000 });
         } else {
           await expect(page).toHaveURL(/\/dashboard(\?|$)/, { timeout: 15_000 });

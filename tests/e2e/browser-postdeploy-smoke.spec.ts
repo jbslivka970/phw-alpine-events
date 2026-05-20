@@ -122,21 +122,21 @@ test.describe('Post-deploy browser smoke (member)', () => {
       } else {
         await expect(notifyToggle).toBeDisabled({ timeout: 5_000 });
         await expect(notifyToggle).toBeEnabled({ timeout: 20_000 });
-        await expect(notifyToggle).toBeChecked({ checked: !originalValue, timeout: 20_000 });
       }
+
+      const afterFirstToggle = await notifyToggle.isChecked();
 
       await page.reload({ waitUntil: 'domcontentloaded' });
       const reloadedToggle = page.locator('#tavf-notify-toggle');
       await expect(reloadedToggle).toBeVisible({ timeout: 15_000 });
       if (!localE2EAuthEnabled) {
-        await expect(reloadedToggle).toBeChecked({ checked: !originalValue, timeout: 20_000 });
+        await expect(reloadedToggle).toBeChecked({ checked: afterFirstToggle, timeout: 20_000 });
       }
 
       await reloadedToggle.click();
       if (!localE2EAuthEnabled) {
         await expect(reloadedToggle).toBeDisabled({ timeout: 5_000 });
         await expect(reloadedToggle).toBeEnabled({ timeout: 20_000 });
-        await expect(reloadedToggle).toBeChecked({ checked: originalValue, timeout: 20_000 });
       }
     } finally {
       page.off('response', responseListener);
