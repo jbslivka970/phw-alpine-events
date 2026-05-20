@@ -32,6 +32,7 @@ Optional:
 - `SMS_NON_MEMBER_PHONE` default: `+15555550199`
 - `SMS_TEST_ENABLE_LIVE` set `1` to run live checks
 - `SMS_TEST_PHONE` required when live checks enabled
+- `SMS_TEST_ENABLE_RSVP_PARSE` set `1` to include RSVP parser check in live mode (default `0`)
 - `SMS_TEST_ENABLE_STOP` set `1` to run STOP check (destructive)
 - `SMS_ADMIN_BEARER_TOKEN` optional admin JWT to verify `GET /api/v1/sms/inbound/logs`
 
@@ -66,8 +67,23 @@ npm --prefix backend run smoke:sms
 
 Expected output includes:
 - `live_help_status=200`
-- `live_rsvp_status=200`
 - `result=PASS`
+
+Notes:
+- By default, live mode only sends the scheduler smoke test message and expects the smoke ack.
+- RSVP parser probing is optional to avoid sending confusing role-prompt follow-ups to real users.
+- Enable parser probing only when explicitly testing RSVP parsing behavior:
+
+```bash
+BACKEND_BASE_URL="https://phwalpineeventsjb873a.azurewebsites.net" \
+SMS_TEST_ENABLE_LIVE=1 \
+SMS_TEST_ENABLE_RSVP_PARSE=1 \
+SMS_TEST_PHONE="+1XXXXXXXXXX" \
+npm --prefix backend run smoke:sms
+```
+
+Expected additional output when enabled:
+- `live_rsvp_status=200`
 
 ## Live STOP Run (Destructive)
 

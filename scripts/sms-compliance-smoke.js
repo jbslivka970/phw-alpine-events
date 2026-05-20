@@ -13,6 +13,7 @@
  * - SMS_NON_MEMBER_PHONE: fake phone for safe checks (default +15555550199)
  * - SMS_TEST_PHONE: real test member phone (E.164) for live checks
  * - SMS_TEST_ENABLE_LIVE: set to 1 to run live checks against SMS_TEST_PHONE
+ * - SMS_TEST_ENABLE_RSVP_PARSE: set to 1 to include RSVP parser check in live mode (default off)
  * - SMS_TEST_ENABLE_STOP: set to 1 to include STOP test (destructive)
  * - SMS_ADMIN_BEARER_TOKEN: optional admin JWT to validate /api/v1/sms/inbound/logs
  */
@@ -21,6 +22,7 @@ const backendBaseUrl = (process.env.BACKEND_BASE_URL || 'http://localhost:3001')
 const nonMemberPhone = process.env.SMS_NON_MEMBER_PHONE || '+15555550199';
 const testPhone = process.env.SMS_TEST_PHONE || '';
 const liveMode = process.env.SMS_TEST_ENABLE_LIVE === '1';
+const liveRsvpParseMode = process.env.SMS_TEST_ENABLE_RSVP_PARSE === '1';
 const stopMode = process.env.SMS_TEST_ENABLE_STOP === '1';
 const adminBearerToken = process.env.SMS_ADMIN_BEARER_TOKEN || '';
 
@@ -141,10 +143,12 @@ async function runLiveChecks() {
   assert(smoke.status === 200, 'Live smoke message should return 200.');
   assert(smoke.body.status === 'smoke_test_ack', 'Live smoke message should return smoke_test_ack status.');
 
-  const rsvp = await postJson('/api/v1/sms/inbound', { from: testPhone, message: 'Y 1' });
-  checks.push(['live_rsvp_status', rsvp.status]);
-  checks.push(['live_rsvp_body', JSON.stringify(rsvp.body)]);
-  assert(rsvp.status === 200, 'Live RSVP parsing call should return 200.');
+  if (liveRsvpParseMode) {
+    const rsvp = await postJson('/api/v1/sms/inbound', { from: testPhone, message: 'Y 1' });
+    checks.push(['live_rsvp_status', rsvp.status]);
+    checks.push(['live_rsvp_body', JSON.stringify(rsvp.body)]);
+    assert(rsvp.status === 200, 'Live RSVP parsing call should return 200.');
+  }
 
   if (stopMode) {
     const stop = await postJson('/api/v1/sms/inbound', { from: testPhone, message: 'STOP' });
@@ -188,6 +192,7 @@ async function runLiveChecks() {
     allChecks.push(['started_at', started]);
     allChecks.push(['backend_base_url', backendBaseUrl]);
     allChecks.push(['live_mode', liveMode]);
+    allChecks.push(['live_rsvp_parse_mode', liveRsvpParseMode]);
     allChecks.push(['stop_mode', stopMode]);
 
     const contractChecks = await runContractChecks();

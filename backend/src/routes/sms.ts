@@ -359,7 +359,11 @@ async function processInboundMessage(from: string, rawMessage: string, source: I
     const inferredResponseRole = parsed.responseRole ?? (await inferResponseRoleForMember({ memberId: member.member_id }));
 
     if (requiresExplicitRole(parsed.response) && !inferredResponseRole) {
-      const reply = "PHW Alpine: Please include your role. Reply like 'Y V' or 'Y P' (V=volunteer, P=participant). Add event number if needed: Y V 1.";
+      const actionToken = responseToSmsToken(parsed.response);
+      const roleExamples = parsed.eventIndex !== undefined
+        ? `${actionToken} V ${parsed.eventIndex} or ${actionToken} P ${parsed.eventIndex}`
+        : `${actionToken} V or ${actionToken} P`;
+      const reply = `PHW Alpine: Thanks, we still need your role for ${targetEvent.title}. Reply ${roleExamples} (V=volunteer, P=participant).`;
       await notificationService.sendSms({
         to: member.mobile_phone,
         message: reply,
@@ -549,6 +553,16 @@ function parseResponseRole(value: unknown): 'MENTOR' | 'PARTICIPANT' | undefined
 
 function requiresExplicitRole(response: RsvpResponse): boolean {
   return response === 'yes' || response === 'maybe' || response === 'waitlist';
+}
+
+function responseToSmsToken(response: RsvpResponse): 'Y' | 'M' | 'W' {
+  if (response === 'maybe') {
+    return 'M';
+  }
+  if (response === 'waitlist') {
+    return 'W';
+  }
+  return 'Y';
 }
 
 function resolveTargetEvent(eventIndex: number | undefined, pendingEvents: PendingEvent[]): PendingEvent | null {
