@@ -12,6 +12,7 @@ interface EventSummaryReportData {
     event_date: Date | string;
     end_date: Date | string | null;
     status: string;
+    event_lead_member_id: string | null;
     event_lead_name: string | null;
     event_lead_email: string | null;
     created_at: Date | string;
@@ -59,13 +60,27 @@ export async function loadEventSummaryReportData(eventId: string): Promise<Event
                 event_date,
                 end_date,
                 status,'
-         + CASE WHEN COL_LENGTH('dbo.event', 'event_lead_name') IS NULL
-             THEN N' CAST(NULL AS NVARCHAR(200)) AS event_lead_name,'
-             ELSE N' event_lead_name AS event_lead_name,'
+         + CASE WHEN COL_LENGTH('dbo.event', 'event_lead_member_id') IS NULL
+             THEN N' CAST(NULL AS UNIQUEIDENTIFIER) AS event_lead_member_id,'
+             ELSE N' event_lead_member_id AS event_lead_member_id,'
            END
-         + CASE WHEN COL_LENGTH('dbo.event', 'event_lead_email') IS NULL
-             THEN N' CAST(NULL AS NVARCHAR(255)) AS event_lead_email,'
-             ELSE N' event_lead_email AS event_lead_email,'
+         + CASE
+             WHEN COL_LENGTH('dbo.event', 'event_lead_member_id') IS NOT NULL AND COL_LENGTH('dbo.event', 'event_lead_name') IS NOT NULL
+               THEN N' COALESCE((SELECT TOP 1 LTRIM(RTRIM(ISNULL(lm.first_name, N'''' ) + N'' '' + ISNULL(lm.last_name, N'''' ))) FROM dbo.member lm WHERE lm.member_id = event_lead_member_id), event_lead_name) AS event_lead_name,'
+             WHEN COL_LENGTH('dbo.event', 'event_lead_member_id') IS NOT NULL
+               THEN N' (SELECT TOP 1 LTRIM(RTRIM(ISNULL(lm.first_name, N'''' ) + N'' '' + ISNULL(lm.last_name, N'''' ))) FROM dbo.member lm WHERE lm.member_id = event_lead_member_id) AS event_lead_name,'
+             WHEN COL_LENGTH('dbo.event', 'event_lead_name') IS NOT NULL
+               THEN N' event_lead_name AS event_lead_name,'
+             ELSE N' CAST(NULL AS NVARCHAR(200)) AS event_lead_name,'
+           END
+         + CASE
+             WHEN COL_LENGTH('dbo.event', 'event_lead_member_id') IS NOT NULL AND COL_LENGTH('dbo.event', 'event_lead_email') IS NOT NULL
+               THEN N' COALESCE((SELECT TOP 1 lm.email FROM dbo.member lm WHERE lm.member_id = event_lead_member_id), event_lead_email) AS event_lead_email,'
+             WHEN COL_LENGTH('dbo.event', 'event_lead_member_id') IS NOT NULL
+               THEN N' (SELECT TOP 1 lm.email FROM dbo.member lm WHERE lm.member_id = event_lead_member_id) AS event_lead_email,'
+             WHEN COL_LENGTH('dbo.event', 'event_lead_email') IS NOT NULL
+               THEN N' event_lead_email AS event_lead_email,'
+             ELSE N' CAST(NULL AS NVARCHAR(255)) AS event_lead_email,'
            END
          + N' created_at,
                 updated_at
