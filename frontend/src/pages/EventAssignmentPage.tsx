@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { assignmentsApi, eventsApi, rsvpApi } from '../api/events'
-import { groupsApi } from '../api/groups'
+import { programsApi } from '../api/programs'
 import { membersApi } from '../api/members'
 import type { AssignmentRecommendationRow, EventGuestAssignmentRecord, EventRecord } from '../api/events'
 
@@ -19,8 +19,9 @@ type Assignment = {
 type GuestAssignment = EventGuestAssignmentRecord
 
 type ProgramOption = {
-  group_id: string
-  group_name: string
+  program_id: string
+  program_name: string
+  state_name: string
 }
 
 type AssignmentRole = 'LEAD' | 'MENTOR' | 'PARTICIPANT'
@@ -134,7 +135,7 @@ function EventAssignmentPage() {
   const [guestName, setGuestName] = useState('')
   const [guestEmail, setGuestEmail] = useState('')
   const [guestPhone, setGuestPhone] = useState('')
-  const [guestProgramGroupId, setGuestProgramGroupId] = useState('')
+  const [guestProgramId, setGuestProgramId] = useState('')
   const [guestProgramName, setGuestProgramName] = useState('')
   const [guestSubmitting, setGuestSubmitting] = useState(false)
   const [participation, setParticipation] = useState<Record<string, ParticipationSummary>>({})
@@ -268,14 +269,23 @@ function EventAssignmentPage() {
     }
 
     let active = true
-    groupsApi.list()
-      .then((groups) => {
+    programsApi.list()
+      .then((programs) => {
         if (!active) {
           return
         }
-        const rows = groups
-          .map((group) => ({ group_id: group.group_id, group_name: group.group_name }))
-          .sort((a, b) => a.group_name.localeCompare(b.group_name))
+        const rows = programs
+          .map((program) => ({
+            program_id: program.program_id,
+            program_name: program.program_name,
+            state_name: program.state_name,
+          }))
+          .sort((a, b) => {
+            if (a.state_name !== b.state_name) {
+              return a.state_name.localeCompare(b.state_name)
+            }
+            return a.program_name.localeCompare(b.program_name)
+          })
         setProgramOptions(rows)
       })
       .catch(() => {
@@ -385,7 +395,8 @@ function EventAssignmentPage() {
       return
     }
 
-    if (!guestProgramGroupId && !guestProgramName.trim()) {
+    const selectedProgramName = programOptions.find((program) => program.program_id === guestProgramId)?.program_name ?? null
+    if (!selectedProgramName && !guestProgramName.trim()) {
       setError('Select a program or enter a custom program name.')
       return
     }
@@ -398,15 +409,16 @@ function EventAssignmentPage() {
         guest_name: guestName,
         guest_email: guestEmail,
         guest_phone: guestPhone.trim() ? guestPhone : null,
-        program_group_id: guestProgramGroupId || null,
-        program_name: guestProgramName.trim() ? guestProgramName : null,
+        program_group_id: null,
+        program_id: guestProgramId || null,
+        program_name: guestProgramName.trim() ? guestProgramName : selectedProgramName,
       })
 
       setGuestName('')
       setGuestEmail('')
       setGuestPhone('')
       setGuestProgramName('')
-      setGuestProgramGroupId('')
+      setGuestProgramId('')
       await refreshEventData(eventId)
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to add guest assignment')
@@ -956,10 +968,12 @@ function EventAssignmentPage() {
           </label>
           <label>
             <span style={{ display: 'block', marginBottom: 4, fontSize: 13 }}>Program</span>
-            <select className="members-search" value={guestProgramGroupId} onChange={(e) => setGuestProgramGroupId(e.target.value)}>
+            <select className="members-search" value={guestProgramId} onChange={(e) => setGuestProgramId(e.target.value)}>
               <option value="">Select a program</option>
-              {programOptions.map((group) => (
-                <option key={group.group_id} value={group.group_id}>{group.group_name}</option>
+              {programOptions.map((program) => (
+                <option key={program.program_id} value={program.program_id}>
+                  {program.state_name === 'Colorado' ? program.program_name : `${program.program_name} (${program.state_name})`}
+                </option>
               ))}
             </select>
           </label>

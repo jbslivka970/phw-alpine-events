@@ -961,8 +961,14 @@ jobs:
         LIVE_RSVP_TOKEN="${RSVP_TEST_TOKEN:-}"
 
         if [ -n "${PW_ADMIN_USER:-}" ] && [ -n "${PW_ADMIN_PASS:-}" ] && [ -n "${E2E_APP_URL:-}" ]; then
+          TOKEN_ENV_FILE="$(mktemp)"
           echo "Refreshing admin auth token before live RSVP smoke..."
-          npm run e2e:refresh-tokens -- --soft-skip || true
+          PW_TOKEN_ENV_FILE="$TOKEN_ENV_FILE" npm run e2e:refresh-tokens -- --soft-skip || true
+          if [ -s "$TOKEN_ENV_FILE" ]; then
+            # shellcheck disable=SC1090
+            . "$TOKEN_ENV_FILE"
+          fi
+          rm -f "$TOKEN_ENV_FILE"
         fi
 
         if [ -n "${PW_ADMIN_TOKEN:-}" ]; then
@@ -1120,8 +1126,14 @@ jobs:
         LIVE_RSVP_TOKEN="${RSVP_TEST_TOKEN:-}"
 
         if [ -n "${PW_ADMIN_USER:-}" ] && [ -n "${PW_ADMIN_PASS:-}" ] && [ -n "${E2E_APP_URL:-}" ]; then
+          TOKEN_ENV_FILE="$(mktemp)"
           echo "Refreshing admin auth token before live RSVP smoke..."
-          npm run e2e:refresh-tokens -- --soft-skip || true
+          PW_TOKEN_ENV_FILE="$TOKEN_ENV_FILE" npm run e2e:refresh-tokens -- --soft-skip || true
+          if [ -s "$TOKEN_ENV_FILE" ]; then
+            # shellcheck disable=SC1090
+            . "$TOKEN_ENV_FILE"
+          fi
+          rm -f "$TOKEN_ENV_FILE"
         fi
 
         if [ -n "${PW_ADMIN_TOKEN:-}" ]; then
@@ -1534,8 +1546,14 @@ jobs:
         LIVE_RSVP_TOKEN="${RSVP_TEST_TOKEN:-}"
 
         if [ -n "${PW_ADMIN_USER:-}" ] && [ -n "${PW_ADMIN_PASS:-}" ] && [ -n "${E2E_APP_URL:-}" ]; then
+          TOKEN_ENV_FILE="$(mktemp)"
           echo "Refreshing admin auth token before live RSVP smoke..." | tee -a ci-artifacts/deploy-backend-smoke.log
-          npm run e2e:refresh-tokens -- --soft-skip 2>&1 | tee -a ci-artifacts/deploy-backend-smoke.log || true
+          PW_TOKEN_ENV_FILE="$TOKEN_ENV_FILE" npm run e2e:refresh-tokens -- --soft-skip 2>&1 | tee -a ci-artifacts/deploy-backend-smoke.log || true
+          if [ -s "$TOKEN_ENV_FILE" ]; then
+            # shellcheck disable=SC1090
+            . "$TOKEN_ENV_FILE"
+          fi
+          rm -f "$TOKEN_ENV_FILE"
         fi
 
         if [ -n "${PW_ADMIN_TOKEN:-}" ]; then

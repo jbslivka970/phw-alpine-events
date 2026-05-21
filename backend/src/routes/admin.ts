@@ -1,4 +1,5 @@
 import { ensureEventSummaryEmailConfigTable, normalizeEmail } from '../services/eventSummaryEmailConfig';
+import { listPrograms, normalizeProgramNameList, normalizeStateNameInput, replaceProgramsForState } from '../services/programCatalogService';
 import { Router } from 'express';
 import { randomUUID } from 'crypto';
 import { getPool, sql } from '../db';
@@ -963,6 +964,68 @@ router.put('/event-summary-email-config', writeLimiter, authenticate, requireAdm
     res.status(200).json(config);
   } catch (error) {
     console.error('PUT /admin/event-summary-email-config failed', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.get('/program-catalog', apiLimiter, authenticate, requireAdmin, async (req, res) => {
+  try {
+    const rawState = req.query.state;
+    const stateName = rawState === undefined ? null : normalizeStateNameInput(rawState);
+    if (rawState !== undefined && !stateName) {
+      res.status(400).json({ error: 'state must be 100 characters or less when provided.' });
+      return;
+    }
+
+    const includeInactive = String(req.query.include_inactive ?? '').toLowerCase() === 'true'
+      || String(req.query.include_inactive ?? '') === '1';
+
+    const programs = await listPrograms({
+      stateName,
+      includeInactive,
+    });
+
+    res.status(200).json({
+      state: stateName,
+      includeInactive,
+      programs,
+    });
+  } catch (error) {
+    console.error('GET /admin/program-catalog failed', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.put('/program-catalog', writeLimiter, authenticate, requireAdmin, async (req, res) => {
+  try {
+    const stateName = normalizeStateNameInput(req.body?.state);
+    if (!stateName) {
+      res.status(400).json({ error: 'state is required and must be 100 characters or less.' });
+      return;
+    }
+
+    const programNames = normalizeProgramNameList(req.body?.programs);
+    if (programNames.length === 0) {
+      res.status(400).json({ error: 'programs must contain at least one non-empty program name.' });
+      return;
+    }
+
+    const programs = await replaceProgramsForState({
+      stateName,
+      programNames,
+      updatedBy: req.user?.email ?? req.user?.sub ?? 'unknown',
+    });
+
+    res.status(200).json({
+      state: stateName,
+      programs,
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('required')) {
+      res.status(400).json({ error: error.message });
+      return;
+    }
+    console.error('PUT /admin/program-catalog failed', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

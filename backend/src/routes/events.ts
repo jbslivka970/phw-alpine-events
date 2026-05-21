@@ -23,6 +23,7 @@ import { buildMemberRsvpUrls, resolveShortRsvpToken, verifyRsvpToken } from '../
 import { generateDescriptionDraft, generateInviteDraft } from '../services/aiInviteService';
 import { getEventEmailWorkflowSettings, upsertEventEmailWorkflowSettings } from '../services/eventEmailWorkflowService';
 import { sendPostEventParticipationSummaryEmail, sendPreEventLeadSummaryEmail } from '../services/eventSummaryEmailService';
+import { ensureProgramCatalogTable } from '../services/programCatalogService';
 import { invalidateShortLivedCache, withShortLivedCache } from '../services/shortLivedCache';
 import { formatInProgramTimeZone } from '../utils/dateTime';
 import { toE164 } from '../utils/phone';
@@ -2814,6 +2815,7 @@ async function ensureEventGuestAssignmentTable(pool: Awaited<ReturnType<typeof g
         guest_email NVARCHAR(255) NOT NULL,
         guest_phone NVARCHAR(30) NULL,
         guest_program_group_id UNIQUEIDENTIFIER NULL,
+        guest_program_id UNIQUEIDENTIFIER NULL,
         guest_program_name NVARCHAR(200) NOT NULL,
         invited_at DATETIME NOT NULL DEFAULT GETUTCDATE(),
         notes NVARCHAR(500) NULL,
@@ -2822,6 +2824,26 @@ async function ensureEventGuestAssignmentTable(pool: Awaited<ReturnType<typeof g
         CONSTRAINT FK_event_guest_assignment_event FOREIGN KEY (event_id) REFERENCES dbo.event (event_id) ON DELETE CASCADE,
         CONSTRAINT FK_event_guest_assignment_program_group FOREIGN KEY (guest_program_group_id) REFERENCES dbo.[group] (group_id) ON DELETE SET NULL
       );
+    END
+
+    IF COL_LENGTH(N'dbo.event_guest_assignment', N'guest_program_id') IS NULL
+    BEGIN
+      ALTER TABLE dbo.event_guest_assignment
+      ADD guest_program_id UNIQUEIDENTIFIER NULL;
+    END
+
+    IF OBJECT_ID(N'dbo.program_catalog', N'U') IS NOT NULL
+      AND NOT EXISTS (
+        SELECT 1
+        FROM sys.foreign_keys
+        WHERE name = N'FK_event_guest_assignment_program'
+          AND parent_object_id = OBJECT_ID(N'dbo.event_guest_assignment')
+      )
+    BEGIN
+      ALTER TABLE dbo.event_guest_assignment
+      ADD CONSTRAINT FK_event_guest_assignment_program FOREIGN KEY (guest_program_id)
+        REFERENCES dbo.program_catalog (program_id)
+        ON DELETE SET NULL;
     END
 
     IF NOT EXISTS (
@@ -2877,6 +2899,7 @@ router.get('/:id/assignments', apiLimiter, authenticate, requireAnyAuthenticated
 router.get('/:id/guest-assignments', apiLimiter, authenticate, requireAnyAuthenticatedRole, async (req, res) => {
   try {
     const pool = await getPool();
+    await ensureProgramCatalogTable();
     await ensureEventGuestAssignmentTable(pool);
 
     const result = await pool
@@ -2891,11 +2914,15 @@ router.get('/:id/guest-assignments', apiLimiter, authenticate, requireAnyAuthent
             ega.guest_email,
             ega.guest_phone,
             ega.guest_program_group_id,
+            ega.guest_program_id,
             ega.guest_program_name,
             g.group_name AS guest_program_group_name,
+            pc.program_name AS guest_program_catalog_name,
+            pc.state_name AS guest_program_state_name,
             ega.invited_at
          FROM event_guest_assignment ega
          LEFT JOIN [group] g ON g.group_id = ega.guest_program_group_id
+          LEFT JOIN program_catalog pc ON pc.program_id = ega.guest_program_id
          WHERE ega.event_id = @event_id
          ORDER BY ega.invited_at ASC`
       );
@@ -2948,6 +2975,15 @@ router.post('/:id/guest-assignments', writeLimiter, authenticate, requireEventCr
       return;
     }
 
+    const rawProgramId = req.body?.program_id;
+    const programId = rawProgramId === undefined || rawProgramId === null
+      ? null
+      : asUuidOrNull(rawProgramId);
+    if (rawProgramId !== undefined && rawProgramId !== null && !programId) {
+      res.status(400).json({ error: 'program_id must be a valid UUID when provided.' });
+      return;
+    }
+
     const programNameInput = normalizeString(req.body?.program_name);
     if (programNameInput && programNameInput.length > 200) {
       res.status(400).json({ error: 'program_name must be 200 characters or less.' });
@@ -2955,6 +2991,7 @@ router.post('/:id/guest-assignments', writeLimiter, authenticate, requireEventCr
     }
 
     const pool = await getPool();
+    await ensureProgramCatalogTable();
     await ensureEventGuestAssignmentTable(pool);
 
     const eventResult = await pool
@@ -2996,9 +3033,28 @@ router.post('/:id/guest-assignments', writeLimiter, authenticate, requireEventCr
       }
     }
 
-    const programName = programNameInput ?? groupProgramName;
+    let catalogProgramName: string | null = null;
+    if (programId) {
+      const programResult = await pool
+        .request()
+        .input('program_id', sql.UniqueIdentifier, programId)
+        .query<{ program_name: string }>(
+          `SELECT program_name
+           FROM program_catalog
+           WHERE program_id = @program_id
+             AND is_active = 1`
+        );
+
+      catalogProgramName = normalizeString(programResult.recordset[0]?.program_name);
+      if (!catalogProgramName) {
+        res.status(400).json({ error: 'program_id did not resolve to an active catalog program.' });
+        return;
+      }
+    }
+
+    const programName = programNameInput ?? catalogProgramName ?? groupProgramName;
     if (!programName) {
-      res.status(400).json({ error: 'program_name is required when a program group is not selected.' });
+      res.status(400).json({ error: 'program_name is required when a catalog program or program group is not selected.' });
       return;
     }
 
@@ -3010,12 +3066,13 @@ router.post('/:id/guest-assignments', writeLimiter, authenticate, requireEventCr
       .input('guest_email', sql.NVarChar, guestEmail)
       .input('guest_phone', sql.NVarChar, guestPhone)
       .input('guest_program_group_id', sql.UniqueIdentifier, programGroupId)
+      .input('guest_program_id', sql.UniqueIdentifier, programId)
       .input('guest_program_name', sql.NVarChar, programName)
       .query(
         `INSERT INTO event_guest_assignment
-           (guest_assignment_id, event_id, role, guest_name, guest_email, guest_phone, guest_program_group_id, guest_program_name, invited_at, notes)
+           (guest_assignment_id, event_id, role, guest_name, guest_email, guest_phone, guest_program_group_id, guest_program_id, guest_program_name, invited_at, notes)
          OUTPUT INSERTED.*
-         VALUES (NEWID(), @event_id, @role, @guest_name, @guest_email, @guest_phone, @guest_program_group_id, @guest_program_name, GETUTCDATE(), NULL)`
+         VALUES (NEWID(), @event_id, @role, @guest_name, @guest_email, @guest_phone, @guest_program_group_id, @guest_program_id, @guest_program_name, GETUTCDATE(), NULL)`
       );
 
     const roleLabel = role === 'MENTOR' ? 'Guest Mentor' : 'Guest Participant';

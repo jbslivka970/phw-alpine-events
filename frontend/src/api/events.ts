@@ -117,8 +117,11 @@ interface EventGuestAssignmentRecord {
   guest_email: string;
   guest_phone: string | null;
   guest_program_group_id: string | null;
+  guest_program_id?: string | null;
   guest_program_name: string;
   guest_program_group_name?: string | null;
+  guest_program_catalog_name?: string | null;
+  guest_program_state_name?: string | null;
   invited_at: string;
 }
 
@@ -128,6 +131,7 @@ interface CreateGuestAssignmentPayload {
   guest_email: string;
   guest_phone?: string | null;
   program_group_id?: string | null;
+  program_id?: string | null;
   program_name?: string | null;
 }
 

@@ -95,6 +95,12 @@ function AdminPage() {
   const [assistantProgramLeadEmail2, setAssistantProgramLeadEmail2] = useState('')
   const [eventSummaryEmailUpdatedAt, setEventSummaryEmailUpdatedAt] = useState<string | null>(null)
   const [eventSummaryEmailUpdatedBy, setEventSummaryEmailUpdatedBy] = useState<string | null>(null)
+  const [programCatalogState, setProgramCatalogState] = useState('Colorado')
+  const [programCatalogRaw, setProgramCatalogRaw] = useState('')
+  const [programCatalogLoading, setProgramCatalogLoading] = useState(true)
+  const [programCatalogSaving, setProgramCatalogSaving] = useState(false)
+  const [programCatalogError, setProgramCatalogError] = useState<string | null>(null)
+  const [programCatalogSuccess, setProgramCatalogSuccess] = useState<string | null>(null)
   const [adminUsers, setAdminUsers] = useState<AdminUser[]>([])
   const [adminUsersLoading, setAdminUsersLoading] = useState(true)
   const [adminUsersError, setAdminUsersError] = useState<string | null>(null)
@@ -248,6 +254,40 @@ function AdminPage() {
     return () => { active = false }
   }, [])
 
+  useEffect(() => {
+    let active = true
+    const state = programCatalogState.trim()
+    if (!state) {
+      setProgramCatalogRaw('')
+      setProgramCatalogLoading(false)
+      return () => { active = false }
+    }
+
+    setProgramCatalogLoading(true)
+    setProgramCatalogError(null)
+
+    adminApi.getProgramCatalog({ state, includeInactive: true })
+      .then((response) => {
+        if (!active) return
+        const activePrograms = response.programs
+          .filter((program) => program.is_active)
+          .sort((a, b) => a.sort_order - b.sort_order || a.program_name.localeCompare(b.program_name))
+          .map((program) => program.program_name)
+
+        setProgramCatalogRaw(activePrograms.join('\n'))
+      })
+      .catch((error) => {
+        if (!active) return
+        setProgramCatalogError(toUserErrorMessage(error, 'Failed to load program catalog.'))
+        setProgramCatalogRaw('')
+      })
+      .finally(() => {
+        if (active) setProgramCatalogLoading(false)
+      })
+
+    return () => { active = false }
+  }, [programCatalogState])
+
   async function handleGenerateInviteDraft() {
     if (!selectedEventId) {
       setInviteError('Select an event first.')
@@ -396,6 +436,47 @@ function AdminPage() {
       setEventSummaryEmailError(toUserErrorMessage(error, 'Failed to save event summary email configuration.'))
     } finally {
       setEventSummaryEmailSaving(false)
+    }
+  }
+
+  async function handleSaveProgramCatalog() {
+    const state = programCatalogState.trim()
+    if (!state) {
+      setProgramCatalogError('State is required.')
+      return
+    }
+
+    const programNames = programCatalogRaw
+      .split('\n')
+      .map((value) => value.trim())
+      .filter((value, index, list) => value.length > 0 && list.indexOf(value) === index)
+
+    if (programNames.length === 0) {
+      setProgramCatalogError('Enter at least one program name (one per line).')
+      return
+    }
+
+    setProgramCatalogSaving(true)
+    setProgramCatalogError(null)
+    setProgramCatalogSuccess(null)
+
+    try {
+      const response = await adminApi.updateProgramCatalog({
+        state,
+        programs: programNames,
+      })
+
+      const activePrograms = response.programs
+        .filter((program) => program.is_active)
+        .sort((a, b) => a.sort_order - b.sort_order || a.program_name.localeCompare(b.program_name))
+        .map((program) => program.program_name)
+
+      setProgramCatalogRaw(activePrograms.join('\n'))
+      setProgramCatalogSuccess(`Saved ${activePrograms.length} program(s) for ${state}.`)
+    } catch (error) {
+      setProgramCatalogError(toUserErrorMessage(error, 'Failed to save program catalog.'))
+    } finally {
+      setProgramCatalogSaving(false)
     }
   }
 
@@ -976,6 +1057,37 @@ function AdminPage() {
               Last updated{eventSummaryEmailUpdatedBy ? ` by ${eventSummaryEmailUpdatedBy}` : ''}{eventSummaryEmailUpdatedAt ? ` at ${new Date(eventSummaryEmailUpdatedAt).toLocaleString()}` : ''}
             </small>
           )}
+        </section>
+
+        <section className="card admin-tools-card">
+          <h2 className="admin-section-title">Program Catalog</h2>
+          <p className="page-subtitle" style={{ marginBottom: '0.9rem' }}>
+            Manage program names used by guest assignments. Enter one program per line for the selected state.
+          </p>
+
+          <div style={{ display: 'grid', gap: 8, marginBottom: 10 }}>
+            <input
+              className="members-input"
+              value={programCatalogState}
+              onChange={(e) => setProgramCatalogState(e.target.value)}
+              placeholder="State (for example, Colorado)"
+            />
+            <textarea
+              className="members-input"
+              rows={10}
+              value={programCatalogRaw}
+              onChange={(e) => setProgramCatalogRaw(e.target.value)}
+              placeholder="One program name per line"
+            />
+          </div>
+
+          <button className="btn btn--primary btn--sm" disabled={programCatalogLoading || programCatalogSaving} onClick={() => void handleSaveProgramCatalog()}>
+            {programCatalogSaving ? 'Saving…' : 'Save Program Catalog'}
+          </button>
+
+          {programCatalogLoading && <p className="page-subtitle" style={{ marginTop: 10 }}>Loading program catalog…</p>}
+          {programCatalogError && <p className="ui-notice ui-notice--error" style={{ marginTop: 10 }}>{programCatalogError}</p>}
+          {programCatalogSuccess && <p className="ui-notice ui-notice--success" style={{ marginTop: 10 }}>{programCatalogSuccess}</p>}
         </section>
 
         <section className="card admin-tools-card">

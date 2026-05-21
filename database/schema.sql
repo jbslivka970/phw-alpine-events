@@ -294,7 +294,53 @@ BEGIN
 END
 
 -- ---------------------------------------------------------------------------
--- 7a. EventGuestAssignment  (external guest mentor/participant assignments)
+-- 7a. ProgramCatalog  (admin-managed program list by state)
+-- ---------------------------------------------------------------------------
+IF OBJECT_ID(N'dbo.program_catalog', N'U') IS NULL
+CREATE TABLE dbo.program_catalog (
+    program_id    UNIQUEIDENTIFIER NOT NULL DEFAULT NEWID(),
+    program_name  NVARCHAR(200)    NOT NULL,
+    state_name    NVARCHAR(100)    NOT NULL,
+    sort_order    INT              NOT NULL DEFAULT 0,
+    is_active     BIT              NOT NULL DEFAULT 1,
+    created_at    DATETIME         NOT NULL DEFAULT GETUTCDATE(),
+    updated_at    DATETIME         NOT NULL DEFAULT GETUTCDATE(),
+    updated_by    NVARCHAR(255)    NULL,
+    CONSTRAINT PK_program_catalog PRIMARY KEY (program_id)
+);
+
+IF NOT EXISTS (
+    SELECT 1
+    FROM sys.indexes
+    WHERE name = 'UQ_program_catalog_state_name_program_name'
+      AND object_id = OBJECT_ID('dbo.program_catalog')
+)
+    CREATE UNIQUE INDEX UQ_program_catalog_state_name_program_name
+    ON dbo.program_catalog (state_name, program_name);
+
+IF NOT EXISTS (
+    SELECT 1
+    FROM sys.indexes
+    WHERE name = 'IX_program_catalog_active_state_sort'
+      AND object_id = OBJECT_ID('dbo.program_catalog')
+)
+    CREATE INDEX IX_program_catalog_active_state_sort
+    ON dbo.program_catalog (is_active, state_name, sort_order, program_name);
+
+IF NOT EXISTS (SELECT 1 FROM dbo.program_catalog)
+    INSERT INTO dbo.program_catalog (program_id, program_name, state_name, sort_order, is_active, created_at, updated_at, updated_by)
+    VALUES
+        (NEWID(), N'Northern Colorado', N'Colorado', 10, 1, GETUTCDATE(), GETUTCDATE(), N'system-seed'),
+        (NEWID(), N'Grand Junction', N'Colorado', 20, 1, GETUTCDATE(), GETUTCDATE(), N'system-seed'),
+        (NEWID(), N'Colorado Springs', N'Colorado', 30, 1, GETUTCDATE(), GETUTCDATE(), N'system-seed'),
+        (NEWID(), N'Denver', N'Colorado', 40, 1, GETUTCDATE(), GETUTCDATE(), N'system-seed'),
+        (NEWID(), N'Montrose - CO', N'Colorado', 50, 1, GETUTCDATE(), GETUTCDATE(), N'system-seed'),
+        (NEWID(), N'Four Corners', N'Colorado', 60, 1, GETUTCDATE(), GETUTCDATE(), N'system-seed'),
+        (NEWID(), N'San Luis Valley', N'Colorado', 70, 1, GETUTCDATE(), GETUTCDATE(), N'system-seed'),
+        (NEWID(), N'Colorado Alpine', N'Colorado', 80, 1, GETUTCDATE(), GETUTCDATE(), N'system-seed');
+
+-- ---------------------------------------------------------------------------
+-- 7b. EventGuestAssignment  (external guest mentor/participant assignments)
 -- ---------------------------------------------------------------------------
 IF OBJECT_ID(N'dbo.event_guest_assignment', N'U') IS NULL
 CREATE TABLE dbo.event_guest_assignment (
@@ -306,6 +352,7 @@ CREATE TABLE dbo.event_guest_assignment (
     guest_email              NVARCHAR(255)    NOT NULL,
     guest_phone              NVARCHAR(30)     NULL,
     guest_program_group_id   UNIQUEIDENTIFIER NULL,
+    guest_program_id         UNIQUEIDENTIFIER NULL,
     guest_program_name       NVARCHAR(200)    NOT NULL,
     invited_at               DATETIME         NOT NULL DEFAULT GETUTCDATE(),
     notes                    NVARCHAR(500)    NULL,
@@ -316,6 +363,23 @@ CREATE TABLE dbo.event_guest_assignment (
     CONSTRAINT FK_event_guest_assignment_program_group FOREIGN KEY (guest_program_group_id)
         REFERENCES dbo.[group] (group_id) ON DELETE SET NULL
 );
+
+IF OBJECT_ID(N'dbo.event_guest_assignment', N'U') IS NOT NULL
+BEGIN
+    IF COL_LENGTH('dbo.event_guest_assignment', 'guest_program_id') IS NULL
+        ALTER TABLE dbo.event_guest_assignment ADD guest_program_id UNIQUEIDENTIFIER NULL;
+
+    IF OBJECT_ID(N'dbo.program_catalog', N'U') IS NOT NULL
+       AND NOT EXISTS (
+           SELECT 1
+           FROM sys.foreign_keys
+           WHERE name = N'FK_event_guest_assignment_program'
+             AND parent_object_id = OBJECT_ID(N'dbo.event_guest_assignment')
+       )
+        ALTER TABLE dbo.event_guest_assignment
+        ADD CONSTRAINT FK_event_guest_assignment_program FOREIGN KEY (guest_program_id)
+            REFERENCES dbo.program_catalog (program_id) ON DELETE SET NULL;
+END
 
 -- ---------------------------------------------------------------------------
 -- 8. NotificationTemplate

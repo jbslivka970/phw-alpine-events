@@ -127,6 +127,23 @@ interface EventSummaryEmailConfig {
   updatedBy: string | null;
 }
 
+interface ProgramCatalogItem {
+  program_id: string;
+  program_name: string;
+  state_name: string;
+  sort_order: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  updated_by: string | null;
+}
+
+interface ProgramCatalogResponse {
+  state: string | null;
+  includeInactive?: boolean;
+  programs: ProgramCatalogItem[];
+}
+
 interface AdminUser {
   user_id: string;
   azure_oid: string | null;
@@ -211,6 +228,17 @@ const adminApi = {
     assistant_program_lead_email_1?: string | null;
     assistant_program_lead_email_2?: string | null;
   }) => apiPut<EventSummaryEmailConfig>('/admin/event-summary-email-config', payload),
+  getProgramCatalog: (params?: { state?: string; includeInactive?: boolean }) => {
+    const query = new URLSearchParams();
+    if (params?.state) query.set('state', params.state);
+    if (params?.includeInactive) query.set('include_inactive', 'true');
+    const suffix = query.toString();
+    return apiGet<ProgramCatalogResponse>(`/admin/program-catalog${suffix ? `?${suffix}` : ''}`);
+  },
+  updateProgramCatalog: (payload: {
+    state: string;
+    programs: string[];
+  }) => apiPut<ProgramCatalogResponse>('/admin/program-catalog', payload),
   listAdminUsers: (params?: {
     page?: number;
     pageSize?: number;
@@ -290,6 +318,8 @@ export type {
   BulkInviteIdentityResponse,
   ReconcileIdentityResponse,
   SupportEmailRelayConfig,
+  ProgramCatalogItem,
+  ProgramCatalogResponse,
   AdminUser,
   AdminUsersResponse,
   AppRoleAvailable,

@@ -409,6 +409,7 @@ describe('events routes', () => {
   });
 
   it('GET /api/events/:id/guest-assignments returns guest assignment rows', async () => {
+    const ensureProgramsRequest = createRequest(async () => ({ recordset: [] }));
     const ensureRequest = createRequest(async () => ({ recordset: [] }));
     const listRequest = createRequest(async () => ({
       recordset: [
@@ -420,8 +421,11 @@ describe('events routes', () => {
           guest_email: 'jordan@example.org',
           guest_phone: null,
           guest_program_group_id: null,
+          guest_program_id: null,
           guest_program_name: 'Rocky Mountain Chapter',
           guest_program_group_name: null,
+          guest_program_catalog_name: null,
+          guest_program_state_name: null,
           invited_at: '2026-04-01T00:00:00.000Z',
         },
       ],
@@ -430,6 +434,7 @@ describe('events routes', () => {
     const pool = {
       request: jest
         .fn()
+        .mockReturnValueOnce(ensureProgramsRequest)
         .mockReturnValueOnce(ensureRequest)
         .mockReturnValueOnce(listRequest),
     };
@@ -443,6 +448,7 @@ describe('events routes', () => {
   });
 
   it('POST /api/events/:id/guest-assignments creates guest assignment and sends invite email', async () => {
+    const ensureProgramsRequest = createRequest(async () => ({ recordset: [] }));
     const ensureRequest = createRequest(async () => ({ recordset: [] }));
     const eventRequest = createRequest(async () => ({
       recordset: [
@@ -465,6 +471,7 @@ describe('events routes', () => {
           guest_email: 'jordan@example.org',
           guest_phone: null,
           guest_program_group_id: null,
+          guest_program_id: null,
           guest_program_name: 'Rocky Mountain Chapter',
           invited_at: '2026-04-01T00:00:00.000Z',
         },
@@ -474,6 +481,7 @@ describe('events routes', () => {
     const pool = {
       request: jest
         .fn()
+        .mockReturnValueOnce(ensureProgramsRequest)
         .mockReturnValueOnce(ensureRequest)
         .mockReturnValueOnce(eventRequest)
         .mockReturnValueOnce(insertRequest),
