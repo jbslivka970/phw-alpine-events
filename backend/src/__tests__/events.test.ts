@@ -3,7 +3,7 @@ import request from 'supertest';
 import eventsRouter from '../routes/events';
 import { getPool } from '../db';
 import { createRsvpToken } from '../services/rsvpLinkService';
-import { sendEventCompletedNotification, sendEventPublishedNotification, sendEventUpdatedNotification } from '../services/notifications';
+import { notificationService, sendEventCompletedNotification, sendEventPublishedNotification, sendEventUpdatedNotification } from '../services/notifications';
 import { generateInviteDraft } from '../services/aiInviteService';
 import { apiLimiter } from '../middleware/rateLimiter';
 
@@ -361,6 +361,7 @@ describe('events routes', () => {
   });
 
   it('POST /api/events/:id/close-at-capacity locks capacity using assigned and yes RSVPs', async () => {
+    const ensureRequest = createRequest(async () => ({ recordset: [] }));
     const eventRequest = createRequest(async () => ({
       recordset: [{ event_id: 'event-1', status: 'published' }],
     }));
@@ -385,6 +386,7 @@ describe('events routes', () => {
     const pool = {
       request: jest
         .fn()
+        .mockReturnValueOnce(ensureRequest)
         .mockReturnValueOnce(eventRequest)
         .mockReturnValueOnce(countsRequest)
         .mockReturnValueOnce(updateRequest),
@@ -404,6 +406,95 @@ describe('events routes', () => {
       yes_mentor_count: 1,
       yes_participant_count: 6,
     });
+  });
+
+  it('GET /api/events/:id/guest-assignments returns guest assignment rows', async () => {
+    const ensureRequest = createRequest(async () => ({ recordset: [] }));
+    const listRequest = createRequest(async () => ({
+      recordset: [
+        {
+          guest_assignment_id: 'guest-1',
+          event_id: 'event-1',
+          role: 'PARTICIPANT',
+          guest_name: 'Jordan Guest',
+          guest_email: 'jordan@example.org',
+          guest_phone: null,
+          guest_program_group_id: null,
+          guest_program_name: 'Rocky Mountain Chapter',
+          guest_program_group_name: null,
+          invited_at: '2026-04-01T00:00:00.000Z',
+        },
+      ],
+    }));
+
+    const pool = {
+      request: jest
+        .fn()
+        .mockReturnValueOnce(ensureRequest)
+        .mockReturnValueOnce(listRequest),
+    };
+    (getPool as jest.Mock).mockResolvedValue(pool);
+
+    const res = await request(app).get('/api/events/event-1/guest-assignments');
+
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveLength(1);
+    expect(res.body[0].guest_name).toBe('Jordan Guest');
+  });
+
+  it('POST /api/events/:id/guest-assignments creates guest assignment and sends invite email', async () => {
+    const ensureRequest = createRequest(async () => ({ recordset: [] }));
+    const eventRequest = createRequest(async () => ({
+      recordset: [
+        {
+          event_id: 'event-1',
+          title: 'Fly Tying 101',
+          event_date: '2026-04-01T18:00:00.000Z',
+          status: 'published',
+          event_lead_email: 'lead@example.com',
+        },
+      ],
+    }));
+    const insertRequest = createRequest(async () => ({
+      recordset: [
+        {
+          guest_assignment_id: 'guest-1',
+          event_id: 'event-1',
+          role: 'PARTICIPANT',
+          guest_name: 'Jordan Guest',
+          guest_email: 'jordan@example.org',
+          guest_phone: null,
+          guest_program_group_id: null,
+          guest_program_name: 'Rocky Mountain Chapter',
+          invited_at: '2026-04-01T00:00:00.000Z',
+        },
+      ],
+    }));
+
+    const pool = {
+      request: jest
+        .fn()
+        .mockReturnValueOnce(ensureRequest)
+        .mockReturnValueOnce(eventRequest)
+        .mockReturnValueOnce(insertRequest),
+    };
+    (getPool as jest.Mock).mockResolvedValue(pool);
+
+    const res = await request(app)
+      .post('/api/events/event-1/guest-assignments')
+      .send({
+        role: 'PARTICIPANT',
+        guest_name: 'Jordan Guest',
+        guest_email: 'jordan@example.org',
+        program_name: 'Rocky Mountain Chapter',
+      });
+
+    expect(res.status).toBe(201);
+    expect(res.body.guest_assignment_id).toBe('guest-1');
+    expect(notificationService.sendEmail).toHaveBeenCalledWith(expect.objectContaining({
+      to: 'jordan@example.org',
+      operationType: 'guest_assignment_invite',
+    }));
   });
 
   it('PUT /api/events/:id does not auto-send update notifications for published events', async () => {

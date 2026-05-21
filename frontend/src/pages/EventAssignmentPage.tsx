@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { assignmentsApi, eventsApi, rsvpApi } from '../api/events'
+import { groupsApi } from '../api/groups'
 import { membersApi } from '../api/members'
-import type { AssignmentRecommendationRow, EventRecord } from '../api/events'
+import type { AssignmentRecommendationRow, EventGuestAssignmentRecord, EventRecord } from '../api/events'
 
 type Assignment = {
   assignment_id: string
@@ -13,6 +14,13 @@ type Assignment = {
   assigned_at: string
   attended: boolean
   attendance_notes?: string | null
+}
+
+type GuestAssignment = EventGuestAssignmentRecord
+
+type ProgramOption = {
+  group_id: string
+  group_name: string
 }
 
 type AssignmentRole = 'LEAD' | 'MENTOR' | 'PARTICIPANT'
@@ -119,7 +127,16 @@ function EventAssignmentPage() {
 
   const [eventDetail, setEventDetail] = useState<EventRecord | null>(null)
   const [assignments, setAssignments] = useState<Assignment[]>([])
+  const [guestAssignments, setGuestAssignments] = useState<GuestAssignment[]>([])
   const [rsvps, setRsvps] = useState<RsvpPoolRow[]>([])
+  const [programOptions, setProgramOptions] = useState<ProgramOption[]>([])
+  const [guestRole, setGuestRole] = useState<'MENTOR' | 'PARTICIPANT'>('PARTICIPANT')
+  const [guestName, setGuestName] = useState('')
+  const [guestEmail, setGuestEmail] = useState('')
+  const [guestPhone, setGuestPhone] = useState('')
+  const [guestProgramGroupId, setGuestProgramGroupId] = useState('')
+  const [guestProgramName, setGuestProgramName] = useState('')
+  const [guestSubmitting, setGuestSubmitting] = useState(false)
   const [participation, setParticipation] = useState<Record<string, ParticipationSummary>>({})
   const [priorityRole, setPriorityRole] = useState<'MENTOR' | 'PARTICIPANT'>('PARTICIPANT')
   const [recommendations, setRecommendations] = useState<AssignmentRecommendationRow[]>([])
@@ -181,14 +198,16 @@ function EventAssignmentPage() {
   }, [assignments])
 
   async function refreshEventData(targetEventId: string): Promise<void> {
-    const [asns, eventRsvps, eventDetail] = await Promise.all([
+    const [asns, guestAsns, eventRsvps, eventDetail] = await Promise.all([
       assignmentsApi.list(targetEventId),
+      assignmentsApi.guestList(targetEventId),
       rsvpApi.list(targetEventId),
       eventsApi.get(targetEventId),
     ])
 
     setEventDetail(eventDetail)
     setAssignments(asns as Assignment[])
+    setGuestAssignments(guestAsns as GuestAssignment[])
     setEventCapacity(eventDetail ? {
       mentor_capacity: eventDetail.mentor_capacity,
       participant_capacity: eventDetail.participant_capacity,
@@ -235,6 +254,33 @@ function EventAssignmentPage() {
       .catch((err: unknown) => {
         if (active) {
           setError(err instanceof Error ? err.message : 'Failed to load assignments')
+        }
+      })
+
+    return () => {
+      active = false
+    }
+  }, [eventId])
+
+  useEffect(() => {
+    if (!eventId) {
+      return
+    }
+
+    let active = true
+    groupsApi.list()
+      .then((groups) => {
+        if (!active) {
+          return
+        }
+        const rows = groups
+          .map((group) => ({ group_id: group.group_id, group_name: group.group_name }))
+          .sort((a, b) => a.group_name.localeCompare(b.group_name))
+        setProgramOptions(rows)
+      })
+      .catch(() => {
+        if (active) {
+          setProgramOptions([])
         }
       })
 
@@ -326,6 +372,63 @@ function EventAssignmentPage() {
       setCloseAtCapacityNotice(null)
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to assign member')
+    }
+  }
+
+  async function createGuestAssignment() {
+    if (!eventId) {
+      return
+    }
+
+    if (!guestName.trim() || !guestEmail.trim()) {
+      setError('Guest name and email are required.')
+      return
+    }
+
+    if (!guestProgramGroupId && !guestProgramName.trim()) {
+      setError('Select a program or enter a custom program name.')
+      return
+    }
+
+    setGuestSubmitting(true)
+    setError(null)
+    try {
+      await assignmentsApi.createGuest(eventId, {
+        role: guestRole,
+        guest_name: guestName,
+        guest_email: guestEmail,
+        guest_phone: guestPhone.trim() ? guestPhone : null,
+        program_group_id: guestProgramGroupId || null,
+        program_name: guestProgramName.trim() ? guestProgramName : null,
+      })
+
+      setGuestName('')
+      setGuestEmail('')
+      setGuestPhone('')
+      setGuestProgramName('')
+      setGuestProgramGroupId('')
+      await refreshEventData(eventId)
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to add guest assignment')
+    } finally {
+      setGuestSubmitting(false)
+    }
+  }
+
+  async function removeGuestAssignment(guestAssignmentId: string) {
+    if (!eventId) {
+      return
+    }
+
+    if (!window.confirm('Are you sure you want to remove this guest assignment?')) {
+      return
+    }
+
+    try {
+      await assignmentsApi.removeGuest(eventId, guestAssignmentId)
+      await refreshEventData(eventId)
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to remove guest assignment')
     }
   }
 
@@ -528,17 +631,27 @@ function EventAssignmentPage() {
     [recommendations]
   )
 
+  const guestVolunteerCount = useMemo(
+    () => guestAssignments.filter((assignment) => assignment.role === 'MENTOR').length,
+    [guestAssignments]
+  )
+
+  const guestParticipantCount = useMemo(
+    () => guestAssignments.filter((assignment) => assignment.role === 'PARTICIPANT').length,
+    [guestAssignments]
+  )
+
   const assignedVolunteerCount = useMemo(
-    () => seatAssignments.filter((assignment) => assignment.role === 'MENTOR').length,
-    [seatAssignments]
+    () => seatAssignments.filter((assignment) => assignment.role === 'MENTOR').length + guestVolunteerCount,
+    [seatAssignments, guestVolunteerCount]
   )
 
   const assignedParticipantCount = useMemo(
-    () => seatAssignments.filter((assignment) => assignment.role === 'PARTICIPANT').length,
-    [seatAssignments]
+    () => seatAssignments.filter((assignment) => assignment.role === 'PARTICIPANT').length + guestParticipantCount,
+    [seatAssignments, guestParticipantCount]
   )
 
-  const assignedTotalCount = seatAssignments.length
+  const assignedTotalCount = assignedVolunteerCount + assignedParticipantCount
   const volunteerCapacity = eventCapacity?.mentor_capacity ?? null
   const participantCapacity = eventCapacity?.participant_capacity ?? null
   const totalCapacity = eventCapacity?.capacity ?? null
@@ -693,7 +806,7 @@ function EventAssignmentPage() {
               <div className="assignment-capacity-card">
                 <p className="assignment-capacity-label">Assigned</p>
                 <p className="assignment-capacity-value">{assignedTotalCount}</p>
-                <p className="assignment-capacity-meta">{assignedVolunteerCount} volunteer, {assignedParticipantCount} participant</p>
+                <p className="assignment-capacity-meta">{assignedVolunteerCount} volunteer, {assignedParticipantCount} participant (includes guests)</p>
               </div>
               <div className="assignment-capacity-card">
                 <p className="assignment-capacity-label">Lead Prep</p>
@@ -814,6 +927,77 @@ function EventAssignmentPage() {
             </tbody>
           </table>
         )}
+      </section>
+
+      <section className="card members-table-wrap">
+        <h2>Guest Assignments</h2>
+        <p className="page__subtitle event-assignments-note">
+          Add guest mentors or participants from other regions and send assignment notifications.
+        </p>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10, marginBottom: 12 }}>
+          <label>
+            <span style={{ display: 'block', marginBottom: 4, fontSize: 13 }}>Role</span>
+            <select className="members-search" value={guestRole} onChange={(e) => setGuestRole(e.target.value as 'MENTOR' | 'PARTICIPANT')}>
+              <option value="PARTICIPANT">Guest Participant</option>
+              <option value="MENTOR">Guest Mentor</option>
+            </select>
+          </label>
+          <label>
+            <span style={{ display: 'block', marginBottom: 4, fontSize: 13 }}>Full Name</span>
+            <input className="members-search" value={guestName} onChange={(e) => setGuestName(e.target.value)} placeholder="Guest full name" />
+          </label>
+          <label>
+            <span style={{ display: 'block', marginBottom: 4, fontSize: 13 }}>Email</span>
+            <input className="members-search" value={guestEmail} onChange={(e) => setGuestEmail(e.target.value)} placeholder="guest@example.org" />
+          </label>
+          <label>
+            <span style={{ display: 'block', marginBottom: 4, fontSize: 13 }}>Phone (optional)</span>
+            <input className="members-search" value={guestPhone} onChange={(e) => setGuestPhone(e.target.value)} placeholder="303-555-0100" />
+          </label>
+          <label>
+            <span style={{ display: 'block', marginBottom: 4, fontSize: 13 }}>Program</span>
+            <select className="members-search" value={guestProgramGroupId} onChange={(e) => setGuestProgramGroupId(e.target.value)}>
+              <option value="">Select a program</option>
+              {programOptions.map((group) => (
+                <option key={group.group_id} value={group.group_id}>{group.group_name}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span style={{ display: 'block', marginBottom: 4, fontSize: 13 }}>Program (custom, optional)</span>
+            <input
+              className="members-search"
+              value={guestProgramName}
+              onChange={(e) => setGuestProgramName(e.target.value)}
+              placeholder="Use only if not in dropdown"
+            />
+          </label>
+        </div>
+        <button className="btn btn--sm" disabled={guestSubmitting} onClick={() => void createGuestAssignment()}>
+          {guestSubmitting ? 'Adding…' : 'Add Guest Assignment'}
+        </button>
+
+        <table className="members-table" style={{ marginTop: 14 }}>
+          <thead>
+            <tr><th>Name</th><th>Role</th><th>Program</th><th>Contact</th><th>Added</th><th>Action</th></tr>
+          </thead>
+          <tbody>
+            {guestAssignments.length === 0 ? (
+              <tr><td colSpan={6}>No guest assignments yet.</td></tr>
+            ) : guestAssignments.map((row) => (
+              <tr key={row.guest_assignment_id}>
+                <td>{row.guest_name}</td>
+                <td>{row.role === 'MENTOR' ? 'Guest Mentor' : 'Guest Participant'}</td>
+                <td>{row.guest_program_name}</td>
+                <td>{row.guest_email}{row.guest_phone ? ` • ${row.guest_phone}` : ''}</td>
+                <td>{formatDateTime(row.invited_at)}</td>
+                <td>
+                  <button className="btn btn--sm btn--outline" onClick={() => void removeGuestAssignment(row.guest_assignment_id)}>Remove</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </section>
 
       <section className="card members-table-wrap">

@@ -109,6 +109,28 @@ interface EventAssignmentRecord {
   attendance_notes?: string | null;
 }
 
+interface EventGuestAssignmentRecord {
+  guest_assignment_id: string;
+  event_id: string;
+  role: 'MENTOR' | 'PARTICIPANT';
+  guest_name: string;
+  guest_email: string;
+  guest_phone: string | null;
+  guest_program_group_id: string | null;
+  guest_program_name: string;
+  guest_program_group_name?: string | null;
+  invited_at: string;
+}
+
+interface CreateGuestAssignmentPayload {
+  role: 'MENTOR' | 'PARTICIPANT';
+  guest_name: string;
+  guest_email: string;
+  guest_phone?: string | null;
+  program_group_id?: string | null;
+  program_name?: string | null;
+}
+
 interface AssignmentRecommendationRow {
   rank: number;
   member_id: string;
@@ -259,10 +281,15 @@ const emailRsvpApi = {
 
 const assignmentsApi = {
   list: (eventId: string) => apiGet<EventAssignmentRecord[]>(`/events/${eventId}/assignments`),
+  guestList: (eventId: string) => apiGet<EventGuestAssignmentRecord[]>(`/events/${eventId}/guest-assignments`),
   create: (eventId: string, payload: { member_id: string; role: 'MENTOR' | 'PARTICIPANT' }) =>
     apiPost<EventAssignmentRecord>(`/events/${eventId}/assignments`, payload),
+  createGuest: (eventId: string, payload: CreateGuestAssignmentPayload) =>
+    apiPost<EventGuestAssignmentRecord>(`/events/${eventId}/guest-assignments`, payload),
   remove: (eventId: string, assignmentId: string) =>
     apiDelete<void>(`/events/${eventId}/assignments/${assignmentId}`),
+  removeGuest: (eventId: string, guestAssignmentId: string) =>
+    apiDelete<void>(`/events/${eventId}/guest-assignments/${guestAssignmentId}`),
   setAttendance: (eventId: string, assignmentId: string, payload: { attended: boolean; attendance_notes?: string | null }) =>
     apiPatch<EventAssignmentRecord>(`/events/${eventId}/assignments/${assignmentId}/attendance`, payload),
   recommendations: (eventId: string, role: 'MENTOR' | 'PARTICIPANT', limit = 20) =>
@@ -276,6 +303,8 @@ export type {
   EventRecord,
   RsvpRecord,
   EventAssignmentRecord,
+  EventGuestAssignmentRecord,
+  CreateGuestAssignmentPayload,
   AssignmentRecommendationResponse,
   AssignmentRecommendationRow,
   CloseAtCapacityResponse,

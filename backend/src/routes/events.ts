@@ -4,7 +4,7 @@ import PDFDocument from 'pdfkit';
 import { getPool, sql } from '../db';
 import authenticate from '../middleware/auth';
 import { apiLimiter, writeLimiter } from '../middleware/rateLimiter';
-import { requireAnyAuthenticatedRole, requireEventCreatorOrAdmin } from '../middleware/rbac';
+import { requireAdmin, requireAnyAuthenticatedRole, requireEventCreatorOrAdmin } from '../middleware/rbac';
 import rsvpRouter from './rsvp';
 import {
   assertEventCancelledNotificationReady,
@@ -19,12 +19,13 @@ import {
   sendEventUpdatedNotification,
 } from '../services/notifications';
 import { inferResponseRoleForMember, recordRsvpResponse, RsvpError, VALID_RESPONSES, type RsvpResponse } from '../services/rsvpService';
-import { resolveShortRsvpToken, verifyRsvpToken } from '../services/rsvpLinkService';
+import { buildMemberRsvpUrls, resolveShortRsvpToken, verifyRsvpToken } from '../services/rsvpLinkService';
 import { generateDescriptionDraft, generateInviteDraft } from '../services/aiInviteService';
 import { getEventEmailWorkflowSettings, upsertEventEmailWorkflowSettings } from '../services/eventEmailWorkflowService';
 import { sendPostEventParticipationSummaryEmail, sendPreEventLeadSummaryEmail } from '../services/eventSummaryEmailService';
 import { invalidateShortLivedCache, withShortLivedCache } from '../services/shortLivedCache';
 import { formatInProgramTimeZone } from '../utils/dateTime';
+import { toE164 } from '../utils/phone';
 
 const router = Router();
 
@@ -311,6 +312,94 @@ function renderRsvpActionHtml(title: string, body: string): string {
   </body>
 </html>`;
 }
+
+router.post('/rsvp/smoke-token', writeLimiter, authenticate, requireAdmin, async (req, res) => {
+  try {
+    const requestedEventId = req.body?.event_id === undefined ? null : asUuidOrNull(req.body?.event_id);
+    const requestedMemberId = req.body?.member_id === undefined ? null : asUuidOrNull(req.body?.member_id);
+    const requestedGroupContextId = req.body?.group_context_id === undefined || req.body?.group_context_id === null
+      ? null
+      : asUuidOrNull(req.body?.group_context_id);
+
+    if ((req.body?.event_id !== undefined && !requestedEventId) || (req.body?.member_id !== undefined && !requestedMemberId)) {
+      res.status(400).json({ error: 'event_id and member_id must be valid UUIDs when provided' });
+      return;
+    }
+
+    if (req.body?.group_context_id !== undefined && req.body?.group_context_id !== null && !requestedGroupContextId) {
+      res.status(400).json({ error: 'group_context_id must be a valid UUID when provided' });
+      return;
+    }
+
+    if ((requestedEventId && !requestedMemberId) || (!requestedEventId && requestedMemberId)) {
+      res.status(400).json({ error: 'event_id and member_id must be provided together' });
+      return;
+    }
+
+    let eventId = requestedEventId;
+    let memberId = requestedMemberId;
+    let groupContextId = requestedGroupContextId;
+
+    if (!eventId || !memberId) {
+      const pool = await getPool();
+      const candidateResult = await pool
+        .request()
+        .query<{
+          event_id: string;
+          member_id: string;
+          group_context_id: string | null;
+        }>(
+          `SELECT TOP 1
+              e.event_id,
+              COALESCE(ent.member_id, mg.member_id) AS member_id,
+              ent.group_id AS group_context_id
+           FROM event e
+           INNER JOIN event_notification_target ent ON ent.event_id = e.event_id
+           LEFT JOIN member_group mg ON mg.group_id = ent.group_id
+           INNER JOIN member m ON m.member_id = COALESCE(ent.member_id, mg.member_id)
+           WHERE e.status = 'published'
+             AND COALESCE(m.is_active, 1) = 1
+           ORDER BY
+             CASE WHEN e.event_date >= GETUTCDATE() THEN 0 ELSE 1 END,
+             ABS(DATEDIFF(minute, e.event_date, GETUTCDATE())) ASC,
+             e.event_date DESC`
+        );
+
+      const candidate = candidateResult.recordset[0];
+      if (!candidate) {
+        res.status(404).json({ error: 'No published event targets are available for RSVP smoke token minting' });
+        return;
+      }
+
+      eventId = candidate.event_id;
+      memberId = candidate.member_id;
+      groupContextId = candidate.group_context_id;
+    }
+
+    if (!eventId || !memberId) {
+      res.status(500).json({ error: 'Unable to resolve event/member context for RSVP smoke token minting' });
+      return;
+    }
+
+    const links = buildMemberRsvpUrls(eventId, memberId, groupContextId ?? undefined);
+
+    res.json({
+      source: requestedEventId && requestedMemberId ? 'provided' : 'auto',
+      event_id: eventId,
+      member_id: memberId,
+      group_context_id: groupContextId,
+      token: links.token,
+      landing_url: links.landingUrl,
+      yes_url: links.yesUrl,
+      no_url: links.noUrl,
+      maybe_url: links.maybeUrl,
+      waitlist_url: links.waitlistUrl,
+    });
+  } catch (error) {
+    console.error('POST /events/rsvp/smoke-token failed', error);
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Unable to mint RSVP smoke token' });
+  }
+});
 
 router.get('/rsvp/:token/respond', apiLimiter, async (req, res) => {
   try {
@@ -1683,6 +1772,8 @@ router.put('/:id/status', writeLimiter, authenticate, requireAnyAuthenticatedRol
 router.post('/:id/close-at-capacity', writeLimiter, authenticate, requireEventCreatorOrAdmin, async (req, res) => {
   try {
     const pool = await getPool();
+    await ensureEventGuestAssignmentTable(pool);
+
     const eventResult = await pool
       .request()
       .input('event_id', sql.UniqueIdentifier, req.params.id)
@@ -1716,8 +1807,10 @@ router.post('/:id/close-at-capacity', writeLimiter, authenticate, requireEventCr
         yes_participant_count: number;
       }>(
         `SELECT
-            (SELECT COUNT(*) FROM event_assignment WHERE event_id = @event_id AND role = 'MENTOR') AS assigned_mentor_count,
-            (SELECT COUNT(*) FROM event_assignment WHERE event_id = @event_id AND role = 'PARTICIPANT') AS assigned_participant_count,
+            (SELECT COUNT(*) FROM event_assignment WHERE event_id = @event_id AND role = 'MENTOR')
+              + (SELECT COUNT(*) FROM event_guest_assignment WHERE event_id = @event_id AND role = 'MENTOR') AS assigned_mentor_count,
+            (SELECT COUNT(*) FROM event_assignment WHERE event_id = @event_id AND role = 'PARTICIPANT')
+              + (SELECT COUNT(*) FROM event_guest_assignment WHERE event_id = @event_id AND role = 'PARTICIPANT') AS assigned_participant_count,
             (SELECT COUNT(*) FROM event_response WHERE event_id = @event_id AND response = 'yes' AND response_role = 'MENTOR') AS yes_mentor_count,
             (SELECT COUNT(*) FROM event_response WHERE event_id = @event_id AND response = 'yes' AND response_role = 'PARTICIPANT') AS yes_participant_count`
       );
@@ -2709,6 +2802,39 @@ async function ensureMemberTestAccountColumn(pool: Awaited<ReturnType<typeof get
   `);
 }
 
+async function ensureEventGuestAssignmentTable(pool: Awaited<ReturnType<typeof getPool>>): Promise<void> {
+  await pool.request().query(`
+    IF OBJECT_ID(N'dbo.event_guest_assignment', N'U') IS NULL
+    BEGIN
+      CREATE TABLE dbo.event_guest_assignment (
+        guest_assignment_id UNIQUEIDENTIFIER NOT NULL DEFAULT NEWID(),
+        event_id UNIQUEIDENTIFIER NOT NULL,
+        role NVARCHAR(20) NOT NULL CHECK (role IN ('MENTOR', 'PARTICIPANT')),
+        guest_name NVARCHAR(200) NOT NULL,
+        guest_email NVARCHAR(255) NOT NULL,
+        guest_phone NVARCHAR(30) NULL,
+        guest_program_group_id UNIQUEIDENTIFIER NULL,
+        guest_program_name NVARCHAR(200) NOT NULL,
+        invited_at DATETIME NOT NULL DEFAULT GETUTCDATE(),
+        notes NVARCHAR(500) NULL,
+        CONSTRAINT PK_event_guest_assignment PRIMARY KEY (guest_assignment_id),
+        CONSTRAINT UQ_event_guest_assignment_pair UNIQUE (event_id, guest_email, role),
+        CONSTRAINT FK_event_guest_assignment_event FOREIGN KEY (event_id) REFERENCES dbo.event (event_id) ON DELETE CASCADE,
+        CONSTRAINT FK_event_guest_assignment_program_group FOREIGN KEY (guest_program_group_id) REFERENCES dbo.[group] (group_id) ON DELETE SET NULL
+      );
+    END
+
+    IF NOT EXISTS (
+      SELECT 1
+      FROM sys.indexes
+      WHERE name = 'idx_event_guest_assignment_event'
+        AND object_id = OBJECT_ID('dbo.event_guest_assignment')
+    )
+      CREATE INDEX idx_event_guest_assignment_event
+      ON dbo.event_guest_assignment (event_id, role, invited_at DESC);
+  `);
+}
+
 function responseBias(response: string): number {
   if (response === 'yes') {
     return -0.2;
@@ -2744,6 +2870,208 @@ router.get('/:id/assignments', apiLimiter, authenticate, requireAnyAuthenticated
     res.json(result.recordset);
   } catch (error) {
     console.error('GET /events/:id/assignments failed', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.get('/:id/guest-assignments', apiLimiter, authenticate, requireAnyAuthenticatedRole, async (req, res) => {
+  try {
+    const pool = await getPool();
+    await ensureEventGuestAssignmentTable(pool);
+
+    const result = await pool
+      .request()
+      .input('event_id', sql.UniqueIdentifier, req.params.id)
+      .query(
+        `SELECT
+            ega.guest_assignment_id,
+            ega.event_id,
+            ega.role,
+            ega.guest_name,
+            ega.guest_email,
+            ega.guest_phone,
+            ega.guest_program_group_id,
+            ega.guest_program_name,
+            g.group_name AS guest_program_group_name,
+            ega.invited_at
+         FROM event_guest_assignment ega
+         LEFT JOIN [group] g ON g.group_id = ega.guest_program_group_id
+         WHERE ega.event_id = @event_id
+         ORDER BY ega.invited_at ASC`
+      );
+
+    res.json(result.recordset);
+  } catch (error) {
+    console.error('GET /events/:id/guest-assignments failed', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.post('/:id/guest-assignments', writeLimiter, authenticate, requireEventCreatorOrAdmin, async (req, res) => {
+  try {
+    const role = parseResponseRole(req.body?.role);
+    if (!role) {
+      res.status(400).json({ error: 'role (MENTOR|PARTICIPANT) is required.' });
+      return;
+    }
+
+    const guestName = normalizeString(req.body?.guest_name);
+    if (!guestName || guestName.length > 200) {
+      res.status(400).json({ error: 'guest_name is required and must be 200 characters or less.' });
+      return;
+    }
+
+    const guestEmail = parseOptionalEmail(req.body?.guest_email);
+    if (!guestEmail) {
+      res.status(400).json({ error: 'guest_email is required and must be a valid email address.' });
+      return;
+    }
+
+    const guestPhoneInput = req.body?.guest_phone;
+    if (guestPhoneInput !== undefined && guestPhoneInput !== null && typeof guestPhoneInput !== 'string') {
+      res.status(400).json({ error: 'guest_phone must be a string when provided.' });
+      return;
+    }
+
+    const guestPhone = toE164(guestPhoneInput ?? null);
+    if (guestPhoneInput && !guestPhone) {
+      res.status(400).json({ error: 'guest_phone must be a valid phone number.' });
+      return;
+    }
+
+    const rawProgramGroupId = req.body?.program_group_id;
+    const programGroupId = rawProgramGroupId === undefined || rawProgramGroupId === null
+      ? null
+      : asUuidOrNull(rawProgramGroupId);
+    if (rawProgramGroupId !== undefined && rawProgramGroupId !== null && !programGroupId) {
+      res.status(400).json({ error: 'program_group_id must be a valid UUID when provided.' });
+      return;
+    }
+
+    const programNameInput = normalizeString(req.body?.program_name);
+    if (programNameInput && programNameInput.length > 200) {
+      res.status(400).json({ error: 'program_name must be 200 characters or less.' });
+      return;
+    }
+
+    const pool = await getPool();
+    await ensureEventGuestAssignmentTable(pool);
+
+    const eventResult = await pool
+      .request()
+      .input('event_id', sql.UniqueIdentifier, req.params.id)
+      .query<{
+        event_id: string;
+        title: string;
+        event_date: Date | string;
+        status: string;
+        event_lead_email: string | null;
+      }>(
+        `SELECT event_id, title, event_date, status, event_lead_email
+         FROM event
+         WHERE event_id = @event_id`
+      );
+
+    const event = eventResult.recordset[0];
+    if (!event) {
+      res.status(404).json({ error: 'Event not found' });
+      return;
+    }
+
+    if (event.status === 'completed' || event.status === 'cancelled') {
+      res.status(409).json({ error: 'Cannot add guest assignments to completed or cancelled events.' });
+      return;
+    }
+
+    let groupProgramName: string | null = null;
+    if (programGroupId) {
+      const groupResult = await pool
+        .request()
+        .input('group_id', sql.UniqueIdentifier, programGroupId)
+        .query<{ group_name: string }>('SELECT group_name FROM [group] WHERE group_id = @group_id');
+      groupProgramName = normalizeString(groupResult.recordset[0]?.group_name);
+      if (!groupProgramName) {
+        res.status(400).json({ error: 'program_group_id did not resolve to a valid group.' });
+        return;
+      }
+    }
+
+    const programName = programNameInput ?? groupProgramName;
+    if (!programName) {
+      res.status(400).json({ error: 'program_name is required when a program group is not selected.' });
+      return;
+    }
+
+    const result = await pool
+      .request()
+      .input('event_id', sql.UniqueIdentifier, req.params.id)
+      .input('role', sql.NVarChar, role)
+      .input('guest_name', sql.NVarChar, guestName)
+      .input('guest_email', sql.NVarChar, guestEmail)
+      .input('guest_phone', sql.NVarChar, guestPhone)
+      .input('guest_program_group_id', sql.UniqueIdentifier, programGroupId)
+      .input('guest_program_name', sql.NVarChar, programName)
+      .query(
+        `INSERT INTO event_guest_assignment
+           (guest_assignment_id, event_id, role, guest_name, guest_email, guest_phone, guest_program_group_id, guest_program_name, invited_at, notes)
+         OUTPUT INSERTED.*
+         VALUES (NEWID(), @event_id, @role, @guest_name, @guest_email, @guest_phone, @guest_program_group_id, @guest_program_name, GETUTCDATE(), NULL)`
+      );
+
+    const roleLabel = role === 'MENTOR' ? 'Guest Mentor' : 'Guest Participant';
+    const eventDateLabel = formatInProgramTimeZone(event.event_date);
+
+    await notificationService.sendEmail({
+      to: guestEmail,
+      replyTo: parseOptionalEmail(event.event_lead_email) ?? undefined,
+      subject: `Invitation: ${roleLabel} for ${event.title}`,
+      htmlBody: `<p>Hi ${escapeHtml(guestName)},</p><p>You have been added as a <strong>${roleLabel}</strong> for <strong>${escapeHtml(event.title)}</strong>.</p><p><strong>Program:</strong> ${escapeHtml(programName)}<br/><strong>Date:</strong> ${escapeHtml(eventDateLabel)}</p><p>Reply to this email if you have any questions.</p>`,
+      textBody: `Hi ${guestName},\n\nYou have been added as a ${roleLabel} for ${event.title}.\nProgram: ${programName}\nDate: ${eventDateLabel}\n\nReply to this email if you have any questions.`,
+      eventId: req.params.id,
+      operationType: 'guest_assignment_invite',
+      operationReason: 'Guest assignment created',
+    });
+
+    if (guestPhone) {
+      await notificationService.sendSms({
+        to: guestPhone,
+        message: `PHW Alpine: You are invited as a ${roleLabel.toLowerCase()} for ${event.title} on ${eventDateLabel}.`,
+        eventId: req.params.id,
+        operationType: 'guest_assignment_invite',
+        operationReason: 'Guest assignment created',
+      });
+    }
+
+    res.status(201).json(result.recordset[0]);
+  } catch (error) {
+    console.error('POST /events/:id/guest-assignments failed', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.delete('/:id/guest-assignments/:guestAssignmentId', writeLimiter, authenticate, requireEventCreatorOrAdmin, async (req, res) => {
+  try {
+    const pool = await getPool();
+    await ensureEventGuestAssignmentTable(pool);
+
+    const result = await pool
+      .request()
+      .input('event_id', sql.UniqueIdentifier, req.params.id)
+      .input('guest_assignment_id', sql.UniqueIdentifier, req.params.guestAssignmentId)
+      .query(
+        `DELETE FROM event_guest_assignment
+         WHERE event_id = @event_id
+           AND guest_assignment_id = @guest_assignment_id`
+      );
+
+    if ((result.rowsAffected[0] ?? 0) === 0) {
+      res.status(404).json({ error: 'Guest assignment not found' });
+      return;
+    }
+
+    res.status(204).send();
+  } catch (error) {
+    console.error('DELETE /events/:id/guest-assignments/:guestAssignmentId failed', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

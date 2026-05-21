@@ -16,6 +16,9 @@ on:
   release:
     types: [ published ]
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -647,7 +650,7 @@ jobs:
       if: ${{ steps.stale_guard.outputs.stale_run != '1' }}
       uses: actions/setup-node@v5
       with:
-        node-version: '22'
+        node-version: '24'
         cache: 'npm'
         cache-dependency-path: backend/package-lock.json
 
@@ -928,6 +931,18 @@ jobs:
         AZURE_BACKEND_SLOT_NAME: ${{ vars.AZURE_BACKEND_SLOT_NAME }}
         BACKEND_SLOT_BASE_URL: ${{ vars.BACKEND_SLOT_BASE_URL }}
         RSVP_TEST_TOKEN: ${{ secrets.RSVP_TEST_TOKEN }}
+        E2E_API_BASE_URL: ${{ vars.E2E_API_BASE_URL }}
+        E2E_APP_URL: ${{ vars.E2E_APP_URL }}
+        AZURE_B2C_ROPC_POLICY: ${{ vars.AZURE_B2C_ROPC_POLICY }}
+        AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+        AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+        VITE_API_SCOPE: ${{ vars.VITE_API_SCOPE }}
+        AZURE_EXTERNAL_TENANT_NAME: ${{ vars.AZURE_EXTERNAL_TENANT_NAME }}
+        AZURE_EXTERNAL_TENANT_ID: ${{ vars.AZURE_EXTERNAL_TENANT_ID }}
+        AZURE_AUTHORITY_HOST: ${{ vars.AZURE_AUTHORITY_HOST }}
+        PW_ADMIN_USER: ${{ secrets.PW_ADMIN_USER }}
+        PW_ADMIN_PASS: ${{ secrets.PW_ADMIN_PASS }}
+        PW_ADMIN_TOKEN: ${{ secrets.PW_ADMIN_TOKEN }}
       run: |
         SLOT_URL="${BACKEND_SLOT_BASE_URL}"
         if [ -z "$SLOT_URL" ]; then
@@ -942,19 +957,45 @@ jobs:
         # RSVP contract-only check (no live token required) is a hard gate
         npm --prefix backend run smoke:rsvp
 
-        # Live RSVP token check is best-effort; always refresh token before running
-        if [ -n "$RSVP_TEST_TOKEN" ]; then
-          echo "Refreshing RSVP_TEST_TOKEN before live RSVP smoke..."
-          npm run e2e:refresh-tokens -- --soft-skip
+        # Live RSVP token check is best-effort; prefer a freshly minted token.
+        LIVE_RSVP_TOKEN="${RSVP_TEST_TOKEN:-}"
+
+        if [ -n "${PW_ADMIN_USER:-}" ] && [ -n "${PW_ADMIN_PASS:-}" ] && [ -n "${E2E_APP_URL:-}" ]; then
+          echo "Refreshing admin auth token before live RSVP smoke..."
+          npm run e2e:refresh-tokens -- --soft-skip || true
+        fi
+
+        if [ -n "${PW_ADMIN_TOKEN:-}" ]; then
+          MINT_ENDPOINT="${BACKEND_BASE_URL}/api/v1/events/rsvp/smoke-token"
+          echo "Minting fresh RSVP token from ${MINT_ENDPOINT}..."
           set +e
-          RSVP_TEST_ENABLE_LIVE=1 RSVP_TEST_LIGHTWEIGHT=1 npm --prefix backend run smoke:rsvp
+          MINT_RESPONSE="$(curl -fsS -X POST "$MINT_ENDPOINT" \
+            -H "Authorization: Bearer ${PW_ADMIN_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d '{}')"
+          MINT_EXIT=$?
+          set -e
+          if [ "$MINT_EXIT" -eq 0 ] && [ -n "$MINT_RESPONSE" ]; then
+            MINTED_TOKEN="$(printf '%s' "$MINT_RESPONSE" | python -c "import json,sys; data=json.load(sys.stdin); print((data.get('token') or '').strip())")"
+            if [ -n "$MINTED_TOKEN" ]; then
+              LIVE_RSVP_TOKEN="$MINTED_TOKEN"
+              echo "Using freshly minted RSVP token for live smoke."
+            fi
+          else
+            echo "::warning::Unable to mint fresh RSVP token; falling back to RSVP_TEST_TOKEN."
+          fi
+        fi
+
+        if [ -n "$LIVE_RSVP_TOKEN" ]; then
+          set +e
+          RSVP_TEST_ENABLE_LIVE=1 RSVP_TEST_LIGHTWEIGHT=1 RSVP_TEST_TOKEN="$LIVE_RSVP_TOKEN" npm --prefix backend run smoke:rsvp
           RSVP_EXIT=$?
           set -e
           if [ "$RSVP_EXIT" -ne 0 ]; then
-            echo "::warning::Live RSVP token smoke failed (token may be stale). Deploy will proceed."
+            echo "::warning::Live RSVP token smoke failed (fresh token attempt did not pass). Deploy will proceed."
           fi
         else
-          echo "::warning::RSVP_TEST_TOKEN not set; skipping live RSVP smoke."
+          echo "::warning::No RSVP token available; skipping live RSVP smoke."
         fi
 
     - name: Swap staging slot to production
@@ -1049,6 +1090,18 @@ jobs:
         AZURE_WEBAPP_NAME: ${{ vars.AZURE_WEBAPP_NAME }}
         BACKEND_BASE_URL: ${{ vars.BACKEND_BASE_URL }}
         RSVP_TEST_TOKEN: ${{ secrets.RSVP_TEST_TOKEN }}
+        E2E_API_BASE_URL: ${{ vars.E2E_API_BASE_URL }}
+        E2E_APP_URL: ${{ vars.E2E_APP_URL }}
+        AZURE_B2C_ROPC_POLICY: ${{ vars.AZURE_B2C_ROPC_POLICY }}
+        AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+        AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+        VITE_API_SCOPE: ${{ vars.VITE_API_SCOPE }}
+        AZURE_EXTERNAL_TENANT_NAME: ${{ vars.AZURE_EXTERNAL_TENANT_NAME }}
+        AZURE_EXTERNAL_TENANT_ID: ${{ vars.AZURE_EXTERNAL_TENANT_ID }}
+        AZURE_AUTHORITY_HOST: ${{ vars.AZURE_AUTHORITY_HOST }}
+        PW_ADMIN_USER: ${{ secrets.PW_ADMIN_USER }}
+        PW_ADMIN_PASS: ${{ secrets.PW_ADMIN_PASS }}
+        PW_ADMIN_TOKEN: ${{ secrets.PW_ADMIN_TOKEN }}
       run: |
         PROD_URL="${BACKEND_BASE_URL}"
         if [ -z "$PROD_URL" ]; then
@@ -1063,19 +1116,45 @@ jobs:
         # RSVP contract-only check is a hard gate
         npm --prefix backend run smoke:rsvp
 
-        # Live RSVP token check is best-effort; always refresh token before running
-        if [ -n "$RSVP_TEST_TOKEN" ]; then
-          echo "Refreshing RSVP_TEST_TOKEN before live RSVP smoke..."
-          npm run e2e:refresh-tokens -- --soft-skip
+        # Live RSVP token check is best-effort; prefer a freshly minted token.
+        LIVE_RSVP_TOKEN="${RSVP_TEST_TOKEN:-}"
+
+        if [ -n "${PW_ADMIN_USER:-}" ] && [ -n "${PW_ADMIN_PASS:-}" ] && [ -n "${E2E_APP_URL:-}" ]; then
+          echo "Refreshing admin auth token before live RSVP smoke..."
+          npm run e2e:refresh-tokens -- --soft-skip || true
+        fi
+
+        if [ -n "${PW_ADMIN_TOKEN:-}" ]; then
+          MINT_ENDPOINT="${BACKEND_BASE_URL}/api/v1/events/rsvp/smoke-token"
+          echo "Minting fresh RSVP token from ${MINT_ENDPOINT}..."
           set +e
-          RSVP_TEST_ENABLE_LIVE=1 RSVP_TEST_LIGHTWEIGHT=1 npm --prefix backend run smoke:rsvp
+          MINT_RESPONSE="$(curl -fsS -X POST "$MINT_ENDPOINT" \
+            -H "Authorization: Bearer ${PW_ADMIN_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d '{}')"
+          MINT_EXIT=$?
+          set -e
+          if [ "$MINT_EXIT" -eq 0 ] && [ -n "$MINT_RESPONSE" ]; then
+            MINTED_TOKEN="$(printf '%s' "$MINT_RESPONSE" | python -c "import json,sys; data=json.load(sys.stdin); print((data.get('token') or '').strip())")"
+            if [ -n "$MINTED_TOKEN" ]; then
+              LIVE_RSVP_TOKEN="$MINTED_TOKEN"
+              echo "Using freshly minted RSVP token for live smoke."
+            fi
+          else
+            echo "::warning::Unable to mint fresh RSVP token; falling back to RSVP_TEST_TOKEN."
+          fi
+        fi
+
+        if [ -n "$LIVE_RSVP_TOKEN" ]; then
+          set +e
+          RSVP_TEST_ENABLE_LIVE=1 RSVP_TEST_LIGHTWEIGHT=1 RSVP_TEST_TOKEN="$LIVE_RSVP_TOKEN" npm --prefix backend run smoke:rsvp
           RSVP_EXIT=$?
           set -e
           if [ "$RSVP_EXIT" -ne 0 ]; then
-            echo "::warning::Live RSVP token smoke failed (token may be stale)."
+            echo "::warning::Live RSVP token smoke failed (fresh token attempt did not pass)."
           fi
         else
-          echo "::warning::RSVP_TEST_TOKEN not set; skipping live RSVP smoke."
+          echo "::warning::No RSVP token available; skipping live RSVP smoke."
         fi
 
     - name: Auto-rollback swap back on post-swap failure
@@ -1270,7 +1349,7 @@ jobs:
     - name: Setup Node.js
       uses: actions/setup-node@v5
       with:
-        node-version: '22'
+        node-version: '24'
         cache: 'npm'
         cache-dependency-path: frontend/package-lock.json
 
@@ -1387,7 +1466,7 @@ jobs:
     - name: Setup Node.js
       uses: actions/setup-node@v5
       with:
-        node-version: '22'
+        node-version: '24'
         cache: 'npm'
         cache-dependency-path: backend/package-lock.json
 
@@ -1423,6 +1502,18 @@ jobs:
     - name: Run post-deploy core compliance smokes
       env:
         RSVP_TEST_TOKEN: ${{ secrets.RSVP_TEST_TOKEN }}
+        E2E_API_BASE_URL: ${{ vars.E2E_API_BASE_URL }}
+        E2E_APP_URL: ${{ vars.E2E_APP_URL }}
+        AZURE_B2C_ROPC_POLICY: ${{ vars.AZURE_B2C_ROPC_POLICY }}
+        AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+        AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+        VITE_API_SCOPE: ${{ vars.VITE_API_SCOPE }}
+        AZURE_EXTERNAL_TENANT_NAME: ${{ vars.AZURE_EXTERNAL_TENANT_NAME }}
+        AZURE_EXTERNAL_TENANT_ID: ${{ vars.AZURE_EXTERNAL_TENANT_ID }}
+        AZURE_AUTHORITY_HOST: ${{ vars.AZURE_AUTHORITY_HOST }}
+        PW_ADMIN_USER: ${{ secrets.PW_ADMIN_USER }}
+        PW_ADMIN_PASS: ${{ secrets.PW_ADMIN_PASS }}
+        PW_ADMIN_TOKEN: ${{ secrets.PW_ADMIN_TOKEN }}
       run: |
         set -o pipefail
         mkdir -p ci-artifacts
@@ -1439,19 +1530,45 @@ jobs:
         # RSVP contract-only check (no live token required) is a hard gate
         npm --prefix backend run smoke:rsvp 2>&1 | tee -a ci-artifacts/deploy-backend-smoke.log
 
-        # Live RSVP token check is best-effort; always refresh token before running
-        if [ -n "$RSVP_TEST_TOKEN" ]; then
-          echo "Refreshing RSVP_TEST_TOKEN before live RSVP smoke..."
-          npm run e2e:refresh-tokens -- --soft-skip
+        # Live RSVP token check is best-effort; prefer a freshly minted token.
+        LIVE_RSVP_TOKEN="${RSVP_TEST_TOKEN:-}"
+
+        if [ -n "${PW_ADMIN_USER:-}" ] && [ -n "${PW_ADMIN_PASS:-}" ] && [ -n "${E2E_APP_URL:-}" ]; then
+          echo "Refreshing admin auth token before live RSVP smoke..." | tee -a ci-artifacts/deploy-backend-smoke.log
+          npm run e2e:refresh-tokens -- --soft-skip 2>&1 | tee -a ci-artifacts/deploy-backend-smoke.log || true
+        fi
+
+        if [ -n "${PW_ADMIN_TOKEN:-}" ]; then
+          MINT_ENDPOINT="${BACKEND_BASE_URL}/api/v1/events/rsvp/smoke-token"
+          echo "Minting fresh RSVP token from ${MINT_ENDPOINT}..." | tee -a ci-artifacts/deploy-backend-smoke.log
           set +e
-          RSVP_TEST_ENABLE_LIVE=1 RSVP_TEST_LIGHTWEIGHT=1 npm --prefix backend run smoke:rsvp 2>&1 | tee -a ci-artifacts/deploy-backend-smoke.log
+          MINT_RESPONSE="$(curl -fsS -X POST "$MINT_ENDPOINT" \
+            -H "Authorization: Bearer ${PW_ADMIN_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d '{}')"
+          MINT_EXIT=$?
+          set -e
+          if [ "$MINT_EXIT" -eq 0 ] && [ -n "$MINT_RESPONSE" ]; then
+            MINTED_TOKEN="$(printf '%s' "$MINT_RESPONSE" | python -c "import json,sys; data=json.load(sys.stdin); print((data.get('token') or '').strip())")"
+            if [ -n "$MINTED_TOKEN" ]; then
+              LIVE_RSVP_TOKEN="$MINTED_TOKEN"
+              echo "Using freshly minted RSVP token for live smoke." | tee -a ci-artifacts/deploy-backend-smoke.log
+            fi
+          else
+            echo "::warning::Unable to mint fresh RSVP token; falling back to RSVP_TEST_TOKEN." | tee -a ci-artifacts/deploy-backend-smoke.log
+          fi
+        fi
+
+        if [ -n "$LIVE_RSVP_TOKEN" ]; then
+          set +e
+          RSVP_TEST_ENABLE_LIVE=1 RSVP_TEST_LIGHTWEIGHT=1 RSVP_TEST_TOKEN="$LIVE_RSVP_TOKEN" npm --prefix backend run smoke:rsvp 2>&1 | tee -a ci-artifacts/deploy-backend-smoke.log
           RSVP_EXIT=$?
           set -e
           if [ "$RSVP_EXIT" -ne 0 ]; then
-            echo "::warning::Live RSVP token smoke failed (token may be stale). Deploy will proceed."
+            echo "::warning::Live RSVP token smoke failed (fresh token attempt did not pass). Deploy will proceed." | tee -a ci-artifacts/deploy-backend-smoke.log
           fi
         else
-          echo "::warning::RSVP_TEST_TOKEN not set; skipping live RSVP smoke."
+          echo "::warning::No RSVP token available; skipping live RSVP smoke." | tee -a ci-artifacts/deploy-backend-smoke.log
         fi
 
     - name: Run post-deploy SMS compliance smoke (optional)
@@ -1527,7 +1644,7 @@ jobs:
     - name: Setup Node.js
       uses: actions/setup-node@v5
       with:
-        node-version: '22'
+        node-version: '24'
         cache: 'npm'
         cache-dependency-path: package-lock.json
 
@@ -1635,7 +1752,7 @@ jobs:
     - name: Setup Node.js
       uses: actions/setup-node@v5
       with:
-        node-version: '22'
+        node-version: '24'
         cache: 'npm'
         cache-dependency-path: backend/package-lock.json
 

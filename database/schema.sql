@@ -294,6 +294,30 @@ BEGIN
 END
 
 -- ---------------------------------------------------------------------------
+-- 7a. EventGuestAssignment  (external guest mentor/participant assignments)
+-- ---------------------------------------------------------------------------
+IF OBJECT_ID(N'dbo.event_guest_assignment', N'U') IS NULL
+CREATE TABLE dbo.event_guest_assignment (
+    guest_assignment_id      UNIQUEIDENTIFIER NOT NULL DEFAULT NEWID(),
+    event_id                 UNIQUEIDENTIFIER NOT NULL,
+    role                     NVARCHAR(20)     NOT NULL
+        CHECK (role IN ('MENTOR', 'PARTICIPANT')),
+    guest_name               NVARCHAR(200)    NOT NULL,
+    guest_email              NVARCHAR(255)    NOT NULL,
+    guest_phone              NVARCHAR(30)     NULL,
+    guest_program_group_id   UNIQUEIDENTIFIER NULL,
+    guest_program_name       NVARCHAR(200)    NOT NULL,
+    invited_at               DATETIME         NOT NULL DEFAULT GETUTCDATE(),
+    notes                    NVARCHAR(500)    NULL,
+    CONSTRAINT PK_event_guest_assignment PRIMARY KEY (guest_assignment_id),
+    CONSTRAINT UQ_event_guest_assignment_pair UNIQUE (event_id, guest_email, role),
+    CONSTRAINT FK_event_guest_assignment_event FOREIGN KEY (event_id)
+        REFERENCES dbo.event (event_id) ON DELETE CASCADE,
+    CONSTRAINT FK_event_guest_assignment_program_group FOREIGN KEY (guest_program_group_id)
+        REFERENCES dbo.[group] (group_id) ON DELETE SET NULL
+);
+
+-- ---------------------------------------------------------------------------
 -- 8. NotificationTemplate
 -- ---------------------------------------------------------------------------
 IF OBJECT_ID(N'dbo.notification_template', N'U') IS NULL
@@ -873,6 +897,10 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_event_response_event_
 
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_event_response_reminder_claim' AND object_id = OBJECT_ID('dbo.event_response'))
     CREATE INDEX idx_event_response_reminder_claim ON dbo.event_response (reminder_claim_token, reminder_claimed_at);
+
+-- event_guest_assignment
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_event_guest_assignment_event' AND object_id = OBJECT_ID('dbo.event_guest_assignment'))
+    CREATE INDEX idx_event_guest_assignment_event ON dbo.event_guest_assignment (event_id, role, invited_at DESC);
 
 -- waitlist_promotion_offer
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_waitlist_offer_event_status' AND object_id = OBJECT_ID('dbo.waitlist_promotion_offer'))
