@@ -21,6 +21,7 @@ import {
   setPersonasForMember,
   type Persona,
 } from '../services/personaService';
+import { withShortLivedCache } from '../services/shortLivedCache';
 
 const router = Router();
 
@@ -51,6 +52,8 @@ function parsePositiveIntQuery(value: unknown, max: number): number | null {
 
   return Math.min(parsed, max);
 }
+
+const DASHBOARD_CACHE_TTL_MS = 20_000;
 
 router.get('/', apiLimiter, authenticate, requireAnyAuthenticatedRole, async (req, res, next) => {
   try {
@@ -562,58 +565,19 @@ router.get('/me/rsvps', apiLimiter, authenticate, async (req, res, next) => {
     }
 
     const limit = parsePositiveIntQuery(req.query.limit, 50);
-    const topClause = limit !== null ? 'TOP (@limit) ' : '';
-    const pool = await getPool();
-    const primaryRequest = pool
-      .request()
-      .input('member_id', sql.UniqueIdentifier, memberId);
-    if (limit !== null) {
-      primaryRequest.input('limit', sql.Int, limit);
-    }
-    const result = await primaryRequest
-      .query(
-        `SELECT ${topClause}
-            er.response_id,
-            er.response,
-            er.responded_at,
-            e.event_id,
-            e.title,
-            e.event_date,
-            e.location,
-            e.status
-         FROM event_response er
-         INNER JOIN event e ON e.event_id = er.event_id
-         WHERE er.member_id = @member_id
-         ORDER BY e.event_date ASC`
-      );
-
-    if ((result.recordset.length === 0) && req.user?.email?.trim()) {
-      const normalizedEmail = req.user.email.trim().toLowerCase();
-      const fallbackMember = await pool
-        .request()
-        .input('email', sql.NVarChar(320), normalizedEmail)
-        .query<{ member_id: string }>(
-          `SELECT TOP 1 m.member_id
-           FROM member m
-           CROSS APPLY (
-             SELECT MAX(er.responded_at) AS last_responded_at
-             FROM event_response er
-             WHERE er.member_id = m.member_id
-           ) r
-           WHERE LOWER(m.email) = @email
-             AND r.last_responded_at IS NOT NULL
-           ORDER BY m.is_active DESC, r.last_responded_at DESC, m.updated_at DESC`
-        );
-
-      const fallbackMemberId = fallbackMember.recordset[0]?.member_id;
-      if (fallbackMemberId && fallbackMemberId !== memberId) {
-        const fallbackRequest = pool
+    const rows = await withShortLivedCache(
+      `members:my-rsvps:${memberId}:limit=${limit ?? 'all'}`,
+      DASHBOARD_CACHE_TTL_MS,
+      async () => {
+        const topClause = limit !== null ? 'TOP (@limit) ' : '';
+        const pool = await getPool();
+        const primaryRequest = pool
           .request()
-          .input('member_id', sql.UniqueIdentifier, fallbackMemberId);
+          .input('member_id', sql.UniqueIdentifier, memberId);
         if (limit !== null) {
-          fallbackRequest.input('limit', sql.Int, limit);
+          primaryRequest.input('limit', sql.Int, limit);
         }
-        const fallbackResponses = await fallbackRequest
+        const result = await primaryRequest
           .query(
             `SELECT ${topClause}
                 er.response_id,
@@ -630,12 +594,58 @@ router.get('/me/rsvps', apiLimiter, authenticate, async (req, res, next) => {
              ORDER BY e.event_date ASC`
           );
 
-        res.json(fallbackResponses.recordset);
-        return;
-      }
-    }
+        if ((result.recordset.length === 0) && req.user?.email?.trim()) {
+          const normalizedEmail = req.user.email.trim().toLowerCase();
+          const fallbackMember = await pool
+            .request()
+            .input('email', sql.NVarChar(320), normalizedEmail)
+            .query<{ member_id: string }>(
+              `SELECT TOP 1 m.member_id
+               FROM member m
+               CROSS APPLY (
+                 SELECT MAX(er.responded_at) AS last_responded_at
+                 FROM event_response er
+                 WHERE er.member_id = m.member_id
+               ) r
+               WHERE LOWER(m.email) = @email
+                 AND r.last_responded_at IS NOT NULL
+               ORDER BY m.is_active DESC, r.last_responded_at DESC, m.updated_at DESC`
+            );
 
-    res.json(result.recordset);
+          const fallbackMemberId = fallbackMember.recordset[0]?.member_id;
+          if (fallbackMemberId && fallbackMemberId !== memberId) {
+            const fallbackRequest = pool
+              .request()
+              .input('member_id', sql.UniqueIdentifier, fallbackMemberId);
+            if (limit !== null) {
+              fallbackRequest.input('limit', sql.Int, limit);
+            }
+            const fallbackResponses = await fallbackRequest
+              .query(
+                `SELECT ${topClause}
+                    er.response_id,
+                    er.response,
+                    er.responded_at,
+                    e.event_id,
+                    e.title,
+                    e.event_date,
+                    e.location,
+                    e.status
+                 FROM event_response er
+                 INNER JOIN event e ON e.event_id = er.event_id
+                 WHERE er.member_id = @member_id
+                 ORDER BY e.event_date ASC`
+              );
+
+            return fallbackResponses.recordset;
+          }
+        }
+
+        return result.recordset;
+      }
+    );
+
+    res.json(rows);
   } catch (error) {
     next(error);
   }

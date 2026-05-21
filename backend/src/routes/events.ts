@@ -23,6 +23,7 @@ import { resolveShortRsvpToken, verifyRsvpToken } from '../services/rsvpLinkServ
 import { generateDescriptionDraft, generateInviteDraft } from '../services/aiInviteService';
 import { getEventEmailWorkflowSettings, upsertEventEmailWorkflowSettings } from '../services/eventEmailWorkflowService';
 import { sendPostEventParticipationSummaryEmail, sendPreEventLeadSummaryEmail } from '../services/eventSummaryEmailService';
+import { invalidateShortLivedCache, withShortLivedCache } from '../services/shortLivedCache';
 import { formatInProgramTimeZone } from '../utils/dateTime';
 
 const router = Router();
@@ -120,7 +121,21 @@ function parseBooleanQuery(value: unknown): boolean | null {
   return null;
 }
 
+const DASHBOARD_CACHE_TTL_MS = 20_000;
+
+function invalidateDashboardReadCaches(): void {
+  invalidateShortLivedCache('events:');
+  invalidateShortLivedCache('members:my-rsvps:');
+}
+
 router.use('/:eventId/rsvp', rsvpRouter);
+
+router.use((req, _res, next) => {
+  if (req.method !== 'GET') {
+    invalidateDashboardReadCaches();
+  }
+  next();
+});
 
 function getRsvpToken(req: { params: Record<string, string | undefined>; query: Record<string, unknown> }): string {
   const pathToken = req.params.token;
@@ -215,7 +230,7 @@ async function getPublicRsvpContext(tokenString: string): Promise<{
 async function submitPublicRsvp(tokenString: string, response: string, responseRole?: 'MENTOR' | 'PARTICIPANT'): Promise<unknown> {
   const token = verifyRsvpToken(tokenString);
 
-  return recordRsvpResponse({
+  const result = await recordRsvpResponse({
     eventId: token.eventId,
     memberId: token.memberId,
     response: response as RsvpResponse,
@@ -224,6 +239,9 @@ async function submitPublicRsvp(tokenString: string, response: string, responseR
     groupContextId: token.groupContextId ?? null,
     responseRole,
   });
+
+  invalidateDashboardReadCaches();
+  return result;
 }
 
 function parseResponseRole(value: unknown): 'MENTOR' | 'PARTICIPANT' | undefined {
@@ -477,51 +495,63 @@ router.get('/', apiLimiter, authenticate, requireAnyAuthenticatedRole, async (re
     const limit = parsePositiveIntQuery(req.query.limit, 100);
     const sort = (req.query.sort as string | undefined)?.toLowerCase() === 'asc' ? 'ASC' : 'DESC';
 
-    let query = `
-      SELECT
-        e.*,
-        COALESCE(yes_counts.yes_count, 0) AS yes_count,
-        COALESCE(target_counts.target_count, 0) AS target_count
-      FROM event e
-      LEFT JOIN (
-        SELECT er.event_id, COUNT(*) AS yes_count
-        FROM event_response er
-        WHERE er.response = 'yes'
-        GROUP BY er.event_id
-      ) AS yes_counts ON yes_counts.event_id = e.event_id
-      LEFT JOIN (
-        SELECT ent.event_id, COUNT(*) AS target_count
-        FROM event_notification_target ent
-        GROUP BY ent.event_id
-      ) AS target_counts ON target_counts.event_id = e.event_id
-    `;
+    const cacheKey = [
+      'events:list',
+      `status=${status ?? 'all'}`,
+      `upcoming=${upcoming === null ? 'any' : String(upcoming)}`,
+      `limit=${limit ?? 'all'}`,
+      `sort=${sort.toLowerCase()}`,
+    ].join(':');
 
-    const request = pool.request();
-    const whereClauses: string[] = [];
+    const rows = await withShortLivedCache(cacheKey, DASHBOARD_CACHE_TTL_MS, async () => {
+      let query = `
+        SELECT
+          e.*,
+          COALESCE(yes_counts.yes_count, 0) AS yes_count,
+          COALESCE(target_counts.target_count, 0) AS target_count
+        FROM event e
+        LEFT JOIN (
+          SELECT er.event_id, COUNT(*) AS yes_count
+          FROM event_response er
+          WHERE er.response = 'yes'
+          GROUP BY er.event_id
+        ) AS yes_counts ON yes_counts.event_id = e.event_id
+        LEFT JOIN (
+          SELECT ent.event_id, COUNT(*) AS target_count
+          FROM event_notification_target ent
+          GROUP BY ent.event_id
+        ) AS target_counts ON target_counts.event_id = e.event_id
+      `;
 
-    if (status) {
-      whereClauses.push('e.status = @status');
-      request.input('status', sql.NVarChar, status);
-    }
+      const request = pool.request();
+      const whereClauses: string[] = [];
 
-    if (upcoming === true) {
-      whereClauses.push('e.event_date >= GETUTCDATE()');
-    } else if (upcoming === false) {
-      whereClauses.push('e.event_date < GETUTCDATE()');
-    }
+      if (status) {
+        whereClauses.push('e.status = @status');
+        request.input('status', sql.NVarChar, status);
+      }
 
-    if (whereClauses.length > 0) {
-      query += ` WHERE ${whereClauses.join(' AND ')}`;
-    }
+      if (upcoming === true) {
+        whereClauses.push('e.event_date >= GETUTCDATE()');
+      } else if (upcoming === false) {
+        whereClauses.push('e.event_date < GETUTCDATE()');
+      }
 
-    query += ` ORDER BY e.event_date ${sort}`;
-    if (limit !== null) {
-      request.input('limit', sql.Int, limit);
-      query += ' OFFSET 0 ROWS FETCH NEXT @limit ROWS ONLY';
-    }
+      if (whereClauses.length > 0) {
+        query += ` WHERE ${whereClauses.join(' AND ')}`;
+      }
 
-    const result = await request.query(query);
-    res.json(result.recordset);
+      query += ` ORDER BY e.event_date ${sort}`;
+      if (limit !== null) {
+        request.input('limit', sql.Int, limit);
+        query += ' OFFSET 0 ROWS FETCH NEXT @limit ROWS ONLY';
+      }
+
+      const result = await request.query(query);
+      return result.recordset;
+    });
+
+    res.json(rows);
   } catch (error) {
     console.error('GET /events failed', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -531,40 +561,44 @@ router.get('/', apiLimiter, authenticate, requireAnyAuthenticatedRole, async (re
 router.get('/dashboard-summary', apiLimiter, authenticate, requireAnyAuthenticatedRole, async (_req, res) => {
   try {
     const pool = await getPool();
-    const result = await pool
-      .request()
-      .query<{
-        total_events_this_year: number;
-        upcoming_events: number;
-        total_rsvps: number;
-      }>(
-        `SELECT
-            (SELECT COUNT(*)
-             FROM event e
-             WHERE e.status = 'published'
-               AND YEAR(e.event_date) = YEAR(GETUTCDATE())) AS total_events_this_year,
-            (SELECT COUNT(*)
-             FROM event e
-             WHERE e.status = 'published'
-               AND e.event_date >= GETUTCDATE()) AS upcoming_events,
-            (SELECT COUNT(*)
-             FROM event_response er
-             INNER JOIN event e ON e.event_id = er.event_id
-             WHERE er.response = 'yes'
-               AND e.status = 'published') AS total_rsvps`
-      );
+    const summary = await withShortLivedCache('events:dashboard-summary', DASHBOARD_CACHE_TTL_MS, async () => {
+      const result = await pool
+        .request()
+        .query<{
+          total_events_this_year: number;
+          upcoming_events: number;
+          total_rsvps: number;
+        }>(
+          `SELECT
+              (SELECT COUNT(*)
+               FROM event e
+               WHERE e.status = 'published'
+                 AND YEAR(e.event_date) = YEAR(GETUTCDATE())) AS total_events_this_year,
+              (SELECT COUNT(*)
+               FROM event e
+               WHERE e.status = 'published'
+                 AND e.event_date >= GETUTCDATE()) AS upcoming_events,
+              (SELECT COUNT(*)
+               FROM event_response er
+               INNER JOIN event e ON e.event_id = er.event_id
+               WHERE er.response = 'yes'
+                 AND e.status = 'published') AS total_rsvps`
+        );
 
-    const row = result.recordset[0] ?? {
-      total_events_this_year: 0,
-      upcoming_events: 0,
-      total_rsvps: 0,
-    };
+      const row = result.recordset[0] ?? {
+        total_events_this_year: 0,
+        upcoming_events: 0,
+        total_rsvps: 0,
+      };
 
-    res.json({
-      totalEventsThisYear: row.total_events_this_year,
-      upcomingEvents: row.upcoming_events,
-      totalRsvps: row.total_rsvps,
+      return {
+        totalEventsThisYear: row.total_events_this_year,
+        upcomingEvents: row.upcoming_events,
+        totalRsvps: row.total_rsvps,
+      };
     });
+
+    res.json(summary);
   } catch (error) {
     console.error('GET /events/dashboard-summary failed', error);
     res.status(500).json({ error: 'Internal server error' });

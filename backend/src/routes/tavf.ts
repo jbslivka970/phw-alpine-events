@@ -4,6 +4,7 @@ import { apiLimiter, writeLimiter } from '../middleware/rateLimiter';
 import { requireEventCreatorOrAdmin, requireTavfCreator } from '../middleware/rbac';
 import * as tavf from '../services/tavfService';
 import { getPool, sql } from '../db';
+import { invalidateShortLivedCache, withShortLivedCache } from '../services/shortLivedCache';
 
 const router = Router();
 
@@ -21,6 +22,8 @@ function parsePositiveIntQuery(value: unknown, max: number): number | undefined 
 
   return Math.min(parsed, max);
 }
+
+const DASHBOARD_CACHE_TTL_MS = 20_000;
 
 function isSchemaAvailabilityError(error: unknown): boolean {
   if (!(error instanceof Error)) {
@@ -107,6 +110,12 @@ function hasElevatedTavfAccess(user: Request['user']): boolean {
 // All TAVF routes require authentication
 router.use(apiLimiter);
 router.use(authenticate);
+router.use((req, _res, next) => {
+  if (req.method !== 'GET') {
+    invalidateShortLivedCache('tavf:postings:');
+  }
+  next();
+});
 
 // ---------------------------------------------------------------------------
 // Postings
@@ -120,10 +129,11 @@ router.get('/postings', apiLimiter, async (req: Request, res: Response): Promise
   try {
     const status = req.query['status'] as tavf.PostingStatus | undefined;
     const limit = parsePositiveIntQuery(req.query['limit'], 50);
-    const postings = await tavf.listPostings({
+    const cacheKey = `tavf:postings:status=${status ?? 'all'}:limit=${limit ?? 'all'}`;
+    const postings = await withShortLivedCache(cacheKey, DASHBOARD_CACHE_TTL_MS, async () => tavf.listPostings({
       ...(status ? { status } : {}),
       ...(limit ? { limit } : {}),
-    });
+    }));
     res.json(postings);
   } catch (err) {
     if (isSchemaAvailabilityError(err)) {
