@@ -48,4 +48,14 @@ describe('eventsApi contract', () => {
     await eventsApi.list('published', { signal: controller.signal });
     expect(mockedApiGet).toHaveBeenCalledWith('/events?status=published', { signal: controller.signal });
   });
+
+  it('adds upcoming, limit, and sort query params for list requests', async () => {
+    await eventsApi.list('published', { upcoming: true, limit: 5, sort: 'asc' });
+    expect(mockedApiGet).toHaveBeenCalledWith('/events?status=published&upcoming=true&limit=5&sort=asc', {});
+  });
+
+  it('calls dashboard summary endpoint', async () => {
+    await eventsApi.dashboardSummary();
+    expect(mockedApiGet).toHaveBeenCalledWith('/events/dashboard-summary', undefined);
+  });
 });

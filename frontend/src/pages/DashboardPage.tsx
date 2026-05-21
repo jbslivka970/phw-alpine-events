@@ -1,5 +1,5 @@
 import { Link, useNavigate } from 'react-router-dom';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { colors, fonts, rsvpStyles } from '../styles/theme';
 import { eventsApi, type EventRecord } from '../api/events';
 import { membersApi } from '../api/members';
@@ -123,74 +123,94 @@ function DashboardPage() {
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [memberDisplayName, setMemberDisplayName] = useState<string | undefined>(undefined);
 
-  const now = useMemo(() => new Date(), []);
-
   useEffect(() => {
     let active = true;
 
     async function loadDashboard() {
       try {
+        setLoading(true);
         setLoadError(null);
-        const events = await eventsApi.list('published');
-        if (!active) return;
+        const memberCountPromise = isAdminUser
+          ? membersApi.list({ page: 1, pageSize: 1, isActive: true })
+          : Promise.resolve(null);
 
-        const next = events
-          .filter((event) => new Date(event.event_date).getTime() >= now.getTime())
-          .sort((a, b) => new Date(a.event_date).getTime() - new Date(b.event_date).getTime())
-          .slice(0, 5);
-        setUpcoming(next);
+        const [
+          upcomingEventsResult,
+          dashboardSummaryResult,
+          meResult,
+          myRsvpsResult,
+          openPostingsResult,
+          memberCountResult,
+        ] = await Promise.allSettled([
+          eventsApi.list('published', { upcoming: true, limit: 5, sort: 'asc' }),
+          eventsApi.dashboardSummary(),
+          membersApi.me(),
+          membersApi.myRsvps(4),
+          tavfApi.listPostings('open', 4),
+          memberCountPromise,
+        ]);
 
-        const thisYear = new Date().getFullYear();
-        const totalEventsThisYear = events.filter((event) => new Date(event.event_date).getFullYear() === thisYear).length;
-        const totalRsvps = events.reduce((sum, event) => sum + (event.yes_count ?? 0), 0);
-
-        setStats((cur) => ({
-          ...cur,
-          totalEventsThisYear,
-          totalRsvps,
-          upcomingEvents: next.length,
-        }));
-
-        try {
-          const me = await membersApi.me();
-          if (active) {
-            const preferredName = `${me.first_name ?? ''}`.trim();
-            setMemberDisplayName(preferredName || undefined);
-          }
-        } catch {
-          if (active) setMemberDisplayName(undefined);
+        if (!active) {
+          return;
         }
 
-        try {
-          const responses = await membersApi.myRsvps();
-          if (active) {
-            setMyRsvps(
-              responses.slice(0, 4).map((row) => ({
-                event_id: row.event_id,
-                title: row.title,
-                event_date: row.event_date,
-                response: row.response,
-              }))
-            );
-          }
-        } catch {
-          if (active) setMyRsvps([]);
+        if (upcomingEventsResult.status === 'rejected') {
+          throw upcomingEventsResult.reason;
         }
 
-        try {
-          const postings = await tavfApi.listPostings('open');
-          if (active) setOpenPostings(postings.slice(0, 4));
-        } catch {
-          if (active) setOpenPostings([]);
+        const nextUpcoming = upcomingEventsResult.value;
+        setUpcoming(nextUpcoming);
+
+        if (dashboardSummaryResult.status === 'fulfilled') {
+          setStats((cur) => ({
+            ...cur,
+            totalEventsThisYear: dashboardSummaryResult.value.totalEventsThisYear,
+            totalRsvps: dashboardSummaryResult.value.totalRsvps,
+            upcomingEvents: dashboardSummaryResult.value.upcomingEvents,
+          }));
+        } else {
+          setStats((cur) => ({
+            ...cur,
+            totalEventsThisYear: 0,
+            totalRsvps: 0,
+            upcomingEvents: nextUpcoming.length,
+          }));
+        }
+
+        if (meResult.status === 'fulfilled') {
+          const preferredName = `${meResult.value.first_name ?? ''}`.trim();
+          setMemberDisplayName(preferredName || undefined);
+        } else {
+          setMemberDisplayName(undefined);
+        }
+
+        if (myRsvpsResult.status === 'fulfilled') {
+          setMyRsvps(
+            myRsvpsResult.value.map((row) => ({
+              event_id: row.event_id,
+              title: row.title,
+              event_date: row.event_date,
+              response: row.response,
+            }))
+          );
+        } else {
+          setMyRsvps([]);
+        }
+
+        if (openPostingsResult.status === 'fulfilled') {
+          setOpenPostings(openPostingsResult.value);
+        } else {
+          setOpenPostings([]);
         }
 
         if (isAdminUser) {
-          try {
-            const memberList = await membersApi.list({ page: 1, pageSize: 1, isActive: true });
-            if (active) setStats((cur) => ({ ...cur, totalMembers: memberList.total }));
-          } catch {
-            if (active) setStats((cur) => ({ ...cur, totalMembers: 0 }));
+          if (memberCountResult.status === 'fulfilled' && memberCountResult.value) {
+            setStats((cur) => ({ ...cur, totalMembers: memberCountResult.value.total }));
+          } else {
+            setStats((cur) => ({ ...cur, totalMembers: 0 }));
           }
+        } else {
+          setStats((cur) => ({ ...cur, totalMembers: 0 }));
         }
       } catch (error) {
         if (active) {
@@ -215,7 +235,7 @@ function DashboardPage() {
     return () => {
       active = false;
     };
-  }, [isAdminUser, now, user?.email, user?.id]);
+  }, [isAdminUser, user?.email, user?.id]);
 
   useEffect(() => {
     const identity = user?.id ?? user?.email;

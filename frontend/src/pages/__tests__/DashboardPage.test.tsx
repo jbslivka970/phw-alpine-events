@@ -10,6 +10,7 @@ import DashboardPage from '../DashboardPage';
 vi.mock('../../api/events', () => ({
   eventsApi: {
     list: vi.fn(),
+    dashboardSummary: vi.fn(),
   },
 }));
 
@@ -34,6 +35,7 @@ vi.mock('../../hooks/useAuth', () => ({
 
 const mockedEventsApi = eventsApi as unknown as {
   list: ReturnType<typeof vi.fn>;
+  dashboardSummary: ReturnType<typeof vi.fn>;
 };
 
 const mockedMembersApi = membersApi as unknown as {
@@ -81,6 +83,11 @@ describe('DashboardPage regression coverage', () => {
         yes_count: 2,
       },
     ]);
+    mockedEventsApi.dashboardSummary.mockResolvedValue({
+      totalEventsThisYear: 1,
+      upcomingEvents: 1,
+      totalRsvps: 2,
+    });
 
     mockedMembersApi.list.mockResolvedValue({
       data: [
@@ -126,7 +133,7 @@ describe('DashboardPage regression coverage', () => {
 
     await waitFor(() => {
       expect(mockedMembersApi.me).toHaveBeenCalled();
-      expect(mockedMembersApi.myRsvps).toHaveBeenCalled();
+      expect(mockedMembersApi.myRsvps).toHaveBeenCalledWith(4);
     });
   });
 });

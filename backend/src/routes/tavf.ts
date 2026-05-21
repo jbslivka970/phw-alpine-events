@@ -9,6 +9,19 @@ const router = Router();
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+function parsePositiveIntQuery(value: unknown, max: number): number | undefined {
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    return undefined;
+  }
+
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return undefined;
+  }
+
+  return Math.min(parsed, max);
+}
+
 function isSchemaAvailabilityError(error: unknown): boolean {
   if (!(error instanceof Error)) {
     return false;
@@ -106,7 +119,11 @@ router.use(authenticate);
 router.get('/postings', apiLimiter, async (req: Request, res: Response): Promise<void> => {
   try {
     const status = req.query['status'] as tavf.PostingStatus | undefined;
-    const postings = await tavf.listPostings(status ? { status } : {});
+    const limit = parsePositiveIntQuery(req.query['limit'], 50);
+    const postings = await tavf.listPostings({
+      ...(status ? { status } : {}),
+      ...(limit ? { limit } : {}),
+    });
     res.json(postings);
   } catch (err) {
     if (isSchemaAvailabilityError(err)) {

@@ -1,7 +1,7 @@
 {
   "name": "phw-alpine-events-frontend",
   "private": true,
-  "version": "3.2.1",
+  "version": "3.2.2",
   "type": "module",
   "engines": {
     "node": ">=22 <23"

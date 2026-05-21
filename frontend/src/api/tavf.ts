@@ -52,8 +52,17 @@ export interface TavfNotificationSubscription {
 
 const tavfApi = {
   // Postings
-  listPostings: (status?: PostingStatus) =>
-    apiGet<TavfPosting[]>(status ? `/tavf/postings?status=${encodeURIComponent(status)}` : '/tavf/postings'),
+  listPostings: (status?: PostingStatus, limit?: number) => {
+    const query = new URLSearchParams();
+    if (status) {
+      query.set('status', status);
+    }
+    if (typeof limit === 'number' && Number.isFinite(limit) && limit > 0) {
+      query.set('limit', String(Math.floor(limit)));
+    }
+    const suffix = query.toString();
+    return apiGet<TavfPosting[]>(suffix ? `/tavf/postings?${suffix}` : '/tavf/postings');
+  },
 
   getPosting: (id: string) =>
     apiGet<TavfPosting>(`/tavf/postings/${id}`),

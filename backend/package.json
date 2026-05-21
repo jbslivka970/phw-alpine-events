@@ -1,6 +1,6 @@
 {
   "name": "phw-alpine-events-backend",
-  "version": "3.2.1",
+  "version": "3.2.2",
   "description": "Backend API for PHW Alpine Events",
   "main": "server.js",
   "engines": {

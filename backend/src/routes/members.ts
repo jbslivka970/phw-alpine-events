@@ -39,6 +39,19 @@ interface SmsRolloutStatus {
   matchedGroups: string[];
 }
 
+function parsePositiveIntQuery(value: unknown, max: number): number | null {
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    return null;
+  }
+
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return null;
+  }
+
+  return Math.min(parsed, max);
+}
+
 router.get('/', apiLimiter, authenticate, requireAnyAuthenticatedRole, async (req, res, next) => {
   try {
     const page = parseInt((req.query.page as string) ?? '1', 10);
@@ -548,12 +561,18 @@ router.get('/me/rsvps', apiLimiter, authenticate, async (req, res, next) => {
       return;
     }
 
+    const limit = parsePositiveIntQuery(req.query.limit, 50);
+    const topClause = limit !== null ? 'TOP (@limit) ' : '';
     const pool = await getPool();
-    const result = await pool
+    const primaryRequest = pool
       .request()
-      .input('member_id', sql.UniqueIdentifier, memberId)
+      .input('member_id', sql.UniqueIdentifier, memberId);
+    if (limit !== null) {
+      primaryRequest.input('limit', sql.Int, limit);
+    }
+    const result = await primaryRequest
       .query(
-        `SELECT
+        `SELECT ${topClause}
             er.response_id,
             er.response,
             er.responded_at,
@@ -588,11 +607,15 @@ router.get('/me/rsvps', apiLimiter, authenticate, async (req, res, next) => {
 
       const fallbackMemberId = fallbackMember.recordset[0]?.member_id;
       if (fallbackMemberId && fallbackMemberId !== memberId) {
-        const fallbackResponses = await pool
+        const fallbackRequest = pool
           .request()
-          .input('member_id', sql.UniqueIdentifier, fallbackMemberId)
+          .input('member_id', sql.UniqueIdentifier, fallbackMemberId);
+        if (limit !== null) {
+          fallbackRequest.input('limit', sql.Int, limit);
+        }
+        const fallbackResponses = await fallbackRequest
           .query(
-            `SELECT
+            `SELECT ${topClause}
                 er.response_id,
                 er.response,
                 er.responded_at,

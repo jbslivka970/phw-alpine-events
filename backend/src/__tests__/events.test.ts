@@ -360,6 +360,52 @@ describe('events routes', () => {
     expect(sendEventCompletedNotification).toHaveBeenCalled();
   });
 
+  it('POST /api/events/:id/close-at-capacity locks capacity using assigned and yes RSVPs', async () => {
+    const eventRequest = createRequest(async () => ({
+      recordset: [{ event_id: 'event-1', status: 'published' }],
+    }));
+    const countsRequest = createRequest(async () => ({
+      recordset: [{
+        assigned_mentor_count: 2,
+        assigned_participant_count: 5,
+        yes_mentor_count: 1,
+        yes_participant_count: 6,
+      }],
+    }));
+    const updateRequest = createRequest(async () => ({
+      recordset: [{
+        event_id: 'event-1',
+        mentor_capacity: 2,
+        participant_capacity: 6,
+        capacity: 8,
+        status: 'published',
+      }],
+    }));
+
+    const pool = {
+      request: jest
+        .fn()
+        .mockReturnValueOnce(eventRequest)
+        .mockReturnValueOnce(countsRequest)
+        .mockReturnValueOnce(updateRequest),
+    };
+    (getPool as jest.Mock).mockResolvedValue(pool);
+
+    const res = await request(app).post('/api/events/event-1/close-at-capacity').send({});
+
+    expect(res.status).toBe(200);
+    expect(updateRequest.input).toHaveBeenCalledWith('mentor_capacity', 'Int', 2);
+    expect(updateRequest.input).toHaveBeenCalledWith('participant_capacity', 'Int', 6);
+    expect(updateRequest.input).toHaveBeenCalledWith('capacity', 'Int', 8);
+    expect(res.body.event.capacity).toBe(8);
+    expect(res.body.snapshot).toEqual({
+      assigned_mentor_count: 2,
+      assigned_participant_count: 5,
+      yes_mentor_count: 1,
+      yes_participant_count: 6,
+    });
+  });
+
   it('PUT /api/events/:id does not auto-send update notifications for published events', async () => {
     const queue = [
       {
@@ -1027,6 +1073,92 @@ describe('events routes', () => {
       eventId: '00000000-0000-0000-0000-000000000101',
       operationType: 'event_lead_prep_email',
     }));
+  });
+
+  it('POST /api/events/:id/report/email excludes lead-only assignments from roster and contact list', async () => {
+    const notifications = jest.requireMock('../services/notifications') as {
+      notificationService: { sendEmail: jest.Mock };
+    };
+
+    const queue = [
+      {
+        recordset: [
+          {
+            event_id: '00000000-0000-0000-0000-000000000101',
+            title: 'Fly Tying 101',
+            description: 'Intro event',
+            location: 'Denver',
+            event_date: new Date('2026-04-01T18:00:00.000Z'),
+            end_date: null,
+            status: 'published',
+            event_lead_email: 'lead@example.com',
+            mentor_capacity: 1,
+            participant_capacity: 12,
+            capacity: 13,
+            created_at: new Date('2026-03-01T00:00:00.000Z'),
+            updated_at: new Date('2026-04-01T00:00:00.000Z'),
+          },
+        ],
+      },
+      {
+        recordset: [
+          {
+            assignment_id: 'assignment-1',
+            member_id: 'member-1',
+            first_name: 'Pat',
+            last_name: 'Lead',
+            email: 'lead-only@example.com',
+            mobile_phone: '+13035551212',
+            role: 'LEAD',
+            assigned_at: new Date('2026-03-18T12:00:00.000Z'),
+            attended: null,
+            attendance_notes: null,
+          },
+          {
+            assignment_id: 'assignment-2',
+            member_id: 'member-2',
+            first_name: 'Sam',
+            last_name: 'Mentor',
+            email: 'sam@example.com',
+            mobile_phone: '+13035551213',
+            role: 'MENTOR',
+            assigned_at: new Date('2026-03-19T12:00:00.000Z'),
+            attended: null,
+            attendance_notes: null,
+          },
+        ],
+      },
+      {
+        recordset: [],
+      },
+      {
+        recordset: [],
+      },
+      {
+        recordset: [
+          {
+            program_lead_email: 'program@example.com',
+            assistant_program_lead_email_1: 'apl1@example.com',
+            assistant_program_lead_email_2: 'apl2@example.com',
+          },
+        ],
+      },
+    ];
+
+    const mockRequest = {
+      input: jest.fn().mockReturnThis(),
+      query: jest.fn().mockImplementation(async () => queue.shift() ?? { recordset: [] }),
+    };
+    (getPool as jest.Mock).mockResolvedValue({ request: () => mockRequest });
+
+    const res = await request(app).post('/api/events/00000000-0000-0000-0000-000000000101/report/email').send({});
+
+    expect(res.status).toBe(200);
+    const sendPayload = notifications.notificationService.sendEmail.mock.calls[0]?.[0];
+    expect(sendPayload.textBody).toContain('Sam Mentor');
+    expect(sendPayload.textBody).not.toContain('Pat Lead');
+    expect(sendPayload.htmlBody).toContain('sam@example.com');
+    expect(sendPayload.htmlBody).not.toContain('lead-only@example.com');
   });
 
   it('POST /api/events/:id/participation-summary/email sends completed participation summary to scheduler with CC recipients', async () => {

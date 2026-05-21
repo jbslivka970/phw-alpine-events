@@ -147,9 +147,45 @@ interface CloseAtCapacityResponse {
   message: string;
 }
 
+type EventListOptions = RequestInit & {
+  upcoming?: boolean;
+  limit?: number;
+  sort?: 'asc' | 'desc';
+};
+
+interface DashboardSummaryResponse {
+  totalEventsThisYear: number;
+  upcomingEvents: number;
+  totalRsvps: number;
+}
+
 const eventsApi = {
-  list: (status?: string, options?: RequestInit) =>
-    apiGet<EventRecord[]>(status ? `/events?status=${encodeURIComponent(status)}` : '/events', options),
+  list: (status?: string, options?: EventListOptions) => {
+    const query = new URLSearchParams();
+    if (status) {
+      query.set('status', status);
+    }
+    if (options?.upcoming !== undefined) {
+      query.set('upcoming', String(options.upcoming));
+    }
+    if (typeof options?.limit === 'number' && Number.isFinite(options.limit) && options.limit > 0) {
+      query.set('limit', String(Math.floor(options.limit)));
+    }
+    if (options?.sort) {
+      query.set('sort', options.sort);
+    }
+
+    const requestOptions = options ? { ...options } : undefined;
+    if (requestOptions) {
+      delete (requestOptions as EventListOptions).upcoming;
+      delete (requestOptions as EventListOptions).limit;
+      delete (requestOptions as EventListOptions).sort;
+    }
+    const suffix = query.toString();
+    return apiGet<EventRecord[]>(suffix ? `/events?${suffix}` : '/events', requestOptions);
+  },
+  dashboardSummary: (options?: RequestInit) =>
+    apiGet<DashboardSummaryResponse>('/events/dashboard-summary', options),
   get: (id: string) => apiGet<EventRecord & { notification_targets: unknown[] }>(`/events/${id}`),
   create: (data: {
     title: string;

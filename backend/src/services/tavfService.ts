@@ -191,7 +191,7 @@ async function autoClosePastOpenPostings(): Promise<void> {
 // ---------------------------------------------------------------------------
 
 export async function listPostings(
-  filters: { status?: PostingStatus } = {}
+  filters: { status?: PostingStatus; limit?: number } = {}
 ): Promise<TavfPosting[]> {
   await ensureTavfSchema();
   await autoClosePastOpenPostings();
@@ -210,6 +210,10 @@ export async function listPostings(
     query += ` WHERE p.status = @status`;
   }
   query += ` ORDER BY p.event_date ASC`;
+  if (typeof filters.limit === 'number' && Number.isFinite(filters.limit) && filters.limit > 0) {
+    req.input('limit', sql.Int, Math.floor(filters.limit));
+    query += ` OFFSET 0 ROWS FETCH NEXT @limit ROWS ONLY`;
+  }
   const result = await req.query<TavfPosting>(query);
   return result.recordset;
 }

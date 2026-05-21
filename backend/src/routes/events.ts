@@ -91,6 +91,35 @@ function parseAiTone(value: unknown): AiTone {
   return 'friendly';
 }
 
+function parsePositiveIntQuery(value: unknown, max: number): number | null {
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    return null;
+  }
+
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return null;
+  }
+
+  return Math.min(parsed, max);
+}
+
+function parseBooleanQuery(value: unknown): boolean | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'true' || normalized === '1') {
+    return true;
+  }
+  if (normalized === 'false' || normalized === '0') {
+    return false;
+  }
+
+  return null;
+}
+
 router.use('/:eventId/rsvp', rsvpRouter);
 
 function getRsvpToken(req: { params: Record<string, string | undefined>; query: Record<string, unknown> }): string {
@@ -444,6 +473,9 @@ router.get('/', apiLimiter, authenticate, requireAnyAuthenticatedRole, async (re
   try {
     const pool = await getPool();
     const status = (req.query.status as string | undefined)?.toLowerCase();
+    const upcoming = parseBooleanQuery(req.query.upcoming);
+    const limit = parsePositiveIntQuery(req.query.limit, 100);
+    const sort = (req.query.sort as string | undefined)?.toLowerCase() === 'asc' ? 'ASC' : 'DESC';
 
     let query = `
       SELECT
@@ -465,16 +497,76 @@ router.get('/', apiLimiter, authenticate, requireAnyAuthenticatedRole, async (re
     `;
 
     const request = pool.request();
+    const whereClauses: string[] = [];
+
     if (status) {
-      query += ' WHERE e.status = @status';
+      whereClauses.push('e.status = @status');
       request.input('status', sql.NVarChar, status);
     }
-    query += ' ORDER BY e.event_date DESC';
+
+    if (upcoming === true) {
+      whereClauses.push('e.event_date >= GETUTCDATE()');
+    } else if (upcoming === false) {
+      whereClauses.push('e.event_date < GETUTCDATE()');
+    }
+
+    if (whereClauses.length > 0) {
+      query += ` WHERE ${whereClauses.join(' AND ')}`;
+    }
+
+    query += ` ORDER BY e.event_date ${sort}`;
+    if (limit !== null) {
+      request.input('limit', sql.Int, limit);
+      query += ' OFFSET 0 ROWS FETCH NEXT @limit ROWS ONLY';
+    }
 
     const result = await request.query(query);
     res.json(result.recordset);
   } catch (error) {
     console.error('GET /events failed', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.get('/dashboard-summary', apiLimiter, authenticate, requireAnyAuthenticatedRole, async (_req, res) => {
+  try {
+    const pool = await getPool();
+    const result = await pool
+      .request()
+      .query<{
+        total_events_this_year: number;
+        upcoming_events: number;
+        total_rsvps: number;
+      }>(
+        `SELECT
+            (SELECT COUNT(*)
+             FROM event e
+             WHERE e.status = 'published'
+               AND YEAR(e.event_date) = YEAR(GETUTCDATE())) AS total_events_this_year,
+            (SELECT COUNT(*)
+             FROM event e
+             WHERE e.status = 'published'
+               AND e.event_date >= GETUTCDATE()) AS upcoming_events,
+            (SELECT COUNT(*)
+             FROM event_response er
+             INNER JOIN event e ON e.event_id = er.event_id
+             WHERE er.response = 'yes'
+               AND e.status = 'published') AS total_rsvps`
+      );
+
+    const row = result.recordset[0] ?? {
+      total_events_this_year: 0,
+      upcoming_events: 0,
+      total_rsvps: 0,
+    };
+
+    res.json({
+      totalEventsThisYear: row.total_events_this_year,
+      upcomingEvents: row.upcoming_events,
+      totalRsvps: row.total_rsvps,
+    });
+  } catch (error) {
+    console.error('GET /events/dashboard-summary failed', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -1362,97 +1454,6 @@ router.put('/:id/status', writeLimiter, authenticate, requireAnyAuthenticatedRol
     }
 
     const pool = await getPool();
-
-router.post('/:id/close-at-capacity', writeLimiter, authenticate, requireEventCreatorOrAdmin, async (req, res) => {
-  try {
-    const pool = await getPool();
-    const eventResult = await pool
-      .request()
-      .input('event_id', sql.UniqueIdentifier, req.params.id)
-      .query<{
-        event_id: string;
-        status: string;
-      }>(
-        `SELECT event_id, status
-         FROM event
-         WHERE event_id = @event_id`
-      );
-
-    const event = eventResult.recordset[0];
-    if (!event) {
-      res.status(404).json({ error: 'Event not found' });
-      return;
-    }
-
-    if (event.status !== 'published') {
-      res.status(409).json({ error: 'Only published events can be closed at capacity.' });
-      return;
-    }
-
-    const countsResult = await pool
-      .request()
-      .input('event_id', sql.UniqueIdentifier, req.params.id)
-      .query<{
-        assigned_mentor_count: number;
-        assigned_participant_count: number;
-        yes_mentor_count: number;
-        yes_participant_count: number;
-      }>(
-        `SELECT
-            (SELECT COUNT(*) FROM event_assignment WHERE event_id = @event_id AND role = 'MENTOR') AS assigned_mentor_count,
-            (SELECT COUNT(*) FROM event_assignment WHERE event_id = @event_id AND role = 'PARTICIPANT') AS assigned_participant_count,
-            (SELECT COUNT(*) FROM event_response WHERE event_id = @event_id AND response = 'yes' AND response_role = 'MENTOR') AS yes_mentor_count,
-            (SELECT COUNT(*) FROM event_response WHERE event_id = @event_id AND response = 'yes' AND response_role = 'PARTICIPANT') AS yes_participant_count`
-      );
-
-    const counts = countsResult.recordset[0] ?? {
-      assigned_mentor_count: 0,
-      assigned_participant_count: 0,
-      yes_mentor_count: 0,
-      yes_participant_count: 0,
-    };
-
-    const mentorCapacity = Math.max(counts.assigned_mentor_count ?? 0, counts.yes_mentor_count ?? 0, 0);
-    const participantCapacity = Math.max(counts.assigned_participant_count ?? 0, counts.yes_participant_count ?? 0, 0);
-    const totalCapacity = mentorCapacity + participantCapacity;
-
-    const updatedResult = await pool
-      .request()
-      .input('event_id', sql.UniqueIdentifier, req.params.id)
-      .input('mentor_capacity', sql.Int, mentorCapacity)
-      .input('participant_capacity', sql.Int, participantCapacity)
-      .input('capacity', sql.Int, totalCapacity)
-      .query<{
-        event_id: string;
-        mentor_capacity: number | null;
-        participant_capacity: number | null;
-        capacity: number | null;
-        status: string;
-      }>(
-        `UPDATE event
-         SET mentor_capacity = @mentor_capacity,
-             participant_capacity = @participant_capacity,
-             capacity = @capacity,
-             updated_at = GETUTCDATE()
-         OUTPUT INSERTED.event_id, INSERTED.mentor_capacity, INSERTED.participant_capacity, INSERTED.capacity, INSERTED.status
-         WHERE event_id = @event_id`
-      );
-
-    res.status(200).json({
-      event: updatedResult.recordset[0],
-      snapshot: {
-        assigned_mentor_count: counts.assigned_mentor_count ?? 0,
-        assigned_participant_count: counts.assigned_participant_count ?? 0,
-        yes_mentor_count: counts.yes_mentor_count ?? 0,
-        yes_participant_count: counts.yes_participant_count ?? 0,
-      },
-      message: 'Event capacity has been locked at current assigned/confirmed counts. New yes RSVPs will be routed to waitlist when full.',
-    });
-  } catch (error) {
-    console.error('POST /events/:id/close-at-capacity failed', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
     const eventColumns = await getEventColumnSupport(pool);
     const existingResult = await pool
       .request()
@@ -1641,6 +1642,97 @@ router.post('/:id/close-at-capacity', writeLimiter, authenticate, requireEventCr
     }
 
     console.error('PUT /events/:id/status failed', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.post('/:id/close-at-capacity', writeLimiter, authenticate, requireEventCreatorOrAdmin, async (req, res) => {
+  try {
+    const pool = await getPool();
+    const eventResult = await pool
+      .request()
+      .input('event_id', sql.UniqueIdentifier, req.params.id)
+      .query<{
+        event_id: string;
+        status: string;
+      }>(
+        `SELECT event_id, status
+         FROM event
+         WHERE event_id = @event_id`
+      );
+
+    const event = eventResult.recordset[0];
+    if (!event) {
+      res.status(404).json({ error: 'Event not found' });
+      return;
+    }
+
+    if (event.status !== 'published') {
+      res.status(409).json({ error: 'Only published events can be closed at capacity.' });
+      return;
+    }
+
+    const countsResult = await pool
+      .request()
+      .input('event_id', sql.UniqueIdentifier, req.params.id)
+      .query<{
+        assigned_mentor_count: number;
+        assigned_participant_count: number;
+        yes_mentor_count: number;
+        yes_participant_count: number;
+      }>(
+        `SELECT
+            (SELECT COUNT(*) FROM event_assignment WHERE event_id = @event_id AND role = 'MENTOR') AS assigned_mentor_count,
+            (SELECT COUNT(*) FROM event_assignment WHERE event_id = @event_id AND role = 'PARTICIPANT') AS assigned_participant_count,
+            (SELECT COUNT(*) FROM event_response WHERE event_id = @event_id AND response = 'yes' AND response_role = 'MENTOR') AS yes_mentor_count,
+            (SELECT COUNT(*) FROM event_response WHERE event_id = @event_id AND response = 'yes' AND response_role = 'PARTICIPANT') AS yes_participant_count`
+      );
+
+    const counts = countsResult.recordset[0] ?? {
+      assigned_mentor_count: 0,
+      assigned_participant_count: 0,
+      yes_mentor_count: 0,
+      yes_participant_count: 0,
+    };
+
+    const mentorCapacity = Math.max(counts.assigned_mentor_count ?? 0, counts.yes_mentor_count ?? 0, 0);
+    const participantCapacity = Math.max(counts.assigned_participant_count ?? 0, counts.yes_participant_count ?? 0, 0);
+    const totalCapacity = mentorCapacity + participantCapacity;
+
+    const updatedResult = await pool
+      .request()
+      .input('event_id', sql.UniqueIdentifier, req.params.id)
+      .input('mentor_capacity', sql.Int, mentorCapacity)
+      .input('participant_capacity', sql.Int, participantCapacity)
+      .input('capacity', sql.Int, totalCapacity)
+      .query<{
+        event_id: string;
+        mentor_capacity: number | null;
+        participant_capacity: number | null;
+        capacity: number | null;
+        status: string;
+      }>(
+        `UPDATE event
+         SET mentor_capacity = @mentor_capacity,
+             participant_capacity = @participant_capacity,
+             capacity = @capacity,
+             updated_at = GETUTCDATE()
+         OUTPUT INSERTED.event_id, INSERTED.mentor_capacity, INSERTED.participant_capacity, INSERTED.capacity, INSERTED.status
+         WHERE event_id = @event_id`
+      );
+
+    res.status(200).json({
+      event: updatedResult.recordset[0],
+      snapshot: {
+        assigned_mentor_count: counts.assigned_mentor_count ?? 0,
+        assigned_participant_count: counts.assigned_participant_count ?? 0,
+        yes_mentor_count: counts.yes_mentor_count ?? 0,
+        yes_participant_count: counts.yes_participant_count ?? 0,
+      },
+      message: 'Event capacity has been locked at current assigned/confirmed counts. New yes RSVPs will be routed to waitlist when full.',
+    });
+  } catch (error) {
+    console.error('POST /events/:id/close-at-capacity failed', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

@@ -604,6 +604,8 @@ jobs:
     needs:
     - build
     - e2e_browser_launch_smoke_local
+    - e2e_api_role_matrix
+    - e2e_browser_auth_email_hint
     permissions:
       contents: read
       id-token: write

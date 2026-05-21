@@ -143,6 +143,8 @@ export async function loadEventSummaryReportData(eventId: string): Promise<Event
   };
 }
 
+type EventSummaryAssignmentRow = EventSummaryReportData['assignments'][number];
+
 function escapeHtml(value: string): string {
   return value
     .replace(/&/g, '&amp;')
@@ -193,6 +195,15 @@ function formatMountainDateTime(value: Date | string | null): string {
 
   const lookup = (type: string): string => parts.find((part) => part.type === type)?.value ?? '';
   return `${lookup('year')}-${lookup('month')}-${lookup('day')} ${lookup('hour')}:${lookup('minute')} MT`;
+}
+
+function isParticipatingAssignmentRole(role: string): boolean {
+  const normalized = role.trim().toUpperCase();
+  return normalized === 'MENTOR' || normalized === 'PARTICIPANT';
+}
+
+function getParticipatingAssignments(report: EventSummaryReportData): EventSummaryAssignmentRow[] {
+  return report.assignments.filter((row) => isParticipatingAssignmentRole(row.role));
 }
 
 function toDisplayName(value: string): string {
@@ -275,13 +286,14 @@ function padColumn(value: string, width: number): string {
 }
 
 function buildLeadPrepRosterLines(report: EventSummaryReportData): string[] {
-  if (report.assignments.length === 0) {
+  const participatingAssignments = getParticipatingAssignments(report);
+  if (participatingAssignments.length === 0) {
     return ['none'];
   }
 
   const header = `${padColumn('Name', 24)} ${padColumn('Role', 13)} ${padColumn('Email', 34)} Phone`;
   const divider = '-'.repeat(header.length);
-  const rows = report.assignments.map((row) => {
+  const rows = participatingAssignments.map((row) => {
     const name = `${row.first_name} ${row.last_name}`.trim();
     return `${padColumn(name, 24)} ${padColumn(row.role, 13)} ${padColumn(formatEmailForDisplay(row.email), 34)} ${row.mobile_phone?.trim() || 'n/a'}`;
   });
@@ -449,8 +461,9 @@ function buildRosterPersonRowHtml(args: {
 }
 
 function buildLeadPrepSummaryText(report: EventSummaryReportData): string {
-  const assignedMentorCount = report.assignments.filter((row) => row.role.toUpperCase() === 'MENTOR').length;
-  const assignedParticipantCount = report.assignments.filter((row) => row.role.toUpperCase() === 'PARTICIPANT').length;
+  const participatingAssignments = getParticipatingAssignments(report);
+  const assignedMentorCount = participatingAssignments.filter((row) => row.role.toUpperCase() === 'MENTOR').length;
+  const assignedParticipantCount = participatingAssignments.filter((row) => row.role.toUpperCase() === 'PARTICIPANT').length;
   const waitlistCount = report.responses.filter((row) => row.response === 'waitlist').length;
 
   return [
@@ -538,11 +551,12 @@ export async function sendPreEventLeadSummaryEmail(args: {
   const subject = `Lead Prep Summary: ${report.event.title}`;
   const preparedByName = await resolvePreparedByName(args.actorName, args.actor);
   const leadGreetingName = resolveLeadGreetingName(report);
-  const assignedMentorCount = report.assignments.filter((row) => row.role.toUpperCase() === 'MENTOR').length;
-  const assignedParticipantCount = report.assignments.filter((row) => row.role.toUpperCase() === 'PARTICIPANT').length;
+  const participatingAssignments = getParticipatingAssignments(report);
+  const assignedMentorCount = participatingAssignments.filter((row) => row.role.toUpperCase() === 'MENTOR').length;
+  const assignedParticipantCount = participatingAssignments.filter((row) => row.role.toUpperCase() === 'PARTICIPANT').length;
   const waitlistRows = report.responses.filter((row) => row.response === 'waitlist');
   const waitlistCount = waitlistRows.length;
-  const assignedRows = report.assignments.map((row) => ({
+  const assignedRows = participatingAssignments.map((row) => ({
     name: `${row.first_name} ${row.last_name}`.trim(),
     role: row.role,
     email: row.email,
