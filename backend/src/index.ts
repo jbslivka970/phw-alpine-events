@@ -30,10 +30,21 @@ import { runTavfExpiryJob } from './jobs/tavfExpiryJob';
 import { runWaitlistLifecycleJob } from './jobs/waitlistLifecycleJob';
 import { runRetentionJob } from './jobs/retentionJob';
 import { ensureBootstrapAdmins } from './services/adminBootstrapService';
+import { initializeShortLivedCache } from './services/shortLivedCache';
 import apiRouter from './routes';
 
 const app = express();
 const { corsOrigin, port, nodeEnv } = loadServerConfig();
+
+void initializeShortLivedCache().catch((error) => {
+  console.error('[startup] short-lived cache initialization failed', error);
+  const required = ['1', 'true', 'yes', 'on'].includes((process.env['CACHE_REDIS_REQUIRED'] ?? '').trim().toLowerCase());
+  if (required) {
+    console.error('[startup] CACHE_REDIS_REQUIRED=true and Redis init failed. Exiting process.');
+    process.exit(1);
+  }
+});
+
 app.set('trust proxy', nodeEnv === 'production' ? 1 : false);
 app.disable('x-powered-by');
 const allowedOrigins = (corsOrigin ?? '')

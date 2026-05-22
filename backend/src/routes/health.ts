@@ -7,6 +7,7 @@ import { apiLimiter } from '../middleware/rateLimiter';
 import { loadAcsConfig, loadAuthConfig, loadTelnyxSmsConfig, loadTwilioSmsConfig } from '../config';
 import { getAiInviteRuntimeStatus } from '../services/aiInviteService';
 import { getNotificationRuntimeStatus } from '../services/notifications';
+import { getShortLivedCacheRuntimeStatus, runShortLivedCacheProbe } from '../services/shortLivedCache';
 
 const router = Router();
 
@@ -205,6 +206,25 @@ router.get('/ready', apiLimiter, async (_req: Request, res: Response): Promise<v
   }
 });
 
+router.get('/redis', apiLimiter, async (_req: Request, res: Response): Promise<void> => {
+  const status = getShortLivedCacheRuntimeStatus();
+  const probe = await runShortLivedCacheProbe();
+
+  const payload = {
+    status: probe.ok ? 'ok' : 'degraded',
+    timestamp: new Date().toISOString(),
+    cache: status,
+    probe,
+  };
+
+  if (status.required && !probe.ok) {
+    res.status(503).json(payload);
+    return;
+  }
+
+  res.json(payload);
+});
+
 // Startup diagnostics — reports configuration health without exposing secrets
 router.get('/startup', apiLimiter, async (_req: Request, res: Response) => {
   const authConfig = loadAuthConfig();
@@ -213,6 +233,7 @@ router.get('/startup', apiLimiter, async (_req: Request, res: Response) => {
   const twilioSmsConfig = loadTwilioSmsConfig();
   const aiInviteRuntimeStatus = getAiInviteRuntimeStatus();
   const notificationStatus = getNotificationRuntimeStatus();
+  const cacheStatus = getShortLivedCacheRuntimeStatus();
   const telemetryConfigured = Boolean(
     process.env['APPINSIGHTS_INSTRUMENTATIONKEY'] || process.env['APPLICATIONINSIGHTS_CONNECTION_STRING']
   );
@@ -221,12 +242,13 @@ router.get('/startup', apiLimiter, async (_req: Request, res: Response) => {
   const requireKeyVaultReferences = (process.env['REQUIRE_KEYVAULT_REFERENCES'] ?? 'false').toLowerCase() === 'true';
   const isProd = process.env['NODE_ENV'] === 'production';
   const strictNotificationFailure = notificationStatus.strictModeEnabled && notificationStatus.mode !== 'real';
+  const cacheFailure = cacheStatus.required && (!cacheStatus.redisUrlDefined || !cacheStatus.redisConnected);
   const keyVaultCheck = await loadKeyVaultReferenceCheck();
   const keyVaultReferencesConfigured = keyVaultCheck.configured;
   const keyVaultPolicyFailure = requireKeyVaultReferences && !keyVaultReferencesConfigured;
 
   const summary = {
-    status: dbMissing.length === 0 && !strictNotificationFailure && !keyVaultPolicyFailure ? 'ok' : 'degraded',
+    status: dbMissing.length === 0 && !strictNotificationFailure && !cacheFailure && !keyVaultPolicyFailure ? 'ok' : 'degraded',
     timestamp: new Date().toISOString(),
     runtime: {
       nodeEnv: process.env['NODE_ENV'] ?? 'development',
@@ -251,6 +273,12 @@ router.get('/startup', apiLimiter, async (_req: Request, res: Response) => {
       aiInviteOpenAiModel: aiInviteRuntimeStatus.openAiModel,
       aiInviteTimeoutMs: aiInviteRuntimeStatus.timeoutMs,
       aiInviteIssues: aiInviteRuntimeStatus.issues,
+      cacheProvider: cacheStatus.provider,
+      cacheRedisConfigured: cacheStatus.redisConfigured,
+      cacheRedisConnected: cacheStatus.redisConnected,
+      cacheRedisRequired: cacheStatus.required,
+      cacheRedisKeyPrefix: cacheStatus.redisKeyPrefix,
+      cacheRedisError: cacheStatus.lastRedisError,
       telemetryConfigured,
       keyVaultReferencesConfigured,
       requireKeyVaultReferences,
@@ -270,11 +298,14 @@ router.get('/startup', apiLimiter, async (_req: Request, res: Response) => {
         ...(!aiInviteRuntimeStatus.hasAnyProviderConfigured ? ['AZURE_OPENAI_ENDPOINT/AZURE_OPENAI_API_KEY/AZURE_OPENAI_DEPLOYMENT or OPENAI_API_KEY'] : []),
       ],
       notifications: notificationStatus.reasons,
+      cache: cacheFailure
+        ? [cacheStatus.lastRedisError ?? 'Redis is required but not connected.']
+        : [],
       keyVault: keyVaultCheck.missing,
     },
   };
 
-  if (isProd && (dbMissing.length > 0 || strictNotificationFailure || keyVaultPolicyFailure)) {
+  if (isProd && (dbMissing.length > 0 || strictNotificationFailure || cacheFailure || keyVaultPolicyFailure)) {
     res.status(503).json(summary);
     return;
   }

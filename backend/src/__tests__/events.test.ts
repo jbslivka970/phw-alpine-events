@@ -411,6 +411,14 @@ describe('events routes', () => {
   it('GET /api/events/:id/guest-assignments returns guest assignment rows', async () => {
     const ensureProgramsRequest = createRequest(async () => ({ recordset: [] }));
     const ensureRequest = createRequest(async () => ({ recordset: [] }));
+    const supportRequest = createRequest(async () => ({
+      recordset: [
+        {
+          has_guest_program_id: 1,
+          has_program_catalog_table: 1,
+        },
+      ],
+    }));
     const listRequest = createRequest(async () => ({
       recordset: [
         {
@@ -436,6 +444,7 @@ describe('events routes', () => {
         .fn()
         .mockReturnValueOnce(ensureProgramsRequest)
         .mockReturnValueOnce(ensureRequest)
+        .mockReturnValueOnce(supportRequest)
         .mockReturnValueOnce(listRequest),
     };
     (getPool as jest.Mock).mockResolvedValue(pool);
@@ -450,6 +459,14 @@ describe('events routes', () => {
   it('POST /api/events/:id/guest-assignments creates guest assignment and sends invite email', async () => {
     const ensureProgramsRequest = createRequest(async () => ({ recordset: [] }));
     const ensureRequest = createRequest(async () => ({ recordset: [] }));
+    const supportRequest = createRequest(async () => ({
+      recordset: [
+        {
+          has_guest_program_id: 1,
+          has_program_catalog_table: 1,
+        },
+      ],
+    }));
     const eventRequest = createRequest(async () => ({
       recordset: [
         {
@@ -483,6 +500,7 @@ describe('events routes', () => {
         .fn()
         .mockReturnValueOnce(ensureProgramsRequest)
         .mockReturnValueOnce(ensureRequest)
+        .mockReturnValueOnce(supportRequest)
         .mockReturnValueOnce(eventRequest)
         .mockReturnValueOnce(insertRequest),
     };

@@ -159,6 +159,7 @@ jobs:
 
         export BACKEND_BASE_URL="$PROD_URL"
         npm --prefix backend run smoke:email
+        npm --prefix backend run smoke:redis
 
         LIVE_RSVP_TOKEN="${RSVP_TEST_TOKEN:-}"
         if [ -n "${PW_ADMIN_USER:-}" ] && [ -n "${PW_ADMIN_PASS:-}" ] && [ -n "${E2E_APP_URL:-}" ]; then

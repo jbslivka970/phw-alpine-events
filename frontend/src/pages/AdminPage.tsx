@@ -16,6 +16,8 @@ interface HealthStatus {
   api: HealthState
   db: HealthState
   notifications: HealthState
+  redis: HealthState
+  redisProvider: string
   nodeEnv: string
   nodeVersion: string
 }
@@ -52,6 +54,8 @@ function AdminPage() {
     api: 'loading',
     db: 'loading',
     notifications: 'loading',
+    redis: 'loading',
+    redisProvider: '—',
     nodeEnv: '—',
     nodeVersion: '—',
   })
@@ -151,15 +155,38 @@ function AdminPage() {
 
     fetch(`${base}/health/startup`)
       .then((r) => r.json())
-      .then((data: { checks?: { notificationsConfigured?: boolean }; runtime?: { nodeEnv?: string; nodeVersion?: string } }) => {
+      .then((data: {
+        checks?: {
+          notificationsConfigured?: boolean;
+          cacheProvider?: string;
+        };
+        runtime?: { nodeEnv?: string; nodeVersion?: string }
+      }) => {
         setHealth((h) => ({
           ...h,
           notifications: data?.checks?.notificationsConfigured ? 'ok' : 'unconfigured',
+          redisProvider: data?.checks?.cacheProvider ?? h.redisProvider,
           nodeEnv: data?.runtime?.nodeEnv ?? '—',
           nodeVersion: data?.runtime?.nodeVersion ?? '—',
         }))
       })
       .catch(() => setHealth((h) => ({ ...h, notifications: 'error' })))
+
+    fetch(`${base}/health/redis`)
+      .then(async (response) => {
+        const payload = await response.json() as {
+          cache?: { provider?: string; redisConnected?: boolean };
+          probe?: { ok?: boolean };
+        }
+        setHealth((h) => ({
+          ...h,
+          redis: response.ok
+            ? (payload?.probe?.ok ? 'ok' : 'unconfigured')
+            : 'error',
+          redisProvider: payload?.cache?.provider ?? h.redisProvider,
+        }))
+      })
+      .catch(() => setHealth((h) => ({ ...h, redis: 'error' })))
   }, [])
 
   useEffect(() => {
@@ -581,6 +608,18 @@ function AdminPage() {
           ? 'Configured'
           : health.notifications === 'unconfigured'
           ? 'Not configured'
+          : 'Error',
+    },
+    {
+      label: 'Redis cache',
+      status: health.redis,
+      value:
+        health.redis === 'loading'
+          ? 'Checking…'
+          : health.redis === 'ok'
+          ? `Healthy (${health.redisProvider})`
+          : health.redis === 'unconfigured'
+          ? `Unavailable (${health.redisProvider})`
           : 'Error',
     },
   ]

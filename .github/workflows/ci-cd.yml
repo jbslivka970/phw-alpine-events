@@ -138,7 +138,7 @@ jobs:
 
     - name: Upload Playwright artifacts on failure
       if: ${{ failure() || cancelled() }}
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v5
       with:
         name: playwright-api-role-matrix-artifacts-${{ github.run_id }}
         if-no-files-found: ignore
@@ -181,7 +181,7 @@ jobs:
 
     - name: Upload Playwright artifacts on failure
       if: ${{ failure() || cancelled() }}
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v5
       with:
         name: playwright-browser-auth-email-hint-artifacts-${{ github.run_id }}
         if-no-files-found: ignore
@@ -274,7 +274,7 @@ jobs:
 
     - name: Upload Playwright artifacts on failure
       if: ${{ failure() || cancelled() }}
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v5
       with:
         name: playwright-browser-launch-smoke-local-artifacts-${{ github.run_id }}
         if-no-files-found: ignore
@@ -365,7 +365,7 @@ jobs:
 
     - name: Upload debug screenshots on auth failure
       if: ${{ failure() }}
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v5
       with:
         name: playwright-auth-debug-${{ github.run_id }}
         include-hidden-files: true
@@ -374,7 +374,7 @@ jobs:
         path: tests/e2e/.auth/*-failure.png
 
     - name: Upload Playwright auth state
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v5
       with:
         name: playwright-auth-state-${{ github.run_id }}
         include-hidden-files: true
@@ -414,7 +414,7 @@ jobs:
 
     - name: Upload Playwright artifacts on failure
       if: ${{ failure() || cancelled() }}
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v5
       with:
         name: playwright-api-notification-lifecycle-artifacts-${{ github.run_id }}
         if-no-files-found: ignore
@@ -453,7 +453,7 @@ jobs:
       run: npx playwright install --with-deps chromium
 
     - name: Download Playwright auth state
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v5
       with:
         name: playwright-auth-state-${{ github.run_id }}
         path: tests/e2e/.auth
@@ -475,7 +475,7 @@ jobs:
 
     - name: Upload Playwright artifacts on failure
       if: ${{ failure() || cancelled() }}
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v5
       with:
         name: playwright-browser-auth-flows-artifacts-${{ github.run_id }}
         if-no-files-found: ignore
@@ -513,7 +513,7 @@ jobs:
       run: npx playwright install --with-deps chromium
 
     - name: Download Playwright auth state
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v5
       with:
         name: playwright-auth-state-${{ github.run_id }}
         path: tests/e2e/.auth
@@ -534,7 +534,7 @@ jobs:
 
     - name: Upload Playwright artifacts on failure
       if: ${{ failure() || cancelled() }}
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v5
       with:
         name: playwright-browser-persona-artifacts-${{ github.run_id }}
         if-no-files-found: ignore
@@ -573,7 +573,7 @@ jobs:
       run: npx playwright install --with-deps chromium
 
     - name: Download Playwright auth state
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v5
       with:
         name: playwright-auth-state-${{ github.run_id }}
         path: tests/e2e/.auth
@@ -591,7 +591,7 @@ jobs:
 
     - name: Upload Playwright artifacts on failure
       if: ${{ failure() || cancelled() }}
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v5
       with:
         name: playwright-browser-postdeploy-smoke-artifacts-${{ github.run_id }}
         if-no-files-found: ignore
@@ -1542,6 +1542,9 @@ jobs:
         # RSVP contract-only check (no live token required) is a hard gate
         npm --prefix backend run smoke:rsvp 2>&1 | tee -a ci-artifacts/deploy-backend-smoke.log
 
+        # Redis health check validates distributed cache readiness when enabled.
+        npm --prefix backend run smoke:redis 2>&1 | tee -a ci-artifacts/deploy-backend-smoke.log
+
         # Live RSVP token check is best-effort; prefer a freshly minted token.
         LIVE_RSVP_TOKEN="${RSVP_TEST_TOKEN:-}"
 
@@ -1609,7 +1612,7 @@ jobs:
 
     - name: Upload deploy backend smoke logs
       if: ${{ always() }}
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v5
       with:
         name: deploy-backend-smoke-logs-${{ github.run_id }}
         if-no-files-found: ignore
@@ -1751,7 +1754,7 @@ jobs:
 
     - name: Upload deploy frontend smoke logs
       if: ${{ always() }}
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v5
       with:
         name: deploy-frontend-smoke-logs-${{ github.run_id }}
         if-no-files-found: ignore

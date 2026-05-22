@@ -2857,6 +2857,56 @@ async function ensureEventGuestAssignmentTable(pool: Awaited<ReturnType<typeof g
   `);
 }
 
+type GuestAssignmentColumnSupport = {
+  hasGuestProgramId: boolean;
+  hasProgramCatalogTable: boolean;
+};
+
+function isSchemaCompatibilityError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  const message = error.message.toLowerCase();
+  return message.includes('invalid object name')
+    || message.includes('invalid column name')
+    || message.includes('permission denied')
+    || message.includes('create table permission denied')
+    || message.includes('alter table permission denied')
+    || message.includes('could not find object')
+    || message.includes('does not exist');
+}
+
+async function ensureGuestAssignmentDependencies(pool: Awaited<ReturnType<typeof getPool>>): Promise<void> {
+  try {
+    await ensureProgramCatalogTable();
+    await ensureEventGuestAssignmentTable(pool);
+  } catch (error) {
+    if (isSchemaCompatibilityError(error)) {
+      console.warn('[events] guest assignment schema ensure skipped due compatibility limits', error);
+      return;
+    }
+    throw error;
+  }
+}
+
+async function getGuestAssignmentColumnSupport(pool: Awaited<ReturnType<typeof getPool>>): Promise<GuestAssignmentColumnSupport> {
+  const result = await pool.request().query<{
+    has_guest_program_id: number;
+    has_program_catalog_table: number;
+  }>(
+    `SELECT
+       CASE WHEN COL_LENGTH(N'dbo.event_guest_assignment', N'guest_program_id') IS NULL THEN 0 ELSE 1 END AS has_guest_program_id,
+       CASE WHEN OBJECT_ID(N'dbo.program_catalog', N'U') IS NULL THEN 0 ELSE 1 END AS has_program_catalog_table`
+  );
+
+  const row = result.recordset[0];
+  return {
+    hasGuestProgramId: row?.has_guest_program_id === 1,
+    hasProgramCatalogTable: row?.has_program_catalog_table === 1,
+  };
+}
+
 function responseBias(response: string): number {
   if (response === 'yes') {
     return -0.2;
@@ -2899,8 +2949,21 @@ router.get('/:id/assignments', apiLimiter, authenticate, requireAnyAuthenticated
 router.get('/:id/guest-assignments', apiLimiter, authenticate, requireAnyAuthenticatedRole, async (req, res) => {
   try {
     const pool = await getPool();
-    await ensureProgramCatalogTable();
-    await ensureEventGuestAssignmentTable(pool);
+    await ensureGuestAssignmentDependencies(pool);
+    const support = await getGuestAssignmentColumnSupport(pool);
+
+    const guestProgramIdSelect = support.hasGuestProgramId
+      ? 'ega.guest_program_id'
+      : 'CAST(NULL AS UNIQUEIDENTIFIER) AS guest_program_id';
+    const catalogNameSelect = support.hasProgramCatalogTable && support.hasGuestProgramId
+      ? 'pc.program_name AS guest_program_catalog_name'
+      : 'CAST(NULL AS NVARCHAR(200)) AS guest_program_catalog_name';
+    const catalogStateSelect = support.hasProgramCatalogTable && support.hasGuestProgramId
+      ? 'pc.state_name AS guest_program_state_name'
+      : 'CAST(NULL AS NVARCHAR(100)) AS guest_program_state_name';
+    const catalogJoin = support.hasProgramCatalogTable && support.hasGuestProgramId
+      ? 'LEFT JOIN program_catalog pc ON pc.program_id = ega.guest_program_id'
+      : '';
 
     const result = await pool
       .request()
@@ -2914,15 +2977,15 @@ router.get('/:id/guest-assignments', apiLimiter, authenticate, requireAnyAuthent
             ega.guest_email,
             ega.guest_phone,
             ega.guest_program_group_id,
-            ega.guest_program_id,
+            ${guestProgramIdSelect},
             ega.guest_program_name,
             g.group_name AS guest_program_group_name,
-            pc.program_name AS guest_program_catalog_name,
-            pc.state_name AS guest_program_state_name,
+            ${catalogNameSelect},
+            ${catalogStateSelect},
             ega.invited_at
          FROM event_guest_assignment ega
          LEFT JOIN [group] g ON g.group_id = ega.guest_program_group_id
-          LEFT JOIN program_catalog pc ON pc.program_id = ega.guest_program_id
+         ${catalogJoin}
          WHERE ega.event_id = @event_id
          ORDER BY ega.invited_at ASC`
       );
@@ -2991,8 +3054,8 @@ router.post('/:id/guest-assignments', writeLimiter, authenticate, requireEventCr
     }
 
     const pool = await getPool();
-    await ensureProgramCatalogTable();
-    await ensureEventGuestAssignmentTable(pool);
+    await ensureGuestAssignmentDependencies(pool);
+    const support = await getGuestAssignmentColumnSupport(pool);
 
     const eventResult = await pool
       .request()
@@ -3034,7 +3097,7 @@ router.post('/:id/guest-assignments', writeLimiter, authenticate, requireEventCr
     }
 
     let catalogProgramName: string | null = null;
-    if (programId) {
+    if (programId && support.hasProgramCatalogTable) {
       const programResult = await pool
         .request()
         .input('program_id', sql.UniqueIdentifier, programId)
@@ -3058,6 +3121,16 @@ router.post('/:id/guest-assignments', writeLimiter, authenticate, requireEventCr
       return;
     }
 
+    const persistedProgramId = support.hasGuestProgramId ? programId : null;
+
+    const insertColumns = support.hasGuestProgramId
+      ? '(guest_assignment_id, event_id, role, guest_name, guest_email, guest_phone, guest_program_group_id, guest_program_id, guest_program_name, invited_at, notes)'
+      : '(guest_assignment_id, event_id, role, guest_name, guest_email, guest_phone, guest_program_group_id, guest_program_name, invited_at, notes)';
+
+    const insertValues = support.hasGuestProgramId
+      ? '(NEWID(), @event_id, @role, @guest_name, @guest_email, @guest_phone, @guest_program_group_id, @guest_program_id, @guest_program_name, GETUTCDATE(), NULL)'
+      : '(NEWID(), @event_id, @role, @guest_name, @guest_email, @guest_phone, @guest_program_group_id, @guest_program_name, GETUTCDATE(), NULL)';
+
     const result = await pool
       .request()
       .input('event_id', sql.UniqueIdentifier, req.params.id)
@@ -3066,13 +3139,13 @@ router.post('/:id/guest-assignments', writeLimiter, authenticate, requireEventCr
       .input('guest_email', sql.NVarChar, guestEmail)
       .input('guest_phone', sql.NVarChar, guestPhone)
       .input('guest_program_group_id', sql.UniqueIdentifier, programGroupId)
-      .input('guest_program_id', sql.UniqueIdentifier, programId)
+      .input('guest_program_id', sql.UniqueIdentifier, persistedProgramId)
       .input('guest_program_name', sql.NVarChar, programName)
       .query(
         `INSERT INTO event_guest_assignment
-           (guest_assignment_id, event_id, role, guest_name, guest_email, guest_phone, guest_program_group_id, guest_program_id, guest_program_name, invited_at, notes)
+           ${insertColumns}
          OUTPUT INSERTED.*
-         VALUES (NEWID(), @event_id, @role, @guest_name, @guest_email, @guest_phone, @guest_program_group_id, @guest_program_id, @guest_program_name, GETUTCDATE(), NULL)`
+         VALUES ${insertValues}`
       );
 
     const roleLabel = role === 'MENTOR' ? 'Guest Mentor' : 'Guest Participant';
@@ -3109,7 +3182,7 @@ router.post('/:id/guest-assignments', writeLimiter, authenticate, requireEventCr
 router.delete('/:id/guest-assignments/:guestAssignmentId', writeLimiter, authenticate, requireEventCreatorOrAdmin, async (req, res) => {
   try {
     const pool = await getPool();
-    await ensureEventGuestAssignmentTable(pool);
+    await ensureGuestAssignmentDependencies(pool);
 
     const result = await pool
       .request()

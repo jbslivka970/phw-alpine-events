@@ -158,6 +158,10 @@ Key backend variables:
 - `CORS_ORIGIN`
 - `NODE_ENV`
 - `PORT`
+- `CACHE_PROVIDER` (`auto`, `redis`, or `memory`; default `auto`)
+- `REDIS_URL` (required for distributed cache mode)
+- `REDIS_KEY_PREFIX` (optional key namespace for Redis cache entries)
+- `CACHE_REDIS_REQUIRED` (`true` to fail startup when Redis is unavailable)
 
 ### Frontend Environment
 
