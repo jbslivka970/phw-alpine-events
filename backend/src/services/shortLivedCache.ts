@@ -34,6 +34,7 @@ const redisKeyPrefix = (process.env['REDIS_KEY_PREFIX'] ?? 'phw:cache:').trim() 
 const cacheProviderMode = (process.env['CACHE_PROVIDER'] ?? 'auto').trim().toLowerCase();
 const redisRequired = ['1', 'true', 'yes', 'on'].includes((process.env['CACHE_REDIS_REQUIRED'] ?? '').trim().toLowerCase());
 const redisConnectTimeoutMs = Math.max(Number.parseInt(process.env['REDIS_CONNECT_TIMEOUT_MS'] ?? '3000', 10) || 3000, 500);
+const redisProbeTimeoutMs = Math.max(Number.parseInt(process.env['REDIS_PROBE_TIMEOUT_MS'] ?? '3000', 10) || 3000, 500);
 
 const provider: CacheProvider = cacheProviderMode === 'redis'
   ? 'redis'
@@ -66,6 +67,15 @@ function connectWithTimeout(client: AnyRedisClient): Promise<void> {
     client.connect().then(() => undefined),
     new Promise<void>((_, reject) => {
       setTimeout(() => reject(new Error(`connect timeout after ${redisConnectTimeoutMs}ms`)), redisConnectTimeoutMs);
+    }),
+  ]);
+}
+
+function withProbeTimeout<T>(operation: Promise<T>): Promise<T> {
+  return Promise.race([
+    operation,
+    new Promise<T>((_, reject) => {
+      setTimeout(() => reject(new Error(`probe timeout after ${redisProbeTimeoutMs}ms`)), redisProbeTimeoutMs);
     }),
   ]);
 }
@@ -331,9 +341,9 @@ export async function runShortLivedCacheProbe(): Promise<ShortLivedCacheProbeRes
   const probeValue = 'ok';
 
   try {
-    await client.set(probeKey, probeValue, { PX: 10_000 });
-    const readBack = await client.get(probeKey);
-    await client.del(probeKey);
+    await withProbeTimeout(client.set(probeKey, probeValue, { PX: 10_000 }));
+    const readBack = await withProbeTimeout(client.get(probeKey));
+    await withProbeTimeout(client.del(probeKey));
 
     if (readBack !== probeValue) {
       return {

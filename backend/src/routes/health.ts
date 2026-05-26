@@ -208,7 +208,21 @@ router.get('/ready', apiLimiter, async (_req: Request, res: Response): Promise<v
 
 router.get('/redis', apiLimiter, async (_req: Request, res: Response): Promise<void> => {
   const status = getShortLivedCacheRuntimeStatus();
-  const probe = await runShortLivedCacheProbe();
+  let probe;
+
+  try {
+    probe = await runShortLivedCacheProbe();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    probe = {
+      ok: false,
+      provider: status.provider,
+      redisConfigured: status.redisConfigured,
+      redisConnected: false,
+      durationMs: 0,
+      error: `probe exception: ${message}`,
+    };
+  }
 
   const payload = {
     status: probe.ok ? 'ok' : 'degraded',
