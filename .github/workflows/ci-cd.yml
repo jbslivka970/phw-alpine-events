@@ -977,6 +977,9 @@ jobs:
         PW_ADMIN_PASS: ${{ secrets.PW_ADMIN_PASS }}
         PW_ADMIN_TOKEN: ${{ secrets.PW_ADMIN_TOKEN }}
         GUEST_ASSIGNMENTS_SMOKE_EVENT_ID: ${{ vars.GUEST_ASSIGNMENTS_SMOKE_EVENT_ID }}
+        REDIS_SMOKE_EXPECT_PROVIDER: redis
+        REDIS_SMOKE_REQUIRE_CONFIGURED: '1'
+        REDIS_SMOKE_REQUIRE_CONNECTED: '1'
       run: |
         SLOT_URL="${BACKEND_SLOT_BASE_URL}"
         if [ -z "$SLOT_URL" ]; then
@@ -990,6 +993,9 @@ jobs:
 
         # RSVP contract-only check (no live token required) is a hard gate
         npm --prefix backend run smoke:rsvp
+
+        # Redis health check is a hard gate before slot swap.
+        npm --prefix backend run smoke:redis
 
         # Live RSVP token check is best-effort; prefer a freshly minted token.
         LIVE_RSVP_TOKEN="${RSVP_TEST_TOKEN:-}"

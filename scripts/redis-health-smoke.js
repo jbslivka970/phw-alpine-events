@@ -8,6 +8,9 @@ if (!baseUrl) {
 }
 
 const endpoint = `${baseUrl.replace(/\/$/, '')}/api/v1/health/redis`;
+const expectedProvider = (process.env.REDIS_SMOKE_EXPECT_PROVIDER || '').trim().toLowerCase();
+const requireConfigured = ['1', 'true', 'yes', 'on'].includes((process.env.REDIS_SMOKE_REQUIRE_CONFIGURED || '').trim().toLowerCase());
+const requireConnected = ['1', 'true', 'yes', 'on'].includes((process.env.REDIS_SMOKE_REQUIRE_CONNECTED || '').trim().toLowerCase());
 
 async function main() {
   const startedAt = Date.now();
@@ -42,6 +45,21 @@ async function main() {
 
   if (!response.ok) {
     console.error(`Redis health endpoint returned HTTP ${response.status}`);
+    process.exit(1);
+  }
+
+  if (expectedProvider && provider !== expectedProvider) {
+    console.error(`Expected cache provider '${expectedProvider}' but found '${provider}'.`);
+    process.exit(1);
+  }
+
+  if (requireConfigured && !configured) {
+    console.error('Redis health smoke requires redisConfigured=true.');
+    process.exit(1);
+  }
+
+  if (requireConnected && !connected) {
+    console.error('Redis health smoke requires redisConnected=true.');
     process.exit(1);
   }
 
