@@ -35,6 +35,7 @@ const cacheProviderMode = (process.env['CACHE_PROVIDER'] ?? 'auto').trim().toLow
 const redisRequired = ['1', 'true', 'yes', 'on'].includes((process.env['CACHE_REDIS_REQUIRED'] ?? '').trim().toLowerCase());
 const redisConnectTimeoutMs = Math.max(Number.parseInt(process.env['REDIS_CONNECT_TIMEOUT_MS'] ?? '3000', 10) || 3000, 500);
 const redisProbeTimeoutMs = Math.max(Number.parseInt(process.env['REDIS_PROBE_TIMEOUT_MS'] ?? '3000', 10) || 3000, 500);
+const redisQuitTimeoutMs = Math.max(Number.parseInt(process.env['REDIS_QUIT_TIMEOUT_MS'] ?? '1000', 10) || 1000, 250);
 
 const provider: CacheProvider = cacheProviderMode === 'redis'
   ? 'redis'
@@ -80,6 +81,27 @@ function withProbeTimeout<T>(operation: Promise<T>): Promise<T> {
   ]);
 }
 
+async function closeClientSafely(client: AnyRedisClient): Promise<void> {
+  try {
+    if (!client.isOpen) {
+      return;
+    }
+
+    await Promise.race([
+      client.quit(),
+      new Promise<void>((_, reject) => {
+        setTimeout(() => reject(new Error(`quit timeout after ${redisQuitTimeoutMs}ms`)), redisQuitTimeoutMs);
+      }),
+    ]);
+  } catch {
+    try {
+      client.disconnect();
+    } catch {
+      // Ignore forced disconnect errors.
+    }
+  }
+}
+
 async function getRedisClient(): Promise<AnyRedisClient | null> {
   if (provider !== 'redis' || !redisUrl) {
     return null;
@@ -122,13 +144,7 @@ async function getRedisClient(): Promise<AnyRedisClient | null> {
     } catch (error) {
       redisConnected = false;
       redisReconnectAllowedAt = Date.now() + 30_000;
-      try {
-        if (client.isOpen) {
-          await client.quit();
-        }
-      } catch {
-        // Ignore close errors.
-      }
+      await closeClientSafely(client);
       recordRedisError(error, 'connect failed');
       return null;
     } finally {
