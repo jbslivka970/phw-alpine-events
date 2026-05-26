@@ -85,6 +85,10 @@ The pipeline lives in `.github/workflows/ci-cd.yml`.
 - `VITE_EXTERNAL_TENANT_NAME`
 - `VITE_API_SCOPE`
 - `VITE_API_BASE_URL`
+- `MIGRATION_DB_HOST` (recommended for CI schema deploys; falls back to `DB_HOST`)
+- `MIGRATION_DB_PORT` (optional; falls back to `DB_PORT` or `1433`)
+- `MIGRATION_DB_NAME` (recommended for CI schema deploys; falls back to `DB_NAME`)
+- `MIGRATION_DB_USER` (recommended for CI schema deploys; falls back to `DB_USER`)
 - `SMS_SMOKE_ENABLED` (optional, set to `1` to run SMS smoke in non-blocking mode)
 - `SMS_COMPLIANCE_REQUIRED` (optional, set to `1` to make SMS smoke a blocking deploy gate)
 
@@ -93,12 +97,14 @@ The pipeline lives in `.github/workflows/ci-cd.yml`.
 - `AZUREAPPSERVICE_PUBLISHPROFILE`
 - `AZURE_BACKEND_DEPLOY_CREDENTIALS` (required when blue-green is enabled or for manual rollback)
 - `AZURE_FRONTEND_DEPLOY_CREDENTIALS`
+- `MIGRATION_DB_PASSWORD` (recommended for CI schema deploys; falls back to `DB_PASSWORD`)
 - `RSVP_TEST_TOKEN` (required for blue-green pre-swap and post-swap live RSVP checks)
 - `COMPLIANCE_ALERT_WEBHOOK_URL` (optional; receives a webhook when required compliance gates fail)
 
 If `AZURE_WEBAPP_NAME` is not configured, the backend deploy job is skipped.
 If `AZURE_FRONTEND_WEBAPP_NAME` or the required `VITE_*` variables are not configured, the frontend deploy job is skipped.
 In both cases, the workflow still runs build and test validation.
+The backend deploy job now runs `npm --prefix backend run deploy-schema` before packaging and slot validation. Use dedicated `MIGRATION_DB_*` credentials for DDL rights; the workflow falls back to `DB_*` only when migration-specific settings are not present.
 
 ## Standalone Splash Site
 
@@ -494,7 +500,7 @@ cd backend
 npm run deploy-schema
 ```
 
-That script reads the SQL file and executes it against the database defined by the `DB_*` environment variables.
+That script reads the SQL file and executes it against the database defined by `MIGRATION_DB_*` environment variables, falling back to `DB_*` when migration-specific values are not set.
 
 ## Azure Provisioning
 
