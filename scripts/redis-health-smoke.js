@@ -29,7 +29,11 @@ async function main() {
   }
 
   const provider = payload?.cache?.provider ?? 'unknown';
-  const connected = payload?.cache?.redisConnected ?? false;
+  const cacheConnected = payload?.cache?.redisConnected;
+  const probeConnected = payload?.probe?.redisConnected;
+  const connected = typeof probeConnected === 'boolean'
+    ? probeConnected
+    : (typeof cacheConnected === 'boolean' ? cacheConnected : false);
   const configured = payload?.cache?.redisConfigured ?? false;
   const required = payload?.cache?.required ?? false;
   const probeOk = payload?.probe?.ok ?? false;
@@ -39,6 +43,8 @@ async function main() {
   console.log(`provider=${provider}`);
   console.log(`redis_configured=${configured}`);
   console.log(`redis_connected=${connected}`);
+  console.log(`cache_redis_connected=${cacheConnected ?? 'unknown'}`);
+  console.log(`probe_redis_connected=${probeConnected ?? 'unknown'}`);
   console.log(`redis_required=${required}`);
   console.log(`probe_ok=${probeOk}`);
   console.log(`duration_ms=${Date.now() - startedAt}`);
