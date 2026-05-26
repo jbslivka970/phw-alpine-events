@@ -20,6 +20,7 @@
     "smoke:email": "node ../scripts/email-unsubscribe-smoke.js",
     "smoke:rsvp": "node ../scripts/tokenized-rsvp-smoke.js",
     "smoke:redis": "node ../scripts/redis-health-smoke.js",
+    "smoke:guest-assignments": "node ../scripts/guest-assignments-smoke.js",
     "smoke:ai": "node ../scripts/ai-description-smoke.js",
     "smoke:reminders": "node ../scripts/reminder-duplication-smoke.js",
     "smoke:all": "npm run smoke:sms && npm run smoke:email && npm run smoke:rsvp && npm run smoke:ai",

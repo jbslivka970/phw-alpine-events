@@ -414,6 +414,7 @@ describe('events routes', () => {
     const supportRequest = createRequest(async () => ({
       recordset: [
         {
+          has_guest_assignment_table: 1,
           has_guest_program_id: 1,
           has_program_catalog_table: 1,
         },
@@ -456,12 +457,41 @@ describe('events routes', () => {
     expect(res.body[0].guest_name).toBe('Jordan Guest');
   });
 
+  it('GET /api/events/:id/guest-assignments returns an empty list when the guest table is unavailable', async () => {
+    const ensureProgramsRequest = createRequest(async () => ({ recordset: [] }));
+    const ensureRequest = createRequest(async () => ({ recordset: [] }));
+    const supportRequest = createRequest(async () => ({
+      recordset: [
+        {
+          has_guest_assignment_table: 0,
+          has_guest_program_id: 0,
+          has_program_catalog_table: 0,
+        },
+      ],
+    }));
+
+    const pool = {
+      request: jest
+        .fn()
+        .mockReturnValueOnce(ensureProgramsRequest)
+        .mockReturnValueOnce(ensureRequest)
+        .mockReturnValueOnce(supportRequest),
+    };
+    (getPool as jest.Mock).mockResolvedValue(pool);
+
+    const res = await request(app).get('/api/events/event-1/guest-assignments');
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([]);
+  });
+
   it('POST /api/events/:id/guest-assignments creates guest assignment and sends invite email', async () => {
     const ensureProgramsRequest = createRequest(async () => ({ recordset: [] }));
     const ensureRequest = createRequest(async () => ({ recordset: [] }));
     const supportRequest = createRequest(async () => ({
       recordset: [
         {
+          has_guest_assignment_table: 1,
           has_guest_program_id: 1,
           has_program_catalog_table: 1,
         },
@@ -521,6 +551,41 @@ describe('events routes', () => {
       to: 'jordan@example.org',
       operationType: 'guest_assignment_invite',
     }));
+  });
+
+  it('POST /api/events/:id/guest-assignments returns 503 when the guest table is unavailable', async () => {
+    const ensureProgramsRequest = createRequest(async () => ({ recordset: [] }));
+    const ensureRequest = createRequest(async () => ({ recordset: [] }));
+    const supportRequest = createRequest(async () => ({
+      recordset: [
+        {
+          has_guest_assignment_table: 0,
+          has_guest_program_id: 0,
+          has_program_catalog_table: 0,
+        },
+      ],
+    }));
+
+    const pool = {
+      request: jest
+        .fn()
+        .mockReturnValueOnce(ensureProgramsRequest)
+        .mockReturnValueOnce(ensureRequest)
+        .mockReturnValueOnce(supportRequest),
+    };
+    (getPool as jest.Mock).mockResolvedValue(pool);
+
+    const res = await request(app)
+      .post('/api/events/event-1/guest-assignments')
+      .send({
+        role: 'PARTICIPANT',
+        guest_name: 'Jordan Guest',
+        guest_email: 'jordan@example.org',
+        program_name: 'Rocky Mountain Chapter',
+      });
+
+    expect(res.status).toBe(503);
+    expect(res.body.error).toMatch(/guest assignment schema/i);
   });
 
   it('PUT /api/events/:id does not auto-send update notifications for published events', async () => {

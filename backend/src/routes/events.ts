@@ -2858,6 +2858,7 @@ async function ensureEventGuestAssignmentTable(pool: Awaited<ReturnType<typeof g
 }
 
 type GuestAssignmentColumnSupport = {
+  hasGuestAssignmentTable: boolean;
   hasGuestProgramId: boolean;
   hasProgramCatalogTable: boolean;
 };
@@ -2892,16 +2893,19 @@ async function ensureGuestAssignmentDependencies(pool: Awaited<ReturnType<typeof
 
 async function getGuestAssignmentColumnSupport(pool: Awaited<ReturnType<typeof getPool>>): Promise<GuestAssignmentColumnSupport> {
   const result = await pool.request().query<{
+    has_guest_assignment_table: number;
     has_guest_program_id: number;
     has_program_catalog_table: number;
   }>(
     `SELECT
+       CASE WHEN OBJECT_ID(N'dbo.event_guest_assignment', N'U') IS NULL THEN 0 ELSE 1 END AS has_guest_assignment_table,
        CASE WHEN COL_LENGTH(N'dbo.event_guest_assignment', N'guest_program_id') IS NULL THEN 0 ELSE 1 END AS has_guest_program_id,
        CASE WHEN OBJECT_ID(N'dbo.program_catalog', N'U') IS NULL THEN 0 ELSE 1 END AS has_program_catalog_table`
   );
 
   const row = result.recordset[0];
   return {
+    hasGuestAssignmentTable: row?.has_guest_assignment_table === 1,
     hasGuestProgramId: row?.has_guest_program_id === 1,
     hasProgramCatalogTable: row?.has_program_catalog_table === 1,
   };
@@ -2951,6 +2955,11 @@ router.get('/:id/guest-assignments', apiLimiter, authenticate, requireAnyAuthent
     const pool = await getPool();
     await ensureGuestAssignmentDependencies(pool);
     const support = await getGuestAssignmentColumnSupport(pool);
+
+    if (!support.hasGuestAssignmentTable) {
+      res.json([]);
+      return;
+    }
 
     const guestProgramIdSelect = support.hasGuestProgramId
       ? 'ega.guest_program_id'
@@ -3056,6 +3065,11 @@ router.post('/:id/guest-assignments', writeLimiter, authenticate, requireEventCr
     const pool = await getPool();
     await ensureGuestAssignmentDependencies(pool);
     const support = await getGuestAssignmentColumnSupport(pool);
+
+    if (!support.hasGuestAssignmentTable) {
+      res.status(503).json({ error: 'Guest assignments are not available until the guest assignment schema is installed.' });
+      return;
+    }
 
     const eventResult = await pool
       .request()
@@ -3183,6 +3197,12 @@ router.delete('/:id/guest-assignments/:guestAssignmentId', writeLimiter, authent
   try {
     const pool = await getPool();
     await ensureGuestAssignmentDependencies(pool);
+    const support = await getGuestAssignmentColumnSupport(pool);
+
+    if (!support.hasGuestAssignmentTable) {
+      res.status(404).json({ error: 'Guest assignment not found' });
+      return;
+    }
 
     const result = await pool
       .request()

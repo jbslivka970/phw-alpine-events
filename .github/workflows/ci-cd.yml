@@ -943,6 +943,7 @@ jobs:
         PW_ADMIN_USER: ${{ secrets.PW_ADMIN_USER }}
         PW_ADMIN_PASS: ${{ secrets.PW_ADMIN_PASS }}
         PW_ADMIN_TOKEN: ${{ secrets.PW_ADMIN_TOKEN }}
+        GUEST_ASSIGNMENTS_SMOKE_EVENT_ID: ${{ vars.GUEST_ASSIGNMENTS_SMOKE_EVENT_ID }}
       run: |
         SLOT_URL="${BACKEND_SLOT_BASE_URL}"
         if [ -z "$SLOT_URL" ]; then
@@ -970,6 +971,9 @@ jobs:
           fi
           rm -f "$TOKEN_ENV_FILE"
         fi
+
+        # Guest assignment load check is a hard gate before slot swap.
+        npm --prefix backend run smoke:guest-assignments
 
         if [ -n "${PW_ADMIN_TOKEN:-}" ]; then
           MINT_ENDPOINT="${BACKEND_BASE_URL}/api/v1/events/rsvp/smoke-token"
