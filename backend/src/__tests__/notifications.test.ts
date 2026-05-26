@@ -236,4 +236,13 @@ describe('notifications service', () => {
 
     expect(occurrences).toBeGreaterThanOrEqual(2);
   });
+
+  it('suppresses reminder recipients when another member on the same email already declined', () => {
+    const sourcePath = path.resolve(__dirname, '../services/notifications.ts');
+    const source = fs.readFileSync(sourcePath, 'utf8');
+
+    expect(source).toContain("AND NOT EXISTS (");
+    expect(source).toContain("er_email.response = 'no'");
+    expect(source).toContain('LOWER(LTRIM(RTRIM(m_email.email))) = LOWER(LTRIM(RTRIM(m.email)))');
+  });
 });

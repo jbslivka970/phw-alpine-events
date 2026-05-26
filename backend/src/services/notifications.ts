@@ -1518,6 +1518,15 @@ async function sendEventRsvpReminderToNonResponders(payload: EventNotificationPa
             AND m.is_active = 1
             AND (e.event_lead_member_id IS NULL OR m.member_id <> e.event_lead_member_id)
             AND er.response_id IS NULL
+            AND NOT EXISTS (
+              SELECT 1
+              FROM event_response er_email
+              INNER JOIN member m_email ON m_email.member_id = er_email.member_id
+              WHERE er_email.event_id = ent.event_id
+                AND er_email.response = 'no'
+                AND m.email IS NOT NULL
+                AND LOWER(LTRIM(RTRIM(m_email.email))) = LOWER(LTRIM(RTRIM(m.email)))
+            )
         )
         SELECT
           member_id,
