@@ -1718,12 +1718,38 @@ async function sendEventCompletedNotification(payload: EventNotificationPayload)
 
 function sendRsvpConfirmation(payload: RsvpNotificationPayload): void {
   void (async () => {
+    const normalizedStatus = (payload.rsvpStatus ?? '').trim().toLowerCase();
+    const isNoResponse = normalizedStatus === 'no';
     const variables = {
       firstName: payload.firstName ?? 'Member',
       eventName: payload.eventTitle,
       eventDate: payload.eventDate ?? 'TBD',
       rsvpStatus: payload.rsvpStatus ?? 'confirmed',
     };
+
+    const defaultEmailTemplates = isNoResponse
+      ? {
+          subject: 'RSVP Received: {{eventName}} — {{eventDate}}',
+          htmlBody: `
+    <div style="font-family:Segoe UI,Arial,sans-serif;line-height:1.5;color:#1f2937;max-width:640px;margin:0 auto;">
+      <p>Hi {{firstName}},</p>
+      <p>Thanks for letting us know you cannot make <strong>{{eventName}}</strong> on <strong>{{eventDate}}</strong>.</p>
+      <p>We are looking forward to seeing you on the next one when you can. Stay tuned for future events!</p>
+      <p style="margin-top:20px;">PHW Colorado Alpine</p>
+    </div>
+  `,
+          textBody:
+            "Hi {{firstName}},\n\nThanks for letting us know you cannot make {{eventName}} on {{eventDate}}.\n\nWe are looking forward to seeing you on the next one when you can. Stay tuned for future events!\n\nPHW Colorado Alpine",
+        }
+      : {
+          subject: rsvpConfirmationTemplate.subjectTemplate ?? '',
+          htmlBody: rsvpConfirmationTemplate.htmlBodyTemplate ?? '',
+          textBody: rsvpConfirmationTemplate.textBodyTemplate ?? '',
+        };
+
+    const defaultSmsTemplate = isNoResponse
+      ? 'PHW Alpine: Thanks for letting us know you cannot make {{eventName}} on {{eventDate}}. We are looking forward to seeing you on the next one when you can. Stay tuned for future events!'
+      : (rsvpConfirmationTemplate.smsBodyTemplate ?? '');
 
     if (!payload.recipientEmail && !payload.recipientPhone) {
       console.log('[STUB] sendRsvpConfirmation skipped (no recipient)', payload);
@@ -1739,11 +1765,7 @@ function sendRsvpConfirmation(payload: RsvpNotificationPayload): void {
       : [null, null];
 
     if (payload.recipientEmail) {
-      const renderedEmail = renderEmailTemplate(emailTemplateOverride, {
-        subject: rsvpConfirmationTemplate.subjectTemplate ?? '',
-        htmlBody: rsvpConfirmationTemplate.htmlBodyTemplate ?? '',
-        textBody: rsvpConfirmationTemplate.textBodyTemplate ?? '',
-      }, variables);
+      const renderedEmail = renderEmailTemplate(emailTemplateOverride, defaultEmailTemplates, variables);
       await notificationService.sendEmail({
         to: payload.recipientEmail,
         subject: renderedEmail.subject,
@@ -1759,7 +1781,7 @@ function sendRsvpConfirmation(payload: RsvpNotificationPayload): void {
     if (payload.recipientPhone) {
       await notificationService.sendSms({
         to: payload.recipientPhone,
-        message: renderSmsTemplate(smsTemplateOverride, rsvpConfirmationTemplate.smsBodyTemplate ?? '', variables),
+        message: renderSmsTemplate(smsTemplateOverride, defaultSmsTemplate, variables),
         templateId: rsvpConfirmationTemplate.templateId,
         memberId: payload.memberId,
         eventId: payload.eventId,

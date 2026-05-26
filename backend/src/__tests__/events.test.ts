@@ -497,17 +497,21 @@ describe('events routes', () => {
         },
       ],
     }));
-    const eventRequest = createRequest(async () => ({
-      recordset: [
-        {
-          event_id: 'event-1',
-          title: 'Fly Tying 101',
-          event_date: '2026-04-01T18:00:00.000Z',
-          status: 'published',
-          event_lead_email: 'lead@example.com',
-        },
-      ],
-    }));
+    let capturedEventQuery = '';
+    const eventRequest = createRequest(async (query) => {
+      capturedEventQuery = query;
+      return {
+        recordset: [
+          {
+            event_id: 'event-1',
+            title: 'Fly Tying 101',
+            event_date: '2026-04-01T18:00:00.000Z',
+            status: 'published',
+            event_lead_email: 'lead@example.com',
+          },
+        ],
+      };
+    });
     const insertRequest = createRequest(async () => ({
       recordset: [
         {
@@ -547,10 +551,69 @@ describe('events routes', () => {
 
     expect(res.status).toBe(201);
     expect(res.body.guest_assignment_id).toBe('guest-1');
+    expect(capturedEventQuery).toContain('AS event_lead_email');
     expect(notificationService.sendEmail).toHaveBeenCalledWith(expect.objectContaining({
       to: 'jordan@example.org',
       operationType: 'guest_assignment_invite',
     }));
+  });
+
+  it('POST /api/events/:id/guest-assignments treats blank optional program UUID inputs as null', async () => {
+    const ensureProgramsRequest = createRequest(async () => ({ recordset: [] }));
+    const ensureRequest = createRequest(async () => ({ recordset: [] }));
+    const supportRequest = createRequest(async () => ({
+      recordset: [
+        {
+          has_guest_assignment_table: 1,
+          has_guest_program_id: 1,
+          has_program_catalog_table: 1,
+        },
+      ],
+    }));
+    const eventRequest = createRequest(async () => ({
+      recordset: [
+        {
+          event_id: 'event-1',
+          title: 'Fly Tying 101',
+          event_date: '2026-04-01T18:00:00.000Z',
+          status: 'published',
+          event_lead_email: 'lead@example.com',
+        },
+      ],
+    }));
+    const insertRequest = createRequest(async () => ({
+      recordset: [
+        {
+          guest_assignment_id: 'guest-blank-program',
+        },
+      ],
+    }));
+
+    const pool = {
+      request: jest
+        .fn()
+        .mockReturnValueOnce(ensureProgramsRequest)
+        .mockReturnValueOnce(ensureRequest)
+        .mockReturnValueOnce(supportRequest)
+        .mockReturnValueOnce(eventRequest)
+        .mockReturnValueOnce(insertRequest),
+    };
+    (getPool as jest.Mock).mockResolvedValue(pool);
+
+    const res = await request(app)
+      .post('/api/events/event-1/guest-assignments')
+      .send({
+        role: 'PARTICIPANT',
+        guest_name: 'Jordan Guest',
+        guest_email: 'jordan@example.org',
+        program_name: 'Rocky Mountain Chapter',
+        program_id: '   ',
+        program_group_id: '',
+      });
+
+    expect(res.status).toBe(201);
+    expect(insertRequest.input).toHaveBeenCalledWith('guest_program_group_id', 'UniqueIdentifier', null);
+    expect(insertRequest.input).toHaveBeenCalledWith('guest_program_id', 'UniqueIdentifier', null);
   });
 
   it('POST /api/events/:id/guest-assignments returns 503 when the guest table is unavailable', async () => {

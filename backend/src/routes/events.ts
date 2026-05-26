@@ -3039,19 +3039,21 @@ router.post('/:id/guest-assignments', writeLimiter, authenticate, requireEventCr
     }
 
     const rawProgramGroupId = req.body?.program_group_id;
-    const programGroupId = rawProgramGroupId === undefined || rawProgramGroupId === null
+    const normalizedProgramGroupIdInput = typeof rawProgramGroupId === 'string' ? rawProgramGroupId.trim() : rawProgramGroupId;
+    const programGroupId = normalizedProgramGroupIdInput === undefined || normalizedProgramGroupIdInput === null || normalizedProgramGroupIdInput === ''
       ? null
-      : asUuidOrNull(rawProgramGroupId);
-    if (rawProgramGroupId !== undefined && rawProgramGroupId !== null && !programGroupId) {
+      : asUuidOrNull(normalizedProgramGroupIdInput);
+    if (normalizedProgramGroupIdInput !== undefined && normalizedProgramGroupIdInput !== null && normalizedProgramGroupIdInput !== '' && !programGroupId) {
       res.status(400).json({ error: 'program_group_id must be a valid UUID when provided.' });
       return;
     }
 
     const rawProgramId = req.body?.program_id;
-    const programId = rawProgramId === undefined || rawProgramId === null
+    const normalizedProgramIdInput = typeof rawProgramId === 'string' ? rawProgramId.trim() : rawProgramId;
+    const programId = normalizedProgramIdInput === undefined || normalizedProgramIdInput === null || normalizedProgramIdInput === ''
       ? null
-      : asUuidOrNull(rawProgramId);
-    if (rawProgramId !== undefined && rawProgramId !== null && !programId) {
+      : asUuidOrNull(normalizedProgramIdInput);
+    if (normalizedProgramIdInput !== undefined && normalizedProgramIdInput !== null && normalizedProgramIdInput !== '' && !programId) {
       res.status(400).json({ error: 'program_id must be a valid UUID when provided.' });
       return;
     }
@@ -3081,7 +3083,7 @@ router.post('/:id/guest-assignments', writeLimiter, authenticate, requireEventCr
         status: string;
         event_lead_email: string | null;
       }>(
-        `SELECT event_id, title, event_date, status, event_lead_email
+        `SELECT event_id, title, event_date, status, ${EVENT_LEAD_EMAIL_SELECT}
          FROM event
          WHERE event_id = @event_id`
       );
@@ -3188,8 +3190,25 @@ router.post('/:id/guest-assignments', writeLimiter, authenticate, requireEventCr
 
     res.status(201).json(result.recordset[0]);
   } catch (error) {
-    console.error('POST /events/:id/guest-assignments failed', error);
-    res.status(500).json({ error: 'Internal server error' });
+    const traceId = cryptoRandomUuid();
+    console.error('POST /events/:id/guest-assignments failed', {
+      traceId,
+      eventId: req.params.id,
+      error,
+    });
+    if (isSchemaCompatibilityError(error)) {
+      res.status(503).json({
+        error: 'Guest assignments are unavailable due to a database schema mismatch. Please contact support with the trace ID.',
+        code: 'GUEST_ASSIGNMENTS_SCHEMA_MISMATCH',
+        trace_id: traceId,
+      });
+      return;
+    }
+    res.status(500).json({
+      error: 'Internal server error',
+      code: 'GUEST_ASSIGNMENTS_INTERNAL',
+      trace_id: traceId,
+    });
   }
 });
 
