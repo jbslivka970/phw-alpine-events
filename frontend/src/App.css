@@ -1110,6 +1110,18 @@
   color: #455363;
 }
 
+.assignment-role-chip--guest {
+  background: #fff4df;
+  border-color: #f0c887;
+  color: #7f4a00;
+}
+
+.assignment-guest-subtitle {
+  margin-top: 0.15rem;
+  font-size: 0.74rem;
+  color: #6f7e8d;
+}
+
 @media (max-width: 980px) {
   .event-assignments-page {
     width: 100%;

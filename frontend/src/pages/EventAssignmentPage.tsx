@@ -1098,43 +1098,70 @@ function EventAssignmentPage() {
             <tr><th>Name</th><th>Role</th><th>Role Y/PY</th><th>Total Y/PY</th><th>Attended</th><th>Action</th></tr>
           </thead>
           <tbody>
-            {groupedAssignments.length === 0 ? (
+            {groupedAssignments.length === 0 && guestAssignments.length === 0 ? (
               <tr><td colSpan={6}>No assignments yet.</td></tr>
-            ) : groupedAssignments.map((row) => {
-              const p = participationFor(row.member_id)
-              return (
-                <tr key={row.member_id}>
-                  <td>{row.first_name} {row.last_name}</td>
-                  <td>
-                    <div className="assignment-status">
-                      {row.roles.map((role) => (
-                        <span
-                          key={`${row.member_id}-${role}`}
-                          className={`assignment-role-chip ${role === 'MENTOR' ? 'assignment-role-chip--mentor' : role === 'PARTICIPANT' ? 'assignment-role-chip--participant' : 'assignment-role-chip--unknown'}`}
-                        >
-                          {assignmentRoleChipLabel(role)}
+            ) : (
+              <>
+                {groupedAssignments.map((row) => {
+                  const p = participationFor(row.member_id)
+                  return (
+                    <tr key={row.member_id}>
+                      <td>{row.first_name} {row.last_name}</td>
+                      <td>
+                        <div className="assignment-status">
+                          {row.roles.map((role) => (
+                            <span
+                              key={`${row.member_id}-${role}`}
+                              className={`assignment-role-chip ${role === 'MENTOR' ? 'assignment-role-chip--mentor' : role === 'PARTICIPANT' ? 'assignment-role-chip--participant' : 'assignment-role-chip--unknown'}`}
+                            >
+                              {assignmentRoleChipLabel(role)}
+                            </span>
+                          ))}
+                        </div>
+                      </td>
+                      <td>{roleParticipationSummary(row.roles, p)}</td>
+                      <td>{p.events_attended} / {p.events_attended_prior_year}</td>
+                      <td>
+                        <input
+                          type="checkbox"
+                          checked={Boolean(row.attended)}
+                          onChange={(e) => void updateGroupedAttendance(row, e.target.checked)}
+                        />
+                      </td>
+                      <td>
+                        <div className="members-row-actions">
+                          <button className="btn btn--sm btn--outline" onClick={() => void deleteGroupedAssignment(row)}>Remove</button>
+                          <button className="btn btn--sm" onClick={() => void setRsvpNoAndRemoveGrouped(row)}>RSVP No + Remove</button>
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
+                {guestAssignments.map((row) => (
+                  <tr key={`guest-${row.guest_assignment_id}`}>
+                    <td>
+                      <div>{row.guest_name}</div>
+                      <div className="assignment-guest-subtitle">Program Guest • {row.guest_program_name}</div>
+                    </td>
+                    <td>
+                      <div className="assignment-status">
+                        <span className="assignment-role-chip assignment-role-chip--guest">
+                          {row.role === 'MENTOR' ? 'Guest Volunteer' : 'Guest Participant'}
                         </span>
-                      ))}
-                    </div>
-                  </td>
-                  <td>{roleParticipationSummary(row.roles, p)}</td>
-                  <td>{p.events_attended} / {p.events_attended_prior_year}</td>
-                  <td>
-                    <input
-                      type="checkbox"
-                      checked={Boolean(row.attended)}
-                      onChange={(e) => void updateGroupedAttendance(row, e.target.checked)}
-                    />
-                  </td>
-                  <td>
-                    <div className="members-row-actions">
-                      <button className="btn btn--sm btn--outline" onClick={() => void deleteGroupedAssignment(row)}>Remove</button>
-                      <button className="btn btn--sm" onClick={() => void setRsvpNoAndRemoveGrouped(row)}>RSVP No + Remove</button>
-                    </div>
-                  </td>
-                </tr>
-              )
-            })}
+                      </div>
+                    </td>
+                    <td>Program guest</td>
+                    <td>—</td>
+                    <td>—</td>
+                    <td>
+                      <div className="members-row-actions">
+                        <button className="btn btn--sm btn--outline" onClick={() => void removeGuestAssignment(row.guest_assignment_id)}>Remove</button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </>
+            )}
           </tbody>
         </table>
       </section>
