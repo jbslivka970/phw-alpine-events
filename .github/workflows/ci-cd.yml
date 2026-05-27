@@ -101,8 +101,25 @@ jobs:
     - name: Install Playwright dependencies
       run: npm ci
 
+    - name: Read Playwright version
+      id: pw_version
+      run: echo "version=$(node -p \"require('./node_modules/@playwright/test/package.json').version\")" >> "$GITHUB_OUTPUT"
+
+    - name: Cache Playwright browsers
+      id: pw_cache
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/ms-playwright
+        key: ms-playwright-${{ runner.os }}-${{ steps.pw_version.outputs.version }}-chromium
+
     - name: Install Playwright Chromium for token refresh helper
-      run: npx playwright install --with-deps chromium
+      timeout-minutes: 5
+      run: |
+        if [ "${{ steps.pw_cache.outputs.cache-hit }}" = "true" ]; then
+          npx playwright install-deps chromium
+        else
+          npx playwright install --with-deps chromium
+        fi
 
     - name: Refresh Playwright tokens for API role matrix
       env:
@@ -168,8 +185,25 @@ jobs:
     - name: Install Playwright dependencies
       run: npm ci
 
+    - name: Read Playwright version
+      id: pw_version
+      run: echo "version=$(node -p \"require('./node_modules/@playwright/test/package.json').version\")" >> "$GITHUB_OUTPUT"
+
+    - name: Cache Playwright browsers
+      id: pw_cache
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/ms-playwright
+        key: ms-playwright-${{ runner.os }}-${{ steps.pw_version.outputs.version }}-chromium
+
     - name: Install Playwright Chromium
-      run: npx playwright install --with-deps chromium
+      timeout-minutes: 5
+      run: |
+        if [ "${{ steps.pw_cache.outputs.cache-hit }}" = "true" ]; then
+          npx playwright install-deps chromium
+        else
+          npx playwright install --with-deps chromium
+        fi
 
     - name: Run browser auth email-hint regression
       env:
@@ -220,8 +254,25 @@ jobs:
     - name: Install backend dependencies
       run: cd backend && npm ci
 
+    - name: Read Playwright version
+      id: pw_version
+      run: echo "version=$(node -p \"require('./node_modules/@playwright/test/package.json').version\")" >> "$GITHUB_OUTPUT"
+
+    - name: Cache Playwright browsers
+      id: pw_cache
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/ms-playwright
+        key: ms-playwright-${{ runner.os }}-${{ steps.pw_version.outputs.version }}-chromium
+
     - name: Install Playwright Chromium
-      run: npx playwright install --with-deps chromium
+      timeout-minutes: 5
+      run: |
+        if [ "${{ steps.pw_cache.outputs.cache-hit }}" = "true" ]; then
+          npx playwright install-deps chromium
+        else
+          npx playwright install --with-deps chromium
+        fi
 
     - name: Run local browser launch smoke against current commit
       env:
@@ -305,8 +356,25 @@ jobs:
     - name: Install Playwright dependencies
       run: npm ci
 
+    - name: Read Playwright version
+      id: pw_version
+      run: echo "version=$(node -p \"require('./node_modules/@playwright/test/package.json').version\")" >> "$GITHUB_OUTPUT"
+
+    - name: Cache Playwright browsers
+      id: pw_cache
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/ms-playwright
+        key: ms-playwright-${{ runner.os }}-${{ steps.pw_version.outputs.version }}-chromium
+
     - name: Install Playwright Chromium
-      run: npx playwright install --with-deps chromium
+      timeout-minutes: 5
+      run: |
+        if [ "${{ steps.pw_cache.outputs.cache-hit }}" = "true" ]; then
+          npx playwright install-deps chromium
+        else
+          npx playwright install --with-deps chromium
+        fi
 
     - name: Refresh Playwright tokens and storage state (primary)
       id: refresh_auth_state_primary
@@ -449,8 +517,25 @@ jobs:
     - name: Install Playwright dependencies
       run: npm ci
 
+    - name: Read Playwright version
+      id: pw_version
+      run: echo "version=$(node -p \"require('./node_modules/@playwright/test/package.json').version\")" >> "$GITHUB_OUTPUT"
+
+    - name: Cache Playwright browsers
+      id: pw_cache
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/ms-playwright
+        key: ms-playwright-${{ runner.os }}-${{ steps.pw_version.outputs.version }}-chromium
+
     - name: Install Playwright Chromium
-      run: npx playwright install --with-deps chromium
+      timeout-minutes: 5
+      run: |
+        if [ "${{ steps.pw_cache.outputs.cache-hit }}" = "true" ]; then
+          npx playwright install-deps chromium
+        else
+          npx playwright install --with-deps chromium
+        fi
 
     - name: Download Playwright auth state
       uses: actions/download-artifact@v5
@@ -509,8 +594,25 @@ jobs:
     - name: Install Playwright dependencies
       run: npm ci
 
+    - name: Read Playwright version
+      id: pw_version
+      run: echo "version=$(node -p \"require('./node_modules/@playwright/test/package.json').version\")" >> "$GITHUB_OUTPUT"
+
+    - name: Cache Playwright browsers
+      id: pw_cache
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/ms-playwright
+        key: ms-playwright-${{ runner.os }}-${{ steps.pw_version.outputs.version }}-chromium
+
     - name: Install Playwright Chromium
-      run: npx playwright install --with-deps chromium
+      timeout-minutes: 5
+      run: |
+        if [ "${{ steps.pw_cache.outputs.cache-hit }}" = "true" ]; then
+          npx playwright install-deps chromium
+        else
+          npx playwright install --with-deps chromium
+        fi
 
     - name: Download Playwright auth state
       uses: actions/download-artifact@v5
