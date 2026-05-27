@@ -241,6 +241,11 @@ const eventsApi = {
   downloadReportCsv: (id: string) => apiGetBlob(`/events/${id}/report.csv`),
   downloadReportPdf: (id: string) => apiGetBlob(`/events/${id}/report.pdf`),
   downloadReportText: (id: string) => apiGetBlob(`/events/${id}/report.txt`),
+  emailReport: (id: string, recipients?: string[]) =>
+    apiPost<{ event_id: string; to: string; cc: string[]; sent: number }>(
+      `/events/${id}/report/email`,
+      recipients && recipients.length > 0 ? { recipients } : {}
+    ),
   sendLeadPrepSummary: (id: string) => apiPost<{ event_id: string; to: string; cc: string[]; sent: number }>(`/events/${id}/lead-summary/email`, {}),
   sendParticipationSummary: (id: string) => apiPost<{ event_id: string; to: string; cc: string[]; fallback_used: 'scheduler' | 'creator' | 'actor'; sent: number }>(`/events/${id}/participation-summary/email`, {}),
   generateAiDraft: (id: string, tone: 'friendly' | 'professional' | 'casual' | 'exciting' = 'friendly') =>

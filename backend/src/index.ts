@@ -47,10 +47,17 @@ void initializeShortLivedCache().catch((error) => {
 
 app.set('trust proxy', nodeEnv === 'production' ? 1 : false);
 app.disable('x-powered-by');
-const allowedOrigins = (corsOrigin ?? '')
-  .split(',')
-  .map((value) => value.trim().replace(/\/$/, ''))
-  .filter((value) => value.length > 0);
+const defaultAllowedOrigins = [
+  'https://app.phwcoloradoalpine.org',
+  'https://phwalpineeventsfe873a.azurewebsites.net',
+];
+const allowedOrigins = Array.from(new Set([
+  ...(corsOrigin ?? '')
+    .split(',')
+    .map((value) => value.trim().replace(/\/$/, ''))
+    .filter((value) => value.length > 0),
+  ...defaultAllowedOrigins,
+]));
 const corsOptions = {
   origin: (
     requestOrigin: string | undefined,
@@ -62,7 +69,7 @@ const corsOptions = {
     }
 
     if (allowedOrigins.length === 0) {
-      callback(new Error('CORS_ORIGIN is not configured; cross-origin requests are blocked.'));
+      callback(null, false);
       return;
     }
 
@@ -72,8 +79,9 @@ const corsOptions = {
       return;
     }
 
-    callback(new Error(`Not allowed by CORS: ${requestOrigin}`));
+    callback(null, false);
   },
+  optionsSuccessStatus: 204,
 };
 
 if (allowedOrigins.length === 0) {
