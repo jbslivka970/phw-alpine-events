@@ -115,7 +115,7 @@ jobs:
         key: ms-playwright-${{ runner.os }}-${{ steps.pw_version.outputs.version }}-chromium
 
     - name: Install Playwright Chromium for token refresh helper
-      timeout-minutes: 5
+      timeout-minutes: 15
       run: |
         if [ "${{ steps.pw_cache.outputs.cache-hit }}" = "true" ]; then
           npx playwright install-deps chromium
@@ -201,7 +201,7 @@ jobs:
         key: ms-playwright-${{ runner.os }}-${{ steps.pw_version.outputs.version }}-chromium
 
     - name: Install Playwright Chromium
-      timeout-minutes: 5
+      timeout-minutes: 15
       run: |
         if [ "${{ steps.pw_cache.outputs.cache-hit }}" = "true" ]; then
           npx playwright install-deps chromium
@@ -272,7 +272,7 @@ jobs:
         key: ms-playwright-${{ runner.os }}-${{ steps.pw_version.outputs.version }}-chromium
 
     - name: Install Playwright Chromium
-      timeout-minutes: 5
+      timeout-minutes: 15
       run: |
         if [ "${{ steps.pw_cache.outputs.cache-hit }}" = "true" ]; then
           npx playwright install-deps chromium
@@ -376,7 +376,7 @@ jobs:
         key: ms-playwright-${{ runner.os }}-${{ steps.pw_version.outputs.version }}-chromium
 
     - name: Install Playwright Chromium
-      timeout-minutes: 5
+      timeout-minutes: 15
       run: |
         if [ "${{ steps.pw_cache.outputs.cache-hit }}" = "true" ]; then
           npx playwright install-deps chromium
@@ -539,7 +539,7 @@ jobs:
         key: ms-playwright-${{ runner.os }}-${{ steps.pw_version.outputs.version }}-chromium
 
     - name: Install Playwright Chromium
-      timeout-minutes: 5
+      timeout-minutes: 15
       run: |
         if [ "${{ steps.pw_cache.outputs.cache-hit }}" = "true" ]; then
           npx playwright install-deps chromium
@@ -618,7 +618,7 @@ jobs:
         key: ms-playwright-${{ runner.os }}-${{ steps.pw_version.outputs.version }}-chromium
 
     - name: Install Playwright Chromium
-      timeout-minutes: 5
+      timeout-minutes: 15
       run: |
         if [ "${{ steps.pw_cache.outputs.cache-hit }}" = "true" ]; then
           npx playwright install-deps chromium
@@ -1842,7 +1842,7 @@ jobs:
         key: ms-playwright-${{ runner.os }}-${{ steps.pw_version.outputs.version }}-chromium
 
     - name: Install Playwright Chromium
-      timeout-minutes: 5
+      timeout-minutes: 15
       run: |
         if [ "${{ steps.pw_cache.outputs.cache-hit }}" = "true" ]; then
           npx playwright install-deps chromium
