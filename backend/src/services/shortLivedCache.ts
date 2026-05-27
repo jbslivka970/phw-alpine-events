@@ -29,13 +29,91 @@ type ShortLivedCacheProbeResult = {
 const cache = new Map<string, CacheEntry>();
 const inFlight = new Map<string, Promise<unknown>>();
 
-const redisUrl = (process.env['REDIS_URL'] ?? '').trim();
+const rawRedisUrl = (process.env['REDIS_URL'] ?? '').trim();
 const redisKeyPrefix = (process.env['REDIS_KEY_PREFIX'] ?? 'phw:cache:').trim() || 'phw:cache:';
 const cacheProviderMode = (process.env['CACHE_PROVIDER'] ?? 'auto').trim().toLowerCase();
 const redisRequired = ['1', 'true', 'yes', 'on'].includes((process.env['CACHE_REDIS_REQUIRED'] ?? '').trim().toLowerCase());
 const redisConnectTimeoutMs = Math.max(Number.parseInt(process.env['REDIS_CONNECT_TIMEOUT_MS'] ?? '3000', 10) || 3000, 500);
 const redisProbeTimeoutMs = Math.max(Number.parseInt(process.env['REDIS_PROBE_TIMEOUT_MS'] ?? '3000', 10) || 3000, 500);
 const redisQuitTimeoutMs = Math.max(Number.parseInt(process.env['REDIS_QUIT_TIMEOUT_MS'] ?? '1000', 10) || 1000, 250);
+const redisPingIntervalMs = Math.max(Number.parseInt(process.env['REDIS_PING_INTERVAL_MS'] ?? '60000', 10) || 60000, 5_000);
+
+function safelyDecodeUriComponent(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+function maybeEncodeRedisPassword(url: string): { url: string; changed: boolean } {
+  const authSplit = /^(rediss?|redis):\/\/([^@]+)@(.+)$/i.exec(url);
+  if (!authSplit) {
+    return { url, changed: false };
+  }
+
+  const scheme = authSplit[1];
+  const userInfo = authSplit[2];
+  const remainder = authSplit[3];
+  const colonIndex = userInfo.indexOf(':');
+
+  if (colonIndex < 0) {
+    return { url, changed: false };
+  }
+
+  const rawUser = userInfo.slice(0, colonIndex);
+  const rawPassword = userInfo.slice(colonIndex + 1);
+  const hasPercentEncoding = /%[0-9A-Fa-f]{2}/.test(rawPassword);
+  const hasReservedChars = /[+/=]/.test(rawPassword);
+
+  if (hasPercentEncoding || !hasReservedChars) {
+    return { url, changed: false };
+  }
+
+  const encodedUser = encodeURIComponent(safelyDecodeUriComponent(rawUser));
+  const encodedPassword = encodeURIComponent(safelyDecodeUriComponent(rawPassword));
+  return {
+    url: `${scheme}://${encodedUser}:${encodedPassword}@${remainder}`,
+    changed: true,
+  };
+}
+
+function normalizeRedisUrl(url: string): { url: string; notes: string[] } {
+  if (!url) {
+    return { url, notes: [] };
+  }
+
+  const notes: string[] = [];
+  const encoded = maybeEncodeRedisPassword(url);
+  let normalizedUrl = encoded.url;
+  if (encoded.changed) {
+    notes.push('encoded password in REDIS_URL userinfo');
+  }
+
+  try {
+    const parsed = new URL(normalizedUrl);
+    const isAzureHost = (parsed.hostname ?? '').toLowerCase().endsWith('.redis.cache.windows.net');
+    const parsedPort = parsed.port ? Number.parseInt(parsed.port, 10) : undefined;
+
+    if (isAzureHost && (parsed.protocol === 'redis:' || parsedPort === 6380 || parsed.port === '')) {
+      if (parsed.protocol === 'redis:') {
+        parsed.protocol = 'rediss:';
+        notes.push('upgraded redis:// to rediss:// for Azure Cache for Redis');
+      }
+      if (parsed.port === '') {
+        parsed.port = '6380';
+        notes.push('set Azure Redis default TLS port to 6380');
+      }
+      normalizedUrl = parsed.toString();
+    }
+  } catch {
+    // Keep original string if URL parsing fails; connect attempt will surface the error.
+  }
+
+  return { url: normalizedUrl, notes };
+}
+
+const { url: redisUrl, notes: redisUrlNormalizationNotes } = normalizeRedisUrl(rawRedisUrl);
 
 const provider: CacheProvider = cacheProviderMode === 'redis'
   ? 'redis'
@@ -122,8 +200,14 @@ async function getRedisClient(): Promise<AnyRedisClient | null> {
   }
 
   redisConnectPromise = (async () => {
+    if (redisUrlNormalizationNotes.length > 0) {
+      console.warn(`[cache] Redis URL normalization applied: ${redisUrlNormalizationNotes.join('; ')}`);
+    }
+
     const client = createClient({
       url: redisUrl,
+      RESP: 2,
+      pingInterval: redisPingIntervalMs,
       socket: {
         connectTimeout: redisConnectTimeoutMs,
       },
@@ -200,9 +284,20 @@ async function invalidateRedisByPrefix(prefix?: string): Promise<void> {
     : `${redisKeyPrefix}*`;
 
   try {
-    for await (const key of client.scanIterator({ MATCH: scanPattern, COUNT: 200 })) {
-      await client.del(String(key));
-    }
+    let cursor = '0';
+    do {
+      const scanResult = await client.scan(cursor, {
+        MATCH: scanPattern,
+        COUNT: 200,
+      });
+
+      cursor = String(scanResult.cursor);
+      const keys = scanResult.keys.map((key) => String(key));
+
+      if (keys.length > 0) {
+        await client.del(keys);
+      }
+    } while (cursor !== '0');
   } catch (error) {
     recordRedisError(error, `invalidate failed for pattern ${scanPattern}`);
   }
