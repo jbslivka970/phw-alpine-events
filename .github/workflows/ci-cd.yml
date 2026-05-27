@@ -3,7 +3,7 @@ name: CI/CD Pipeline
 on:
   push:
     branches: [ main ]
-    tags: [ 'v*' ]
+    tags: [ '*.*.*' ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
@@ -290,7 +290,7 @@ jobs:
     permissions:
       contents: read
       actions: write
-    if: ${{ ((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.run_full_e2e == 'true')) && vars.E2E_API_BASE_URL != '' && vars.E2E_APP_URL != '' }}
+    if: ${{ ((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) || github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.run_full_e2e == 'true')) && vars.E2E_API_BASE_URL != '' && vars.E2E_APP_URL != '' }}
 
     steps:
     - uses: actions/checkout@v5
@@ -388,7 +388,7 @@ jobs:
     needs: build
     permissions:
       contents: read
-    if: ${{ ((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.run_full_e2e == 'true')) && vars.E2E_API_BASE_URL != '' && vars.E2E_APP_URL != '' }}
+    if: ${{ ((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) || github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.run_full_e2e == 'true')) && vars.E2E_API_BASE_URL != '' && vars.E2E_APP_URL != '' }}
 
     steps:
     - uses: actions/checkout@v5
@@ -434,7 +434,7 @@ jobs:
     # automation with the "Sign in rejected" screen.  Job is informational until
     # test users are migrated to CIAM-local credentials (tracked separately).
     continue-on-error: true
-    if: ${{ ((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.run_full_e2e == 'true')) && vars.E2E_API_BASE_URL != '' && vars.E2E_APP_URL != '' }}
+    if: ${{ ((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) || github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.run_full_e2e == 'true')) && vars.E2E_API_BASE_URL != '' && vars.E2E_APP_URL != '' }}
 
     steps:
     - uses: actions/checkout@v5
@@ -494,7 +494,7 @@ jobs:
       actions: read
     # Known-flaky against Google-federated test accounts (see e2e_browser_auth_flows).
     continue-on-error: true
-    if: ${{ ((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.run_full_e2e == 'true')) && vars.E2E_API_BASE_URL != '' && vars.E2E_APP_URL != '' }}
+    if: ${{ ((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) || github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.run_full_e2e == 'true')) && vars.E2E_API_BASE_URL != '' && vars.E2E_APP_URL != '' }}
 
     steps:
     - uses: actions/checkout@v5
@@ -554,7 +554,7 @@ jobs:
     permissions:
       contents: read
       actions: read
-    if: ${{ ((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.run_full_e2e == 'true')) && vars.E2E_API_BASE_URL != '' && vars.E2E_APP_URL != '' }}
+    if: ${{ ((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) || github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.run_full_e2e == 'true')) && vars.E2E_API_BASE_URL != '' && vars.E2E_APP_URL != '' }}
 
     steps:
     - uses: actions/checkout@v5

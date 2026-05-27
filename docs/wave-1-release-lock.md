@@ -129,7 +129,7 @@ Non-blocking advisory checks (until stabilized):
 Workflow policy updates to apply:
 1. Add workflow_dispatch input `run_full_e2e` default `false`.
 2. Gate full E2E steps to run only when:
-- tag push (`v*`), or
+- tag push (`x.y.z`, for example `4.0.0`), or
 - release event, or
 - workflow_dispatch with `run_full_e2e == true`.
 3. Keep deploy and postdeploy smoke jobs always enabled on main push.

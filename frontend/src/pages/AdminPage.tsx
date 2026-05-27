@@ -18,6 +18,7 @@ interface HealthStatus {
   notifications: HealthState
   redis: HealthState
   redisProvider: string
+  appVersion: string
   nodeEnv: string
   nodeVersion: string
 }
@@ -56,6 +57,7 @@ function AdminPage() {
     notifications: 'loading',
     redis: 'loading',
     redisProvider: '—',
+    appVersion: '—',
     nodeEnv: '—',
     nodeVersion: '—',
   })
@@ -146,7 +148,18 @@ function AdminPage() {
     const base = getApiBaseUrl()
 
     fetch(`${base}/health`)
-      .then((r) => (r.ok ? setHealth((h) => ({ ...h, api: 'ok' })) : Promise.reject()))
+      .then(async (r) => {
+        const payload = await r.json() as { version?: string }
+        if (!r.ok) {
+          throw new Error('Health endpoint unavailable')
+        }
+
+        setHealth((h) => ({
+          ...h,
+          api: 'ok',
+          appVersion: payload.version ?? h.appVersion,
+        }))
+      })
       .catch(() => setHealth((h) => ({ ...h, api: 'error' })))
 
     fetch(`${base}/health/ready`)
@@ -160,12 +173,13 @@ function AdminPage() {
           notificationsConfigured?: boolean;
           cacheProvider?: string;
         };
-        runtime?: { nodeEnv?: string; nodeVersion?: string }
+        runtime?: { appVersion?: string; nodeEnv?: string; nodeVersion?: string }
       }) => {
         setHealth((h) => ({
           ...h,
           notifications: data?.checks?.notificationsConfigured ? 'ok' : 'unconfigured',
           redisProvider: data?.checks?.cacheProvider ?? h.redisProvider,
+          appVersion: data?.runtime?.appVersion ?? h.appVersion,
           nodeEnv: data?.runtime?.nodeEnv ?? '—',
           nodeVersion: data?.runtime?.nodeVersion ?? '—',
         }))
@@ -651,6 +665,10 @@ function AdminPage() {
                 <span className="admin-health-value">{row.value}</span>
               </div>
             ))}
+            <div className="admin-health-row admin-health-row--meta">
+              <span className="admin-health-label">App version</span>
+              <span className="admin-health-value">{health.appVersion}</span>
+            </div>
             <div className="admin-health-row admin-health-row--meta">
               <span className="admin-health-label">Environment</span>
               <span className="admin-health-value">{health.nodeEnv}</span>

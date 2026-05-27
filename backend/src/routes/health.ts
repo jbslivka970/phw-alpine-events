@@ -31,7 +31,7 @@ interface KeyVaultReferenceCheckResult {
 }
 
 let keyVaultReferenceCache: { expiresAt: number; result: KeyVaultReferenceCheckResult } | null = null;
-const DEFAULT_APP_VERSION = '2.1.0';
+const DEFAULT_APP_VERSION = '0.0.0';
 
 function resolveAppVersion(): string {
   const fromEnv = process.env['APP_VERSION']?.trim() || process.env['npm_package_version']?.trim();
@@ -265,6 +265,7 @@ router.get('/startup', apiLimiter, async (_req: Request, res: Response) => {
     status: dbMissing.length === 0 && !strictNotificationFailure && !cacheFailure && !keyVaultPolicyFailure ? 'ok' : 'degraded',
     timestamp: new Date().toISOString(),
     runtime: {
+      appVersion: APP_VERSION,
       nodeEnv: process.env['NODE_ENV'] ?? 'development',
       nodeVersion: process.version,
       portMode: Number.isNaN(Number.parseInt(process.env['PORT'] ?? '', 10)) ? 'pipe-or-string' : 'numeric',

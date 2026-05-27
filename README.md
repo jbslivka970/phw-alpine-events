@@ -354,7 +354,7 @@ Notification preference behavior:
 CI trigger strategy for a lighter dev process:
 
 - PRs and main pushes run build, backend tests, and frontend regression-flow tests.
-- Full Playwright role matrix + browser flows run only on version tag pushes (`v*`), release publication, or manual workflow dispatch.
+- Full Playwright role matrix + browser flows run only on version tag pushes (`x.y.z`, for example `4.0.0`), release publication, or manual workflow dispatch.
 - Release publication also runs compliance smoke checks against production backend endpoints.
 
 ## Production Plumbing Checklist

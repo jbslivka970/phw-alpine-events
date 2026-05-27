@@ -50,8 +50,7 @@
   },
   "dependencies": {
     "@azure/communication-email": "^1.0.0",
-    "@azure/communication-sms": "^1.0.0",
-    "@azure/functions": "^3.5.1",
+    "@azure/communication-sms": "^1.2.0-beta.4",
     "@azure/identity": "^4.13.1",
     "@types/multer": "^2.1.0",
     "@types/pdfkit": "^0.17.5",
