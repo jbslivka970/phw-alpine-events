@@ -1510,6 +1510,7 @@ jobs:
 
   deploy_backend_smoke:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: deploy
     permissions:
       contents: read
@@ -1692,9 +1693,9 @@ jobs:
 
   deploy_frontend_smoke:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs:
     - deploy
-    - deploy_backend_smoke
     - deploy_frontend
     permissions:
       contents: read
@@ -1715,8 +1716,25 @@ jobs:
     - name: Install Playwright smoke dependencies
       run: npm ci
 
+    - name: Read Playwright version
+      id: pw_version
+      run: echo "version=$(node -p "require('./node_modules/@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+
+    - name: Cache Playwright browsers
+      id: pw_cache
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/ms-playwright
+        key: ms-playwright-${{ runner.os }}-${{ steps.pw_version.outputs.version }}-chromium
+
     - name: Install Playwright Chromium
-      run: npx playwright install --with-deps chromium
+      timeout-minutes: 5
+      run: |
+        if [ "${{ steps.pw_cache.outputs.cache-hit }}" = "true" ]; then
+          npx playwright install-deps chromium
+        else
+          npx playwright install --with-deps chromium
+        fi
 
     - name: Resolve browser smoke target
       id: smoke_target
