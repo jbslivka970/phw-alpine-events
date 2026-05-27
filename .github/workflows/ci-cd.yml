@@ -103,7 +103,9 @@ jobs:
 
     - name: Read Playwright version
       id: pw_version
-      run: echo "version=$(node -p \"require('./node_modules/@playwright/test/package.json').version\")" >> "$GITHUB_OUTPUT"
+      run: |
+        PW_VERSION="$(node -p "require('./node_modules/@playwright/test/package.json').version")"
+        echo "version=$PW_VERSION" >> "$GITHUB_OUTPUT"
 
     - name: Cache Playwright browsers
       id: pw_cache
@@ -187,7 +189,9 @@ jobs:
 
     - name: Read Playwright version
       id: pw_version
-      run: echo "version=$(node -p \"require('./node_modules/@playwright/test/package.json').version\")" >> "$GITHUB_OUTPUT"
+      run: |
+        PW_VERSION="$(node -p "require('./node_modules/@playwright/test/package.json').version")"
+        echo "version=$PW_VERSION" >> "$GITHUB_OUTPUT"
 
     - name: Cache Playwright browsers
       id: pw_cache
@@ -256,7 +260,9 @@ jobs:
 
     - name: Read Playwright version
       id: pw_version
-      run: echo "version=$(node -p \"require('./node_modules/@playwright/test/package.json').version\")" >> "$GITHUB_OUTPUT"
+      run: |
+        PW_VERSION="$(node -p "require('./node_modules/@playwright/test/package.json').version")"
+        echo "version=$PW_VERSION" >> "$GITHUB_OUTPUT"
 
     - name: Cache Playwright browsers
       id: pw_cache
@@ -358,7 +364,9 @@ jobs:
 
     - name: Read Playwright version
       id: pw_version
-      run: echo "version=$(node -p \"require('./node_modules/@playwright/test/package.json').version\")" >> "$GITHUB_OUTPUT"
+      run: |
+        PW_VERSION="$(node -p "require('./node_modules/@playwright/test/package.json').version")"
+        echo "version=$PW_VERSION" >> "$GITHUB_OUTPUT"
 
     - name: Cache Playwright browsers
       id: pw_cache
@@ -519,7 +527,9 @@ jobs:
 
     - name: Read Playwright version
       id: pw_version
-      run: echo "version=$(node -p \"require('./node_modules/@playwright/test/package.json').version\")" >> "$GITHUB_OUTPUT"
+      run: |
+        PW_VERSION="$(node -p "require('./node_modules/@playwright/test/package.json').version")"
+        echo "version=$PW_VERSION" >> "$GITHUB_OUTPUT"
 
     - name: Cache Playwright browsers
       id: pw_cache
@@ -596,7 +606,9 @@ jobs:
 
     - name: Read Playwright version
       id: pw_version
-      run: echo "version=$(node -p \"require('./node_modules/@playwright/test/package.json').version\")" >> "$GITHUB_OUTPUT"
+      run: |
+        PW_VERSION="$(node -p "require('./node_modules/@playwright/test/package.json').version")"
+        echo "version=$PW_VERSION" >> "$GITHUB_OUTPUT"
 
     - name: Cache Playwright browsers
       id: pw_cache
