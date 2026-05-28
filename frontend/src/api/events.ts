@@ -247,7 +247,7 @@ const eventsApi = {
       recipients && recipients.length > 0 ? { recipients } : {}
     ),
   sendLeadPrepSummary: (id: string) => apiPost<{ event_id: string; to: string; cc: string[]; sent: number }>(`/events/${id}/lead-summary/email`, {}),
-  sendParticipationSummary: (id: string) => apiPost<{ event_id: string; to: string; cc: string[]; fallback_used: 'scheduler' | 'creator' | 'actor'; sent: number }>(`/events/${id}/participation-summary/email`, {}),
+  sendParticipationSummary: (id: string) => apiPost<{ event_id: string; to: string; cc: string[]; fallback_used: 'scheduler'; sent: number }>(`/events/${id}/participation-summary/email`, {}),
   generateAiDraft: (id: string, tone: 'friendly' | 'professional' | 'casual' | 'exciting' = 'friendly') =>
     apiPost<EventAiDraftResponse>(`/events/${id}/ai-draft`, { tone }),
   generateAiDraftPreview: (

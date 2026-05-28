@@ -1285,6 +1285,30 @@ describe('events routes', () => {
         ],
       },
       {
+        recordset: [
+          {
+            has_guest_assignment_table: 1,
+            has_guest_program_id: 1,
+            has_program_catalog_table: 1,
+          },
+        ],
+      },
+      {
+        recordset: [
+          {
+            guest_assignment_id: 'guest-1',
+            event_id: '00000000-0000-0000-0000-000000000101',
+            role: 'PARTICIPANT',
+            guest_name: 'Alex Guest',
+            guest_email: 'alex.guest@example.com',
+            guest_phone: '+13035550099',
+            guest_program_name: 'Project Healing Waters - Denver',
+            guest_program_display_name: 'Project Healing Waters - Denver',
+            invited_at: new Date('2026-03-20T12:00:00.000Z'),
+          },
+        ],
+      },
+      {
         recordset: [],
       },
       {
@@ -1318,6 +1342,12 @@ describe('events routes', () => {
       eventId: '00000000-0000-0000-0000-000000000101',
       operationType: 'event_lead_prep_email',
     }));
+    const sendPayload = notifications.notificationService.sendEmail.mock.calls[0]?.[0];
+    expect(sendPayload.textBody).toContain('Alex Guest');
+    expect(sendPayload.textBody).toContain('PROGRAM_GUES');
+    expect(sendPayload.textBody).toContain('Assigned Program Guests: 1');
+    expect(sendPayload.htmlBody).toContain('Program Guest - Project Healing Waters - Denver');
+    expect(sendPayload.htmlBody).toContain('alex.guest@example.com');
   });
 
   it('POST /api/events/:id/report/email excludes lead-only assignments from roster and contact list', async () => {
@@ -1377,6 +1407,15 @@ describe('events routes', () => {
         recordset: [],
       },
       {
+        recordset: [
+          {
+            has_guest_assignment_table: 0,
+            has_guest_program_id: 0,
+            has_program_catalog_table: 0,
+          },
+        ],
+      },
+      {
         recordset: [],
       },
       {
@@ -1406,7 +1445,7 @@ describe('events routes', () => {
     expect(sendPayload.htmlBody).not.toContain('lead-only@example.com');
   });
 
-  it('POST /api/events/:id/participation-summary/email sends completed participation summary to scheduler with CC recipients', async () => {
+  it('POST /api/events/:id/participation-summary/email sends completed participation summary to scheduler only', async () => {
     const notifications = jest.requireMock('../services/notifications') as {
       notificationService: { sendEmail: jest.Mock };
     };
@@ -1464,13 +1503,12 @@ describe('events routes', () => {
           },
         ],
       },
-      { recordset: [] },
       {
         recordset: [
           {
-            scheduler_email: 'scheduler@example.com',
-            creator_email: 'creator@example.com',
-            pre_event_auto_sent_at: null,
+            has_guest_assignment_table: 0,
+            has_guest_program_id: 0,
+            has_program_catalog_table: 0,
           },
         ],
       },
@@ -1478,9 +1516,9 @@ describe('events routes', () => {
       {
         recordset: [
           {
-            program_lead_email: 'program@example.com',
-            assistant_program_lead_email_1: 'apl1@example.com',
-            assistant_program_lead_email_2: 'apl2@example.com',
+            scheduler_email: 'scheduler@example.com',
+            creator_email: 'creator@example.com',
+            pre_event_auto_sent_at: null,
           },
         ],
       },
@@ -1497,11 +1535,11 @@ describe('events routes', () => {
     expect(res.status).toBe(200);
     expect(res.body.to).toBe('scheduler@example.com');
     expect(res.body.fallback_used).toBe('scheduler');
-    expect(res.body.cc).toEqual(['program@example.com', 'apl1@example.com', 'apl2@example.com']);
+    expect(res.body.cc).toEqual([]);
     expect(notifications.notificationService.sendEmail).toHaveBeenCalledTimes(1);
     expect(notifications.notificationService.sendEmail).toHaveBeenCalledWith(expect.objectContaining({
       to: 'scheduler@example.com',
-      cc: ['program@example.com', 'apl1@example.com', 'apl2@example.com'],
+      cc: [],
       subject: 'Participation Summary: Fly Tying 101',
       eventId: '00000000-0000-0000-0000-000000000101',
       operationType: 'event_participation_summary_email',

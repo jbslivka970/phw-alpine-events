@@ -43,6 +43,17 @@ interface EventSummaryReportData {
     responded_at: Date | string;
     notes: string | null;
   }>;
+  guestAssignments: Array<{
+    guest_assignment_id: string;
+    event_id: string;
+    role: string;
+    guest_name: string;
+    guest_email: string | null;
+    guest_phone: string | null;
+    guest_program_name: string | null;
+    guest_program_display_name: string;
+    invited_at: Date | string;
+  }>;
 }
 
 export async function loadEventSummaryReportData(eventId: string): Promise<EventSummaryReportData | null> {
@@ -135,15 +146,78 @@ export async function loadEventSummaryReportData(eventId: string): Promise<Event
        WHERE er.event_id = @event_id
        ORDER BY er.responded_at ASC`
     );
+  
+  const guestSupportResult = await pool
+    .request()
+    .query<{
+      has_guest_assignment_table: number;
+      has_guest_program_id: number;
+      has_program_catalog_table: number;
+    }>(
+      `SELECT
+         CASE WHEN OBJECT_ID(N'dbo.event_guest_assignment', N'U') IS NULL THEN 0 ELSE 1 END AS has_guest_assignment_table,
+         CASE WHEN COL_LENGTH(N'dbo.event_guest_assignment', N'guest_program_id') IS NULL THEN 0 ELSE 1 END AS has_guest_program_id,
+         CASE WHEN OBJECT_ID(N'dbo.program_catalog', N'U') IS NULL THEN 0 ELSE 1 END AS has_program_catalog_table`
+    );
+  
+  const guestSupport = guestSupportResult.recordset[0];
+  const hasGuestAssignmentTable = guestSupport?.has_guest_assignment_table === 1;
+  const hasGuestProgramId = guestSupport?.has_guest_program_id === 1;
+  const hasProgramCatalogTable = guestSupport?.has_program_catalog_table === 1;
+  
+  let guestAssignments: EventSummaryReportData['guestAssignments'] = [];
+  
+  if (hasGuestAssignmentTable) {
+    const programCatalogJoin = hasGuestProgramId && hasProgramCatalogTable
+      ? 'LEFT JOIN dbo.program_catalog pc ON pc.program_id = ega.guest_program_id'
+      : '';
+    const programCatalogSelect = hasGuestProgramId && hasProgramCatalogTable
+      ? 'pc.program_name'
+      : 'CAST(NULL AS NVARCHAR(200))';
+  
+    const guestResult = await pool
+      .request()
+      .input('event_id', sql.UniqueIdentifier, eventId)
+      .query<EventSummaryReportData['guestAssignments'][number]>(
+        `SELECT
+            ega.guest_assignment_id,
+            ega.event_id,
+            ega.role,
+            ega.guest_name,
+            ega.guest_email,
+            ega.guest_phone,
+            ega.guest_program_name,
+            COALESCE(${programCatalogSelect}, g.group_name, NULLIF(LTRIM(RTRIM(ega.guest_program_name)), ''), 'Unknown program') AS guest_program_display_name,
+            ega.invited_at
+         FROM dbo.event_guest_assignment ega
+         LEFT JOIN dbo.[group] g ON g.group_id = ega.guest_program_group_id
+         ${programCatalogJoin}
+         WHERE ega.event_id = @event_id
+         ORDER BY ega.invited_at ASC`
+      );
+  
+    guestAssignments = guestResult.recordset;
+  }
 
   return {
     event,
     assignments: assignmentsResult.recordset,
     responses: responsesResult.recordset,
+    guestAssignments,
   };
 }
 
 type EventSummaryAssignmentRow = EventSummaryReportData['assignments'][number];
+type EventSummaryGuestAssignmentRow = EventSummaryReportData['guestAssignments'][number];
+
+type SummaryRosterRow = {
+  name: string;
+  role: string;
+  email: string | null;
+  phone: string | null;
+  isGuest: boolean;
+  guestProgramName: string | null;
+};
 
 function escapeHtml(value: string): string {
   return value
@@ -204,6 +278,32 @@ function isParticipatingAssignmentRole(role: string): boolean {
 
 function getParticipatingAssignments(report: EventSummaryReportData): EventSummaryAssignmentRow[] {
   return report.assignments.filter((row) => isParticipatingAssignmentRole(row.role));
+}
+
+function getParticipatingGuestAssignments(report: EventSummaryReportData): EventSummaryGuestAssignmentRow[] {
+  return report.guestAssignments.filter((row) => isParticipatingAssignmentRole(row.role));
+}
+
+function buildParticipatingRosterRows(report: EventSummaryReportData): SummaryRosterRow[] {
+  const memberRows: SummaryRosterRow[] = getParticipatingAssignments(report).map((row) => ({
+    name: `${row.first_name} ${row.last_name}`.trim(),
+    role: row.role,
+    email: row.email,
+    phone: row.mobile_phone,
+    isGuest: false,
+    guestProgramName: null,
+  }));
+
+  const guestRows: SummaryRosterRow[] = getParticipatingGuestAssignments(report).map((row) => ({
+    name: row.guest_name.trim(),
+    role: row.role,
+    email: row.guest_email,
+    phone: row.guest_phone,
+    isGuest: true,
+    guestProgramName: row.guest_program_display_name,
+  }));
+
+  return [...memberRows, ...guestRows];
 }
 
 function toDisplayName(value: string): string {
@@ -286,16 +386,17 @@ function padColumn(value: string, width: number): string {
 }
 
 function buildLeadPrepRosterLines(report: EventSummaryReportData): string[] {
-  const participatingAssignments = getParticipatingAssignments(report);
-  if (participatingAssignments.length === 0) {
+  const rosterRows = buildParticipatingRosterRows(report);
+  if (rosterRows.length === 0) {
     return ['none'];
   }
 
-  const header = `${padColumn('Name', 24)} ${padColumn('Role', 13)} ${padColumn('Email', 34)} Phone`;
+  const header = `${padColumn('Name', 24)} ${padColumn('Role', 13)} ${padColumn('Type', 13)} ${padColumn('Program', 20)} ${padColumn('Email', 30)} Phone`;
   const divider = '-'.repeat(header.length);
-  const rows = participatingAssignments.map((row) => {
-    const name = `${row.first_name} ${row.last_name}`.trim();
-    return `${padColumn(name, 24)} ${padColumn(row.role, 13)} ${padColumn(formatEmailForDisplay(row.email), 34)} ${row.mobile_phone?.trim() || 'n/a'}`;
+  const rows = rosterRows.map((row) => {
+    const typeLabel = row.isGuest ? 'PROGRAM_GUEST' : 'MEMBER';
+    const programLabel = row.isGuest ? (row.guestProgramName?.trim() || 'Unknown program') : '-';
+    return `${padColumn(row.name, 24)} ${padColumn(row.role, 13)} ${padColumn(typeLabel, 13)} ${padColumn(programLabel, 20)} ${padColumn(formatEmailForDisplay(row.email), 30)} ${row.phone?.trim() || 'n/a'}`;
   });
 
   return [header, divider, ...rows];
@@ -426,10 +527,16 @@ function buildRosterPersonRowHtml(args: {
   email: string | null;
   phone: string | null;
   waitlist?: boolean;
+  isGuest?: boolean;
+  guestProgramName?: string | null;
 }): string {
   const normalizedRole = args.role.toUpperCase() === 'PARTICIPANT' ? 'PARTICIPANT' : 'MENTOR';
   const badgeBg = normalizedRole === 'MENTOR' ? '#1f342f' : '#2d5a3d';
-  const badgeText = args.waitlist ? `${normalizedRole} WAITLIST` : normalizedRole;
+  const badgeText = args.waitlist
+    ? `${normalizedRole} WAITLIST`
+    : args.isGuest
+      ? `${normalizedRole} GUEST`
+      : normalizedRole;
   const emailValue = args.email?.trim() || '';
   const hasEmail = emailValue.length > 0;
   const emailHref = hasEmail ? `mailto:${encodeURIComponent(emailValue)}` : '';
@@ -454,6 +561,9 @@ function buildRosterPersonRowHtml(args: {
       : `          <span style="color:#6b6b6b;">${escapeHtml(phoneDisplay)}</span>`,
     '        </td>',
     '      </tr>',
+    args.isGuest
+      ? `      <tr><td style="color:#6b6b6b;font-size:12px;padding-top:4px;">Program Guest${args.guestProgramName ? ` - ${escapeHtml(args.guestProgramName)}` : ''}</td></tr>`
+      : '',
     '    </table>',
     '  </td>',
     '</tr>',
@@ -461,9 +571,10 @@ function buildRosterPersonRowHtml(args: {
 }
 
 function buildLeadPrepSummaryText(report: EventSummaryReportData): string {
-  const participatingAssignments = getParticipatingAssignments(report);
-  const assignedMentorCount = participatingAssignments.filter((row) => row.role.toUpperCase() === 'MENTOR').length;
-  const assignedParticipantCount = participatingAssignments.filter((row) => row.role.toUpperCase() === 'PARTICIPANT').length;
+  const rosterRows = buildParticipatingRosterRows(report);
+  const assignedMentorCount = rosterRows.filter((row) => row.role.toUpperCase() === 'MENTOR').length;
+  const assignedParticipantCount = rosterRows.filter((row) => row.role.toUpperCase() === 'PARTICIPANT').length;
+  const assignedGuestCount = rosterRows.filter((row) => row.isGuest).length;
   const waitlistCount = report.responses.filter((row) => row.response === 'waitlist').length;
 
   return [
@@ -476,6 +587,7 @@ function buildLeadPrepSummaryText(report: EventSummaryReportData): string {
     'RSVP Snapshot',
     `- Assigned Mentors: ${assignedMentorCount}`,
     `- Assigned Participants: ${assignedParticipantCount}`,
+    `- Assigned Program Guests: ${assignedGuestCount}`,
     `- RSVP Waitlist: ${waitlistCount}`,
     '',
     'Assigned Roster',
@@ -492,6 +604,7 @@ function buildPostEventParticipationSummaryText(report: EventSummaryReportData):
   const attended = report.assignments.filter((row) => row.attended === true);
   const notAttended = report.assignments.filter((row) => row.attended === false);
   const unmarked = report.assignments.filter((row) => row.attended === null);
+  const guestRoster = getParticipatingGuestAssignments(report);
 
   return [
     'Hello,',
@@ -508,6 +621,7 @@ function buildPostEventParticipationSummaryText(report: EventSummaryReportData):
     `- Participated: ${attended.length}`,
     `- No-show / not attended: ${notAttended.length}`,
     `- Attendance not recorded: ${unmarked.length}`,
+    `- Assigned program guests: ${guestRoster.length}`,
     '',
     'Participated',
     ...(attended.length === 0 ? ['- none'] : attended.map((row) => `- ${row.first_name} ${row.last_name} (${row.role}) | ${formatContact(row.email, row.mobile_phone)}`)),
@@ -517,6 +631,11 @@ function buildPostEventParticipationSummaryText(report: EventSummaryReportData):
     '',
     'Attendance Not Recorded',
     ...(unmarked.length === 0 ? ['- none'] : unmarked.map((row) => `- ${row.first_name} ${row.last_name} (${row.role}) | ${formatContact(row.email, row.mobile_phone)}`)),
+    '',
+    'Program Guests (Assigned Roster)',
+    ...(guestRoster.length === 0
+      ? ['- none']
+      : guestRoster.map((row) => `- ${row.guest_name} (${row.role}, PROGRAM GUEST, ${row.guest_program_display_name}) | ${formatContact(row.guest_email, row.guest_phone)}`)),
     '',
     `Generated at: ${new Date().toISOString()}`,
   ].join('\n');
@@ -551,17 +670,13 @@ export async function sendPreEventLeadSummaryEmail(args: {
   const subject = `Lead Prep Summary: ${report.event.title}`;
   const preparedByName = await resolvePreparedByName(args.actorName, args.actor);
   const leadGreetingName = resolveLeadGreetingName(report);
-  const participatingAssignments = getParticipatingAssignments(report);
-  const assignedMentorCount = participatingAssignments.filter((row) => row.role.toUpperCase() === 'MENTOR').length;
-  const assignedParticipantCount = participatingAssignments.filter((row) => row.role.toUpperCase() === 'PARTICIPANT').length;
+  const participatingRosterRows = buildParticipatingRosterRows(report);
+  const assignedMentorCount = participatingRosterRows.filter((row) => row.role.toUpperCase() === 'MENTOR').length;
+  const assignedParticipantCount = participatingRosterRows.filter((row) => row.role.toUpperCase() === 'PARTICIPANT').length;
+  const assignedGuestCount = participatingRosterRows.filter((row) => row.isGuest).length;
   const waitlistRows = report.responses.filter((row) => row.response === 'waitlist');
   const waitlistCount = waitlistRows.length;
-  const assignedRows = participatingAssignments.map((row) => ({
-    name: `${row.first_name} ${row.last_name}`.trim(),
-    role: row.role,
-    email: row.email,
-    phone: row.mobile_phone,
-  }));
+  const assignedRows = participatingRosterRows;
   const waitlistTableRows = waitlistRows.map((row) => ({
     name: `${row.first_name} ${row.last_name}`.trim(),
     role: row.response_role ?? 'MENTOR',
@@ -585,6 +700,8 @@ export async function sendPreEventLeadSummaryEmail(args: {
       role: row.role,
       email: row.email,
       phone: row.phone,
+      isGuest: row.isGuest,
+      guestProgramName: row.guestProgramName,
     })).join('')
     : '<tr><td style="padding:10px 0;color:#6b6b6b;">No assigned roster yet.</td></tr>';
   const waitlistRosterHtml = waitlistTableRows.length > 0
@@ -644,6 +761,7 @@ export async function sendPreEventLeadSummaryEmail(args: {
     `<td width="33%" style="background-color:#2d5a3d;color:#ffffff;padding:14px 8px;text-align:center;border-right:1px solid #ffffff;"><div style="font-family:Georgia,serif;font-size:28px;line-height:1;">${assignedParticipantCount}</div><div style="font-size:10px;letter-spacing:1.2px;text-transform:uppercase;padding-top:4px;">Assigned Participants</div></td>`,
     `<td width="34%" style="background-color:#6b6b6b;color:#ffffff;padding:14px 8px;text-align:center;"><div style="font-family:Georgia,serif;font-size:28px;line-height:1;">${waitlistCount}</div><div style="font-size:10px;letter-spacing:1.2px;text-transform:uppercase;padding-top:4px;">Waitlist</div></td>`,
     '</tr></table>',
+    `<div style="padding-top:8px;color:#6b6b6b;font-size:12px;">Assigned Program Guests: <strong>${assignedGuestCount}</strong></div>`,
     '</td></tr>',
     bccHref
       ? '<tr><td style="padding:24px 32px 8px 32px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#1f342f;border-radius:3px;"><tr><td style="padding:18px 22px;">'
@@ -691,7 +809,7 @@ export async function sendPostEventParticipationSummaryEmail(args: {
   eventId: string;
   actor: string;
   operationReason: string;
-}): Promise<{ to: string; cc: string[]; fallbackUsed: 'scheduler' | 'creator' | 'actor' }> {
+}): Promise<{ to: string; cc: string[]; fallbackUsed: 'scheduler' }> {
   const report = await loadEventSummaryReportData(args.eventId);
   if (!report) {
     throw new Error('Event not found');
@@ -702,15 +820,14 @@ export async function sendPostEventParticipationSummaryEmail(args: {
   }
 
   const settings = await getEventEmailWorkflowSettings(report.event.event_id);
-  const actorEmail = normalizeEmail(args.actor);
-  const to = settings.schedulerEmail ?? settings.creatorEmail ?? actorEmail;
-  const fallbackUsed = settings.schedulerEmail ? 'scheduler' : settings.creatorEmail ? 'creator' : 'actor';
+  const to = settings.schedulerEmail;
+  const fallbackUsed: 'scheduler' = 'scheduler';
 
   if (!to) {
-    throw new Error('scheduler_email or creator email is required before sending the participation summary.');
+    throw new Error('scheduler_email is required before sending the participation summary.');
   }
 
-  const ccRecipients = await buildCcRecipients(to);
+  const ccRecipients: string[] = [];
   const textBody = buildPostEventParticipationSummaryText(report);
   const subject = `Participation Summary: ${report.event.title}`;
   const htmlBody = [
