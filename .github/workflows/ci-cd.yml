@@ -497,8 +497,16 @@ jobs:
           fi
         done
 
-    - name: Validate member auth state id_token email claim
+    - name: Probe member auth state id_token email claim
+      id: member_email_hint_probe
+      continue-on-error: true
       run: node scripts/ci/check-e2e-auth-preflight.mjs --mode=auth-state --state-path=tests/e2e/.auth/member.json
+
+    - name: Warn when member id_token email claim is missing
+      if: ${{ steps.member_email_hint_probe.outcome != 'success' }}
+      run: |
+        echo "::warning::Member auth state is missing id_token email claim."
+        echo "::warning::Auth-refresh remains green so non-email-hint suites can execute; e2e_browser_auth_email_hint will enforce this as a hard requirement."
 
     - name: Upload debug screenshots on auth failure
       if: ${{ failure() }}
