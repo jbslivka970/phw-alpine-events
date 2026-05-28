@@ -309,6 +309,10 @@ test.describe('Auth Email Hint Regression', () => {
       await loginWithCredentials(page, memberUsername, memberPassword);
     }
 
+    if (/\/login(\?|$)/i.test(page.url())) {
+      throw new Error('browser-auth-email-hint could not establish an authenticated session after storage-state and credential fallback.');
+    }
+
     await expect(page).not.toHaveURL(/\/login(\?|$)/i, { timeout: 15_000 });
 
     const idTokenClaims = await page.evaluate(() => {
