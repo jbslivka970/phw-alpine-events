@@ -127,6 +127,7 @@ jobs:
       env:
         E2E_API_BASE_URL: ${{ vars.E2E_API_BASE_URL }}
         E2E_APP_URL: ${{ vars.E2E_APP_URL }}
+        PW_TOKEN_ENV_FILE: tests/e2e/.auth/tokens.env
         PW_REFRESH_ROLE_TIMEOUT_MS: '180000'
         PW_REFRESH_MAX_ATTEMPTS: '2'
         AZURE_B2C_ROPC_POLICY: ${{ vars.AZURE_B2C_ROPC_POLICY }}
@@ -147,9 +148,6 @@ jobs:
     - name: Run Playwright API role matrix and event lead lifecycle
       env:
         E2E_API_BASE_URL: ${{ vars.E2E_API_BASE_URL }}
-        PW_ADMIN_TOKEN: ${{ secrets.PW_ADMIN_TOKEN }}
-        PW_EVENT_CREATOR_TOKEN: ${{ secrets.PW_EVENT_CREATOR_TOKEN }}
-        PW_MEMBER_TOKEN: ${{ secrets.PW_MEMBER_TOKEN }}
         PW_WORKERS: '3'
         PW_RETRIES: '0'
         PW_MAX_FAILURES: '3'
@@ -390,6 +388,7 @@ jobs:
       env:
         E2E_API_BASE_URL: ${{ vars.E2E_API_BASE_URL }}
         E2E_APP_URL: ${{ vars.E2E_APP_URL }}
+        PW_TOKEN_ENV_FILE: tests/e2e/.auth/tokens.env
         PW_REFRESH_ROLE_TIMEOUT_MS: '180000'
         PW_REFRESH_MAX_ATTEMPTS: '2'
         AZURE_B2C_ROPC_POLICY: ${{ vars.AZURE_B2C_ROPC_POLICY }}
@@ -413,6 +412,7 @@ jobs:
       env:
         E2E_API_BASE_URL: ${{ vars.E2E_API_BASE_URL }}
         E2E_APP_URL: ${{ vars.E2E_APP_URL }}
+        PW_TOKEN_ENV_FILE: tests/e2e/.auth/tokens.env
         PW_REFRESH_ROLE_TIMEOUT_MS: '300000'
         PW_REFRESH_MAX_ATTEMPTS: '4'
         AZURE_B2C_ROPC_POLICY: ${{ vars.AZURE_B2C_ROPC_POLICY }}
@@ -439,6 +439,24 @@ jobs:
           fi
         done
 
+    - name: Validate refreshed token exports exist
+      run: |
+        set -euo pipefail
+        if [ ! -s tests/e2e/.auth/tokens.env ]; then
+          echo 'Missing tests/e2e/.auth/tokens.env from refresh step.'
+          exit 1
+        fi
+
+        source tests/e2e/.auth/tokens.env
+
+        for var in PW_ADMIN_TOKEN PW_EVENT_CREATOR_TOKEN PW_MEMBER_TOKEN; do
+          val="${!var:-}"
+          if [ -z "$val" ]; then
+            echo "Missing refreshed token export: $var"
+            exit 1
+          fi
+        done
+
     - name: Upload debug screenshots on auth failure
       if: ${{ failure() }}
       uses: actions/upload-artifact@v5
@@ -461,7 +479,9 @@ jobs:
   e2e_api_notification_lifecycle:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: build
+    needs:
+      - build
+      - e2e_refresh_auth_state
     permissions:
       contents: read
     if: ${{ ((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) || github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.run_full_e2e == 'true')) && vars.E2E_API_BASE_URL != '' && vars.E2E_APP_URL != '' }}
@@ -479,14 +499,22 @@ jobs:
     - name: Install Playwright dependencies
       run: npm ci
 
+    - name: Download Playwright auth state
+      uses: actions/download-artifact@v5
+      with:
+        name: playwright-auth-state-${{ github.run_id }}
+        path: tests/e2e/.auth
+
     - name: Run API notification lifecycle e2e
       env:
         E2E_API_BASE_URL: ${{ vars.E2E_API_BASE_URL }}
-        PW_ADMIN_TOKEN: ${{ secrets.PW_ADMIN_TOKEN }}
         PW_WORKERS: '3'
         PW_RETRIES: '0'
         PW_MAX_FAILURES: '2'
-      run: npx playwright test tests/e2e/api-notification-lifecycle.spec.ts --workers=3 --max-failures=2
+      run: |
+        set -euo pipefail
+        source tests/e2e/.auth/tokens.env
+        npx playwright test tests/e2e/api-notification-lifecycle.spec.ts --workers=3 --max-failures=2
 
     - name: Upload Playwright artifacts on failure
       if: ${{ failure() || cancelled() }}
@@ -557,6 +585,11 @@ jobs:
       env:
         E2E_API_BASE_URL: ${{ vars.E2E_API_BASE_URL }}
         E2E_APP_URL: ${{ vars.E2E_APP_URL }}
+        E2E_AUTH_VARIANT_A_ENABLED: '1'
+        E2E_AUTH_M2M_TENANT_ID: ${{ vars.AZURE_EXTERNAL_TENANT_ID }}
+        E2E_AUTH_M2M_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+        E2E_AUTH_M2M_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+        E2E_AUTH_M2M_SCOPE: ${{ vars.VITE_API_SCOPE }}
         PW_ADMIN_USER: ${{ secrets.PW_ADMIN_USER }}
         PW_ADMIN_PASS: ${{ secrets.PW_ADMIN_PASS }}
         PW_EVENT_CREATOR_USER: ${{ secrets.PW_EVENT_CREATOR_USER }}
@@ -635,6 +668,11 @@ jobs:
     - name: Run browser persona matrix
       env:
         E2E_APP_URL: ${{ vars.E2E_APP_URL }}
+        E2E_AUTH_VARIANT_A_ENABLED: '1'
+        E2E_AUTH_M2M_TENANT_ID: ${{ vars.AZURE_EXTERNAL_TENANT_ID }}
+        E2E_AUTH_M2M_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+        E2E_AUTH_M2M_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+        E2E_AUTH_M2M_SCOPE: ${{ vars.VITE_API_SCOPE }}
         PW_ADMIN_USER: ${{ secrets.PW_ADMIN_USER }}
         PW_ADMIN_PASS: ${{ secrets.PW_ADMIN_PASS }}
         PW_EVENT_CREATOR_USER: ${{ secrets.PW_EVENT_CREATOR_USER }}
@@ -684,6 +722,7 @@ jobs:
       run: npm ci
 
     - name: Install Playwright Chromium
+      timeout-minutes: 15
       run: npx playwright install --with-deps chromium
 
     - name: Download Playwright auth state
@@ -696,6 +735,11 @@ jobs:
       env:
         E2E_APP_URL: ${{ vars.E2E_APP_URL }}
         E2E_API_BASE_URL: ${{ vars.E2E_API_BASE_URL }}
+        E2E_AUTH_VARIANT_A_ENABLED: '1'
+        E2E_AUTH_M2M_TENANT_ID: ${{ vars.AZURE_EXTERNAL_TENANT_ID }}
+        E2E_AUTH_M2M_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+        E2E_AUTH_M2M_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+        E2E_AUTH_M2M_SCOPE: ${{ vars.VITE_API_SCOPE }}
         PW_MEMBER_USER: ${{ secrets.PW_MEMBER_USER }}
         PW_MEMBER_PASS: ${{ secrets.PW_MEMBER_PASS }}
         PW_WORKERS: '3'

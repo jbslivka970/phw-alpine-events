@@ -105,8 +105,6 @@ test.describe('Browser role flows (credential login)', () => {
       // Falls back to credential popup login if storageState is empty or tokens are expired.
       test.use({ storageState: account.statePath });
 
-  test.skip(!localE2EAuthEnabled && !variantAEnabled, `${account.label}: E2E_LOCAL_AUTH_ENABLED or E2E_AUTH_VARIANT_A_ENABLED is required.`);
-
       test('preferences page loads without GUID/500 errors', async ({ page }) => {
 
         const memberDetailIds: string[] = [];

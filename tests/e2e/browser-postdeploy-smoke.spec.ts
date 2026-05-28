@@ -57,7 +57,6 @@ test.describe('Post-deploy browser smoke (member)', () => {
 
   test('dashboard, events RSVP, and TAVF preference flow', async ({ browser }) => {
     test.setTimeout(210_000);
-    test.skip(!localE2EAuthEnabled && !variantAEnabled, 'E2E_LOCAL_AUTH_ENABLED or E2E_AUTH_VARIANT_A_ENABLED is required.');
 
     // Load pre-captured MSAL v5 browser storage state from the refresh job so
     // ensureMemberAuthenticatedSession can skip popup login when tokens are valid.

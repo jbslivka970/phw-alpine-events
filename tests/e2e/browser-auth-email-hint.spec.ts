@@ -256,7 +256,7 @@ test.describe('Auth Email Hint Regression', () => {
       }
     });
 
-    test.skip(!idTokenEmail, 'id_token email claim is required for this regression check.');
+    expect(idTokenEmail, 'id_token email claim is required for this regression check.').toBeTruthy();
 
     let capturedHeader: string | null = null;
     const onRequest = (request: Request) => {

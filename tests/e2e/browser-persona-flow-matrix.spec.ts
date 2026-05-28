@@ -107,8 +107,6 @@ test.describe('Browser persona flow matrix', () => {
       // Falls back to credential popup login if storageState is empty or tokens are expired.
       test.use({ storageState: persona.statePath });
 
-  test.skip(!localE2EAuthEnabled && !variantAEnabled, `${persona.label}: E2E_LOCAL_AUTH_ENABLED or E2E_AUTH_VARIANT_A_ENABLED is required.`);
-
       test('base protected routes stay authenticated', async ({ page }) => {
         await seedLocalAuthRole(page, persona.label);
         const isAuthenticated = await ensureAuthenticatedSession(page, persona);
