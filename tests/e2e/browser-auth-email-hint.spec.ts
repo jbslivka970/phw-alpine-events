@@ -6,9 +6,85 @@ const memberPassword = (process.env.PW_MEMBER_PASS ?? '').trim();
 const memberStatePath = 'tests/e2e/.auth/member.json';
 const authStepMaxAttempts = 60;
 const authStepSleepMs = 800;
+const headerSafeAsciiRegex = /^[\x20-\x7e]+$/;
 
 async function sleep(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function normalizeEmailHintValue(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  return normalized.length > 0 ? normalized : null;
+}
+
+function isSyntheticTenantPrincipalEmail(value: string): boolean {
+  return /#ext#@/i.test(value);
+}
+
+function isHeaderSafeAscii(value: string): boolean {
+  return headerSafeAsciiRegex.test(value);
+}
+
+function isUsableEmailHint(value: string | null): value is string {
+  return Boolean(
+    value
+    && value.includes('@')
+    && !isSyntheticTenantPrincipalEmail(value)
+    && isHeaderSafeAscii(value),
+  );
+}
+
+function firstNormalizedEmailValue(value: unknown): string | null {
+  if (typeof value === 'string') {
+    const normalized = normalizeEmailHintValue(value);
+    return isUsableEmailHint(normalized) ? normalized : null;
+  }
+
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      const resolved = firstNormalizedEmailValue(entry);
+      if (resolved) {
+        return resolved;
+      }
+    }
+  }
+
+  return null;
+}
+
+function resolveExpectedEmailHint(claims: Record<string, unknown>, fallbackUsername: string): string | null {
+  for (const key of ['email', 'preferred_username', 'upn', 'emails', 'otherMails']) {
+    const resolved = firstNormalizedEmailValue(claims[key]);
+    if (resolved) {
+      return resolved;
+    }
+  }
+
+  const signInNames = claims.signInNames;
+  if (signInNames && typeof signInNames === 'object') {
+    const emailAddress = firstNormalizedEmailValue((signInNames as Record<string, unknown>).emailAddress);
+    if (emailAddress) {
+      return emailAddress;
+    }
+  }
+
+  for (const [key, value] of Object.entries(claims)) {
+    if (!/email/i.test(key)) {
+      continue;
+    }
+
+    const resolved = firstNormalizedEmailValue(value);
+    if (resolved) {
+      return resolved;
+    }
+  }
+
+  const fallback = normalizeEmailHintValue(fallbackUsername);
+  return isUsableEmailHint(fallback) ? fallback : null;
 }
 
 function scopes(page: Page): Array<Page | Frame> {
@@ -235,39 +311,44 @@ test.describe('Auth Email Hint Regression', () => {
 
     await expect(page).not.toHaveURL(/\/login(\?|$)/i, { timeout: 15_000 });
 
-    const idTokenEmail = await page.evaluate(() => {
+    const idTokenClaims = await page.evaluate(() => {
       const keys = Object.keys(window.localStorage);
-      const idTokenKey = keys.find((key) => key.toLowerCase().includes('idtoken'));
-      if (!idTokenKey) {
+      const idTokenKeys = keys.filter((key) => key.toLowerCase().includes('idtoken'));
+      if (idTokenKeys.length === 0) {
         return null;
       }
 
-      try {
-        const raw = window.localStorage.getItem(idTokenKey);
-        if (!raw) {
-          return null;
-        }
-        const parsed = JSON.parse(raw) as { secret?: string };
-        const jwt = parsed.secret;
-        if (!jwt || jwt.split('.').length !== 3) {
-          return null;
-        }
+      for (const idTokenKey of idTokenKeys) {
+        try {
+          const raw = window.localStorage.getItem(idTokenKey);
+          if (!raw) {
+            continue;
+          }
 
-        const payloadPart = jwt.split('.')[1]?.replace(/-/g, '+').replace(/_/g, '/');
-        if (!payloadPart) {
-          return null;
-        }
+          const parsed = JSON.parse(raw) as { secret?: string };
+          const jwt = parsed.secret;
+          if (!jwt || jwt.split('.').length !== 3) {
+            continue;
+          }
 
-        const padded = payloadPart + '='.repeat((4 - (payloadPart.length % 4)) % 4);
-        const claims = JSON.parse(atob(padded)) as Record<string, unknown>;
-        const email = typeof claims.email === 'string' ? claims.email.trim().toLowerCase() : null;
-        return email && email.includes('@') ? email : null;
-      } catch {
-        return null;
+          const payloadPart = jwt.split('.')[1]?.replace(/-/g, '+').replace(/_/g, '/');
+          if (!payloadPart) {
+            continue;
+          }
+
+          const padded = payloadPart + '='.repeat((4 - (payloadPart.length % 4)) % 4);
+          return JSON.parse(atob(padded)) as Record<string, unknown>;
+        } catch {
+          // Try the next id_token entry if this one cannot be decoded.
+        }
       }
+
+      return null;
     });
 
-    expect(idTokenEmail, 'id_token email claim is required for this regression check.').toBeTruthy();
+    const expectedEmailHint = resolveExpectedEmailHint(idTokenClaims ?? {}, memberUsername);
+    expect(expectedEmailHint, 'a usable email hint should be derivable from id_token claims or member username fallback.').toBeTruthy();
+    const expectedHeaderValue = expectedEmailHint as string;
 
     let capturedHeader: string | null = null;
     const onRequest = (request: Request) => {
@@ -292,6 +373,6 @@ test.describe('Auth Email Hint Regression', () => {
     page.off('request', onRequest);
 
     expect(capturedHeader, 'frontend should send X-Id-Token-Email on API calls').toBeTruthy();
-    expect(capturedHeader).toBe(idTokenEmail);
+    expect(capturedHeader).toBe(expectedHeaderValue);
   });
 });

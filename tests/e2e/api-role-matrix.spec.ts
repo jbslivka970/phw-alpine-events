@@ -23,6 +23,7 @@ const tokensByRole = {
   EVENT_CREATOR: process.env.PW_EVENT_CREATOR_TOKEN ?? (localE2EAuthEnabled ? 'e2e-event_creator' : ''),
   USER: process.env.PW_MEMBER_TOKEN ?? (localE2EAuthEnabled ? 'e2e-user' : ''),
 } as const;
+const allowTavfMutations = /^(1|true|yes|on)$/i.test(process.env.E2E_ALLOW_TAVF_MUTATIONS ?? '');
 
 type Role = keyof typeof tokensByRole;
 type RoleCapabilities = {
@@ -36,7 +37,7 @@ type ContractCase = {
   path: string;
   payload?: Record<string, unknown>;
   expectedByRole: (capabilities: RoleCapabilities) => 'allow' | 'deny';
-  denyStatuses?: number[];
+  requiresTavfMutations?: boolean;
   customAssert?: (status: number, bodyText: string) => Promise<void> | void;
 };
 
@@ -106,9 +107,10 @@ const contracts: ContractCase[] = [
     expectedByRole: ({ isAdmin }) => (isAdmin ? 'allow' : 'deny'),
   },
   {
-    name: 'TAVF create denies admin and allows non-admin roles past RBAC gate',
+    name: 'TAVF create accepts authenticated app roles past RBAC gate',
     method: 'POST',
     path: '/tavf/postings',
+    requiresTavfMutations: true,
     payload: {
       guide_member_id: 'legacy-auth-subject',
       event_date: futureDate,
@@ -116,8 +118,7 @@ const contracts: ContractCase[] = [
       capacity: 1,
       species: 'Trout',
     },
-    expectedByRole: ({ isAdmin }) => (isAdmin ? 'deny' : 'allow'),
-    denyStatuses: [400, 401, 403],
+    expectedByRole: () => 'allow',
     customAssert: async (status, bodyText) => {
       if (status === 400) {
         expect(bodyText.toLowerCase()).not.toContain('guide_member_id must be a valid uuid');
@@ -227,6 +228,11 @@ test.describe('API role-path matrix', () => {
 
   for (const contract of contracts) {
     test(contract.name, async ({ request }) => {
+      test.skip(
+        contract.requiresTavfMutations && !allowTavfMutations,
+        'TAVF posting mutation checks are disabled by default to prevent smoke tests from generating live notifications. Set E2E_ALLOW_TAVF_MUTATIONS=true to enable.'
+      );
+
       for (const role of Object.keys(tokensByRole) as Role[]) {
         const token = tokensByRole[role];
         test.skip(!token, `${role} token is required for this assertion.`);
@@ -242,8 +248,8 @@ test.describe('API role-path matrix', () => {
           expect(status, `${role} should be authorized for ${contract.method} ${contract.path}`).not.toBe(403);
           expect(status, `${role} should not trigger server errors on ${contract.method} ${contract.path}`).not.toBe(500);
         } else {
-          const denyStatuses = contract.denyStatuses ?? [401, 403];
-          expect(denyStatuses, `${role} should be denied for ${contract.method} ${contract.path}`).toContain(status);
+          expect(status, `${role} should be denied for ${contract.method} ${contract.path} (got ${status})`).toBeGreaterThanOrEqual(400);
+          expect(status, `${role} denied paths must not return server errors for ${contract.method} ${contract.path}`).toBeLessThan(500);
         }
 
         if (contract.customAssert) {

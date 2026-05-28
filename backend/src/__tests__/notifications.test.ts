@@ -179,6 +179,80 @@ describe('notifications service', () => {
     }));
   });
 
+  it('blocks test-traffic email sends', async () => {
+    const mockEmail = { sendEmail: jest.fn().mockResolvedValue(undefined) };
+    const mockSms = { sendSms: jest.fn().mockResolvedValue(undefined) };
+    const service = new NotificationService(mockEmail, mockSms, true, true);
+
+    const logSpy = jest
+      .spyOn(service as unknown as { writeNotificationLog: (...args: unknown[]) => Promise<void> }, 'writeNotificationLog')
+      .mockResolvedValue(undefined);
+
+    await service.sendEmail({
+      to: 'member@example.com',
+      subject: 'New TAVF opportunity: Playwright Smoke River',
+      htmlBody: '<p>Playwright Smoke River</p>',
+      textBody: 'Playwright Smoke River',
+      operationType: 'tavf_new_posting',
+    });
+
+    expect(mockEmail.sendEmail).not.toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith(expect.objectContaining({
+      channel: 'email',
+      status: 'skipped',
+      operationType: 'tavf_new_posting',
+      operationReason: expect.stringContaining('blocked:test_traffic_email_guard'),
+    }));
+  });
+
+  it('blocks test-traffic SMS for non-allowlisted phone numbers', async () => {
+    const mockEmail = { sendEmail: jest.fn().mockResolvedValue(undefined) };
+    const mockSms = { sendSms: jest.fn().mockResolvedValue('provider-457') };
+    const service = new NotificationService(mockEmail, mockSms, true, true);
+
+    const logSpy = jest
+      .spyOn(service as unknown as { writeNotificationLog: (...args: unknown[]) => Promise<void> }, 'writeNotificationLog')
+      .mockResolvedValue(undefined);
+
+    await service.sendSms({
+      to: '+13035550002',
+      message: 'PHW Alpine TAVF Playwright Smoke River',
+      operationType: 'tavf_new_posting',
+    });
+
+    expect(mockSms.sendSms).not.toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith(expect.objectContaining({
+      channel: 'sms',
+      status: 'skipped',
+      operationType: 'tavf_new_posting',
+      operationReason: expect.stringContaining('blocked:test_traffic_sms_allowlist'),
+    }));
+  });
+
+  it('allows test-traffic SMS for the allowlisted phone number', async () => {
+    const mockEmail = { sendEmail: jest.fn().mockResolvedValue(undefined) };
+    const mockSms = { sendSms: jest.fn().mockResolvedValue('provider-458') };
+    const service = new NotificationService(mockEmail, mockSms, true, true);
+
+    const logSpy = jest
+      .spyOn(service as unknown as { writeNotificationLog: (...args: unknown[]) => Promise<void> }, 'writeNotificationLog')
+      .mockResolvedValue(undefined);
+
+    await service.sendSms({
+      to: '+19704180120',
+      message: 'PHW Alpine TAVF Playwright Smoke River',
+      operationType: 'tavf_new_posting',
+    });
+
+    expect(mockSms.sendSms).toHaveBeenCalledTimes(1);
+    expect(logSpy).toHaveBeenCalledWith(expect.objectContaining({
+      channel: 'sms',
+      status: 'sent',
+      operationType: 'tavf_new_posting',
+      providerId: 'provider-458',
+    }));
+  });
+
   it('sendEmail logs failed when provider send throws', async () => {
     const mockEmail = { sendEmail: jest.fn().mockRejectedValue(new Error('smtp down')) };
     const mockSms = { sendSms: jest.fn().mockResolvedValue(undefined) };

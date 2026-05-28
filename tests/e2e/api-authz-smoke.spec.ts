@@ -37,6 +37,7 @@ function resolveBase(): string {
 
 const apiBase = resolveBase();
 const localMode = /^(1|true|yes|on)$/i.test(process.env.E2E_LOCAL_AUTH_ENABLED ?? '');
+const allowTavfMutations = /^(1|true|yes|on)$/i.test(process.env.E2E_ALLOW_TAVF_MUTATIONS ?? '');
 
 const tokens = {
   admin:        process.env.PW_ADMIN_TOKEN        ?? (localMode ? 'e2e-admin'         : ''),
@@ -188,12 +189,14 @@ test.describe('API authz smoke', () => {
   };
 
   test('TAVF posting creation is denied for admin role', async ({ request }) => {
+    test.skip(!allowTavfMutations, 'TAVF posting mutation smoke checks are disabled by default to prevent live notifications. Set E2E_ALLOW_TAVF_MUTATIONS=true to enable.');
     test.skip(!tokens.admin, 'admin token is required.');
     const { status } = await post(request, '/tavf/postings', tokens.admin, tavfPayload);
     expect([401, 403], 'admin should be excluded from TAVF posting creation').toContain(status);
   });
 
   test('TAVF posting creation is allowed for event_creator and member', async ({ request }) => {
+    test.skip(!allowTavfMutations, 'TAVF posting mutation smoke checks are disabled by default to prevent live notifications. Set E2E_ALLOW_TAVF_MUTATIONS=true to enable.');
     for (const [label, token] of [['event_creator', tokens.eventCreator], ['member', tokens.member]] as const) {
       test.skip(!token, `${label} token is required.`);
       const { status, body } = await post(request, '/tavf/postings', token, tavfPayload);

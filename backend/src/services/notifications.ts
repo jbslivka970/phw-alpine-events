@@ -263,6 +263,62 @@ function resolveReplyToAddress(): string | undefined {
   return normalizeSingleEmail(process.env['AUTH_DIAGNOSTICS_EMAIL']);
 }
 
+const DEFAULT_TEST_SMS_ALLOWLIST = '9704180120';
+const TEST_TRAFFIC_MARKER_REGEX = /(playwright|smoke river|authz smoke|contract probe|\be2e\b)/i;
+
+function normalizePhoneForGuard(value: string): string {
+  const digits = value.replace(/\D+/g, '');
+  if (digits.length === 11 && digits.startsWith('1')) {
+    return digits.slice(1);
+  }
+  return digits;
+}
+
+function parseSmsAllowlist(raw: string | undefined): Set<string> {
+  const source = (raw ?? DEFAULT_TEST_SMS_ALLOWLIST).trim();
+  if (!source) {
+    return new Set();
+  }
+
+  const values = source
+    .split(/[\s,;|]+/)
+    .map((value) => normalizePhoneForGuard(value))
+    .filter((value) => value.length >= 10);
+  return new Set(values);
+}
+
+const testSmsAllowlist = parseSmsAllowlist(
+  process.env['TEST_NOTIFICATION_SMS_ALLOWLIST']
+  ?? process.env['E2E_TEST_SMS_ALLOWLIST']
+  ?? process.env['SMS_TEST_ALLOWLIST']
+);
+
+function isAllowedTestSmsRecipient(phoneNumber: string): boolean {
+  const normalized = normalizePhoneForGuard(phoneNumber);
+  return normalized.length > 0 && testSmsAllowlist.has(normalized);
+}
+
+function appendOperationReason(base: string | undefined, suffix: string): string {
+  const merged = base ? `${base}; ${suffix}` : suffix;
+  return merged.length > 500 ? merged.slice(0, 500) : merged;
+}
+
+function isLikelyTestTraffic(operationType: string | undefined, fragments: Array<string | undefined>): boolean {
+  const operation = (operationType ?? '').toLowerCase();
+  if (!operation.includes('tavf') && !operation.includes('smoke') && !operation.includes('e2e') && !operation.includes('test')) {
+    return false;
+  }
+
+  if (TEST_TRAFFIC_MARKER_REGEX.test(operation)) {
+    return true;
+  }
+
+  const content = fragments
+    .filter((fragment): fragment is string => typeof fragment === 'string' && fragment.trim().length > 0)
+    .join(' ');
+  return TEST_TRAFFIC_MARKER_REGEX.test(content);
+}
+
 class AcsSmsService implements ISmsService {
   private readonly client: SmsClient;
 
@@ -388,6 +444,20 @@ class NotificationService {
   ) {}
 
   async sendEmail(options: SendEmailOptions): Promise<void> {
+    if (isLikelyTestTraffic(options.operationType, [options.subject, options.textBody, options.htmlBody, options.operationReason])) {
+      await this.writeNotificationLog({
+        channel: 'email',
+        recipient: options.to,
+        status: 'skipped',
+        eventId: options.eventId,
+        memberId: options.memberId,
+        templateId: options.templateId,
+        operationType: options.operationType,
+        operationReason: appendOperationReason(options.operationReason, 'blocked:test_traffic_email_guard'),
+      });
+      return;
+    }
+
     let status: NotificationStatus = this.isRealEmailService ? 'sent' : 'stubbed';
     let errorMessage: string | undefined;
     let providerId: string | undefined;
@@ -444,6 +514,20 @@ class NotificationService {
     const normalizedMessage = truncateSms(options.message);
     if (normalizedMessage !== options.message) {
       console.warn('[NotificationService] SMS exceeded max length and was compacted before send.');
+    }
+
+    if (isLikelyTestTraffic(options.operationType, [options.message, options.operationReason]) && !isAllowedTestSmsRecipient(options.to)) {
+      await this.writeNotificationLog({
+        channel: 'sms',
+        recipient: options.to,
+        status: 'skipped',
+        eventId: options.eventId,
+        memberId: options.memberId,
+        templateId: options.templateId,
+        operationType: options.operationType,
+        operationReason: appendOperationReason(options.operationReason, 'blocked:test_traffic_sms_allowlist'),
+      });
+      return;
     }
 
     if (options.memberId && !options.bypassOptInCheck) {

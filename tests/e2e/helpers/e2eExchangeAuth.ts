@@ -9,7 +9,7 @@ type ExchangeResponse = {
   roles?: string[];
 };
 
-let cachedMachineToken: { token: string; expiresAtMs: number } | null = null;
+const cachedMachineTokens = new Map<string, { token: string; expiresAtMs: number }>();
 
 function variantAEnabled(): boolean {
   return /^(1|true|yes|on)$/i.test(process.env.E2E_AUTH_VARIANT_A_ENABLED ?? '');
@@ -34,18 +34,34 @@ function resolveExchangeUrl(): string {
   return apiBase ? `${apiBase}/auth/e2e/exchange` : '';
 }
 
-function resolveMachineTokenUrl(): string {
+function resolveMachineTokenUrls(): string[] {
   const explicit = (process.env.E2E_AUTH_M2M_TOKEN_URL ?? '').trim();
   if (explicit) {
-    return explicit;
+    return [explicit];
   }
 
   const tenantId = (process.env.E2E_AUTH_M2M_TENANT_ID ?? '').trim();
-  if (!tenantId) {
-    return '';
+  const authorityHost = (
+    process.env.E2E_AUTH_M2M_AUTHORITY_HOST
+    ?? process.env.AZURE_AUTHORITY_HOST
+    ?? ''
+  ).trim();
+  const tenantName = (
+    process.env.E2E_AUTH_M2M_TENANT_NAME
+    ?? process.env.AZURE_EXTERNAL_TENANT_NAME
+    ?? ''
+  ).trim();
+
+  const candidates: string[] = [];
+  if (tenantId && tenantName && authorityHost && /ciamlogin/i.test(authorityHost)) {
+    candidates.push(`https://${tenantName}.${authorityHost}/${tenantId}/oauth2/v2.0/token`);
   }
 
-  return `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`;
+  if (tenantId) {
+    candidates.push(`https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`);
+  }
+
+  return Array.from(new Set(candidates));
 }
 
 function normalizeMachineScope(rawScope: string, clientId: string): string {
@@ -103,26 +119,12 @@ function resolveRole(roles: string[] | undefined, fallback: PersonaLabel): strin
   return 'USER';
 }
 
-async function acquireMachineToken(): Promise<string> {
-  const now = Date.now();
-  if (cachedMachineToken && cachedMachineToken.expiresAtMs - now > 60_000) {
-    return cachedMachineToken.token;
-  }
-
-  const tokenUrl = resolveMachineTokenUrl();
-  const clientId = (process.env.E2E_AUTH_M2M_CLIENT_ID ?? '').trim();
-  const clientSecret = (process.env.E2E_AUTH_M2M_CLIENT_SECRET ?? '').trim();
-  const requestedScope = (process.env.E2E_AUTH_M2M_SCOPE ?? '').trim();
-  const scope = normalizeMachineScope(requestedScope, clientId);
-
-  if (!tokenUrl || !clientId || !clientSecret || !scope) {
-    throw new Error('Variant A machine-token env is incomplete (token URL/client ID/client secret/scope).');
-  }
-
-  if (!/\/\.default$/i.test(scope)) {
-    throw new Error(`Variant A machine-token scope must end with '/.default'. Received: ${requestedScope}`);
-  }
-
+async function requestMachineToken(
+  tokenUrl: string,
+  clientId: string,
+  clientSecret: string,
+  scope: string,
+): Promise<{ token: string; expiresAtMs: number }> {
   const body = new URLSearchParams({
     grant_type: 'client_credentials',
     client_id: clientId,
@@ -138,21 +140,65 @@ async function acquireMachineToken(): Promise<string> {
 
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(`Variant A machine-token request failed (${response.status}): ${text.slice(0, 300)}`);
+    throw new Error(`[${tokenUrl}] ${response.status}: ${text.slice(0, 300)}`);
   }
 
   const payload = (await response.json()) as { access_token?: string; expires_in?: number };
   if (!payload.access_token) {
-    throw new Error('Variant A machine-token response missing access_token.');
+    throw new Error(`[${tokenUrl}] machine-token response missing access_token.`);
   }
 
+  const now = Date.now();
   const expiresIn = Number.isFinite(payload.expires_in) ? Number(payload.expires_in) : 3600;
-  cachedMachineToken = {
+  return {
     token: payload.access_token,
     expiresAtMs: now + Math.max(60, expiresIn) * 1000,
   };
+}
 
-  return payload.access_token;
+async function acquireMachineToken(tokenUrl?: string): Promise<{ token: string; tokenUrl: string }> {
+  const candidateUrls = tokenUrl ? [tokenUrl] : resolveMachineTokenUrls();
+  if (candidateUrls.length === 0) {
+    throw new Error('Variant A machine-token URL could not be resolved.');
+  }
+
+  const clientId = (process.env.E2E_AUTH_M2M_CLIENT_ID ?? '').trim();
+  const clientSecret = (process.env.E2E_AUTH_M2M_CLIENT_SECRET ?? '').trim();
+  const requestedScope = (process.env.E2E_AUTH_M2M_SCOPE ?? '').trim();
+  const scope = normalizeMachineScope(requestedScope, clientId);
+
+  if (!clientId || !clientSecret || !scope) {
+    throw new Error('Variant A machine-token env is incomplete (token URL/client ID/client secret/scope).');
+  }
+
+  if (!/\/\.default$/i.test(scope)) {
+    throw new Error(`Variant A machine-token scope must end with '/.default'. Received: ${requestedScope}`);
+  }
+
+  const now = Date.now();
+  for (const candidateUrl of candidateUrls) {
+    const cached = cachedMachineTokens.get(candidateUrl);
+    if (cached && cached.expiresAtMs - now > 60_000) {
+      return { token: cached.token, tokenUrl: candidateUrl };
+    }
+  }
+
+  const failures: string[] = [];
+  for (const candidateUrl of candidateUrls) {
+    try {
+      const issued = await requestMachineToken(candidateUrl, clientId, clientSecret, scope);
+      cachedMachineTokens.set(candidateUrl, issued);
+      return { token: issued.token, tokenUrl: candidateUrl };
+    } catch (error) {
+      failures.push(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  throw new Error(`Variant A machine-token request failed: ${failures.join(' | ')}`);
+}
+
+function clearCachedMachineToken(tokenUrl: string): void {
+  cachedMachineTokens.delete(tokenUrl);
 }
 
 async function exchangePersonaToken(persona: PersonaLabel): Promise<ExchangeResponse> {
@@ -161,27 +207,49 @@ async function exchangePersonaToken(persona: PersonaLabel): Promise<ExchangeResp
     throw new Error('Variant A exchange URL is not configured.');
   }
 
-  const machineToken = await acquireMachineToken();
-  const response = await fetch(exchangeUrl, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${machineToken}`,
-    },
-    body: JSON.stringify({ persona }),
-  });
+  const tokenUrls = resolveMachineTokenUrls();
+  if (tokenUrls.length === 0) {
+    throw new Error('Variant A machine-token URL is not configured.');
+  }
 
-  if (!response.ok) {
+  let lastInvalidTokenError = '';
+
+  for (const tokenUrl of tokenUrls) {
+    const machineTokenResult = await acquireMachineToken(tokenUrl);
+    const response = await fetch(exchangeUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${machineTokenResult.token}`,
+      },
+      body: JSON.stringify({ persona }),
+    });
+
+    if (response.ok) {
+      const payload = (await response.json()) as ExchangeResponse;
+      if (!payload.access_token) {
+        throw new Error('Variant A exchange response missing access_token.');
+      }
+
+      return payload;
+    }
+
     const text = await response.text();
+    const invalidMachineToken = response.status === 401 && /invalid or expired machine token/i.test(text);
+    if (invalidMachineToken) {
+      clearCachedMachineToken(machineTokenResult.tokenUrl);
+      lastInvalidTokenError = `[${machineTokenResult.tokenUrl}] ${response.status}: ${text.slice(0, 300)}`;
+      continue;
+    }
+
     throw new Error(`Variant A exchange failed (${response.status}): ${text.slice(0, 300)}`);
   }
 
-  const payload = (await response.json()) as ExchangeResponse;
-  if (!payload.access_token) {
-    throw new Error('Variant A exchange response missing access_token.');
+  if (lastInvalidTokenError) {
+    throw new Error(`Variant A exchange failed due to invalid machine token across all token endpoints: ${lastInvalidTokenError}`);
   }
 
-  return payload;
+  throw new Error('Variant A exchange failed: no machine-token endpoint succeeded.');
 }
 
 export async function authenticateWithVariantA(
