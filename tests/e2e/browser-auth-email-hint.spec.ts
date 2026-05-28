@@ -3,6 +3,7 @@ import { expect, test, type Frame, type Page, type Request } from '@playwright/t
 const appBaseUrl = (process.env.E2E_APP_URL ?? '').trim().replace(/\/$/, '');
 const memberUsername = (process.env.PW_MEMBER_USER ?? '').trim();
 const memberPassword = (process.env.PW_MEMBER_PASS ?? '').trim();
+const memberStatePath = 'tests/e2e/.auth/member.json';
 const authStepMaxAttempts = 60;
 const authStepSleepMs = 800;
 
@@ -217,12 +218,22 @@ async function loginWithCredentials(page: Page, username: string, password: stri
 
 test.describe('Auth Email Hint Regression', () => {
   test.setTimeout(120_000);
+  test.use({ storageState: memberStatePath });
 
   test.skip(!appBaseUrl, 'E2E_APP_URL is required.');
-  test.skip(!memberUsername || !memberPassword, 'PW_MEMBER_USER and PW_MEMBER_PASS are required.');
 
   test('sends id token email in X-Id-Token-Email header', async ({ page }) => {
-    await loginWithCredentials(page, memberUsername, memberPassword);
+    await page.goto(`${appBaseUrl}/dashboard`, { waitUntil: 'domcontentloaded' }).catch(() => {});
+
+    if (/\/login(\?|$)/i.test(page.url())) {
+      if (!memberUsername || !memberPassword) {
+        throw new Error('member storage state is unauthenticated and PW_MEMBER_USER/PW_MEMBER_PASS fallback credentials are not configured.');
+      }
+
+      await loginWithCredentials(page, memberUsername, memberPassword);
+    }
+
+    await expect(page).not.toHaveURL(/\/login(\?|$)/i, { timeout: 15_000 });
 
     const idTokenEmail = await page.evaluate(() => {
       const keys = Object.keys(window.localStorage);

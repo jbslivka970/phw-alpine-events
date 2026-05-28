@@ -80,10 +80,52 @@ jobs:
     - name: Test backend
       run: cd backend && npm run test:ci
 
+  e2e_auth_preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: build
+    permissions:
+      contents: read
+    if: ${{ ((github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))) || github.event_name == 'release' || github.event_name == 'workflow_dispatch') && vars.E2E_API_BASE_URL != '' && vars.E2E_APP_URL != '' }}
+
+    steps:
+    - uses: actions/checkout@v5
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v5
+      with:
+        node-version: '24'
+
+    - name: Validate auth preflight env
+      env:
+        E2E_REQUIRE_ROPC: '1'
+        E2E_VALIDATE_VARIANT_A: ${{ github.event_name == 'release' || startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && github.event.inputs.run_full_e2e == 'true') }}
+        E2E_APP_URL: ${{ vars.E2E_APP_URL }}
+        E2E_API_BASE_URL: ${{ vars.E2E_API_BASE_URL }}
+        AZURE_B2C_ROPC_POLICY: ${{ vars.AZURE_B2C_ROPC_POLICY }}
+        AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+        AZURE_EXTERNAL_TENANT_NAME: ${{ vars.AZURE_EXTERNAL_TENANT_NAME }}
+        AZURE_EXTERNAL_TENANT_ID: ${{ vars.AZURE_EXTERNAL_TENANT_ID }}
+        AZURE_AUTHORITY_HOST: ${{ vars.AZURE_AUTHORITY_HOST }}
+        VITE_API_SCOPE: ${{ vars.VITE_API_SCOPE }}
+        E2E_AUTH_M2M_TENANT_ID: ${{ vars.AZURE_EXTERNAL_TENANT_ID }}
+        E2E_AUTH_M2M_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+        E2E_AUTH_M2M_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+        E2E_AUTH_M2M_SCOPE: ${{ vars.VITE_API_SCOPE }}
+        PW_ADMIN_USER: ${{ secrets.PW_ADMIN_USER }}
+        PW_ADMIN_PASS: ${{ secrets.PW_ADMIN_PASS }}
+        PW_EVENT_CREATOR_USER: ${{ secrets.PW_EVENT_CREATOR_USER }}
+        PW_EVENT_CREATOR_PASS: ${{ secrets.PW_EVENT_CREATOR_PASS }}
+        PW_MEMBER_USER: ${{ secrets.PW_MEMBER_USER }}
+        PW_MEMBER_PASS: ${{ secrets.PW_MEMBER_PASS }}
+      run: node scripts/ci/check-e2e-auth-preflight.mjs --mode=env
+
   e2e_api_role_matrix:
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    needs: build
+    needs:
+      - build
+      - e2e_refresh_auth_state
     permissions:
       contents: read
     if: ${{ ((github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch') && vars.E2E_API_BASE_URL != '' && vars.E2E_APP_URL != '' }}
@@ -123,27 +165,11 @@ jobs:
           npx playwright install --with-deps chromium
         fi
 
-    - name: Refresh Playwright tokens for API role matrix
-      env:
-        E2E_API_BASE_URL: ${{ vars.E2E_API_BASE_URL }}
-        E2E_APP_URL: ${{ vars.E2E_APP_URL }}
-        PW_TOKEN_ENV_FILE: tests/e2e/.auth/tokens.env
-        PW_REFRESH_ROLE_TIMEOUT_MS: '180000'
-        PW_REFRESH_MAX_ATTEMPTS: '2'
-        AZURE_B2C_ROPC_POLICY: ${{ vars.AZURE_B2C_ROPC_POLICY }}
-        AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
-        AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-        VITE_API_SCOPE: ${{ vars.VITE_API_SCOPE }}
-        AZURE_EXTERNAL_TENANT_NAME: ${{ vars.AZURE_EXTERNAL_TENANT_NAME }}
-        AZURE_EXTERNAL_TENANT_ID: ${{ vars.AZURE_EXTERNAL_TENANT_ID }}
-        AZURE_AUTHORITY_HOST: ${{ vars.AZURE_AUTHORITY_HOST }}
-        PW_ADMIN_USER: ${{ secrets.PW_ADMIN_USER }}
-        PW_ADMIN_PASS: ${{ secrets.PW_ADMIN_PASS }}
-        PW_EVENT_CREATOR_USER: ${{ secrets.PW_EVENT_CREATOR_USER }}
-        PW_EVENT_CREATOR_PASS: ${{ secrets.PW_EVENT_CREATOR_PASS }}
-        PW_MEMBER_USER: ${{ secrets.PW_MEMBER_USER }}
-        PW_MEMBER_PASS: ${{ secrets.PW_MEMBER_PASS }}
-      run: npm run e2e:refresh-tokens -- --soft-skip
+    - name: Download Playwright auth state
+      uses: actions/download-artifact@v5
+      with:
+        name: playwright-auth-state-${{ github.run_id }}
+        path: tests/e2e/.auth
 
     - name: Run Playwright API role matrix and event lead lifecycle
       env:
@@ -151,7 +177,10 @@ jobs:
         PW_WORKERS: '3'
         PW_RETRIES: '0'
         PW_MAX_FAILURES: '3'
-      run: npm run test:e2e:role-matrix -- --workers=3 --max-failures=3
+      run: |
+        set -euo pipefail
+        source tests/e2e/.auth/tokens.env
+        npm run test:e2e:role-matrix -- --workers=3 --max-failures=3
 
     - name: Upload Playwright artifacts on failure
       if: ${{ failure() || cancelled() }}
@@ -167,7 +196,9 @@ jobs:
   e2e_browser_auth_email_hint:
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    needs: build
+    needs:
+      - build
+      - e2e_refresh_auth_state
     permissions:
       contents: read
     if: ${{ ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && github.event.inputs.run_full_e2e == 'true')) && vars.E2E_API_BASE_URL != '' && vars.E2E_APP_URL != '' }}
@@ -207,12 +238,19 @@ jobs:
           npx playwright install --with-deps chromium
         fi
 
+    - name: Download Playwright auth state
+      uses: actions/download-artifact@v5
+      with:
+        name: playwright-auth-state-${{ github.run_id }}
+        path: tests/e2e/.auth
+
+    - name: Validate member auth state id_token email claim
+      run: node scripts/ci/check-e2e-auth-preflight.mjs --mode=auth-state --state-path=tests/e2e/.auth/member.json
+
     - name: Run browser auth email-hint regression
       env:
         E2E_APP_URL: ${{ vars.E2E_APP_URL }}
         E2E_API_BASE_URL: ${{ vars.E2E_API_BASE_URL }}
-        PW_MEMBER_USER: ${{ secrets.PW_MEMBER_USER }}
-        PW_MEMBER_PASS: ${{ secrets.PW_MEMBER_PASS }}
       run: npx playwright test tests/e2e/browser-auth-email-hint.spec.ts --workers=1 --max-failures=1
 
     - name: Upload Playwright artifacts on failure
@@ -341,11 +379,13 @@ jobs:
   e2e_refresh_auth_state:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: build
+    needs:
+      - build
+      - e2e_auth_preflight
     permissions:
       contents: read
       actions: write
-    if: ${{ ((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) || github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.run_full_e2e == 'true')) && vars.E2E_API_BASE_URL != '' && vars.E2E_APP_URL != '' }}
+    if: ${{ ((github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))) || github.event_name == 'release' || github.event_name == 'workflow_dispatch') && vars.E2E_API_BASE_URL != '' && vars.E2E_APP_URL != '' }}
 
     steps:
     - uses: actions/checkout@v5
@@ -456,6 +496,9 @@ jobs:
             exit 1
           fi
         done
+
+    - name: Validate member auth state id_token email claim
+      run: node scripts/ci/check-e2e-auth-preflight.mjs --mode=auth-state --state-path=tests/e2e/.auth/member.json
 
     - name: Upload debug screenshots on auth failure
       if: ${{ failure() }}
@@ -668,6 +711,7 @@ jobs:
     - name: Run browser persona matrix
       env:
         E2E_APP_URL: ${{ vars.E2E_APP_URL }}
+        E2E_API_BASE_URL: ${{ vars.E2E_API_BASE_URL }}
         E2E_AUTH_VARIANT_A_ENABLED: '1'
         E2E_AUTH_M2M_TENANT_ID: ${{ vars.AZURE_EXTERNAL_TENANT_ID }}
         E2E_AUTH_M2M_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}

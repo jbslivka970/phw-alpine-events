@@ -48,6 +48,40 @@ function resolveMachineTokenUrl(): string {
   return `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`;
 }
 
+function normalizeMachineScope(rawScope: string, clientId: string): string {
+  const trimmed = rawScope.trim();
+  if (!trimmed) {
+    return '';
+  }
+
+  if (/\/\.default$/i.test(trimmed)) {
+    return trimmed;
+  }
+
+  if (/\/access_as_user$/i.test(trimmed)) {
+    return trimmed.replace(/\/access_as_user$/i, '/.default');
+  }
+
+  if (/^api:\/\/[0-9a-f-]+$/i.test(trimmed)) {
+    return `${trimmed}/.default`;
+  }
+
+  if (/^[0-9a-f-]{36}$/i.test(trimmed)) {
+    return `api://${trimmed}/.default`;
+  }
+
+  if (/^api:\/\/[0-9a-f-]+\/[0-9a-z_\-.]+$/i.test(trimmed)) {
+    const appId = trimmed.split('/')[2];
+    return `api://${appId}/.default`;
+  }
+
+  if (clientId && /^https?:\/\//i.test(trimmed)) {
+    return `${trimmed}/.default`;
+  }
+
+  return trimmed;
+}
+
 function resolveRole(roles: string[] | undefined, fallback: PersonaLabel): string {
   const normalized = (roles ?? []).map((value) => value.trim().toUpperCase());
   if (normalized.includes('ADMIN')) {
@@ -78,10 +112,15 @@ async function acquireMachineToken(): Promise<string> {
   const tokenUrl = resolveMachineTokenUrl();
   const clientId = (process.env.E2E_AUTH_M2M_CLIENT_ID ?? '').trim();
   const clientSecret = (process.env.E2E_AUTH_M2M_CLIENT_SECRET ?? '').trim();
-  const scope = (process.env.E2E_AUTH_M2M_SCOPE ?? '').trim();
+  const requestedScope = (process.env.E2E_AUTH_M2M_SCOPE ?? '').trim();
+  const scope = normalizeMachineScope(requestedScope, clientId);
 
   if (!tokenUrl || !clientId || !clientSecret || !scope) {
     throw new Error('Variant A machine-token env is incomplete (token URL/client ID/client secret/scope).');
+  }
+
+  if (!/\/\.default$/i.test(scope)) {
+    throw new Error(`Variant A machine-token scope must end with '/.default'. Received: ${requestedScope}`);
   }
 
   const body = new URLSearchParams({
