@@ -76,6 +76,13 @@ const ropcEnabled = Boolean(
 
 const appUrl = (process.env.E2E_APP_URL || '').trim().replace(/\/$/, '');
 const authDir = path.resolve(process.cwd(), 'tests/e2e/.auth');
+const appOrigin = (() => {
+  try {
+    return new URL(appUrl).origin;
+  } catch {
+    return appUrl;
+  }
+})();
 
 const roles = [
   {
@@ -707,7 +714,19 @@ async function main() {
           }
           console.warn(`[refresh-playwright-tokens] skipped ${role.name}: ${reason}`);
         } else {
-          console.warn(`[refresh-playwright-tokens] ${role.name}: browser storage capture failed, retaining token-only auth state path: ${reason}`);
+          if (ropcResult && appOrigin) {
+            try {
+              const syntheticState = buildSyntheticStorageState(ropcResult, appOrigin);
+              fs.writeFileSync(role.statePath, JSON.stringify(syntheticState, null, 2), 'utf8');
+              hasBrowserStorageState = true;
+              console.warn(`[refresh-playwright-tokens] ${role.name}: browser storage capture failed; wrote synthetic MSAL storage state fallback: ${reason}`);
+            } catch (writeError) {
+              const writeReason = writeError instanceof Error ? writeError.message : String(writeError);
+              console.warn(`[refresh-playwright-tokens] ${role.name}: failed to write synthetic storage fallback (${writeReason}); retaining token-only auth state path: ${reason}`);
+            }
+          } else {
+            console.warn(`[refresh-playwright-tokens] ${role.name}: browser storage capture failed, retaining token-only auth state path: ${reason}`);
+          }
         }
       }
     }
