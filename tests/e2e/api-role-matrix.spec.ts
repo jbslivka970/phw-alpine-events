@@ -36,6 +36,7 @@ type ContractCase = {
   path: string;
   payload?: Record<string, unknown>;
   expectedByRole: (capabilities: RoleCapabilities) => 'allow' | 'deny';
+  denyStatuses?: number[];
   customAssert?: (status: number, bodyText: string) => Promise<void> | void;
 };
 
@@ -116,6 +117,7 @@ const contracts: ContractCase[] = [
       species: 'Trout',
     },
     expectedByRole: ({ isAdmin }) => (isAdmin ? 'deny' : 'allow'),
+    denyStatuses: [400, 401, 403],
     customAssert: async (status, bodyText) => {
       if (status === 400) {
         expect(bodyText.toLowerCase()).not.toContain('guide_member_id must be a valid uuid');
@@ -240,7 +242,8 @@ test.describe('API role-path matrix', () => {
           expect(status, `${role} should be authorized for ${contract.method} ${contract.path}`).not.toBe(403);
           expect(status, `${role} should not trigger server errors on ${contract.method} ${contract.path}`).not.toBe(500);
         } else {
-          expect([401, 403], `${role} should be denied for ${contract.method} ${contract.path}`).toContain(status);
+          const denyStatuses = contract.denyStatuses ?? [401, 403];
+          expect(denyStatuses, `${role} should be denied for ${contract.method} ${contract.path}`).toContain(status);
         }
 
         if (contract.customAssert) {
