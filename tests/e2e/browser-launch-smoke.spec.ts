@@ -103,21 +103,56 @@ async function appearsAuthenticated(page: Page): Promise<boolean> {
   return !signInVisible;
 }
 
+async function resolveTenantGate(page: Page): Promise<boolean> {
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    const tenantPickerVisible = await page.getByRole('heading', { name: /Select a Program/i }).isVisible().catch(() => false);
+    if (/\/tenant\/select(\?|$)/i.test(page.url()) || tenantPickerVisible) {
+      const useTenantButton = page.getByRole('button', { name: /use this tenant|selected/i }).first();
+      if (!(await useTenantButton.isVisible().catch(() => false))) {
+        return false;
+      }
+
+      await useTenantButton.click();
+      await page.waitForTimeout(1_000);
+      await page.goto(`${appBaseUrl}/dashboard`, { waitUntil: 'domcontentloaded' }).catch(() => {});
+      continue;
+    }
+
+    if (/\/login(\?|$)/i.test(page.url())) {
+      return false;
+    }
+
+    const noAccessVisible = await page.getByRole('heading', { name: /No Tenant Access/i }).isVisible().catch(() => false);
+    if (noAccessVisible) {
+      return false;
+    }
+
+    return true;
+  }
+
+  const stillOnTenantSelectionRoute = /\/tenant\/select(\?|$)/i.test(page.url());
+  const tenantPickerStillVisible = await page.getByRole('heading', { name: /Select a Program/i }).isVisible().catch(() => false);
+  return !stillOnTenantSelectionRoute && !tenantPickerStillVisible;
+}
+
 async function ensureSession(page: Page, persona: Persona): Promise<boolean> {
   if (localMode) {
     await seedLocalAuth(page, persona.localRole);
     await page.goto(`${appBaseUrl}/dashboard`, { waitUntil: 'domcontentloaded' });
-    return appearsAuthenticated(page);
+    if (!(await appearsAuthenticated(page))) {
+      return false;
+    }
+    return resolveTenantGate(page);
   }
 
   if (await authenticateWithVariantA(page, { appBaseUrl, persona: persona.label })) {
-    return true;
+    return resolveTenantGate(page);
   }
 
   const hasState = Boolean(persona.statePath) && fs.existsSync(persona.statePath);
   if (hasState) {
     await page.goto(`${appBaseUrl}/dashboard`, { waitUntil: 'domcontentloaded' });
-    if (await appearsAuthenticated(page)) return true;
+    if (await appearsAuthenticated(page)) return resolveTenantGate(page);
   }
 
   return false;
