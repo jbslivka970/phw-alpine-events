@@ -6,6 +6,7 @@ import { getPool, sql } from '../db';
 import { resolveRolesForRequest } from './authRoleResolver';
 import { backfillAzureOidByEmail } from '../services/adminBootstrapService';
 import { claimIdentityInvite } from '../services/identityInviteClaimService';
+import { resolveTenantContext } from './resolveTenantContext';
 
 type AppRole = 'ADMIN' | 'EVENT_CREATOR' | 'USER' | 'TAVF_CREATOR';
 
@@ -822,7 +823,7 @@ function authenticate(req: Request, res: Response, next: NextFunction): void {
       roles: ['ADMIN'],
       rawClaims: {},
     };
-    next();
+    void resolveTenantContext(req, res, next);
     return;
   }
 
@@ -865,7 +866,7 @@ function authenticate(req: Request, res: Response, next: NextFunction): void {
         roles,
       },
     };
-    next();
+    void resolveTenantContext(req, res, next);
     return;
   }
 
@@ -879,7 +880,7 @@ function authenticate(req: Request, res: Response, next: NextFunction): void {
   const internalE2EUser = verifyInternalE2EToken(token);
   if (internalE2EUser) {
     req.user = internalE2EUser;
-    next();
+    void resolveTenantContext(req, res, next);
     return;
   }
 
@@ -998,7 +999,7 @@ function authenticate(req: Request, res: Response, next: NextFunction): void {
         rawClaims: claims,
       };
 
-      next();
+      void resolveTenantContext(req, res, next);
     }
   );
 }
