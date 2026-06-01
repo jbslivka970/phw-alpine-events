@@ -161,6 +161,8 @@ Key backend variables:
 - `AZURE_AD_B2C_POLICY_NAME`
 - `AUTH_ENFORCE_MEMBER_PASSWORDLESS` (recommended: `true`)
 - `AUTH_LOCAL_PASSWORD_ALLOWLIST` (comma-separated emails allowed for local password, admin/smoke only)
+- `AUTH_BOOTSTRAP_ADMIN_EMAILS` (comma-separated tenant-admin bootstrap emails)
+- `AUTH_BOOTSTRAP_ROOT_ADMIN_EMAILS` (comma-separated root-admin bootstrap emails)
 - `CORS_ORIGIN`
 - `NODE_ENV`
 - `PORT`
@@ -193,6 +195,8 @@ cd frontend && npm run dev
 ```
 
 The backend listens on `http://localhost:3001` by default. The frontend runs through Vite and currently exposes the authenticated shell, placeholder pages, and role-gated navigation.
+
+True multi-tenancy remains a staged rollout behind the design gates in [docs/multi-tenant-design.md](docs/multi-tenant-design.md). The first production release that onboards a real second tenant and turns true multi-tenant behavior into a supported live contract should be treated as a required major-version bump.
 
 For local frontend API calls, Vite proxies `/api/*` to `http://localhost:3001`.
 

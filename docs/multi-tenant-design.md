@@ -12,6 +12,12 @@ Convert the single-tenant PHW Colorado Alpine Events app into a multi-tenant Saa
 
 Support a first-class `Demo` tenant that can be granted temporarily to users who already belong to a normal program tenant such as Colorado Alpine, Denver, Montrose, etc. Demo behaves like any other tenant for auth, routing, branding, and data isolation, but it is marked as sandbox/non-operational so it can be seeded, reset, excluded from production program metrics, and guarded against accidental real outbound communications. A user's Demo access is an additional membership; it must not move, clone, or weaken access to their home tenant data.
 
+The Demo tenant requirement is only complete when it is operationally documented as a supported sandbox mode: root-owned reseed/reset flow, expiry handling for temporary memberships, analytics exclusion by default, and outbound notification suppression by default. Treat Demo as a first-class product requirement, not a loose fixture.
+
+### Versioning rule for true multi-tenancy
+
+Preparatory schema work, bootstrap updates, and behind-flag tenant plumbing can continue on the current major release line while Colorado Alpine remains the only live production tenant. The first production release that adds a real second tenant, exposes live tenant switching beyond Colorado Alpine-only behavior, or otherwise makes true multi-tenancy part of the supported external contract must ship as a major-version increment.
+
 ## Execution safety guardrails (non-negotiable)
 
 1. **Do not break production**
@@ -103,6 +109,7 @@ Support a first-class `Demo` tenant that can be granted temporarily to users who
 35. Promote to production via blue/green slot swap. Existing PHW Colorado Alpine continues as the default tenant; nothing visible changes for current members.
 36. Onboard and validate `Demo` first as the first non-default tenant: create tenant → seed synthetic content → grant temporary Demo memberships to selected real users → verify they can switch between home tenant and Demo without data bleed → verify expired Demo access disappears. Then onboard the first real second tenant ("Montrose" or "Denver") via the root admin UI: create tenant → upload branding/logo → configure messaging (provision SMTP `From` and Twilio Messaging Service SID via Key Vault) → seed admins → import members.
 37. Remove `MULTI_TENANT_ENABLED` once a second tenant has been live for a stabilization period; multi-tenant becomes the only mode.
+38. When Step 36 expands from Demo validation into a live second tenant rollout, cut a major release tag and release notes that explicitly announce the supported true multi-tenant contract change.
 
 ---
 

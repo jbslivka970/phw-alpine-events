@@ -2,6 +2,16 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { adminApi } from '../api/admin'
 import type { AdminUser, AppRoleAvailable, UserRoleAssignment, UserRoleAssignmentsResponse, BlastLogEntry } from '../api/admin'
+import { rootApi } from '../api/root'
+import type {
+  AppUserRole,
+  MemberPersona,
+  RootAccessMembershipSummary,
+  RootAccessProfile,
+  RootTenantSummary,
+  TenantMembershipKind,
+  TenantMembershipRole,
+} from '../api/root'
 import { eventsApi } from '../api/events'
 import { groupsApi } from '../api/groups'
 import { membersApi } from '../api/members'
@@ -120,6 +130,29 @@ function AdminPage() {
   const [roleAssignBusy, setRoleAssignBusy] = useState(false)
   const [roleAssignError, setRoleAssignError] = useState<string | null>(null)
   const [roleRemovingId, setRoleRemovingId] = useState<string | null>(null)
+  const [rootSessionReady, setRootSessionReady] = useState(false)
+  const [isRootAdmin, setIsRootAdmin] = useState(false)
+  const [rootTenants, setRootTenants] = useState<RootTenantSummary[]>([])
+  const [rootLookupEmail, setRootLookupEmail] = useState('sarnitro@gmail.com')
+  const [rootLookupBusy, setRootLookupBusy] = useState(false)
+  const [rootLookupError, setRootLookupError] = useState<string | null>(null)
+  const [rootAccessProfile, setRootAccessProfile] = useState<RootAccessProfile | null>(null)
+  const [rootSaveBusy, setRootSaveBusy] = useState(false)
+  const [rootSaveError, setRootSaveError] = useState<string | null>(null)
+  const [rootSaveSuccess, setRootSaveSuccess] = useState<string | null>(null)
+  const [rootAppRole, setRootAppRole] = useState<AppUserRole>('superadmin')
+  const [rootEnabled, setRootEnabled] = useState(true)
+  const [rootRoleValue, setRootRoleValue] = useState<'root_admin' | 'support'>('root_admin')
+  const [rootEnsureMember, setRootEnsureMember] = useState(true)
+  const [rootFirstName, setRootFirstName] = useState('')
+  const [rootLastName, setRootLastName] = useState('')
+  const [rootPersonas, setRootPersonas] = useState<MemberPersona[]>(['participant', 'volunteer'])
+  const [rootMemberships, setRootMemberships] = useState<Array<{
+    tenant_id: string
+    role: TenantMembershipRole
+    membership_kind: TenantMembershipKind
+    expires_at: string | null
+  }>>([])
 
   // ── Blast state ────────────────────────────────────────────────────────────
   const [blastChannel, setBlastChannel] = useState<'email' | 'sms'>('email')
@@ -219,6 +252,54 @@ function AdminPage() {
       })
       .finally(() => {
         if (active) setAdminUsersLoading(false)
+      })
+
+    return () => { active = false }
+  }, [])
+
+  useEffect(() => {
+    let active = true
+
+    Promise.allSettled([
+      rootApi.getSession(),
+      rootApi.listTenants(),
+    ])
+      .then((results) => {
+        if (!active) return
+
+        const sessionResult = results[0]
+        const tenantResult = results[1]
+
+        if (sessionResult.status === 'fulfilled' && sessionResult.value.is_root) {
+          setIsRootAdmin(true)
+        } else {
+          setIsRootAdmin(false)
+        }
+
+        if (tenantResult.status === 'fulfilled') {
+          const tenants = tenantResult.value.tenants
+          setRootTenants(tenants)
+          if (tenants.length > 0) {
+            setRootMemberships((current) => {
+              if (current.length > 0) return current
+              const defaultTenant = tenants.find((tenant) => tenant.slug === 'colorado-alpine') ?? tenants[0]
+              if (!defaultTenant) return current
+              return [
+                {
+                  tenant_id: defaultTenant.tenant_id,
+                  role: 'admin',
+                  membership_kind: 'home',
+                  expires_at: null,
+                },
+              ]
+            })
+          }
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setRootSessionReady(true)
+        }
       })
 
     return () => { active = false }
@@ -591,6 +672,93 @@ function AdminPage() {
     }
   }
 
+  function hydrateRootEditor(profile: RootAccessProfile): void {
+    setRootAccessProfile(profile)
+    setRootAppRole(profile.user?.role ?? 'superadmin')
+    setRootEnabled(profile.user?.is_root ?? false)
+    setRootRoleValue((profile.user?.root_role ?? 'root_admin') as 'root_admin' | 'support')
+    setRootEnsureMember(Boolean(profile.member))
+    setRootFirstName(profile.member?.first_name ?? '')
+    setRootLastName(profile.member?.last_name ?? '')
+    setRootPersonas(profile.personas)
+    const mappedMemberships = profile.tenant_memberships.map((membership: RootAccessMembershipSummary) => ({
+      tenant_id: membership.tenant_id,
+      role: membership.role,
+      membership_kind: membership.membership_kind,
+      expires_at: membership.expires_at,
+    }))
+    setRootMemberships(mappedMemberships)
+  }
+
+  async function handleRootLookup() {
+    if (!rootLookupEmail.trim()) {
+      setRootLookupError('Enter an email address to look up.')
+      return
+    }
+
+    setRootLookupBusy(true)
+    setRootLookupError(null)
+    setRootSaveError(null)
+    setRootSaveSuccess(null)
+
+    try {
+      const profile = await rootApi.getAccessProfile(rootLookupEmail.trim())
+      hydrateRootEditor(profile)
+    } catch (error) {
+      setRootLookupError(toUserErrorMessage(error, 'Failed to load root access profile.'))
+      setRootAccessProfile(null)
+    } finally {
+      setRootLookupBusy(false)
+    }
+  }
+
+  async function handleRootSave() {
+    if (!rootLookupEmail.trim()) {
+      setRootSaveError('Email is required before saving root access.')
+      return
+    }
+
+    setRootSaveBusy(true)
+    setRootSaveError(null)
+    setRootSaveSuccess(null)
+
+    try {
+      const profile = await rootApi.upsertAccessProfile({
+        email: rootLookupEmail.trim(),
+        app_role: rootAppRole,
+        is_root: rootEnabled,
+        root_role: rootEnabled ? rootRoleValue : null,
+        ensure_member: rootEnsureMember,
+        first_name: rootFirstName.trim() || null,
+        last_name: rootLastName.trim() || null,
+        personas: rootPersonas,
+        tenant_memberships: rootMemberships,
+      })
+
+      hydrateRootEditor(profile)
+      setRootSaveSuccess(`Saved root access profile for ${profile.email}.`)
+    } catch (error) {
+      setRootSaveError(toUserErrorMessage(error, 'Failed to save root access profile.'))
+    } finally {
+      setRootSaveBusy(false)
+    }
+  }
+
+  function upsertRootMembership(index: number, updates: Partial<{
+    tenant_id: string
+    role: TenantMembershipRole
+    membership_kind: TenantMembershipKind
+    expires_at: string | null
+  }>): void {
+    setRootMemberships((current) => current.map((membership, i) => {
+      if (i !== index) return membership
+      return {
+        ...membership,
+        ...updates,
+      }
+    }))
+  }
+
   const provider = inviteDraft?.provider ?? null
   const providerHint =
     provider === 'azure-openai'
@@ -903,6 +1071,157 @@ function AdminPage() {
             </div>
           )}
         </section>
+
+        {rootSessionReady && isRootAdmin && (
+          <section className="card admin-tools-card">
+            <h2 className="admin-section-title">Root Access Management</h2>
+            <p className="page-subtitle" style={{ marginBottom: '0.9rem' }}>
+              Manage root and tenant access centrally without schema edits. This updates app user root flags, tenant memberships, and optional member personas.
+            </p>
+
+            <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+              <input
+                className="members-input"
+                style={{ flex: 1 }}
+                type="email"
+                placeholder="User email"
+                value={rootLookupEmail}
+                onChange={(e) => setRootLookupEmail(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') void handleRootLookup() }}
+                disabled={rootLookupBusy}
+              />
+              <button
+                className="btn btn--outline btn--sm"
+                disabled={rootLookupBusy || !rootLookupEmail.trim()}
+                onClick={() => void handleRootLookup()}
+              >
+                {rootLookupBusy ? 'Looking up…' : 'Load Access'}
+              </button>
+            </div>
+
+            {rootLookupError && <p className="ui-notice ui-notice--error">{rootLookupError}</p>}
+            {rootSaveError && <p className="ui-notice ui-notice--error">{rootSaveError}</p>}
+            {rootSaveSuccess && <p className="ui-notice ui-notice--success">{rootSaveSuccess}</p>}
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8, marginBottom: 10 }}>
+              <select className="members-input" value={rootAppRole} onChange={(e) => setRootAppRole(e.target.value as AppUserRole)}>
+                <option value="superadmin">superadmin</option>
+                <option value="admin">admin</option>
+                <option value="event_creator">event_creator</option>
+                <option value="tavf_creator">tavf_creator</option>
+                <option value="user">user</option>
+              </select>
+              <select className="members-input" value={rootRoleValue} onChange={(e) => setRootRoleValue(e.target.value as 'root_admin' | 'support')} disabled={!rootEnabled}>
+                <option value="root_admin">root_admin</option>
+                <option value="support">support</option>
+              </select>
+            </div>
+
+            <div style={{ display: 'grid', gap: 8, marginBottom: 10 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <input type="checkbox" checked={rootEnabled} onChange={(e) => setRootEnabled(e.target.checked)} />
+                Enable root access for this user
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <input type="checkbox" checked={rootEnsureMember} onChange={(e) => setRootEnsureMember(e.target.checked)} />
+                Ensure member profile exists
+              </label>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8, marginBottom: 10 }}>
+              <input className="members-input" value={rootFirstName} onChange={(e) => setRootFirstName(e.target.value)} placeholder="First name" />
+              <input className="members-input" value={rootLastName} onChange={(e) => setRootLastName(e.target.value)} placeholder="Last name" />
+            </div>
+
+            <div style={{ marginBottom: 10 }}>
+              <p className="page-subtitle" style={{ marginBottom: 6 }}>Member personas</p>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                {(['participant', 'volunteer', 'mentor', 'guide', 'staff'] as MemberPersona[]).map((persona) => (
+                  <label key={persona} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <input
+                      type="checkbox"
+                      checked={rootPersonas.includes(persona)}
+                      onChange={(e) => {
+                        setRootPersonas((current) => e.target.checked ? [...new Set([...current, persona])] : current.filter((value) => value !== persona))
+                      }}
+                    />
+                    {persona}
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div style={{ marginBottom: 10 }}>
+              <p className="page-subtitle" style={{ marginBottom: 6 }}>Tenant memberships</p>
+              {rootMemberships.length === 0 && (
+                <p className="page-subtitle">No memberships configured yet.</p>
+              )}
+              <div style={{ display: 'grid', gap: 8 }}>
+                {rootMemberships.map((membership, index) => (
+                  <div key={`${membership.tenant_id}-${index}`} style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr 1fr 1fr auto', gap: 8 }}>
+                    <select className="members-input" value={membership.tenant_id} onChange={(e) => upsertRootMembership(index, { tenant_id: e.target.value })}>
+                      {rootTenants.map((tenant) => (
+                        <option key={tenant.tenant_id} value={tenant.tenant_id}>{tenant.display_name}</option>
+                      ))}
+                    </select>
+                    <select className="members-input" value={membership.role} onChange={(e) => upsertRootMembership(index, { role: e.target.value as TenantMembershipRole })}>
+                      {(['admin', 'event_creator', 'tavf_creator', 'support', 'root_admin', 'member'] as TenantMembershipRole[]).map((role) => (
+                        <option key={role} value={role}>{role}</option>
+                      ))}
+                    </select>
+                    <select className="members-input" value={membership.membership_kind} onChange={(e) => upsertRootMembership(index, { membership_kind: e.target.value as TenantMembershipKind })}>
+                      {(['home', 'admin', 'temporary_demo'] as TenantMembershipKind[]).map((kind) => (
+                        <option key={kind} value={kind}>{kind}</option>
+                      ))}
+                    </select>
+                    <input
+                      className="members-input"
+                      type="datetime-local"
+                      value={membership.expires_at ? membership.expires_at.slice(0, 16) : ''}
+                      onChange={(e) => upsertRootMembership(index, { expires_at: e.target.value ? new Date(e.target.value).toISOString() : null })}
+                      placeholder="Expiry (optional)"
+                    />
+                    <button
+                      className="btn btn--outline btn--sm"
+                      onClick={() => setRootMemberships((current) => current.filter((_, i) => i !== index))}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <button
+                className="btn btn--outline btn--sm"
+                style={{ marginTop: 8 }}
+                onClick={() => {
+                  const defaultTenant = rootTenants.find((tenant) => tenant.slug === 'colorado-alpine') ?? rootTenants[0]
+                  if (!defaultTenant) return
+                  setRootMemberships((current) => [
+                    ...current,
+                    {
+                      tenant_id: defaultTenant.tenant_id,
+                      role: 'admin',
+                      membership_kind: 'home',
+                      expires_at: null,
+                    },
+                  ])
+                }}
+              >
+                Add Membership
+              </button>
+            </div>
+
+            <button className="btn btn--primary btn--sm" disabled={rootSaveBusy} onClick={() => void handleRootSave()}>
+              {rootSaveBusy ? 'Saving…' : 'Save Root Access'}
+            </button>
+
+            {rootAccessProfile && (
+              <p className="page-subtitle" style={{ marginTop: 10 }}>
+                Current profile: {rootAccessProfile.email} • user {rootAccessProfile.user ? 'present' : 'missing'} • member {rootAccessProfile.member ? 'present' : 'missing'} • memberships {rootAccessProfile.tenant_memberships.length}
+              </p>
+            )}
+          </section>
+        )}
 
         <section className="card admin-tools-card">
           <h2 className="admin-section-title">AI Invite Draft</h2>

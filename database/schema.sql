@@ -1080,8 +1080,6 @@ BEGIN
                 u.user_id,
                 NULL,
                 CASE
-                    WHEN u.is_root = 1 AND LOWER(COALESCE(u.root_role, N'''')) = ''support'' THEN N''support''
-                    WHEN u.is_root = 1 AND LOWER(COALESCE(u.root_role, N'''')) = ''root_admin'' THEN N''root_admin''
                     WHEN LOWER(COALESCE(u.role, N'''')) IN (''admin'', ''superadmin'') THEN N''admin''
                     WHEN LOWER(COALESCE(u.role, N'''')) = ''event_creator'' THEN N''event_creator''
                     WHEN LOWER(COALESCE(u.role, N'''')) = ''tavf_creator'' THEN N''tavf_creator''
@@ -1153,6 +1151,273 @@ BEGIN
                   AND tm.status = N'active'
                   AND tm.revoked_at IS NULL
             );
+
+        DECLARE @jb_email NVARCHAR(255) = N'sarnitro@gmail.com';
+        DECLARE @jb_user_id UNIQUEIDENTIFIER;
+        DECLARE @jb_member_id UNIQUEIDENTIFIER;
+        DECLARE @admin_group_id UNIQUEIDENTIFIER;
+        DECLARE @volunteers_group_id UNIQUEIDENTIFIER;
+        DECLARE @participants_group_id UNIQUEIDENTIFIER;
+
+        SELECT TOP (1) @jb_user_id = u.user_id
+        FROM dbo.[user] u
+        WHERE LOWER(u.email) = @jb_email;
+
+        IF @jb_user_id IS NULL
+        BEGIN
+            INSERT INTO dbo.[user] (
+                user_id,
+                azure_oid,
+                email,
+                display_name,
+                role,
+                is_active,
+                is_root,
+                root_role,
+                created_at,
+                updated_at
+            )
+            VALUES (
+                NEWID(),
+                NULL,
+                @jb_email,
+                N'JB Slivka',
+                N'superadmin',
+                1,
+                1,
+                N'root_admin',
+                GETUTCDATE(),
+                GETUTCDATE()
+            );
+
+            SELECT TOP (1) @jb_user_id = u.user_id
+            FROM dbo.[user] u
+            WHERE LOWER(u.email) = @jb_email;
+        END
+        ELSE
+        BEGIN
+            UPDATE dbo.[user]
+            SET
+                display_name = COALESCE(NULLIF(display_name, N''), N'JB Slivka'),
+                role = N'superadmin',
+                is_active = 1,
+                is_root = 1,
+                root_role = N'root_admin',
+                updated_at = GETUTCDATE()
+            WHERE user_id = @jb_user_id;
+        END
+
+        IF @jb_user_id IS NOT NULL
+        BEGIN
+            IF EXISTS (
+                SELECT 1
+                FROM dbo.tenant_membership tm
+                WHERE tm.tenant_id = @default_tenant_id
+                  AND tm.user_id = @jb_user_id
+                  AND tm.membership_kind = N'home'
+                  AND tm.status = N'active'
+                  AND tm.revoked_at IS NULL
+            )
+            BEGIN
+                UPDATE dbo.tenant_membership
+                SET
+                    role = N'admin',
+                    home_tenant_id = @default_tenant_id,
+                    expires_at = NULL,
+                    revoked_at = NULL
+                WHERE tenant_id = @default_tenant_id
+                  AND user_id = @jb_user_id
+                  AND membership_kind = N'home'
+                  AND status = N'active'
+                  AND revoked_at IS NULL;
+            END
+            ELSE
+            BEGIN
+                INSERT INTO dbo.tenant_membership (
+                    tenant_membership_id,
+                    tenant_id,
+                    user_id,
+                    member_id,
+                    role,
+                    membership_kind,
+                    home_tenant_id,
+                    starts_at,
+                    expires_at,
+                    status,
+                    created_by_user_id,
+                    created_at,
+                    revoked_at
+                )
+                VALUES (
+                    NEWID(),
+                    @default_tenant_id,
+                    @jb_user_id,
+                    NULL,
+                    N'admin',
+                    N'home',
+                    @default_tenant_id,
+                    GETUTCDATE(),
+                    NULL,
+                    N'active',
+                    NULL,
+                    GETUTCDATE(),
+                    NULL
+                );
+            END
+        END
+
+        SELECT TOP (1) @jb_member_id = m.member_id
+        FROM dbo.member m
+        WHERE LOWER(m.email) = @jb_email
+          AND m.is_active = 1
+        ORDER BY m.created_at ASC, m.member_id ASC;
+
+        IF @jb_member_id IS NULL
+        BEGIN
+            INSERT INTO dbo.member (
+                member_id,
+                first_name,
+                last_name,
+                email,
+                is_active,
+                created_at,
+                updated_at
+            )
+            VALUES (
+                NEWID(),
+                N'JB',
+                N'Slivka',
+                @jb_email,
+                1,
+                GETUTCDATE(),
+                GETUTCDATE()
+            );
+
+            SELECT TOP (1) @jb_member_id = m.member_id
+            FROM dbo.member m
+            WHERE LOWER(m.email) = @jb_email
+              AND m.is_active = 1
+            ORDER BY m.created_at ASC, m.member_id ASC;
+        END
+
+        IF @jb_member_id IS NOT NULL
+        BEGIN
+            IF EXISTS (
+                SELECT 1
+                FROM dbo.tenant_membership tm
+                WHERE tm.tenant_id = @default_tenant_id
+                  AND tm.member_id = @jb_member_id
+                  AND tm.membership_kind = N'home'
+                  AND tm.status = N'active'
+                  AND tm.revoked_at IS NULL
+            )
+            BEGIN
+                UPDATE dbo.tenant_membership
+                SET
+                    role = N'member',
+                    home_tenant_id = @default_tenant_id,
+                    expires_at = NULL,
+                    revoked_at = NULL
+                WHERE tenant_id = @default_tenant_id
+                  AND member_id = @jb_member_id
+                  AND membership_kind = N'home'
+                  AND status = N'active'
+                  AND revoked_at IS NULL;
+            END
+            ELSE
+            BEGIN
+                INSERT INTO dbo.tenant_membership (
+                    tenant_membership_id,
+                    tenant_id,
+                    user_id,
+                    member_id,
+                    role,
+                    membership_kind,
+                    home_tenant_id,
+                    starts_at,
+                    expires_at,
+                    status,
+                    created_by_user_id,
+                    created_at,
+                    revoked_at
+                )
+                VALUES (
+                    NEWID(),
+                    @default_tenant_id,
+                    NULL,
+                    @jb_member_id,
+                    N'member',
+                    N'home',
+                    @default_tenant_id,
+                    GETUTCDATE(),
+                    NULL,
+                    N'active',
+                    NULL,
+                    GETUTCDATE(),
+                    NULL
+                );
+            END
+
+            IF NOT EXISTS (
+                SELECT 1
+                FROM dbo.member_persona mp
+                WHERE mp.member_id = @jb_member_id
+                  AND mp.persona = N'participant'
+            )
+                INSERT INTO dbo.member_persona (member_id, persona, granted_at, granted_by, notes)
+                VALUES (@jb_member_id, N'participant', GETUTCDATE(), @jb_user_id, N'Multi-tenant bootstrap coverage');
+
+            IF NOT EXISTS (
+                SELECT 1
+                FROM dbo.member_persona mp
+                WHERE mp.member_id = @jb_member_id
+                  AND mp.persona = N'volunteer'
+            )
+                INSERT INTO dbo.member_persona (member_id, persona, granted_at, granted_by, notes)
+                VALUES (@jb_member_id, N'volunteer', GETUTCDATE(), @jb_user_id, N'Multi-tenant bootstrap coverage');
+
+            SELECT TOP (1) @admin_group_id = g.group_id
+            FROM dbo.[group] g
+            WHERE g.group_name = N'ADMIN';
+
+            SELECT TOP (1) @volunteers_group_id = g.group_id
+            FROM dbo.[group] g
+            WHERE g.group_name = N'VOLUNTEERS';
+
+            SELECT TOP (1) @participants_group_id = g.group_id
+            FROM dbo.[group] g
+            WHERE g.group_name = N'PARTICIPANTS';
+
+            IF @admin_group_id IS NOT NULL
+               AND NOT EXISTS (
+                    SELECT 1
+                    FROM dbo.member_group mg
+                    WHERE mg.member_id = @jb_member_id
+                      AND mg.group_id = @admin_group_id
+                )
+                INSERT INTO dbo.member_group (member_group_id, member_id, group_id, added_at)
+                VALUES (NEWID(), @jb_member_id, @admin_group_id, GETUTCDATE());
+
+            IF @volunteers_group_id IS NOT NULL
+               AND NOT EXISTS (
+                    SELECT 1
+                    FROM dbo.member_group mg
+                    WHERE mg.member_id = @jb_member_id
+                      AND mg.group_id = @volunteers_group_id
+                )
+                INSERT INTO dbo.member_group (member_group_id, member_id, group_id, added_at)
+                VALUES (NEWID(), @jb_member_id, @volunteers_group_id, GETUTCDATE());
+
+            IF @participants_group_id IS NOT NULL
+               AND NOT EXISTS (
+                    SELECT 1
+                    FROM dbo.member_group mg
+                    WHERE mg.member_id = @jb_member_id
+                      AND mg.group_id = @participants_group_id
+                )
+                INSERT INTO dbo.member_group (member_group_id, member_id, group_id, added_at)
+                VALUES (NEWID(), @jb_member_id, @participants_group_id, GETUTCDATE());
+        END
     END
 END
 

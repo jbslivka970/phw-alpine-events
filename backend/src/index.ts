@@ -231,9 +231,9 @@ function scheduleJobs(): void {
 
 scheduleJobs();
 
-// Idempotent: ensures every email in AUTH_BOOTSTRAP_ADMIN_EMAILS exists in
-// the [user] table with role='admin'.  Fire-and-forget so a transient DB
-// outage does not prevent the HTTP server from coming up.
+// Idempotent: ensures configured bootstrap tenant-admin and root-admin emails
+// exist in dbo.[user]. Fire-and-forget so a transient DB outage does not
+// prevent the HTTP server from coming up.
 void ensureBootstrapAdmins().catch((error) => {
   console.warn('[startup] ensureBootstrapAdmins failed', error);
 });

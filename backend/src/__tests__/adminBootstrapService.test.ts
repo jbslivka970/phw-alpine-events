@@ -35,6 +35,7 @@ describe('ensureBootstrapAdmins', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     delete process.env['AUTH_BOOTSTRAP_ADMIN_EMAILS'];
+    delete process.env['AUTH_BOOTSTRAP_ROOT_ADMIN_EMAILS'];
   });
 
   it('is a no-op when env var is unset', async () => {
@@ -109,6 +110,54 @@ describe('ensureBootstrapAdmins', () => {
     expect(issuedSql).toContain("LOWER(ISNULL(target.role, '')) = 'superadmin'");
     expect(result.ensured).toEqual(['promote@example.com']);
     expect(result.skipped.sort()).toEqual(['already-admin@example.com', 'super@example.com']);
+  });
+
+  it('supports dedicated root-admin bootstrap emails', async () => {
+    process.env['AUTH_BOOTSTRAP_ROOT_ADMIN_EMAILS'] = 'root@example.com';
+    let issuedSql = '';
+    const pool = {
+      request: jest.fn(() => ({
+        input: jest.fn().mockReturnThis(),
+        query: jest.fn(async (text: string) => {
+          issuedSql = text;
+          return { recordset: [{ action: 'INSERT' }] };
+        }),
+      })),
+    };
+    (getPool as jest.Mock).mockResolvedValue(pool);
+
+    const result = await ensureBootstrapAdmins();
+
+    expect(issuedSql).toContain("@bootstrap_mode");
+    expect(issuedSql).toContain("WHEN src.bootstrap_mode = 'root' THEN 'superadmin'");
+    expect(issuedSql).toContain("WHEN src.bootstrap_mode = 'root' THEN 1");
+    expect(issuedSql).toContain("WHEN src.bootstrap_mode = 'root' THEN 'root_admin'");
+    expect(result.ensured).toEqual(['root@example.com']);
+    expect(result.skipped).toEqual([]);
+  });
+
+  it('prefers root bootstrap when the same email appears in both env vars', async () => {
+    process.env['AUTH_BOOTSTRAP_ADMIN_EMAILS'] = 'shared@example.com';
+    process.env['AUTH_BOOTSTRAP_ROOT_ADMIN_EMAILS'] = 'shared@example.com';
+
+    const inputs: Array<{ name: string; value: unknown }> = [];
+    const request: { input: jest.Mock; query: jest.Mock } = {
+      input: jest.fn(),
+      query: jest.fn(async () => ({ recordset: [{ action: 'UPDATE' }] })),
+    };
+    request.input.mockImplementation((name: string, _type: unknown, value: unknown) => {
+        inputs.push({ name, value });
+        return request;
+      });
+    const pool = {
+      request: jest.fn(() => request),
+    };
+    (getPool as jest.Mock).mockResolvedValue(pool);
+
+    const result = await ensureBootstrapAdmins();
+
+    expect(result.ensured).toEqual(['shared@example.com']);
+    expect(inputs.some((entry) => entry.name === 'bootstrap_mode' && entry.value === 'root')).toBe(true);
   });
 });
 
