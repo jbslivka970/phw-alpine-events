@@ -54,6 +54,7 @@ function getLocalE2EToken(): string | null {
 
 const BASE_URL = getApiBaseUrl();
 const MEMBER_INVITE_TOKEN_STORAGE_KEY = 'phw_member_invite_token';
+const ACTIVE_TENANT_STORAGE_KEY = 'phw_active_tenant_id';
 
 let getToken: TokenGetter = async () => getLocalE2EToken();
 let emailHint: string | null = null;
@@ -99,6 +100,33 @@ function setMemberInviteToken(inviteToken: string | null): void {
   }
 
   window.sessionStorage.setItem(MEMBER_INVITE_TOKEN_STORAGE_KEY, normalized);
+}
+
+function isTenantId(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+function getStoredActiveTenantId(): string | null {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  const value = window.localStorage.getItem(ACTIVE_TENANT_STORAGE_KEY)?.trim().toLowerCase() ?? '';
+  return isTenantId(value) ? value : null;
+}
+
+function setActiveTenantId(tenantId: string | null): void {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  const normalized = tenantId?.trim().toLowerCase() ?? '';
+  if (!normalized || !isTenantId(normalized)) {
+    window.localStorage.removeItem(ACTIVE_TENANT_STORAGE_KEY);
+    return;
+  }
+
+  window.localStorage.setItem(ACTIVE_TENANT_STORAGE_KEY, normalized);
 }
 
 // HTTP header values must be 7-bit ASCII; Safari/WebKit throws
@@ -219,6 +247,11 @@ async function buildHeaders(extra?: HeadersInit): Promise<HeadersInit> {
     headers['X-Member-Invite-Token'] = memberInviteToken;
   }
 
+  const activeTenantId = getStoredActiveTenantId();
+  if (activeTenantId) {
+    headers['X-Tenant-Id'] = activeTenantId;
+  }
+
   return headers;
 }
 
@@ -294,6 +327,11 @@ async function apiPostForm<T>(path: string, formData: FormData): Promise<T> {
       headers['X-Member-Invite-Token'] = memberInviteToken;
     }
 
+    const activeTenantId = getStoredActiveTenantId();
+    if (activeTenantId) {
+      headers['X-Tenant-Id'] = activeTenantId;
+    }
+
     return {
       method: 'POST',
       headers,
@@ -344,4 +382,17 @@ async function apiGetBlob(path: string): Promise<{ blob: Blob; headers: Headers 
   return { blob: await response.blob(), headers: response.headers };
 }
 
-export { BASE_URL, setEmailHint, setMemberInviteToken, setTokenGetter, apiDelete, apiGet, apiGetBlob, apiPatch, apiPost, apiPostForm, apiPut };
+export {
+  BASE_URL,
+  setActiveTenantId,
+  setEmailHint,
+  setMemberInviteToken,
+  setTokenGetter,
+  apiDelete,
+  apiGet,
+  apiGetBlob,
+  apiPatch,
+  apiPost,
+  apiPostForm,
+  apiPut,
+};

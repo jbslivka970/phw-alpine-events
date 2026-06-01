@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { ROLES } from '../authConfig';
+import { useTenantContext } from '../contexts/TenantContext';
 import { useAuth } from '../hooks/useAuth';
 
 interface NavItem {
@@ -31,6 +32,7 @@ export default function Layout() {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, logout, canCreateTavfPostings } = useAuth();
+  const { activeTenant } = useTenantContext();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   useEffect(() => {
@@ -44,6 +46,11 @@ export default function Layout() {
 
   const roles = user?.roles ?? [];
   const canAccessTavf = canCreateTavfPostings();
+  const branding = activeTenant?.branding;
+  const tenantDisplayName = activeTenant?.display_name ?? 'Colorado Alpine Program';
+  const tenantShortName = branding?.org_short_name ?? tenantDisplayName;
+  const tenantLogoUrl = branding?.logo_url || '/branding/PHWTroutLogoSagebrush-1.png';
+  const tenantAccent = branding?.primary_color ?? '#1f5f4a';
   const visibleItems = NAV_ITEMS
     .filter((item) => !item.role || roles.includes(item.role as typeof ROLES[keyof typeof ROLES]))
     .filter((item) => item.to !== '/tavf' || canAccessTavf);
@@ -62,7 +69,7 @@ export default function Layout() {
             />
             <div className="phw-layout__brand-text">
               <div className="phw-layout__brand-title">Alpine Events</div>
-              <div className="phw-layout__brand-subtitle">Colorado Alpine Program</div>
+              <div className="phw-layout__brand-subtitle">{tenantDisplayName}</div>
             </div>
           </Link>
 
@@ -118,17 +125,17 @@ export default function Layout() {
             <div className="phw-footer__brand">
               <img
                 className="phw-footer__logo"
-                src="/branding/PHWTroutLogoSagebrush-1.png"
-                alt="PHW Trout"
+                src={tenantLogoUrl}
+                alt={`${tenantShortName} logo`}
                 onError={(e) => { e.currentTarget.style.display = 'none'; }}
               />
-              <p className="phw-footer__name">Project Healing Waters Fly Fishing</p>
+              <p className="phw-footer__name">{tenantShortName}</p>
             </div>
             <p className="phw-footer__tagline">
               Healing America's veterans through the therapeutic art of fly fishing
             </p>
             <p className="phw-footer__credit">
-              &copy; {new Date().getFullYear()} Colorado Alpine Program
+              &copy; {new Date().getFullYear()} {tenantDisplayName}
             </p>
             <p className="phw-footer__accessibility">
               Accessibility notice: PHW Alpine Events aims to conform to WCAG 2.1 AA. If you need assistance accessing any feature, email{' '}
@@ -136,7 +143,13 @@ export default function Layout() {
             </p>
           </div>
           <div className="phw-footer__links">
-            <a href="https://projecthealingwaters.org" target="_blank" rel="noreferrer" className="phw-footer__link phw-footer__link--accent">
+            <a
+              href="https://projecthealingwaters.org"
+              target="_blank"
+              rel="noreferrer"
+              className="phw-footer__link phw-footer__link--accent"
+              style={{ color: tenantAccent }}
+            >
               PHW National
             </a>
             <Link to="/privacy" className="phw-footer__link">Privacy Policy</Link>

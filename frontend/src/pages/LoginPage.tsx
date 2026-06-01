@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { setMemberInviteToken } from '../api/client'
+import { useTenantContext } from '../contexts/TenantContext'
 import { useAuth } from '../hooks/useAuth'
 
 const LOGIN_HERO_PHOTOS = [
@@ -15,7 +16,14 @@ function LoginPage() {
   const navigate = useNavigate()
   const location = useLocation()
   const { login, isLoggingIn, loginError, isAuthenticated } = useAuth()
+  const { loading: tenantLoading, needsSelection, noAccess, activeTenant } = useTenantContext()
   const [heroIndex] = useState(() => Math.floor(Math.random() * LOGIN_HERO_PHOTOS.length))
+  const activeTenantDisplayName = activeTenant?.display_name ?? null
+  const activeTenantBranding = activeTenant?.branding ?? null
+
+  const loginOrgName = activeTenantBranding?.org_short_name ?? 'Project Healing Waters Fly Fishing'
+  const loginProgramName = activeTenantDisplayName ?? 'Colorado Alpine Program'
+  const loginLogoUrl = activeTenantBranding?.logo_url ?? '/branding/PHW CO Alpine.png'
 
   const destination = (() => {
     const state = location.state as { from?: { pathname?: string } } | null
@@ -32,9 +40,19 @@ function LoginPage() {
 
   useEffect(() => {
     if (isAuthenticated) {
+      if (!tenantLoading && noAccess) {
+        navigate('/tenant/select', { replace: true })
+        return
+      }
+
+      if (!tenantLoading && needsSelection) {
+        navigate('/tenant/select', { replace: true })
+        return
+      }
+
       navigate(destination, { replace: true })
     }
-  }, [destination, isAuthenticated, navigate])
+  }, [destination, isAuthenticated, navigate, needsSelection, noAccess, tenantLoading])
 
   return (
     <div className="login-page">
@@ -49,7 +67,7 @@ function LoginPage() {
           <p className="login-page__hero-tagline">
             &ldquo;Healing those who serve through the therapeutic art of fly fishing&rdquo;
           </p>
-          <p className="login-page__hero-org">Project Healing Waters Fly Fishing</p>
+          <p className="login-page__hero-org">{loginOrgName}</p>
         </div>
       </div>
 
@@ -57,14 +75,14 @@ function LoginPage() {
         <div className="login-card">
           <img
             className="login-card__logo"
-            src="/branding/PHW CO Alpine.png"
-            alt="Project Healing Waters Colorado Alpine"
+            src={loginLogoUrl}
+            alt={loginOrgName}
             onError={(event) => {
               event.currentTarget.style.display = 'none'
             }}
           />
           <h1 className="login-card__title">Alpine Events</h1>
-          <p className="login-card__subtitle">Colorado Alpine Program</p>
+          <p className="login-card__subtitle">{loginProgramName}</p>
           <p className="login-card__desc">
             Sign in with your chapter identity provider to manage events, RSVPs, and the Take a Vet Fishing program.
           </p>
