@@ -479,6 +479,7 @@ Safety guardrails for shared/prod environments:
 - TAVF mutation smoke checks are disabled by default. Set `E2E_ALLOW_TAVF_MUTATIONS=true` only when intentionally testing TAVF create/application notifications.
 - Test-traffic notification guardrails block TAVF smoke/e2e emails and only allow SMS delivery to numbers in `TEST_NOTIFICATION_SMS_ALLOWLIST` (defaults to `9704180120`).
 - To remove accidental smoke-generated TAVF rows, use `scripts/cleanup-tavf-smoke-records.sql` (preview mode by default; set `@apply = 1` to execute deletes).
+- To remove accidental Playwright/Contract event artifacts, use `scripts/cleanup-playwright-contract-events.sql` (preview mode by default; guardrails require draft-only matches and set `@apply = 1` before deletes run).
 
 1. Verify app process and API root:
   - `GET /`

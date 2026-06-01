@@ -719,6 +719,441 @@ BEGIN
         ALTER TABLE dbo.[user]
             ADD CONSTRAINT CK_user_role
                 CHECK (role IN ('admin', 'superadmin', 'event_creator', 'tavf_creator', 'user'));
+
+    IF COL_LENGTH('dbo.[user]', 'is_root') IS NULL
+        ALTER TABLE dbo.[user] ADD is_root BIT NOT NULL CONSTRAINT DF_user_is_root DEFAULT 0;
+
+    IF COL_LENGTH('dbo.[user]', 'root_role') IS NULL
+        ALTER TABLE dbo.[user] ADD root_role NVARCHAR(20) NULL;
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM sys.check_constraints
+        WHERE parent_object_id = OBJECT_ID(N'dbo.[user]')
+          AND name = N'CK_user_root_role'
+    )
+        EXEC sp_executesql N'
+            ALTER TABLE dbo.[user]
+                ADD CONSTRAINT CK_user_root_role
+                    CHECK (root_role IS NULL OR root_role IN (''root_admin'', ''support''));
+        ';
+END
+
+-- ---------------------------------------------------------------------------
+-- 13a. Tenant  (multi-tenant program catalog + demo tenant)
+-- ---------------------------------------------------------------------------
+IF OBJECT_ID(N'dbo.tenant', N'U') IS NULL
+CREATE TABLE dbo.tenant (
+    tenant_id       UNIQUEIDENTIFIER NOT NULL,
+    slug            NVARCHAR(100)    NOT NULL,
+    display_name    NVARCHAR(200)    NOT NULL,
+    tenant_type     NVARCHAR(20)     NOT NULL DEFAULT 'program'
+        CHECK (tenant_type IN ('program', 'demo', 'system')),
+    status          NVARCHAR(20)     NOT NULL DEFAULT 'active'
+        CHECK (status IN ('active', 'suspended', 'archived')),
+    timezone        NVARCHAR(64)     NOT NULL DEFAULT 'America/Denver',
+    is_demo         BIT              NOT NULL DEFAULT 0,
+    is_operational  BIT              NOT NULL DEFAULT 1,
+    created_at      DATETIME         NOT NULL DEFAULT GETUTCDATE(),
+    CONSTRAINT PK_tenant PRIMARY KEY (tenant_id),
+    CONSTRAINT UQ_tenant_slug UNIQUE (slug)
+);
+
+IF OBJECT_ID(N'dbo.tenant', N'U') IS NOT NULL
+BEGIN
+    IF COL_LENGTH('dbo.tenant', 'tenant_type') IS NULL
+        ALTER TABLE dbo.tenant ADD tenant_type NVARCHAR(20) NOT NULL CONSTRAINT DF_tenant_tenant_type DEFAULT 'program';
+
+    IF COL_LENGTH('dbo.tenant', 'status') IS NULL
+        ALTER TABLE dbo.tenant ADD status NVARCHAR(20) NOT NULL CONSTRAINT DF_tenant_status DEFAULT 'active';
+
+    IF COL_LENGTH('dbo.tenant', 'timezone') IS NULL
+        ALTER TABLE dbo.tenant ADD timezone NVARCHAR(64) NOT NULL CONSTRAINT DF_tenant_timezone DEFAULT 'America/Denver';
+
+    IF COL_LENGTH('dbo.tenant', 'is_demo') IS NULL
+        ALTER TABLE dbo.tenant ADD is_demo BIT NOT NULL CONSTRAINT DF_tenant_is_demo DEFAULT 0;
+
+    IF COL_LENGTH('dbo.tenant', 'is_operational') IS NULL
+        ALTER TABLE dbo.tenant ADD is_operational BIT NOT NULL CONSTRAINT DF_tenant_is_operational DEFAULT 1;
+
+    IF COL_LENGTH('dbo.tenant', 'created_at') IS NULL
+        ALTER TABLE dbo.tenant ADD created_at DATETIME NOT NULL CONSTRAINT DF_tenant_created_at DEFAULT GETUTCDATE();
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM sys.check_constraints
+        WHERE parent_object_id = OBJECT_ID(N'dbo.tenant')
+          AND name = N'CK_tenant_tenant_type'
+    )
+        ALTER TABLE dbo.tenant
+            ADD CONSTRAINT CK_tenant_tenant_type
+                CHECK (tenant_type IN ('program', 'demo', 'system'));
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM sys.check_constraints
+        WHERE parent_object_id = OBJECT_ID(N'dbo.tenant')
+          AND name = N'CK_tenant_status'
+    )
+        ALTER TABLE dbo.tenant
+            ADD CONSTRAINT CK_tenant_status
+                CHECK (status IN ('active', 'suspended', 'archived'));
+END
+
+IF OBJECT_ID(N'dbo.tenant', N'U') IS NOT NULL
+BEGIN
+    ;WITH tenant_seed AS (
+        SELECT
+            CAST('1b6b9719-663a-4e56-8f7d-9a4bd4c10001' AS UNIQUEIDENTIFIER) AS tenant_id,
+            N'colorado-alpine' AS slug,
+            N'Colorado Alpine' AS display_name,
+            N'program' AS tenant_type,
+            N'active' AS status,
+            N'America/Denver' AS timezone,
+            CAST(0 AS BIT) AS is_demo,
+            CAST(1 AS BIT) AS is_operational
+        UNION ALL
+        SELECT
+            CAST('1b6b9719-663a-4e56-8f7d-9a4bd4c10002' AS UNIQUEIDENTIFIER),
+            N'demo',
+            N'Demo',
+            N'demo',
+            N'active',
+            N'America/Denver',
+            CAST(1 AS BIT),
+            CAST(0 AS BIT)
+    )
+    MERGE dbo.tenant AS target
+    USING tenant_seed AS source
+       ON target.slug = source.slug
+    WHEN MATCHED THEN
+        UPDATE SET
+            target.display_name = source.display_name,
+            target.tenant_type = source.tenant_type,
+            target.timezone = COALESCE(target.timezone, source.timezone),
+            target.is_demo = source.is_demo,
+            target.is_operational = source.is_operational
+    WHEN NOT MATCHED THEN
+        INSERT (tenant_id, slug, display_name, tenant_type, status, timezone, is_demo, is_operational, created_at)
+        VALUES (source.tenant_id, source.slug, source.display_name, source.tenant_type, source.status, source.timezone, source.is_demo, source.is_operational, GETUTCDATE());
+END
+
+-- ---------------------------------------------------------------------------
+-- 13b. TenantBranding  (tenant-specific display identity)
+-- ---------------------------------------------------------------------------
+IF OBJECT_ID(N'dbo.tenant_branding', N'U') IS NULL
+CREATE TABLE dbo.tenant_branding (
+    tenant_id            UNIQUEIDENTIFIER NOT NULL,
+    org_long_name        NVARCHAR(255)    NULL,
+    org_short_name       NVARCHAR(120)    NULL,
+    support_email        NVARCHAR(255)    NULL,
+    accessibility_email  NVARCHAR(255)    NULL,
+    logo_url             NVARCHAR(1024)   NULL,
+    logo_dark_url        NVARCHAR(1024)   NULL,
+    hero_image_urls      NVARCHAR(MAX)    NULL,
+    primary_color        NVARCHAR(20)     NULL,
+    accent_color         NVARCHAR(20)     NULL,
+    dark_color           NVARCHAR(20)     NULL,
+    program_tagline      NVARCHAR(300)    NULL,
+    portal_login_url     NVARCHAR(1024)   NULL,
+    mission_blurb        NVARCHAR(MAX)    NULL,
+    created_at           DATETIME         NOT NULL DEFAULT GETUTCDATE(),
+    updated_at           DATETIME         NOT NULL DEFAULT GETUTCDATE(),
+    CONSTRAINT PK_tenant_branding PRIMARY KEY (tenant_id),
+    CONSTRAINT FK_tenant_branding_tenant FOREIGN KEY (tenant_id)
+        REFERENCES dbo.tenant (tenant_id) ON DELETE CASCADE
+);
+
+IF OBJECT_ID(N'dbo.tenant_branding', N'U') IS NOT NULL
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM sys.indexes
+        WHERE object_id = OBJECT_ID(N'dbo.tenant_branding')
+          AND name = N'IX_tenant_branding_org_short_name'
+    )
+        CREATE INDEX IX_tenant_branding_org_short_name ON dbo.tenant_branding (org_short_name);
+END
+
+IF OBJECT_ID(N'dbo.tenant_branding', N'U') IS NOT NULL
+   AND OBJECT_ID(N'dbo.tenant', N'U') IS NOT NULL
+BEGIN
+    INSERT INTO dbo.tenant_branding (
+        tenant_id, org_long_name, org_short_name, support_email, accessibility_email,
+        portal_login_url, created_at, updated_at
+    )
+    SELECT
+        t.tenant_id,
+        CASE WHEN t.slug = N'demo' THEN N'PHW Demo Environment' ELSE N'PHW Colorado Alpine' END,
+        CASE WHEN t.slug = N'demo' THEN N'PHW Demo' ELSE N'PHW Alpine' END,
+        NULL,
+        NULL,
+        NULL,
+        GETUTCDATE(),
+        GETUTCDATE()
+    FROM dbo.tenant t
+    WHERE t.slug IN (N'colorado-alpine', N'demo')
+      AND NOT EXISTS (
+        SELECT 1
+        FROM dbo.tenant_branding tb
+        WHERE tb.tenant_id = t.tenant_id
+      );
+END
+
+-- ---------------------------------------------------------------------------
+-- 13c. TenantMessaging  (tenant-specific outbound sender config)
+-- ---------------------------------------------------------------------------
+IF OBJECT_ID(N'dbo.tenant_messaging', N'U') IS NULL
+CREATE TABLE dbo.tenant_messaging (
+    tenant_id                     UNIQUEIDENTIFIER NOT NULL,
+    email_from                    NVARCHAR(255)    NULL,
+    email_reply_to                NVARCHAR(255)    NULL,
+    email_bcc_monitor             NVARCHAR(255)    NULL,
+    sms_provider                  NVARCHAR(20)     NULL
+        CHECK (sms_provider IS NULL OR sms_provider IN ('acs', 'twilio', 'telnyx')),
+    sms_from                      NVARCHAR(30)     NULL,
+    twilio_messaging_service_sid  NVARCHAR(64)     NULL,
+    telnyx_messaging_profile_id   NVARCHAR(64)     NULL,
+    telnyx_from_number            NVARCHAR(30)     NULL,
+    created_at                    DATETIME         NOT NULL DEFAULT GETUTCDATE(),
+    updated_at                    DATETIME         NOT NULL DEFAULT GETUTCDATE(),
+    CONSTRAINT PK_tenant_messaging PRIMARY KEY (tenant_id),
+    CONSTRAINT FK_tenant_messaging_tenant FOREIGN KEY (tenant_id)
+        REFERENCES dbo.tenant (tenant_id) ON DELETE CASCADE
+);
+
+IF OBJECT_ID(N'dbo.tenant_messaging', N'U') IS NOT NULL
+   AND OBJECT_ID(N'dbo.tenant', N'U') IS NOT NULL
+BEGIN
+    INSERT INTO dbo.tenant_messaging (tenant_id, created_at, updated_at)
+    SELECT t.tenant_id, GETUTCDATE(), GETUTCDATE()
+    FROM dbo.tenant t
+    WHERE t.slug IN (N'colorado-alpine', N'demo')
+      AND NOT EXISTS (
+        SELECT 1
+        FROM dbo.tenant_messaging tm
+        WHERE tm.tenant_id = t.tenant_id
+      );
+END
+
+-- ---------------------------------------------------------------------------
+-- 13d. TenantMembership  (canonical tenant access map for users/members)
+-- ---------------------------------------------------------------------------
+IF OBJECT_ID(N'dbo.tenant_membership', N'U') IS NULL
+CREATE TABLE dbo.tenant_membership (
+    tenant_membership_id UNIQUEIDENTIFIER NOT NULL DEFAULT NEWID(),
+    tenant_id            UNIQUEIDENTIFIER NOT NULL,
+    user_id              UNIQUEIDENTIFIER NULL,
+    member_id            UNIQUEIDENTIFIER NULL,
+    role                 NVARCHAR(30)     NOT NULL DEFAULT 'member'
+        CHECK (role IN ('member', 'admin', 'event_creator', 'tavf_creator', 'support', 'root_admin')),
+    membership_kind      NVARCHAR(30)     NOT NULL DEFAULT 'home'
+        CHECK (membership_kind IN ('home', 'temporary_demo', 'admin')),
+    home_tenant_id       UNIQUEIDENTIFIER NULL,
+    starts_at            DATETIME         NOT NULL DEFAULT GETUTCDATE(),
+    expires_at           DATETIME         NULL,
+    status               NVARCHAR(20)     NOT NULL DEFAULT 'active'
+        CHECK (status IN ('active', 'revoked', 'expired')),
+    created_by_user_id   UNIQUEIDENTIFIER NULL,
+    created_at           DATETIME         NOT NULL DEFAULT GETUTCDATE(),
+    revoked_at           DATETIME         NULL,
+    CONSTRAINT PK_tenant_membership PRIMARY KEY (tenant_membership_id),
+    CONSTRAINT CK_tenant_membership_subject CHECK (user_id IS NOT NULL OR member_id IS NOT NULL),
+    CONSTRAINT CK_tenant_membership_window CHECK (expires_at IS NULL OR expires_at > starts_at),
+    CONSTRAINT FK_tenant_membership_tenant FOREIGN KEY (tenant_id)
+        REFERENCES dbo.tenant (tenant_id) ON DELETE CASCADE,
+    CONSTRAINT FK_tenant_membership_user FOREIGN KEY (user_id)
+        REFERENCES dbo.[user] (user_id),
+    CONSTRAINT FK_tenant_membership_member FOREIGN KEY (member_id)
+        REFERENCES dbo.member (member_id),
+    CONSTRAINT FK_tenant_membership_home_tenant FOREIGN KEY (home_tenant_id)
+        REFERENCES dbo.tenant (tenant_id),
+    CONSTRAINT FK_tenant_membership_created_by FOREIGN KEY (created_by_user_id)
+        REFERENCES dbo.[user] (user_id)
+);
+
+IF OBJECT_ID(N'dbo.tenant_membership', N'U') IS NOT NULL
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM sys.indexes
+        WHERE object_id = OBJECT_ID(N'dbo.tenant_membership')
+          AND name = N'IX_tenant_membership_user_active'
+    )
+        CREATE INDEX IX_tenant_membership_user_active
+            ON dbo.tenant_membership (user_id, status, starts_at, expires_at);
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM sys.indexes
+        WHERE object_id = OBJECT_ID(N'dbo.tenant_membership')
+          AND name = N'IX_tenant_membership_member_active'
+    )
+        CREATE INDEX IX_tenant_membership_member_active
+            ON dbo.tenant_membership (member_id, status, starts_at, expires_at);
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM sys.indexes
+        WHERE object_id = OBJECT_ID(N'dbo.tenant_membership')
+          AND name = N'IX_tenant_membership_tenant_status'
+    )
+        CREATE INDEX IX_tenant_membership_tenant_status
+            ON dbo.tenant_membership (tenant_id, status, membership_kind);
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM sys.indexes
+        WHERE object_id = OBJECT_ID(N'dbo.tenant_membership')
+          AND name = N'UX_tenant_membership_user_active_kind'
+    )
+        CREATE UNIQUE INDEX UX_tenant_membership_user_active_kind
+            ON dbo.tenant_membership (tenant_id, user_id, membership_kind)
+            WHERE user_id IS NOT NULL AND status = 'active' AND revoked_at IS NULL;
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM sys.indexes
+        WHERE object_id = OBJECT_ID(N'dbo.tenant_membership')
+          AND name = N'UX_tenant_membership_member_active_kind'
+    )
+        CREATE UNIQUE INDEX UX_tenant_membership_member_active_kind
+            ON dbo.tenant_membership (tenant_id, member_id, membership_kind)
+            WHERE member_id IS NOT NULL AND status = 'active' AND revoked_at IS NULL;
+END
+
+-- ---------------------------------------------------------------------------
+-- 13e. TenantMembership backfill (slice 2)
+-- ---------------------------------------------------------------------------
+IF OBJECT_ID(N'dbo.tenant_membership', N'U') IS NOT NULL
+   AND OBJECT_ID(N'dbo.tenant', N'U') IS NOT NULL
+   AND OBJECT_ID(N'dbo.[user]', N'U') IS NOT NULL
+   AND OBJECT_ID(N'dbo.member', N'U') IS NOT NULL
+BEGIN
+    IF COL_LENGTH('dbo.[user]', 'is_root') IS NOT NULL
+       AND COL_LENGTH('dbo.[user]', 'root_role') IS NOT NULL
+    BEGIN
+        EXEC sp_executesql N'
+            UPDATE dbo.[user]
+            SET
+                is_root = 1,
+                root_role = COALESCE(NULLIF(root_role, N''''), N''root_admin'')
+            WHERE LOWER(COALESCE(role, N'''')) = ''superadmin''
+              AND (is_root = 0 OR root_role IS NULL);
+        ';
+    END
+
+    DECLARE @default_tenant_id UNIQUEIDENTIFIER;
+
+    SELECT TOP (1) @default_tenant_id = tenant_id
+    FROM dbo.tenant
+    WHERE slug = N'colorado-alpine';
+
+    IF @default_tenant_id IS NULL
+        SELECT TOP (1) @default_tenant_id = tenant_id
+        FROM dbo.tenant
+        WHERE status = N'active'
+          AND is_demo = 0
+        ORDER BY display_name ASC;
+
+    IF @default_tenant_id IS NOT NULL
+    BEGIN
+        DECLARE @backfill_user_memberships_sql NVARCHAR(MAX) = N'
+            INSERT INTO dbo.tenant_membership (
+                tenant_membership_id,
+                tenant_id,
+                user_id,
+                member_id,
+                role,
+                membership_kind,
+                home_tenant_id,
+                starts_at,
+                expires_at,
+                status,
+                created_by_user_id,
+                created_at,
+                revoked_at
+            )
+            SELECT
+                NEWID(),
+                @default_tenant_id,
+                u.user_id,
+                NULL,
+                CASE
+                    WHEN u.is_root = 1 AND LOWER(COALESCE(u.root_role, N'''')) = ''support'' THEN N''support''
+                    WHEN u.is_root = 1 AND LOWER(COALESCE(u.root_role, N'''')) = ''root_admin'' THEN N''root_admin''
+                    WHEN LOWER(COALESCE(u.role, N'''')) IN (''admin'', ''superadmin'') THEN N''admin''
+                    WHEN LOWER(COALESCE(u.role, N'''')) = ''event_creator'' THEN N''event_creator''
+                    WHEN LOWER(COALESCE(u.role, N'''')) = ''tavf_creator'' THEN N''tavf_creator''
+                    ELSE N''member''
+                END,
+                N''home'',
+                @default_tenant_id,
+                GETUTCDATE(),
+                NULL,
+                N''active'',
+                NULL,
+                GETUTCDATE(),
+                NULL
+            FROM dbo.[user] u
+            WHERE u.is_active = 1
+              AND NOT EXISTS (
+                    SELECT 1
+                    FROM dbo.tenant_membership tm
+                    WHERE tm.tenant_id = @default_tenant_id
+                      AND tm.user_id = u.user_id
+                      AND tm.membership_kind = N''home''
+                      AND tm.status = N''active''
+                      AND tm.revoked_at IS NULL
+                );
+        ';
+
+        EXEC sp_executesql
+            @backfill_user_memberships_sql,
+            N'@default_tenant_id UNIQUEIDENTIFIER',
+            @default_tenant_id = @default_tenant_id;
+
+        INSERT INTO dbo.tenant_membership (
+            tenant_membership_id,
+            tenant_id,
+            user_id,
+            member_id,
+            role,
+            membership_kind,
+            home_tenant_id,
+            starts_at,
+            expires_at,
+            status,
+            created_by_user_id,
+            created_at,
+            revoked_at
+        )
+        SELECT
+            NEWID(),
+            @default_tenant_id,
+            NULL,
+            m.member_id,
+            N'member',
+            N'home',
+            @default_tenant_id,
+            GETUTCDATE(),
+            NULL,
+            N'active',
+            NULL,
+            GETUTCDATE(),
+            NULL
+        FROM dbo.member m
+        WHERE m.is_active = 1
+          AND NOT EXISTS (
+                SELECT 1
+                FROM dbo.tenant_membership tm
+                WHERE tm.tenant_id = @default_tenant_id
+                  AND tm.member_id = m.member_id
+                  AND tm.membership_kind = N'home'
+                  AND tm.status = N'active'
+                  AND tm.revoked_at IS NULL
+            );
+    END
 END
 
 -- Now that dbo.[user] exists, add the FK from dbo.event.created_by
