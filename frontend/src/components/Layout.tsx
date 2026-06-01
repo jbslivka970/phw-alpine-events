@@ -32,7 +32,7 @@ export default function Layout() {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, logout, canCreateTavfPostings } = useAuth();
-  const { activeTenant } = useTenantContext();
+  const { activeTenant, tenants } = useTenantContext();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   useEffect(() => {
@@ -51,6 +51,7 @@ export default function Layout() {
   const tenantShortName = branding?.org_short_name ?? tenantDisplayName;
   const tenantLogoUrl = branding?.logo_url || '/branding/PHWTroutLogoSagebrush-1.png';
   const tenantAccent = branding?.primary_color ?? '#1f5f4a';
+  const canSwitchTenant = tenants.length > 1;
   const visibleItems = NAV_ITEMS
     .filter((item) => !item.role || roles.includes(item.role as typeof ROLES[keyof typeof ROLES]))
     .filter((item) => item.to !== '/tavf' || canAccessTavf);
@@ -108,9 +109,20 @@ export default function Layout() {
                 {user.name}
               </span>
             )}
-            <button className="btn btn--outline btn--sm" onClick={handleLogout}>
-              Sign out
-            </button>
+            <div className="phw-layout__user-actions">
+              {canSwitchTenant && (
+                <button
+                  className="btn btn--outline btn--sm"
+                  type="button"
+                  onClick={() => navigate('/tenant/select')}
+                >
+                  Switch tenant
+                </button>
+              )}
+              <button className="btn btn--outline btn--sm" type="button" onClick={handleLogout}>
+                Sign out
+              </button>
+            </div>
           </div>
         </div>
       </nav>

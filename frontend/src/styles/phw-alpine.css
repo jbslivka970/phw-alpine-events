@@ -568,6 +568,12 @@ textarea:focus-visible {
   gap: 12px;
 }
 
+.phw-layout__user-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .phw-layout__username {
   color: rgba(255, 255, 255, 0.55);
   font-size: 12px;
@@ -1030,6 +1036,10 @@ textarea:focus-visible {
     width: 100%;
     justify-content: space-between;
     align-items: center;
+  }
+
+  .phw-layout__user-actions {
+    justify-content: flex-end;
   }
 
   .phw-layout__username {
