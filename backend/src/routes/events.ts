@@ -42,6 +42,10 @@ type EventColumnSupport = {
   hasInvitationStage: boolean;
 };
 
+type EventTenantSupport = {
+  hasTenantId: boolean;
+};
+
 type LeadSecondaryRole = 'MENTOR' | 'PARTICIPANT';
 
 class HttpError extends Error {
@@ -52,6 +56,9 @@ class HttpError extends Error {
 }
 
 let cachedEventColumnSupport: EventColumnSupport | null = null;
+let cachedEventTenantSupport: EventTenantSupport | null = null;
+
+const DEFAULT_TENANT_ID = (process.env['DEFAULT_TENANT_ID'] ?? '1b6b9719-663a-4e56-8f7d-9a4bd4c10001').trim().toLowerCase();
 
 async function getEventColumnSupport(pool: Awaited<ReturnType<typeof getPool>>): Promise<EventColumnSupport> {
   if (cachedEventColumnSupport) {
@@ -73,6 +80,46 @@ async function getEventColumnSupport(pool: Awaited<ReturnType<typeof getPool>>):
   };
 
   return cachedEventColumnSupport;
+}
+
+function isMultiTenantEnabled(): boolean {
+  const raw = process.env['MULTI_TENANT_ENABLED'];
+  if (!raw) {
+    return false;
+  }
+
+  return ['1', 'true', 'yes', 'on'].includes(raw.trim().toLowerCase());
+}
+
+async function getEventTenantSupport(pool: Awaited<ReturnType<typeof getPool>>): Promise<EventTenantSupport> {
+  if (cachedEventTenantSupport) {
+    return cachedEventTenantSupport;
+  }
+
+  const result = await pool
+    .request()
+    .query<{ has_tenant_id: number }>(
+      `SELECT CASE WHEN COL_LENGTH('dbo.event', 'tenant_id') IS NULL THEN 0 ELSE 1 END AS has_tenant_id`
+    );
+
+  cachedEventTenantSupport = {
+    hasTenantId: result.recordset[0]?.has_tenant_id === 1,
+  };
+
+  return cachedEventTenantSupport;
+}
+
+async function resolveEventTenantScope(req: Request, pool: Awaited<ReturnType<typeof getPool>>): Promise<{ apply: boolean; tenantId: string }> {
+  const tenantId = (req.tenantId ?? DEFAULT_TENANT_ID).trim().toLowerCase();
+  if (!isMultiTenantEnabled()) {
+    return { apply: false, tenantId };
+  }
+
+  const support = await getEventTenantSupport(pool);
+  return {
+    apply: support.hasTenantId,
+    tenantId,
+  };
 }
 
 // Derived projections that overlay event.event_lead_member_id with member name/email.
@@ -580,6 +627,7 @@ router.post('/rsvp/:token', writeLimiter, async (req, res) => {
 router.get('/', apiLimiter, authenticate, requireAnyAuthenticatedRole, async (req, res) => {
   try {
     const pool = await getPool();
+    const tenantScope = await resolveEventTenantScope(req, pool);
     const status = (req.query.status as string | undefined)?.toLowerCase();
     const upcoming = parseBooleanQuery(req.query.upcoming);
     const limit = parsePositiveIntQuery(req.query.limit, 100);
@@ -591,6 +639,7 @@ router.get('/', apiLimiter, authenticate, requireAnyAuthenticatedRole, async (re
       `upcoming=${upcoming === null ? 'any' : String(upcoming)}`,
       `limit=${limit ?? 'all'}`,
       `sort=${sort.toLowerCase()}`,
+      `tenant=${tenantScope.apply ? tenantScope.tenantId : 'legacy'}`,
     ].join(':');
 
     const rows = await withShortLivedCache(cacheKey, DASHBOARD_CACHE_TTL_MS, async () => {
@@ -615,6 +664,11 @@ router.get('/', apiLimiter, authenticate, requireAnyAuthenticatedRole, async (re
 
       const request = pool.request();
       const whereClauses: string[] = [];
+
+      if (tenantScope.apply) {
+        whereClauses.push('e.tenant_id = @tenant_id');
+        request.input('tenant_id', sql.UniqueIdentifier, tenantScope.tenantId);
+      }
 
       if (status) {
         whereClauses.push('e.status = @status');
@@ -780,10 +834,17 @@ router.post('/ai-description-preview', writeLimiter, authenticate, requireEventC
 router.get('/:id', apiLimiter, authenticate, requireAnyAuthenticatedRole, async (req, res) => {
   try {
     const pool = await getPool();
+    const tenantScope = await resolveEventTenantScope(req, pool);
     const eventColumns = await getEventColumnSupport(pool);
-    const eventResult = await pool
+    const eventRequest = pool
       .request()
-      .input('event_id', sql.UniqueIdentifier, req.params.id)
+      .input('event_id', sql.UniqueIdentifier, req.params.id);
+
+    if (tenantScope.apply) {
+      eventRequest.input('tenant_id', sql.UniqueIdentifier, tenantScope.tenantId);
+    }
+
+    const eventResult = await eventRequest
       .query<{
         event_id: string;
         title: string;
@@ -824,7 +885,8 @@ router.get('/:id', apiLimiter, authenticate, requireAnyAuthenticatedRole, async 
            created_at,
            updated_at
          FROM event
-         WHERE event_id = @event_id`
+         WHERE event_id = @event_id
+           ${tenantScope.apply ? 'AND tenant_id = @tenant_id' : ''}`
       );
 
     const event = eventResult.recordset[0];
@@ -939,6 +1001,7 @@ router.post('/', writeLimiter, authenticate, requireEventCreatorOrAdmin, async (
     }
 
     const pool = await getPool();
+    const tenantScope = await resolveEventTenantScope(req, pool);
     const eventColumns = await getEventColumnSupport(pool);
 
     if (eventLeadMemberId) {
@@ -957,8 +1020,13 @@ router.post('/', writeLimiter, authenticate, requireEventCreatorOrAdmin, async (
       .input('capacity', sql.Int, capacity)
       .input('created_by', sql.UniqueIdentifier, createdBy);
 
+    if (tenantScope.apply) {
+      createRequest.input('tenant_id', sql.UniqueIdentifier, tenantScope.tenantId);
+    }
+
     const insertColumns = [
       'event_id',
+      ...(tenantScope.apply ? ['tenant_id'] : []),
       'title',
       'description',
       'location',
@@ -974,6 +1042,7 @@ router.post('/', writeLimiter, authenticate, requireEventCreatorOrAdmin, async (
     ];
     const insertValues = [
       'NEWID()',
+      ...(tenantScope.apply ? ['@tenant_id'] : []),
       '@title',
       '@description',
       '@location',
@@ -1060,10 +1129,17 @@ router.post('/', writeLimiter, authenticate, requireEventCreatorOrAdmin, async (
 router.put('/:id', writeLimiter, authenticate, requireEventCreatorOrAdmin, async (req, res) => {
   try {
     const pool = await getPool();
+    const tenantScope = await resolveEventTenantScope(req, pool);
     const eventColumns = await getEventColumnSupport(pool);
-    const existingResult = await pool
+    const existingRequest = pool
       .request()
-      .input('event_id', sql.UniqueIdentifier, req.params.id)
+      .input('event_id', sql.UniqueIdentifier, req.params.id);
+
+    if (tenantScope.apply) {
+      existingRequest.input('tenant_id', sql.UniqueIdentifier, tenantScope.tenantId);
+    }
+
+    const existingResult = await existingRequest
       .query<{
         status: string;
         title: string;
@@ -1096,7 +1172,8 @@ router.put('/:id', writeLimiter, authenticate, requireEventCreatorOrAdmin, async
            participant_capacity,
            capacity
          FROM event
-         WHERE event_id = @event_id`
+         WHERE event_id = @event_id
+           ${tenantScope.apply ? 'AND tenant_id = @tenant_id' : ''}`
       );
 
     const existing = existingResult.recordset[0];
@@ -1179,6 +1256,10 @@ router.put('/:id', writeLimiter, authenticate, requireEventCreatorOrAdmin, async
 
     const updates: string[] = ['updated_at = GETUTCDATE()'];
     const request = pool.request().input('event_id', sql.UniqueIdentifier, req.params.id);
+
+    if (tenantScope.apply) {
+      request.input('tenant_id', sql.UniqueIdentifier, tenantScope.tenantId);
+    }
 
     if (req.body?.title !== undefined) {
       updates.push('title = @title');
@@ -1279,7 +1360,8 @@ router.put('/:id', writeLimiter, authenticate, requireEventCreatorOrAdmin, async
     const updated = await request.query(
       `UPDATE event SET ${updates.join(', ')}
        OUTPUT INSERTED.*
-       WHERE event_id = @event_id`
+       WHERE event_id = @event_id
+       ${tenantScope.apply ? 'AND tenant_id = @tenant_id' : ''}`
     );
 
     let addedTargetGroupIds: string[] = [];
@@ -3487,10 +3569,22 @@ router.get('/:id/assignment-recommendations', apiLimiter, authenticate, requireE
 router.delete('/:id', writeLimiter, authenticate, requireEventCreatorOrAdmin, async (req, res) => {
   try {
     const pool = await getPool();
-    const existingResult = await pool
+    const tenantScope = await resolveEventTenantScope(req, pool);
+    const existingRequest = pool
       .request()
-      .input('event_id', sql.UniqueIdentifier, req.params.id)
-      .query<{ status: string }>('SELECT status FROM event WHERE event_id = @event_id');
+      .input('event_id', sql.UniqueIdentifier, req.params.id);
+
+    if (tenantScope.apply) {
+      existingRequest.input('tenant_id', sql.UniqueIdentifier, tenantScope.tenantId);
+    }
+
+    const existingResult = await existingRequest
+      .query<{ status: string }>(
+        `SELECT status
+         FROM event
+         WHERE event_id = @event_id
+           ${tenantScope.apply ? 'AND tenant_id = @tenant_id' : ''}`
+      );
 
     const existing = existingResult.recordset[0];
     if (!existing) {
@@ -3506,7 +3600,12 @@ router.delete('/:id', writeLimiter, authenticate, requireEventCreatorOrAdmin, as
     await pool
       .request()
       .input('event_id', sql.UniqueIdentifier, req.params.id)
-      .query('DELETE FROM event WHERE event_id = @event_id');
+      .input('tenant_id', sql.UniqueIdentifier, tenantScope.tenantId)
+      .query(
+        `DELETE FROM event
+         WHERE event_id = @event_id
+           ${tenantScope.apply ? 'AND tenant_id = @tenant_id' : ''}`
+      );
 
     res.status(204).send();
   } catch (error) {

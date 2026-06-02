@@ -29,12 +29,16 @@ jest.mock('../middleware/auth', () => ({
   __esModule: true,
   default: (req: express.Request, _res: express.Response, next: express.NextFunction) => {
     const headerRoles = (req.headers['x-test-roles'] as string | undefined) ?? 'ADMIN';
+    const headerTenantId = req.headers['x-test-tenant-id'] as string | undefined;
     req.user = {
       sub: '00000000-0000-0000-0000-000000000001',
       email: 'admin@example.com',
       roles: headerRoles.split(',') as ('ADMIN' | 'EVENT_CREATOR' | 'USER')[],
       rawClaims: {},
     };
+    if (headerTenantId) {
+      req.tenantId = headerTenantId;
+    }
     next();
   },
 }));
@@ -85,9 +89,15 @@ describe('events routes', () => {
   app.use(apiLimiter);
   app.use(express.json());
   app.use('/api/events', eventsRouter);
+  const originalEnv = { ...process.env };
 
   beforeEach(() => {
     jest.clearAllMocks();
+    process.env = { ...originalEnv, MULTI_TENANT_ENABLED: 'false' };
+  });
+
+  afterAll(() => {
+    process.env = originalEnv;
   });
 
   it('GET /api/events returns events and applies status filter', async () => {
@@ -101,6 +111,30 @@ describe('events routes', () => {
     expect(res.status).toBe(200);
     expect(res.body).toEqual([{ event_id: 'event-1', title: 'Fly Tying 101', status: 'draft' }]);
     expect(mockRequest.input).toHaveBeenCalledWith('status', 'NVarChar', 'draft');
+  });
+
+  it('GET /api/events applies tenant_id filter when multi-tenant mode is enabled and event.tenant_id exists', async () => {
+    process.env.MULTI_TENANT_ENABLED = 'true';
+
+    const queryCalls: string[] = [];
+    const mockRequest = createRequest(async (query) => {
+      queryCalls.push(query);
+      if (query.includes('COL_LENGTH(\'dbo.event\', \'tenant_id\')')) {
+        return { recordset: [{ has_tenant_id: 1 }] };
+      }
+      return { recordset: [{ event_id: 'event-1', title: 'Fly Tying 101', status: 'draft' }] };
+    });
+
+    (getPool as jest.Mock).mockResolvedValue({ request: () => mockRequest });
+
+    const res = await request(app)
+      .get('/api/events?status=draft')
+      .set('x-test-tenant-id', '1b6b9719-663a-4e56-8f7d-9a4bd4c10001');
+
+    expect(res.status).toBe(200);
+    const eventsQuery = queryCalls.find((query) => query.includes('FROM event e'));
+    expect(eventsQuery).toContain('e.tenant_id = @tenant_id');
+    expect(mockRequest.input).toHaveBeenCalledWith('tenant_id', 'UniqueIdentifier', '1b6b9719-663a-4e56-8f7d-9a4bd4c10001');
   });
 
   it('GET /api/events/:id/assignment-recommendations returns ranked equity rows', async () => {
