@@ -63,6 +63,11 @@ Preparatory schema work, bootstrap updates, and behind-flag tenant plumbing can 
         - Added backend `/api/v1/root/access` route validation tests for invalid `root_role` and invalid `membership_kind`.
         - Added reusable SQL audit script: `scripts/verify-tenant-membership-audit.sql`.
 
+5. Tenant-guard expansion completed for `tavf` and `admin`
+    - `backend/src/routes/tavf.ts` now enforces tenant-aware access checks for posting/application/match/member dereference paths under multi-tenant mode.
+    - `backend/src/routes/admin.ts` now scopes identity and blast member-targeted flows by active tenant membership.
+    - Focused backend route tests for tavf/admin and backend typecheck passed after these changes.
+
 ### Completed slices in main
 
 1. Tenant context and auth integration
@@ -106,17 +111,17 @@ Preparatory schema work, bootstrap updates, and behind-flag tenant plumbing can 
 ### Resume point after testing
 
 1. Continue guard pattern to remaining event-id dependent queries not yet explicitly checked by tenant access guard (if any emerge during QA).
-2. Extend the same compatibility-safe guard style to other high-impact route families (`tavf`, `notifications`, `support`, `admin`) where event/member ids can be dereferenced.
+2. Extend the same compatibility-safe guard style to remaining high-impact route families (`notifications`, `support`) where event/member ids can be dereferenced.
 3. Prepare a pre-release verification run focused on cross-tenant denial matrix before enabling `MULTI_TENANT_ENABLED` outside controlled environments.
 
 ### Post-deploy todo list
 
 - [ ] Run post-deploy QA pass and enumerate any remaining event-id dependent queries that still need `ensureTenantEventAccess`.
-- [ ] Extend tenant guard pattern to `backend/src/routes/tavf.ts` for event/member dereference paths.
+- [x] Extend tenant guard pattern to `backend/src/routes/tavf.ts` for event/member dereference paths.
 - [ ] Extend tenant guard pattern to `backend/src/routes/support.ts` for event/member dereference paths.
-- [ ] Extend tenant guard pattern to `backend/src/routes/admin.ts` for event/member dereference paths.
+- [x] Extend tenant guard pattern to `backend/src/routes/admin.ts` for event/member dereference paths.
 - [ ] Extend tenant guard pattern to notification-related route/service entry points that can dereference cross-tenant ids.
-- [ ] Add or update focused route tests for each newly guarded family (`tavf`, `support`, `admin`, notifications).
+- [ ] Add or update focused route tests for remaining newly guarded families (`support`, notifications).
 - [ ] Run a cross-tenant denial matrix test pass in staging with `MULTI_TENANT_ENABLED=true`.
 - [ ] Update this document with a new dated implementation checkpoint after the above items are complete.
 

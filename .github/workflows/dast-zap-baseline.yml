@@ -1,0 +1,60 @@
+name: DAST - ZAP Baseline
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_url:
+        description: Optional target URL override
+        required: false
+        type: string
+  schedule:
+    - cron: '30 9 * * 1'
+  pull_request:
+    branches: [ main ]
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+jobs:
+  zap_baseline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      DEFAULT_TARGET_URL: https://phwalpineeventsjb873a.azurewebsites.net
+      TARGET_URL: ${{ inputs.target_url || vars.E2E_APP_URL || 'https://phwalpineeventsjb873a.azurewebsites.net' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Prepare report directory
+        run: mkdir -p reports
+
+      - name: Run OWASP ZAP baseline (non-blocking)
+        continue-on-error: true
+        run: |
+          echo "Running ZAP baseline against: $TARGET_URL"
+          docker run --rm \
+            -v "$PWD:/zap/wrk:rw" \
+            ghcr.io/zaproxy/zaproxy:stable \
+            zap-baseline.py \
+            -t "$TARGET_URL" \
+            -m 5 \
+            -I \
+            -r reports/zap-baseline.html \
+            -J reports/zap-baseline.json \
+            -w reports/zap-baseline.md
+
+      - name: Upload ZAP baseline artifacts
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: zap-baseline-${{ github.run_id }}
+          if-no-files-found: warn
+          retention-days: 14
+          path: |
+            reports/zap-baseline.html
+            reports/zap-baseline.json
+            reports/zap-baseline.md
