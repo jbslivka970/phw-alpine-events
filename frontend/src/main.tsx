@@ -147,8 +147,6 @@ async function bootstrap() {
       </MsalProvider>
     </React.StrictMode>,
   )
-
-  window.sessionStorage.removeItem(CHUNK_RELOAD_KEY)
 }
 
 void bootstrap()
