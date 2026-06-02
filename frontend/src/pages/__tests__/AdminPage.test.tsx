@@ -175,6 +175,29 @@ describe('AdminPage root access management', () => {
     expect(await screen.findByText('Root Access Management')).toBeInTheDocument()
   })
 
+  it('hides root access management section for non-root sessions', async () => {
+    mockedRootApi.getSession.mockResolvedValue({
+      user_id: 'admin-user-1',
+      email: 'admin@example.com',
+      display_name: 'Admin User',
+      role: 'admin',
+      is_root: false,
+      root_role: null,
+    })
+
+    render(
+      <MemoryRouter>
+        <AdminPage />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => {
+      expect(mockedRootApi.getSession).toHaveBeenCalled()
+    })
+
+    expect(screen.queryByText('Root Access Management')).not.toBeInTheDocument()
+  })
+
   it('loads profile and saves root access payload', async () => {
     const profile = {
       email: 'sarnitro@gmail.com',
