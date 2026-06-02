@@ -146,6 +146,23 @@ async function invokeContract(request: APIRequestContext, method: ContractCase['
   });
 }
 
+async function cleanupEventIfCreated(request: APIRequestContext, token: string, responseBody: string): Promise<void> {
+  try {
+    const parsed = JSON.parse(responseBody) as { event_id?: unknown };
+    if (typeof parsed.event_id !== 'string' || parsed.event_id.trim().length === 0) {
+      return;
+    }
+
+    const eventId = parsed.event_id.trim();
+    await invokeContract(request, 'PUT', `/events/${eventId}/status`, token, { status: 'cancelled' });
+    await request.delete(`${apiBaseUrl}/events/${eventId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+  } catch {
+    // Best-effort cleanup only; failures should not mask contract assertions.
+  }
+}
+
 function decodeCapabilities(token: string): RoleCapabilities {
   try {
     const payloadPart = token.split('.')[1] ?? '';
@@ -206,12 +223,7 @@ async function inferCapabilities(request: APIRequestContext, token: string): Pro
   const creatorStatus = creatorProbe.status();
   const hasCreateAccess = ![401, 403].includes(creatorStatus);
 
-  const eventCreateProbe = await invokeContract(request, 'POST', '/events', token, {
-    title: 'Contract Probe',
-    event_date: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-  });
-  const eventCreateStatus = eventCreateProbe.status();
-  const canPostEvents = ![401, 403].includes(eventCreateStatus);
+  const canPostEvents = hasCreateAccess || hasAdminAccess;
 
   const inferred: RoleCapabilities = {
     isAdmin: claimed.isAdmin || hasAdminAccess,
@@ -254,6 +266,10 @@ test.describe('API role-path matrix', () => {
 
         if (contract.customAssert) {
           await contract.customAssert(status, bodyText);
+        }
+
+        if (contract.method === 'POST' && contract.path === '/events' && expected === 'allow') {
+          await cleanupEventIfCreated(request, token, bodyText);
         }
       }
     });
