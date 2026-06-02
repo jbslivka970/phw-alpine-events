@@ -44,9 +44,16 @@ jobs:
             -t "$TARGET_URL" \
             -m 5 \
             -I \
-            -r reports/zap-baseline.html \
-            -J reports/zap-baseline.json \
-            -w reports/zap-baseline.md
+            -r /zap/wrk/reports/zap-baseline.html \
+            -J /zap/wrk/reports/zap-baseline.json \
+            -w /zap/wrk/reports/zap-baseline.md
+
+      - name: Verify baseline reports on runner
+        if: always()
+        run: |
+          echo "Listing report directory after ZAP run"
+          ls -la reports || true
+          find reports -maxdepth 1 -type f -name 'zap-baseline*' -print || true
 
       - name: Upload ZAP baseline artifacts
         if: always()

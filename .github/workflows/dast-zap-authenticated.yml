@@ -114,9 +114,9 @@ jobs:
             -m 5 \
             -j \
             -I \
-            -r reports/zap-authenticated-baseline.html \
-            -J reports/zap-authenticated-baseline.json \
-            -w reports/zap-authenticated-baseline.md \
+            -r /zap/wrk/reports/zap-authenticated-baseline.html \
+            -J /zap/wrk/reports/zap-authenticated-baseline.json \
+            -w /zap/wrk/reports/zap-authenticated-baseline.md \
             -z "replacer.full_list(0).description=authheader replacer.full_list(0).enabled=true replacer.full_list(0).matchtype=REQ_HEADER replacer.full_list(0).matchstr=Authorization replacer.full_list(0).regex=false replacer.full_list(0).replacement=Bearer ${AUTH_BEARER_TOKEN}"
 
       - name: Run fallback baseline when token is unavailable (non-blocking)
@@ -136,9 +136,17 @@ jobs:
             -m 5 \
             -j \
             -I \
-            -r reports/zap-authenticated-fallback.html \
-            -J reports/zap-authenticated-fallback.json \
-            -w reports/zap-authenticated-fallback.md
+            -r /zap/wrk/reports/zap-authenticated-fallback.html \
+            -J /zap/wrk/reports/zap-authenticated-fallback.json \
+            -w /zap/wrk/reports/zap-authenticated-fallback.md
+
+      - name: Verify authenticated reports on runner
+        if: always()
+        shell: bash
+        run: |
+          echo "Listing report directory after ZAP run"
+          ls -la reports || true
+          find reports -maxdepth 1 -type f -name 'zap-authenticated*' -print || true
 
       - name: Upload ZAP authenticated artifacts
         if: always()
