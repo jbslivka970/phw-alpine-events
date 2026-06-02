@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { ROLES } from '../authConfig';
+import { rootApi } from '../api/root';
 import { useTenantContext } from '../contexts/TenantContext';
 import { useAuth } from '../hooks/useAuth';
 
@@ -34,10 +35,36 @@ export default function Layout() {
   const { user, logout, canCreateTavfPostings } = useAuth();
   const { activeTenant, tenants, selectTenant } = useTenantContext();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isRootAdmin, setIsRootAdmin] = useState(false);
 
   useEffect(() => {
     setIsMenuOpen(false);
   }, [location.pathname]);
+
+  useEffect(() => {
+    let active = true;
+
+    if (!user) {
+      setIsRootAdmin(false);
+      return () => { active = false; };
+    }
+
+    rootApi.getSession()
+      .then((session) => {
+        if (!active) {
+          return;
+        }
+        setIsRootAdmin(Boolean(session.is_root));
+      })
+      .catch(() => {
+        if (!active) {
+          return;
+        }
+        setIsRootAdmin(false);
+      });
+
+    return () => { active = false; };
+  }, [user]);
 
   async function handleLogout() {
     await logout();
@@ -62,6 +89,8 @@ export default function Layout() {
   const visibleItems = NAV_ITEMS
     .filter((item) => !item.role || roles.includes(item.role as typeof ROLES[keyof typeof ROLES]))
     .filter((item) => item.to !== '/tavf' || canAccessTavf);
+
+  const navItems = isRootAdmin ? [...visibleItems, { label: 'Root', to: '/root' }] : visibleItems;
 
   return (
     <div className="phw-layout">
@@ -95,7 +124,7 @@ export default function Layout() {
             id="phw-primary-navigation"
             className={`phw-layout__links${isMenuOpen ? ' phw-layout__links--open' : ''}`}
           >
-            {visibleItems.map((item) => (
+            {navItems.map((item) => (
               <NavLink
                 key={item.to}
                 to={item.to}
