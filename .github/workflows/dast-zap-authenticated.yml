@@ -1,0 +1,149 @@
+name: DAST - ZAP Authenticated
+
+on:
+  workflow_run:
+    workflows:
+      - CI/CD Pipeline
+    types:
+      - completed
+  workflow_dispatch:
+    inputs:
+      target_url:
+        description: Optional target URL override
+        required: false
+        type: string
+      auth_run_id:
+        description: Optional run id that produced playwright-auth-state artifact
+        required: false
+        type: string
+      auth_role:
+        description: Token role to use from tokens.env
+        required: false
+        type: choice
+        default: member
+        options:
+          - member
+          - event_creator
+          - admin
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  zap_authenticated:
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      DEFAULT_TARGET_URL: https://phwalpineeventsjb873a.azurewebsites.net/api/v1
+      TARGET_URL: ${{ inputs.target_url || vars.E2E_API_BASE_URL || 'https://phwalpineeventsjb873a.azurewebsites.net/api/v1' }}
+      AUTH_ROLE: ${{ inputs.auth_role || 'member' }}
+      AUTH_RUN_ID: ${{ inputs.auth_run_id || github.event.workflow_run.id }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Prepare report directory
+        run: mkdir -p reports tests/e2e/.auth
+
+      - name: Download Playwright auth state from triggering run
+        id: download_auth_state
+        continue-on-error: true
+        uses: actions/download-artifact@v5
+        with:
+          name: playwright-auth-state-${{ env.AUTH_RUN_ID }}
+          path: tests/e2e/.auth
+          repository: ${{ github.repository }}
+          run-id: ${{ env.AUTH_RUN_ID }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve authenticated token from tokens.env
+        id: resolve_token
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          token_file="tests/e2e/.auth/tokens.env"
+          if [ ! -s "$token_file" ]; then
+            echo "token_present=false" >> "$GITHUB_OUTPUT"
+            echo "Token file not found; authenticated scan will run in fallback mode."
+            exit 0
+          fi
+
+          case "$AUTH_ROLE" in
+            admin) token_var="PW_ADMIN_TOKEN" ;;
+            event_creator) token_var="PW_EVENT_CREATOR_TOKEN" ;;
+            *) token_var="PW_MEMBER_TOKEN" ;;
+          esac
+
+          token_value="$(grep -E "^${token_var}=" "$token_file" | head -n1 | cut -d'=' -f2- || true)"
+          if [ -z "$token_value" ]; then
+            echo "token_present=false" >> "$GITHUB_OUTPUT"
+            echo "No token value found for role: $AUTH_ROLE"
+            exit 0
+          fi
+
+          echo "token_present=true" >> "$GITHUB_OUTPUT"
+          {
+            echo "AUTH_BEARER_TOKEN<<EOF"
+            echo "$token_value"
+            echo "EOF"
+          } >> "$GITHUB_ENV"
+
+      - name: Run OWASP ZAP authenticated baseline (non-blocking)
+        if: ${{ steps.resolve_token.outputs.token_present == 'true' }}
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Running authenticated ZAP baseline against: $TARGET_URL"
+
+          docker run --rm \
+            -v "$PWD:/zap/wrk:rw" \
+            ghcr.io/zaproxy/zaproxy:stable \
+            zap-baseline.py \
+            -t "$TARGET_URL" \
+            -m 5 \
+            -j \
+            -I \
+            -r reports/zap-authenticated-baseline.html \
+            -J reports/zap-authenticated-baseline.json \
+            -w reports/zap-authenticated-baseline.md \
+            -z "replacer.full_list(0).description=authheader replacer.full_list(0).enabled=true replacer.full_list(0).matchtype=REQ_HEADER replacer.full_list(0).matchstr=Authorization replacer.full_list(0).regex=false replacer.full_list(0).replacement=Bearer ${AUTH_BEARER_TOKEN}"
+
+      - name: Run fallback baseline when token is unavailable (non-blocking)
+        if: ${{ steps.resolve_token.outputs.token_present != 'true' }}
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Authenticated token unavailable; running fallback baseline scan against: $TARGET_URL"
+
+          docker run --rm \
+            -v "$PWD:/zap/wrk:rw" \
+            ghcr.io/zaproxy/zaproxy:stable \
+            zap-baseline.py \
+            -t "$TARGET_URL" \
+            -m 5 \
+            -j \
+            -I \
+            -r reports/zap-authenticated-fallback.html \
+            -J reports/zap-authenticated-fallback.json \
+            -w reports/zap-authenticated-fallback.md
+
+      - name: Upload ZAP authenticated artifacts
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: zap-authenticated-${{ github.run_id }}
+          if-no-files-found: warn
+          retention-days: 14
+          path: |
+            reports/zap-authenticated-baseline.html
+            reports/zap-authenticated-baseline.json
+            reports/zap-authenticated-baseline.md
+            reports/zap-authenticated-fallback.html
+            reports/zap-authenticated-fallback.json
+            reports/zap-authenticated-fallback.md
