@@ -5,6 +5,7 @@ import type {
   RootDemoMembershipSummary,
   RootTenantAdminSummary,
   RootTenantBranding,
+  RootTenantMembershipSummary,
   RootTenantMessaging,
   RootTenantSummary,
   RootTenantUsageSummary,
@@ -62,6 +63,17 @@ function RootAdminPage() {
   const [adminDisplayName, setAdminDisplayName] = useState('')
   const [adminExpiresAt, setAdminExpiresAt] = useState('')
 
+  const [tenantMemberships, setTenantMemberships] = useState<RootTenantMembershipSummary[]>([])
+  const [membershipLoadBusy, setMembershipLoadBusy] = useState(false)
+  const [membershipBusy, setMembershipBusy] = useState(false)
+  const [membershipError, setMembershipError] = useState<string | null>(null)
+  const [membershipSuccess, setMembershipSuccess] = useState<string | null>(null)
+  const [membershipEmail, setMembershipEmail] = useState('')
+  const [membershipDisplayName, setMembershipDisplayName] = useState('')
+  const [membershipRole, setMembershipRole] = useState('member')
+  const [membershipKind, setMembershipKind] = useState('home')
+  const [membershipExpiresAt, setMembershipExpiresAt] = useState('')
+
   const [tenantStatusBusy, setTenantStatusBusy] = useState(false)
   const [tenantStatusMessage, setTenantStatusMessage] = useState<string | null>(null)
 
@@ -113,6 +125,7 @@ function RootAdminPage() {
       setMessaging(null)
       setDemoMemberships([])
       setUsage(null)
+      setTenantMemberships([])
       return
     }
 
@@ -121,38 +134,45 @@ function RootAdminPage() {
     setMessagingBusy(true)
     setDemoLoadBusy(true)
     setUsageBusy(true)
+    setMembershipLoadBusy(true)
     setBrandingError(null)
     setMessagingError(null)
     setDemoError(null)
     setUsageError(null)
+    setMembershipError(null)
 
     try {
-      const [brandingResponse, adminsResponse, messagingResponse, demoResponse, usageResponse] = await Promise.all([
+      const [brandingResponse, adminsResponse, messagingResponse, demoResponse, usageResponse, membershipsResponse] = await Promise.all([
         rootApi.getTenantBranding(tenantId),
         rootApi.listTenantAdmins(tenantId),
         rootApi.getTenantMessaging(tenantId),
         rootApi.listDemoMemberships(tenantId),
         rootApi.getTenantUsage(tenantId),
+        rootApi.listTenantMemberships(tenantId),
       ])
       setBranding(brandingResponse)
       setTenantAdmins(adminsResponse.admins)
       setMessaging(messagingResponse)
       setDemoMemberships(demoResponse.memberships)
       setUsage(usageResponse)
+      setTenantMemberships(membershipsResponse.memberships)
     } catch (error) {
       setBranding(null)
       setTenantAdmins([])
       setMessaging(null)
       setDemoMemberships([])
       setUsage(null)
+      setTenantMemberships([])
       setBrandingError(toUserErrorMessage(error, 'Failed to load tenant branding/admin assignments.'))
       setUsageError(toUserErrorMessage(error, 'Failed to load tenant usage summary.'))
+      setMembershipError(toUserErrorMessage(error, 'Failed to load tenant memberships.'))
     } finally {
       setBrandingBusy(false)
       setAdminLoadBusy(false)
       setMessagingBusy(false)
       setDemoLoadBusy(false)
       setUsageBusy(false)
+      setMembershipLoadBusy(false)
     }
   }
 
@@ -346,6 +366,53 @@ function RootAdminPage() {
       setTenantLoadError(toUserErrorMessage(error, 'Failed to update tenant status.'))
     } finally {
       setTenantStatusBusy(false)
+    }
+  }
+
+  async function handleGrantTenantMembership(): Promise<void> {
+    if (!selectedTenantId || !membershipEmail.trim()) {
+      return
+    }
+
+    setMembershipBusy(true)
+    setMembershipError(null)
+    setMembershipSuccess(null)
+    try {
+      const response = await rootApi.grantTenantMembership(selectedTenantId, {
+        email: membershipEmail.trim(),
+        display_name: membershipDisplayName.trim() || null,
+        role: membershipRole,
+        membership_kind: membershipKind,
+        expires_at: membershipExpiresAt ? new Date(membershipExpiresAt).toISOString() : null,
+      })
+      setTenantMemberships(response.memberships)
+      setMembershipSuccess(`Granted ${membershipRole} ${membershipKind} membership to ${membershipEmail.trim()}.`)
+      setMembershipEmail('')
+      setMembershipDisplayName('')
+      setMembershipExpiresAt('')
+    } catch (error) {
+      setMembershipError(toUserErrorMessage(error, 'Failed to grant tenant membership.'))
+    } finally {
+      setMembershipBusy(false)
+    }
+  }
+
+  async function handleRevokeTenantMembership(membershipId: string): Promise<void> {
+    if (!selectedTenantId) {
+      return
+    }
+
+    setMembershipBusy(true)
+    setMembershipError(null)
+    setMembershipSuccess(null)
+    try {
+      const response = await rootApi.updateTenantMembership(selectedTenantId, membershipId, { status: 'revoked' })
+      setTenantMemberships(response.memberships)
+      setMembershipSuccess('Membership revoked.')
+    } catch (error) {
+      setMembershipError(toUserErrorMessage(error, 'Failed to revoke tenant membership.'))
+    } finally {
+      setMembershipBusy(false)
     }
   }
 
@@ -750,6 +817,60 @@ function RootAdminPage() {
                 >
                   {adminRevokeBusyUserId === admin.user_id ? 'Revoking…' : 'Revoke'}
                 </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section className="admin-card" style={{ marginTop: '1rem' }}>
+        <h2 className="admin-section-title">Tenant Memberships</h2>
+        {membershipError && <p className="ui-notice ui-notice--error">{membershipError}</p>}
+        {membershipSuccess && <p className="ui-notice ui-notice--success">{membershipSuccess}</p>}
+
+        <div className="admin-grid admin-grid--3" style={{ marginBottom: '0.75rem' }}>
+          <input className="members-input" placeholder="user email" value={membershipEmail} onChange={(e) => setMembershipEmail(e.target.value)} />
+          <input className="members-input" placeholder="display name (optional)" value={membershipDisplayName} onChange={(e) => setMembershipDisplayName(e.target.value)} />
+          <input className="members-input" type="datetime-local" value={membershipExpiresAt} onChange={(e) => setMembershipExpiresAt(e.target.value)} />
+          <select className="members-input" value={membershipRole} onChange={(e) => setMembershipRole(e.target.value)}>
+            <option value="member">member</option>
+            <option value="admin">admin</option>
+            <option value="event_creator">event_creator</option>
+            <option value="tavf_creator">tavf_creator</option>
+            <option value="support">support</option>
+            <option value="root_admin">root_admin</option>
+          </select>
+          <select className="members-input" value={membershipKind} onChange={(e) => setMembershipKind(e.target.value)}>
+            <option value="home">home</option>
+            <option value="temporary_demo">temporary_demo</option>
+            <option value="admin">admin</option>
+          </select>
+          <button className="btn btn--primary btn--sm" disabled={membershipBusy || !membershipEmail.trim() || !selectedTenantId} onClick={() => void handleGrantTenantMembership()}>
+            {membershipBusy ? 'Saving…' : 'Grant Membership'}
+          </button>
+        </div>
+
+        {membershipLoadBusy ? (
+          <p>Loading memberships…</p>
+        ) : tenantMemberships.length === 0 ? (
+          <p className="admin-note">No memberships found for this tenant.</p>
+        ) : (
+          <ul>
+            {tenantMemberships.map((membership) => (
+              <li key={membership.tenant_membership_id}>
+                <strong>{membership.subject_email ?? '(no email)'}</strong>
+                {membership.subject_display_name ? ` (${membership.subject_display_name})` : ''}
+                {` • ${membership.role}/${membership.membership_kind}`}
+                {` • ${membership.status}`}
+                {membership.expires_at ? ` • expires ${new Date(membership.expires_at).toLocaleString()}` : ''}
+                {membership.status !== 'revoked' ? (
+                  <>
+                    {' '}
+                    <button className="btn btn--outline btn--sm" disabled={membershipBusy} onClick={() => void handleRevokeTenantMembership(membership.tenant_membership_id)}>
+                      Revoke
+                    </button>
+                  </>
+                ) : null}
               </li>
             ))}
           </ul>
