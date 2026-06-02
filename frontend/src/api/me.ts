@@ -1,4 +1,4 @@
-import { apiGet } from './client';
+import { apiGetWithoutTenant } from './client';
 
 type TenantRole = 'member' | 'admin' | 'event_creator' | 'tavf_creator' | 'support' | 'root_admin';
 type MembershipKind = 'home' | 'temporary_demo' | 'admin';
@@ -21,8 +21,23 @@ interface UserTenantContext {
   branding: TenantBranding | null;
 }
 
+type TenantListResponse = {
+  tenants: UserTenantContext[];
+} | UserTenantContext[];
+
+function unwrapTenantList(response: TenantListResponse): UserTenantContext[] {
+  if (Array.isArray(response)) {
+    return response;
+  }
+
+  return Array.isArray(response.tenants) ? response.tenants : [];
+}
+
 const meApi = {
-  listTenants: (): Promise<UserTenantContext[]> => apiGet<UserTenantContext[]>('/me/tenants'),
+  listTenants: async (): Promise<UserTenantContext[]> => {
+    const response = await apiGetWithoutTenant<TenantListResponse>('/me/tenants');
+    return unwrapTenantList(response);
+  },
 };
 
 export { meApi };

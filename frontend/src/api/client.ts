@@ -1,5 +1,9 @@
 type TokenGetter = () => Promise<string | null>;
 
+type HeaderBuildOptions = {
+  includeTenant?: boolean;
+};
+
 import { getApiBaseUrl } from './baseUrl';
 
 const EXTERNAL_E2E_AUTH_TOGGLE_KEY = 'phw_e2e_external_auth';
@@ -227,7 +231,7 @@ function mergeRequestInit(base: RequestInit, extra?: RequestInit): RequestInit {
   };
 }
 
-async function buildHeaders(extra?: HeadersInit): Promise<HeadersInit> {
+async function buildHeaders(extra?: HeadersInit, options?: HeaderBuildOptions): Promise<HeadersInit> {
   const token = await getCachedToken();
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -247,7 +251,7 @@ async function buildHeaders(extra?: HeadersInit): Promise<HeadersInit> {
     headers['X-Member-Invite-Token'] = memberInviteToken;
   }
 
-  const activeTenantId = getStoredActiveTenantId();
+  const activeTenantId = options?.includeTenant === false ? null : getStoredActiveTenantId();
   if (activeTenantId) {
     headers['X-Tenant-Id'] = activeTenantId;
   }
@@ -293,6 +297,19 @@ async function apiGet<T>(path: string, init?: RequestInit): Promise<T> {
       {
         method: 'GET',
         headers: await buildHeaders(),
+      },
+      init
+    ),
+  }));
+  return parseResponse<T>(response);
+}
+
+async function apiGetWithoutTenant<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetchWithAuthRetry(path, async () => ({
+    ...mergeRequestInit(
+      {
+        method: 'GET',
+        headers: await buildHeaders(undefined, { includeTenant: false }),
       },
       init
     ),
@@ -390,6 +407,7 @@ export {
   setTokenGetter,
   apiDelete,
   apiGet,
+  apiGetWithoutTenant,
   apiGetBlob,
   apiPatch,
   apiPost,

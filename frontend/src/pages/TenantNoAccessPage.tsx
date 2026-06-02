@@ -1,6 +1,28 @@
-import { Link } from 'react-router-dom'
+import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { useAuth } from '../hooks/useAuth'
 
 function TenantNoAccessPage() {
+  const navigate = useNavigate()
+  const { logout } = useAuth()
+  const [isSigningOut, setIsSigningOut] = useState(false)
+  const [signOutError, setSignOutError] = useState<string | null>(null)
+
+  async function handleBackToSignIn() {
+    setIsSigningOut(true)
+    setSignOutError(null)
+
+    try {
+      await logout()
+      navigate('/login', { replace: true })
+    } catch (error) {
+      console.error('[tenant-no-access] Sign-out failed', error)
+      setSignOutError('Sign-out could not complete. Please close this tab and open the app again.')
+    } finally {
+      setIsSigningOut(false)
+    }
+  }
+
   return (
     <section className="page" style={{ maxWidth: 760, margin: '0 auto', textAlign: 'center' }}>
       <h1>No Tenant Access</h1>
@@ -12,8 +34,11 @@ function TenantNoAccessPage() {
       </p>
       <div style={{ marginTop: 20, display: 'flex', gap: 12, justifyContent: 'center' }}>
         <a className="btn btn--outline" href="mailto:accessibility@phwcoloradoalpine.org">Contact support</a>
-        <Link className="btn btn--primary" to="/login">Back to sign in</Link>
+        <button className="btn btn--primary" type="button" onClick={handleBackToSignIn} disabled={isSigningOut}>
+          {isSigningOut ? 'Signing out...' : 'Back to sign in'}
+        </button>
       </div>
+      {signOutError ? <p className="events-error" role="alert" style={{ marginTop: 16 }}>{signOutError}</p> : null}
     </section>
   )
 }
