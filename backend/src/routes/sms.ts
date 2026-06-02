@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { getPool, sql } from '../db';
 import authenticate from '../middleware/auth';
+import { DEFAULT_TENANT_ID } from '../middleware/resolveTenantContext';
 import { apiLimiter, writeLimiter } from '../middleware/rateLimiter';
 import { requireAdmin } from '../middleware/rbac';
 import { notificationService } from '../services/notifications';
@@ -31,6 +32,43 @@ const RESPONSE_MAP: Record<string, RsvpResponse> = {
 
 type InboundSource = 'direct' | 'event_grid' | 'tokenized';
 
+type SmsTenantSupport = {
+  hasMemberTenantTable: boolean;
+  hasEventTenantColumn: boolean;
+};
+
+let cachedSmsTenantSupport: SmsTenantSupport | null = null;
+
+function isMultiTenantEnabled(): boolean {
+  const raw = process.env['MULTI_TENANT_ENABLED'];
+  if (!raw) {
+    return false;
+  }
+
+  return ['1', 'true', 'yes', 'on'].includes(raw.trim().toLowerCase());
+}
+
+async function getSmsTenantSupport(pool: Awaited<ReturnType<typeof getPool>>): Promise<SmsTenantSupport> {
+  if (cachedSmsTenantSupport) {
+    return cachedSmsTenantSupport;
+  }
+
+  const result = await pool
+    .request()
+    .query<{ has_member_tenant_table: number; has_event_tenant_column: number }>(
+      `SELECT
+          CASE WHEN OBJECT_ID('dbo.member_tenant', 'U') IS NULL THEN 0 ELSE 1 END AS has_member_tenant_table,
+          CASE WHEN COL_LENGTH('dbo.event', 'tenant_id') IS NULL THEN 0 ELSE 1 END AS has_event_tenant_column`
+    );
+
+  cachedSmsTenantSupport = {
+    hasMemberTenantTable: result.recordset[0]?.has_member_tenant_table === 1,
+    hasEventTenantColumn: result.recordset[0]?.has_event_tenant_column === 1,
+  };
+
+  return cachedSmsTenantSupport;
+}
+
 router.get('/inbound/logs', apiLimiter, authenticate, requireAdmin, async (req, res) => {
   try {
     const limitRaw = typeof req.query.limit === 'string' ? parseInt(req.query.limit, 10) : 100;
@@ -40,11 +78,46 @@ router.get('/inbound/logs', apiLimiter, authenticate, requireAdmin, async (req, 
     const source = typeof req.query.source === 'string' ? req.query.source : undefined;
 
     const pool = await getPool();
+    const tenantId = (req.tenantId ?? DEFAULT_TENANT_ID).trim().toLowerCase();
+    const tenantSupport = isMultiTenantEnabled() ? await getSmsTenantSupport(pool) : { hasMemberTenantTable: false, hasEventTenantColumn: false };
+    const applyTenantScope = tenantSupport.hasMemberTenantTable || tenantSupport.hasEventTenantColumn;
+    const tenantPredicates: string[] = [];
+
+    if (tenantSupport.hasMemberTenantTable) {
+      tenantPredicates.push(`EXISTS (
+           SELECT 1
+           FROM dbo.member_tenant mt
+           WHERE mt.member_id = log.member_id
+             AND mt.tenant_id = @tenant_id
+             AND mt.is_active = 1
+         )`);
+    }
+
+    if (tenantSupport.hasEventTenantColumn) {
+      tenantPredicates.push(`EXISTS (
+           SELECT 1
+           FROM dbo.event e
+           WHERE e.event_id = log.event_id
+             AND e.tenant_id = @tenant_id
+         )`);
+    }
+
+    const tenantFilter = applyTenantScope
+      ? `
+         AND (
+           ${tenantPredicates.join('\n           OR ')}
+         )`
+      : '';
+
     const queryRequest = pool
       .request()
       .input('limit', sql.Int, limit)
       .input('status', sql.NVarChar, status ?? null)
       .input('source', sql.NVarChar, source ?? null);
+
+    if (applyTenantScope) {
+      queryRequest.input('tenant_id', sql.UniqueIdentifier, tenantId);
+    }
 
     const result = await queryRequest.query<{
       inbound_log_id: string;
@@ -60,7 +133,7 @@ router.get('/inbound/logs', apiLimiter, authenticate, requireAdmin, async (req, 
       error_detail: string | null;
       received_at: Date;
     }>(
-      `SELECT TOP (@limit)
+        `SELECT TOP (@limit)
           inbound_log_id,
           source,
           from_phone,
@@ -73,9 +146,10 @@ router.get('/inbound/logs', apiLimiter, authenticate, requireAdmin, async (req, 
           response_message,
           error_detail,
           received_at
-       FROM dbo.inbound_sms_log
+       FROM dbo.inbound_sms_log log
        WHERE (@status IS NULL OR processing_status = @status)
          AND (@source IS NULL OR source = @source)
+         ${tenantFilter}
        ORDER BY received_at DESC`
     );
 
