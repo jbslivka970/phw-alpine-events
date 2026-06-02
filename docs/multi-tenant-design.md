@@ -87,6 +87,15 @@ Preparatory schema work, bootstrap updates, and behind-flag tenant plumbing can 
         - `frontend/src/api/root.ts` and `frontend/src/pages/root/RootAdminPage.tsx` now expose these operations in the root UI (revoke admin action, suspend/reactivate controls, usage summary panel).
         - Root route contract tests were expanded and now pass with 26/26 focused root tests.
 
+10. Root tenant membership lifecycle endpoints added
+        - `backend/src/routes/root.ts` now includes:
+            - `GET /tenants/:tenantId/memberships`
+            - `POST /tenants/:tenantId/memberships`
+            - `PATCH /tenants/:tenantId/memberships/:membershipId`
+        - `backend/src/services/tenantService.ts` now supports compatibility-safe list/grant/update operations over `dbo.tenant_membership` for user-email based grants and membership mutation.
+        - `frontend/src/api/root.ts` now includes client contracts for listing, granting, and updating tenant memberships.
+        - Focused root route tests now pass with 31/31 coverage in `backend/src/__tests__/root.test.ts`.
+
 7. Staging denial-matrix harness added; live staging attempt currently blocked by environment config
     - Added Playwright matrix coverage for forced `X-Tenant-Id` denial using authenticated admin/event_creator/member tokens.
     - Attempted the check against `https://phwalpineeventsjb873a-staging.azurewebsites.net/api/v1`.

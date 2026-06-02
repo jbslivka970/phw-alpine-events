@@ -22,14 +22,17 @@ import {
 } from '../services/rootTenantBrandingService';
 import {
   createTenant,
+  grantTenantMembershipByEmail,
   getTenantUsageSummary,
   grantDemoAccessByEmail,
   grantTenantAdminByEmail,
   listDemoAccessMemberships,
+  listTenantMemberships,
   listTenantAdmins,
   revokeTenantAdminByUserId,
   resetDemoAccessMemberships,
   setTenantStatus,
+  updateTenantMembership,
   revokeDemoAccessMembership,
 } from '../services/tenantService';
 import {
@@ -44,6 +47,7 @@ const APP_ROLES: AppUserRole[] = ['admin', 'superadmin', 'event_creator', 'tavf_
 const ROOT_ROLES: RootRole[] = ['root_admin', 'support'];
 const TENANT_ROLES: TenantMembershipRole[] = ['member', 'admin', 'event_creator', 'tavf_creator', 'support', 'root_admin'];
 const MEMBERSHIP_KINDS: TenantMembershipKind[] = ['home', 'temporary_demo', 'admin'];
+const MEMBERSHIP_STATUSES = ['active', 'revoked'] as const;
 const PERSONAS: MemberPersona[] = ['participant', 'volunteer', 'mentor', 'guide', 'staff'];
 const BRANDING_ASSET_KINDS: TenantBrandingAssetKind[] = ['logo', 'logo_dark', 'hero'];
 const SMS_PROVIDERS: Array<Exclude<SmsProvider, null>> = ['acs', 'twilio', 'telnyx'];
@@ -266,6 +270,144 @@ router.get('/tenants/:tenantId/usage', async (req, res, next) => {
     const message = error instanceof Error ? error.message : 'Failed to load tenant usage';
     if (message.includes('Tenant not found')) {
       res.status(404).json({ error: message });
+      return;
+    }
+    next(error);
+  }
+});
+
+router.get('/tenants/:tenantId/memberships', async (req, res, next) => {
+  try {
+    const tenantId = String(req.params.tenantId ?? '').trim();
+    if (!isValidGuid(tenantId)) {
+      res.status(400).json({ error: 'tenantId must be a valid UUID' });
+      return;
+    }
+
+    const memberships = await listTenantMemberships(tenantId);
+    res.json({ memberships });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to load tenant memberships';
+    if (message.includes('Tenant not found')) {
+      res.status(404).json({ error: message });
+      return;
+    }
+    next(error);
+  }
+});
+
+router.post('/tenants/:tenantId/memberships', writeLimiter, async (req, res, next) => {
+  try {
+    const tenantId = String(req.params.tenantId ?? '').trim();
+    const email = typeof req.body?.email === 'string' ? req.body.email.trim() : '';
+    const displayName = typeof req.body?.display_name === 'string' ? req.body.display_name.trim() : null;
+    const role = typeof req.body?.role === 'string' ? req.body.role.trim().toLowerCase() as TenantMembershipRole : null;
+    const membershipKind = typeof req.body?.membership_kind === 'string'
+      ? req.body.membership_kind.trim().toLowerCase() as TenantMembershipKind
+      : null;
+    const expiresAt = typeof req.body?.expires_at === 'string' && req.body.expires_at.trim().length > 0
+      ? req.body.expires_at.trim()
+      : null;
+
+    if (!isValidGuid(tenantId)) {
+      res.status(400).json({ error: 'tenantId must be a valid UUID' });
+      return;
+    }
+    if (!email || !email.includes('@')) {
+      res.status(400).json({ error: 'Valid email is required' });
+      return;
+    }
+    if (!role || !TENANT_ROLES.includes(role)) {
+      res.status(400).json({ error: `role must be one of: ${TENANT_ROLES.join(', ')}` });
+      return;
+    }
+    if (!membershipKind || !MEMBERSHIP_KINDS.includes(membershipKind)) {
+      res.status(400).json({ error: `membership_kind must be one of: ${MEMBERSHIP_KINDS.join(', ')}` });
+      return;
+    }
+
+    const memberships = await grantTenantMembershipByEmail({
+      tenantId,
+      email,
+      displayName,
+      actorEmail: req.user?.email ?? null,
+      role,
+      membershipKind,
+      expiresAt,
+    });
+
+    res.json({ memberships });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to grant tenant membership';
+    if (message.includes('Tenant not found')) {
+      res.status(404).json({ error: message });
+      return;
+    }
+    if (message.includes('required') || message.includes('valid')) {
+      res.status(400).json({ error: message });
+      return;
+    }
+    next(error);
+  }
+});
+
+router.patch('/tenants/:tenantId/memberships/:membershipId', writeLimiter, async (req, res, next) => {
+  try {
+    const tenantId = String(req.params.tenantId ?? '').trim();
+    const membershipId = String(req.params.membershipId ?? '').trim();
+    const role = typeof req.body?.role === 'string' ? req.body.role.trim().toLowerCase() as TenantMembershipRole : undefined;
+    const membershipKind = typeof req.body?.membership_kind === 'string'
+      ? req.body.membership_kind.trim().toLowerCase() as TenantMembershipKind
+      : undefined;
+    const status = typeof req.body?.status === 'string'
+      ? req.body.status.trim().toLowerCase()
+      : undefined;
+    const hasExpiresAtField = Object.prototype.hasOwnProperty.call(req.body ?? {}, 'expires_at');
+    const expiresAt = hasExpiresAtField
+      ? (typeof req.body?.expires_at === 'string' ? req.body.expires_at.trim() : null)
+      : undefined;
+
+    if (!isValidGuid(tenantId)) {
+      res.status(400).json({ error: 'tenantId must be a valid UUID' });
+      return;
+    }
+    if (!isValidGuid(membershipId)) {
+      res.status(400).json({ error: 'membershipId must be a valid UUID' });
+      return;
+    }
+    if (role && !TENANT_ROLES.includes(role)) {
+      res.status(400).json({ error: `role must be one of: ${TENANT_ROLES.join(', ')}` });
+      return;
+    }
+    if (membershipKind && !MEMBERSHIP_KINDS.includes(membershipKind)) {
+      res.status(400).json({ error: `membership_kind must be one of: ${MEMBERSHIP_KINDS.join(', ')}` });
+      return;
+    }
+    if (status && !MEMBERSHIP_STATUSES.includes(status as (typeof MEMBERSHIP_STATUSES)[number])) {
+      res.status(400).json({ error: `status must be one of: ${MEMBERSHIP_STATUSES.join(', ')}` });
+      return;
+    }
+    if (!role && !membershipKind && !status && expiresAt === undefined) {
+      res.status(400).json({ error: 'At least one field must be provided: role, membership_kind, status, expires_at' });
+      return;
+    }
+
+    const memberships = await updateTenantMembership(tenantId, membershipId, {
+      role,
+      membershipKind,
+      status: status as 'active' | 'revoked' | undefined,
+      expiresAt: expiresAt === undefined ? undefined : (expiresAt || null),
+    });
+
+    res.json({ memberships });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to update tenant membership';
+    if (message.includes('Tenant not found')) {
+      res.status(404).json({ error: message });
+      return;
+    }
+    if (message.includes('valid')) {
+      res.status(400).json({ error: message });
       return;
     }
     next(error);

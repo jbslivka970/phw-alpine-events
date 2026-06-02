@@ -26,6 +26,9 @@ const grantTenantAdminByEmailMock = jest.fn();
 const revokeTenantAdminByUserIdMock = jest.fn();
 const setTenantStatusMock = jest.fn();
 const getTenantUsageSummaryMock = jest.fn();
+const listTenantMembershipsMock = jest.fn();
+const grantTenantMembershipByEmailMock = jest.fn();
+const updateTenantMembershipMock = jest.fn();
 const getTenantMessagingMock = jest.fn();
 const upsertTenantMessagingMock = jest.fn();
 const listDemoAccessMembershipsMock = jest.fn();
@@ -36,6 +39,12 @@ const resetDemoAccessMembershipsMock = jest.fn();
 jest.mock('../middleware/auth', () => ({
   __esModule: true,
   default: (req: unknown, res: unknown, next: () => void) => authenticateMock(req, res, next),
+}));
+
+jest.mock('../middleware/rateLimiter', () => ({
+  __esModule: true,
+  apiLimiter: (_req: unknown, _res: unknown, next: () => void) => next(),
+  writeLimiter: (_req: unknown, _res: unknown, next: () => void) => next(),
 }));
 
 jest.mock('../middleware/requireRoot', () => ({
@@ -67,6 +76,9 @@ jest.mock('../services/tenantService', () => ({
   revokeTenantAdminByUserId: (...args: unknown[]) => revokeTenantAdminByUserIdMock(...args),
   setTenantStatus: (...args: unknown[]) => setTenantStatusMock(...args),
   getTenantUsageSummary: (...args: unknown[]) => getTenantUsageSummaryMock(...args),
+  listTenantMemberships: (...args: unknown[]) => listTenantMembershipsMock(...args),
+  grantTenantMembershipByEmail: (...args: unknown[]) => grantTenantMembershipByEmailMock(...args),
+  updateTenantMembership: (...args: unknown[]) => updateTenantMembershipMock(...args),
   listDemoAccessMemberships: (...args: unknown[]) => listDemoAccessMembershipsMock(...args),
   grantDemoAccessByEmail: (...args: unknown[]) => grantDemoAccessByEmailMock(...args),
   revokeDemoAccessMembership: (...args: unknown[]) => revokeDemoAccessMembershipMock(...args),
@@ -419,6 +431,78 @@ describe('root routes', () => {
     expect(res.status).toBe(200);
     expect(res.body.members_total).toBe(12);
     expect(getTenantUsageSummaryMock).toHaveBeenCalledWith('1b6b9719-663a-4e56-8f7d-9a4bd4c10001');
+  });
+
+  it('GET /api/v1/root/tenants/:tenantId/memberships returns memberships', async () => {
+    listTenantMembershipsMock.mockResolvedValue([{ tenant_membership_id: 'm1', subject_email: 'member@example.com' }]);
+
+    const res = await request(app)
+      .get('/api/v1/root/tenants/1b6b9719-663a-4e56-8f7d-9a4bd4c10001/memberships');
+
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body.memberships)).toBe(true);
+    expect(listTenantMembershipsMock).toHaveBeenCalledWith('1b6b9719-663a-4e56-8f7d-9a4bd4c10001');
+  });
+
+  it('POST /api/v1/root/tenants/:tenantId/memberships validates role', async () => {
+    const res = await request(app)
+      .post('/api/v1/root/tenants/1b6b9719-663a-4e56-8f7d-9a4bd4c10001/memberships')
+      .send({ email: 'member@example.com', role: 'bad_role', membership_kind: 'home' });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain('role');
+  });
+
+  it('POST /api/v1/root/tenants/:tenantId/memberships grants membership', async () => {
+    grantTenantMembershipByEmailMock.mockResolvedValue([{ subject_email: 'member@example.com' }]);
+
+    const res = await request(app)
+      .post('/api/v1/root/tenants/1b6b9719-663a-4e56-8f7d-9a4bd4c10001/memberships')
+      .send({
+        email: 'member@example.com',
+        role: 'member',
+        membership_kind: 'home',
+      });
+
+    expect(res.status).toBe(200);
+    expect(grantTenantMembershipByEmailMock).toHaveBeenCalledWith({
+      tenantId: '1b6b9719-663a-4e56-8f7d-9a4bd4c10001',
+      email: 'member@example.com',
+      displayName: null,
+      actorEmail: 'root@example.com',
+      role: 'member',
+      membershipKind: 'home',
+      expiresAt: null,
+    });
+  });
+
+  it('PATCH /api/v1/root/tenants/:tenantId/memberships/:membershipId validates payload', async () => {
+    const res = await request(app)
+      .patch('/api/v1/root/tenants/1b6b9719-663a-4e56-8f7d-9a4bd4c10001/memberships/2b6b9719-663a-4e56-8f7d-9a4bd4c10002')
+      .send({});
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain('At least one field');
+  });
+
+  it('PATCH /api/v1/root/tenants/:tenantId/memberships/:membershipId updates membership', async () => {
+    updateTenantMembershipMock.mockResolvedValue([{ tenant_membership_id: 'm1', status: 'revoked' }]);
+
+    const res = await request(app)
+      .patch('/api/v1/root/tenants/1b6b9719-663a-4e56-8f7d-9a4bd4c10001/memberships/2b6b9719-663a-4e56-8f7d-9a4bd4c10002')
+      .send({ status: 'revoked' });
+
+    expect(res.status).toBe(200);
+    expect(updateTenantMembershipMock).toHaveBeenCalledWith(
+      '1b6b9719-663a-4e56-8f7d-9a4bd4c10001',
+      '2b6b9719-663a-4e56-8f7d-9a4bd4c10002',
+      {
+        role: undefined,
+        membershipKind: undefined,
+        status: 'revoked',
+        expiresAt: undefined,
+      }
+    );
   });
 
   it('PUT /api/v1/root/tenants/:tenantId/messaging validates sms provider', async () => {

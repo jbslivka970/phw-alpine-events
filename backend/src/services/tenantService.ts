@@ -79,6 +79,41 @@ interface DemoAccessSummary {
   expires_at: string | null;
 }
 
+type TenantMembershipRole = 'member' | 'admin' | 'event_creator' | 'tavf_creator' | 'support' | 'root_admin';
+type TenantMembershipKind = 'home' | 'temporary_demo' | 'admin';
+type TenantMembershipStatus = 'active' | 'revoked';
+
+interface TenantMembershipSummary {
+  tenant_membership_id: string;
+  tenant_id: string;
+  user_id: string | null;
+  member_id: string | null;
+  subject_email: string | null;
+  subject_display_name: string | null;
+  role: string;
+  membership_kind: string;
+  status: string;
+  starts_at: string;
+  expires_at: string | null;
+}
+
+interface GrantTenantMembershipInput {
+  tenantId: string;
+  email: string;
+  displayName?: string | null;
+  actorEmail?: string | null;
+  role: TenantMembershipRole;
+  membershipKind: TenantMembershipKind;
+  expiresAt?: string | null;
+}
+
+interface UpdateTenantMembershipInput {
+  role?: TenantMembershipRole;
+  membershipKind?: TenantMembershipKind;
+  expiresAt?: string | null;
+  status?: TenantMembershipStatus;
+}
+
 interface TenantStatusRow {
   tenant_id: string;
   slug: string;
@@ -779,6 +814,248 @@ async function setTenantStatus(tenantId: string, status: TenantStatus): Promise<
   };
 }
 
+async function listTenantMemberships(tenantId: string): Promise<TenantMembershipSummary[]> {
+  const pool = await getPool();
+  const result = await pool
+    .request()
+    .input('tenant_id', sql.UniqueIdentifier, tenantId)
+    .query<{
+      tenant_membership_id: string;
+      tenant_id: string;
+      user_id: string | null;
+      member_id: string | null;
+      user_email: string | null;
+      user_display_name: string | null;
+      member_email: string | null;
+      member_first_name: string | null;
+      member_last_name: string | null;
+      role: string;
+      membership_kind: string;
+      status: string;
+      starts_at: Date | string;
+      expires_at: Date | string | null;
+    }>(
+      `SELECT
+          tm.tenant_membership_id,
+          tm.tenant_id,
+          tm.user_id,
+          tm.member_id,
+          u.email AS user_email,
+          u.display_name AS user_display_name,
+          m.email AS member_email,
+          m.first_name AS member_first_name,
+          m.last_name AS member_last_name,
+          tm.role,
+          tm.membership_kind,
+          tm.status,
+          tm.starts_at,
+          tm.expires_at
+       FROM dbo.tenant_membership tm
+       LEFT JOIN dbo.[user] u ON u.user_id = tm.user_id
+       LEFT JOIN dbo.member m ON m.member_id = tm.member_id
+       WHERE tm.tenant_id = @tenant_id
+       ORDER BY tm.status ASC, tm.membership_kind ASC, COALESCE(u.email, m.email, '') ASC`
+    );
+
+  return result.recordset.map((row) => ({
+    tenant_membership_id: row.tenant_membership_id,
+    tenant_id: row.tenant_id,
+    user_id: row.user_id,
+    member_id: row.member_id,
+    subject_email: row.user_email ?? row.member_email,
+    subject_display_name: row.user_display_name
+      ?? [row.member_first_name, row.member_last_name].filter(Boolean).join(' ').trim()
+      ?? null,
+    role: row.role,
+    membership_kind: row.membership_kind,
+    status: row.status,
+    starts_at: asIso(row.starts_at) ?? new Date().toISOString(),
+    expires_at: asIso(row.expires_at),
+  }));
+}
+
+async function grantTenantMembershipByEmail(input: GrantTenantMembershipInput): Promise<TenantMembershipSummary[]> {
+  const tenantId = input.tenantId.trim();
+  const normalizedEmail = normalizeEmail(input.email);
+  if (!normalizedEmail || !normalizedEmail.includes('@')) {
+    throw new Error('Valid email is required');
+  }
+
+  const displayName = normalizeDisplayName(input.displayName) ?? normalizedEmail;
+  const actorEmail = normalizeDisplayName(input.actorEmail) ? normalizeEmail(input.actorEmail as string) : normalizedEmail;
+  const expiresAt = input.expiresAt?.trim() ? new Date(input.expiresAt) : null;
+
+  if (expiresAt && Number.isNaN(expiresAt.getTime())) {
+    throw new Error('expiresAt must be a valid ISO timestamp');
+  }
+
+  const pool = await getPool();
+  const transaction = new sql.Transaction(pool);
+  await transaction.begin();
+
+  try {
+    const tenantLookup = await new sql.Request(transaction)
+      .input('tenant_id', sql.UniqueIdentifier, tenantId)
+      .query<{ tenant_id: string }>('SELECT tenant_id FROM dbo.tenant WHERE tenant_id = @tenant_id');
+    if (!tenantLookup.recordset[0]) {
+      throw new Error('Tenant not found');
+    }
+
+    const actorLookup = await new sql.Request(transaction)
+      .input('actor_email', sql.NVarChar(255), actorEmail)
+      .query<{ user_id: string }>('SELECT TOP (1) user_id FROM dbo.[user] WHERE LOWER(email) = @actor_email');
+    const actorUserId = actorLookup.recordset[0]?.user_id ?? null;
+
+    const ensureUser = await new sql.Request(transaction)
+      .input('email', sql.NVarChar(255), normalizedEmail)
+      .input('display_name', sql.NVarChar(200), displayName)
+      .query<{ user_id: string }>(
+        `MERGE dbo.[user] AS target
+         USING (SELECT @email AS email) AS src
+            ON LOWER(target.email) = src.email
+         WHEN MATCHED THEN
+            UPDATE SET
+              display_name = COALESCE(@display_name, target.display_name),
+              is_active = 1,
+              updated_at = GETUTCDATE()
+         WHEN NOT MATCHED THEN
+            INSERT (user_id, azure_oid, email, display_name, role, is_active, is_root, root_role, created_at, updated_at)
+            VALUES (NEWID(), NULL, @email, @display_name, 'user', 1, 0, NULL, GETUTCDATE(), GETUTCDATE())
+         OUTPUT INSERTED.user_id;`
+      );
+
+    const userId = ensureUser.recordset[0]?.user_id;
+    if (!userId) {
+      throw new Error('Failed to ensure user for tenant membership grant');
+    }
+
+    await new sql.Request(transaction)
+      .input('tenant_id', sql.UniqueIdentifier, tenantId)
+      .input('user_id', sql.UniqueIdentifier, userId)
+      .input('role', sql.NVarChar(20), input.role)
+      .input('membership_kind', sql.NVarChar(20), input.membershipKind)
+      .input('expires_at', sql.DateTime, expiresAt)
+      .input('home_tenant_id', sql.UniqueIdentifier, input.membershipKind === 'home' ? tenantId : null)
+      .input('created_by_user_id', sql.UniqueIdentifier, actorUserId)
+      .query(
+        `IF EXISTS (
+            SELECT 1
+            FROM dbo.tenant_membership
+            WHERE tenant_id = @tenant_id
+              AND user_id = @user_id
+              AND membership_kind = @membership_kind
+              AND status = 'active'
+              AND revoked_at IS NULL
+         )
+           BEGIN
+             UPDATE dbo.tenant_membership
+             SET role = @role,
+                 home_tenant_id = @home_tenant_id,
+                 expires_at = @expires_at,
+                 revoked_at = NULL,
+                 status = 'active'
+             WHERE tenant_id = @tenant_id
+               AND user_id = @user_id
+               AND membership_kind = @membership_kind
+               AND status = 'active'
+               AND revoked_at IS NULL;
+           END
+         ELSE
+           BEGIN
+             INSERT INTO dbo.tenant_membership (
+               tenant_membership_id,
+               tenant_id,
+               user_id,
+               member_id,
+               role,
+               membership_kind,
+               home_tenant_id,
+               starts_at,
+               expires_at,
+               status,
+               created_by_user_id,
+               created_at,
+               revoked_at
+             )
+             VALUES (
+               NEWID(),
+               @tenant_id,
+               @user_id,
+               NULL,
+               @role,
+               @membership_kind,
+               @home_tenant_id,
+               GETUTCDATE(),
+               @expires_at,
+               'active',
+               @created_by_user_id,
+               GETUTCDATE(),
+               NULL
+             );
+           END`
+      );
+
+    await transaction.commit();
+    return listTenantMemberships(tenantId);
+  } catch (error) {
+    await transaction.rollback();
+    throw error;
+  }
+}
+
+async function updateTenantMembership(
+  tenantId: string,
+  membershipId: string,
+  input: UpdateTenantMembershipInput
+): Promise<TenantMembershipSummary[]> {
+  const expiresAt = input.expiresAt == null || input.expiresAt.trim().length === 0
+    ? null
+    : new Date(input.expiresAt);
+  if (expiresAt && Number.isNaN(expiresAt.getTime())) {
+    throw new Error('expiresAt must be a valid ISO timestamp');
+  }
+
+  const pool = await getPool();
+  const transaction = new sql.Transaction(pool);
+  await transaction.begin();
+
+  try {
+    const tenantLookup = await new sql.Request(transaction)
+      .input('tenant_id', sql.UniqueIdentifier, tenantId)
+      .query<{ tenant_id: string }>('SELECT tenant_id FROM dbo.tenant WHERE tenant_id = @tenant_id');
+    if (!tenantLookup.recordset[0]) {
+      throw new Error('Tenant not found');
+    }
+
+    await new sql.Request(transaction)
+      .input('tenant_id', sql.UniqueIdentifier, tenantId)
+      .input('tenant_membership_id', sql.UniqueIdentifier, membershipId)
+      .input('role', sql.NVarChar(20), input.role ?? null)
+      .input('membership_kind', sql.NVarChar(20), input.membershipKind ?? null)
+      .input('status', sql.NVarChar(20), input.status ?? null)
+      .input('expires_at', sql.DateTime, expiresAt)
+      .query(
+        `UPDATE dbo.tenant_membership
+         SET role = COALESCE(@role, role),
+             membership_kind = COALESCE(@membership_kind, membership_kind),
+             status = COALESCE(@status, status),
+             expires_at = @expires_at,
+             revoked_at = CASE
+               WHEN COALESCE(@status, status) = 'revoked' THEN COALESCE(revoked_at, GETUTCDATE())
+               ELSE NULL
+             END
+         WHERE tenant_id = @tenant_id
+           AND tenant_membership_id = @tenant_membership_id`
+      );
+
+    await transaction.commit();
+    return listTenantMemberships(tenantId);
+  } catch (error) {
+    await transaction.rollback();
+    throw error;
+  }
+}
+
 async function getTenantUsageSummary(tenantId: string): Promise<TenantUsageSummary> {
   const pool = await getPool();
   const result = await pool
@@ -936,20 +1213,24 @@ async function getTenantUsageSummary(tenantId: string): Promise<TenantUsageSumma
 
 export {
   createTenant,
+  grantTenantMembershipByEmail,
   getTenantUsageSummary,
   grantDemoAccessByEmail,
   grantTenantAdminByEmail,
   listDemoAccessMemberships,
+  listTenantMemberships,
   listTenantAdmins,
   revokeTenantAdminByUserId,
   resetDemoAccessMemberships,
   setTenantStatus,
+  updateTenantMembership,
   revokeDemoAccessMembership,
 };
 export type {
   CreateTenantInput,
   DemoAccessSummary,
   GrantDemoAccessInput,
+  TenantMembershipSummary,
   TenantAdminSummary,
   TenantUsageSummary,
   TenantSummary,

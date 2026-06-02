@@ -1,4 +1,4 @@
-import { apiDelete, apiGet, apiPost, apiPut } from './client'
+import { apiDelete, apiGet, apiPatch, apiPost, apiPut } from './client'
 
 type AppUserRole = 'admin' | 'superadmin' | 'event_creator' | 'tavf_creator' | 'user'
 type RootRole = 'root_admin' | 'support'
@@ -131,6 +131,20 @@ interface RootTenantAdminSummary {
   expires_at: string | null
 }
 
+interface RootTenantMembershipSummary {
+  tenant_membership_id: string
+  tenant_id: string
+  user_id: string | null
+  member_id: string | null
+  subject_email: string | null
+  subject_display_name: string | null
+  role: string
+  membership_kind: string
+  status: string
+  starts_at: string
+  expires_at: string | null
+}
+
 interface RootTenantMessaging {
   tenant_id: string
   email_from: string | null
@@ -182,6 +196,16 @@ const rootApi = {
   setTenantSuspended: (tenantId: string, payload: { action: 'suspend' | 'reactivate' }) =>
     apiPost<{ tenant: RootTenantSummary; action: 'suspend' | 'reactivate' }>(`/root/tenants/${encodeURIComponent(tenantId)}/suspend`, payload),
   getTenantUsage: (tenantId: string) => apiGet<RootTenantUsageSummary>(`/root/tenants/${encodeURIComponent(tenantId)}/usage`),
+  listTenantMemberships: (tenantId: string) => apiGet<{ memberships: RootTenantMembershipSummary[] }>(`/root/tenants/${encodeURIComponent(tenantId)}/memberships`),
+  grantTenantMembership: (
+    tenantId: string,
+    payload: { email: string; display_name?: string | null; role: string; membership_kind: string; expires_at?: string | null }
+  ) => apiPost<{ memberships: RootTenantMembershipSummary[] }>(`/root/tenants/${encodeURIComponent(tenantId)}/memberships`, payload),
+  updateTenantMembership: (
+    tenantId: string,
+    membershipId: string,
+    payload: { role?: string; membership_kind?: string; status?: string; expires_at?: string | null }
+  ) => apiPatch<{ memberships: RootTenantMembershipSummary[] }>(`/root/tenants/${encodeURIComponent(tenantId)}/memberships/${encodeURIComponent(membershipId)}`, payload),
   getTenantMessaging: (tenantId: string) => apiGet<RootTenantMessaging>(`/root/tenants/${encodeURIComponent(tenantId)}/messaging`),
   upsertTenantMessaging: (tenantId: string, payload: Partial<RootTenantMessaging>) =>
     apiPut<RootTenantMessaging>(`/root/tenants/${encodeURIComponent(tenantId)}/messaging`, payload),
@@ -217,6 +241,7 @@ export type {
   RootCreateTenantPayload,
   RootDemoMembershipSummary,
   RootTenantMessaging,
+  RootTenantMembershipSummary,
   RootTenantUsageSummary,
   RootTenantSummary,
   SmsProvider,
