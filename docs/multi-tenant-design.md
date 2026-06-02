@@ -69,6 +69,7 @@ Preparatory schema work, bootstrap updates, and behind-flag tenant plumbing can 
 2. With `MULTI_TENANT_ENABLED=true`
     - Event and member access is constrained to the active tenant context.
     - Cross-tenant event-id access returns not found for guarded routes.
+    - Existing authenticated Colorado Alpine users without explicit `tenant_membership` rows still fall back to the default tenant unless `MULTI_TENANT_REQUIRE_MEMBERSHIP=true` is explicitly enabled.
 
 ### Validation status snapshot
 

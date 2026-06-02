@@ -46,6 +46,10 @@ function isTruthy(value: string | undefined): boolean {
   return ['1', 'true', 'yes', 'on'].includes(normalized);
 }
 
+function requireExplicitTenantMembership(): boolean {
+  return isTruthy(process.env['MULTI_TENANT_REQUIRE_MEMBERSHIP']);
+}
+
 function normalizeEmail(value: string | undefined): string | null {
   if (!value) {
     return null;
@@ -234,13 +238,13 @@ export async function listTenantsForAuthenticatedUser(input: {
       return tenants;
     }
 
-    if (isTruthy(process.env['MULTI_TENANT_ENABLED'])) {
+    if (isTruthy(process.env['MULTI_TENANT_ENABLED']) && requireExplicitTenantMembership()) {
       return [];
     }
 
     return [buildFallbackTenantContext(input.roles)];
   } catch (error) {
-    if (!isTruthy(process.env['MULTI_TENANT_ENABLED'])) {
+    if (!isTruthy(process.env['MULTI_TENANT_ENABLED']) || !requireExplicitTenantMembership()) {
       console.warn('[tenant-context] Falling back to default tenant profile after query failure');
       return [buildFallbackTenantContext(input.roles)];
     }

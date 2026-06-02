@@ -114,8 +114,39 @@ describe('tenantContextService', () => {
     expect(dbRequest.query).toHaveBeenCalledTimes(2);
   });
 
-  it('returns an empty list when multi-tenant mode is enabled and no memberships exist', async () => {
+  it('falls back to the default home tenant when multi-tenant mode is enabled and no memberships exist', async () => {
     process.env['MULTI_TENANT_ENABLED'] = 'true';
+
+    const dbRequest = mockPoolWithResults([
+      { recordset: [{ tenant_tables_ready: 1 }] },
+      { recordset: [] },
+    ]);
+
+    const tenants = await listTenantsForAuthenticatedUser({
+      sub: 'sub-user',
+      email: 'user@example.com',
+      roles: ['USER'],
+    });
+
+    expect(tenants).toEqual([
+      {
+        tenant_id: '1b6b9719-663a-4e56-8f7d-9a4bd4c10001',
+        slug: 'colorado-alpine',
+        display_name: 'Colorado Alpine',
+        tenant_type: 'program',
+        is_demo: false,
+        role: 'member',
+        membership_kind: 'home',
+        expires_at: null,
+        branding: null,
+      },
+    ]);
+    expect(dbRequest.query).toHaveBeenCalledTimes(2);
+  });
+
+  it('returns an empty list when strict membership mode is enabled and no memberships exist', async () => {
+    process.env['MULTI_TENANT_ENABLED'] = 'true';
+    process.env['MULTI_TENANT_REQUIRE_MEMBERSHIP'] = 'true';
 
     const dbRequest = mockPoolWithResults([
       { recordset: [{ tenant_tables_ready: 1 }] },
