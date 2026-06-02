@@ -23,6 +23,7 @@ const PrivacyPolicyPage = lazy(() => import('./pages/PrivacyPolicyPage').then((m
 const PublicRsvpPage = lazy(() => import('./pages/PublicRsvpPage').then((module) => ({ default: module.PublicRsvpPage })))
 const ShortRsvpRedirectPage = lazy(() => import('./pages/ShortRsvpRedirectPage').then((module) => ({ default: module.ShortRsvpRedirectPage })))
 const ReportsPage = lazy(() => import('./pages/ReportsPage').then((module) => ({ default: module.ReportsPage })))
+const RootAdminPage = lazy(() => import('./pages/root/RootAdminPage').then((module) => ({ default: module.RootAdminPage })))
 const SmsProgramPage = lazy(() => import('./pages/SmsProgramPage').then((module) => ({ default: module.SmsProgramPage })))
 const TavfListPage = lazy(() => import('./pages/TavfListPage').then((module) => ({ default: module.TavfListPage })))
 const TavfNewPage = lazy(() => import('./pages/TavfNewPage').then((module) => ({ default: module.TavfNewPage })))
@@ -193,6 +194,14 @@ function App() {
                 element={
                   <ProtectedRoute requiredRole={ROLES.ADMIN}>
                     <AdminPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/root"
+                element={
+                  <ProtectedRoute requiredRole={ROLES.ADMIN}>
+                    <RootAdminPage />
                   </ProtectedRoute>
                 }
               />

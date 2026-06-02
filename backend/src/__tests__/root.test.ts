@@ -20,6 +20,9 @@ const getTenantBrandingMock = jest.fn();
 const upsertTenantBrandingMock = jest.fn();
 const createBrandingAssetUploadUrlMock = jest.fn();
 const commitBrandingAssetMock = jest.fn();
+const createTenantMock = jest.fn();
+const listTenantAdminsMock = jest.fn();
+const grantTenantAdminByEmailMock = jest.fn();
 
 jest.mock('../middleware/auth', () => ({
   __esModule: true,
@@ -45,6 +48,13 @@ jest.mock('../services/rootTenantBrandingService', () => ({
   upsertTenantBranding: (...args: unknown[]) => upsertTenantBrandingMock(...args),
   createBrandingAssetUploadUrl: (...args: unknown[]) => createBrandingAssetUploadUrlMock(...args),
   commitBrandingAsset: (...args: unknown[]) => commitBrandingAssetMock(...args),
+}));
+
+jest.mock('../services/tenantService', () => ({
+  __esModule: true,
+  createTenant: (...args: unknown[]) => createTenantMock(...args),
+  listTenantAdmins: (...args: unknown[]) => listTenantAdminsMock(...args),
+  grantTenantAdminByEmail: (...args: unknown[]) => grantTenantAdminByEmailMock(...args),
 }));
 
 import rootRouter from '../routes/root';
@@ -264,6 +274,74 @@ describe('root routes', () => {
       tenantId: '1b6b9719-663a-4e56-8f7d-9a4bd4c10001',
       assetKind: 'logo_dark',
       assetUrl: 'https://example.blob.core.windows.net/tenant-branding/colorado-alpine/logo/file.png',
+    });
+  });
+
+  it('POST /api/v1/root/tenants validates required fields', async () => {
+    const res = await request(app).post('/api/v1/root/tenants').send({ slug: '' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain('slug');
+  });
+
+  it('POST /api/v1/root/tenants creates tenant', async () => {
+    createTenantMock.mockResolvedValue({
+      tenant_id: '22222222-2222-4222-8222-222222222222',
+      slug: 'montrose',
+      display_name: 'Montrose',
+      tenant_type: 'program',
+      status: 'active',
+      timezone: 'America/Denver',
+      is_demo: false,
+      is_operational: true,
+      created_at: '2026-06-02T00:00:00.000Z',
+    });
+
+    const res = await request(app).post('/api/v1/root/tenants').send({
+      slug: 'montrose',
+      display_name: 'Montrose',
+      tenant_type: 'program',
+      status: 'active',
+    });
+
+    expect(res.status).toBe(201);
+    expect(createTenantMock).toHaveBeenCalled();
+  });
+
+  it('GET /api/v1/root/tenants/:tenantId/admins validates tenant id', async () => {
+    const res = await request(app).get('/api/v1/root/tenants/not-a-guid/admins');
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain('tenantId');
+  });
+
+  it('GET /api/v1/root/tenants/:tenantId/admins returns admins', async () => {
+    listTenantAdminsMock.mockResolvedValue([{ email: 'admin@example.com' }]);
+    const res = await request(app).get('/api/v1/root/tenants/1b6b9719-663a-4e56-8f7d-9a4bd4c10001/admins');
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body.admins)).toBe(true);
+  });
+
+  it('POST /api/v1/root/tenants/:tenantId/admins validates email', async () => {
+    const res = await request(app)
+      .post('/api/v1/root/tenants/1b6b9719-663a-4e56-8f7d-9a4bd4c10001/admins')
+      .send({ email: 'invalid' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain('email');
+  });
+
+  it('POST /api/v1/root/tenants/:tenantId/admins grants admin membership', async () => {
+    grantTenantAdminByEmailMock.mockResolvedValue([{ email: 'admin@example.com' }]);
+
+    const res = await request(app)
+      .post('/api/v1/root/tenants/1b6b9719-663a-4e56-8f7d-9a4bd4c10001/admins')
+      .send({ email: 'admin@example.com', display_name: 'Admin User' });
+
+    expect(res.status).toBe(200);
+    expect(grantTenantAdminByEmailMock).toHaveBeenCalledWith({
+      tenantId: '1b6b9719-663a-4e56-8f7d-9a4bd4c10001',
+      email: 'admin@example.com',
+      displayName: 'Admin User',
+      actorEmail: 'root@example.com',
+      expiresAt: null,
     });
   });
 });

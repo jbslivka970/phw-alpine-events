@@ -107,9 +107,36 @@ interface RootBrandingUploadUrlResponse {
   required_headers: Record<string, string>
 }
 
+interface RootCreateTenantPayload {
+  slug: string
+  display_name: string
+  tenant_type?: 'program' | 'demo' | 'system'
+  status?: 'active' | 'suspended' | 'archived'
+  timezone?: string
+  is_demo?: boolean
+  is_operational?: boolean
+}
+
+interface RootTenantAdminSummary {
+  tenant_membership_id: string
+  tenant_id: string
+  user_id: string
+  email: string
+  display_name: string | null
+  role: string
+  membership_kind: string
+  status: string
+  starts_at: string
+  expires_at: string | null
+}
+
 const rootApi = {
   getSession: () => apiGet<RootSession>('/root/session'),
   listTenants: () => apiGet<{ tenants: RootTenantSummary[] }>('/root/tenants'),
+  createTenant: (payload: RootCreateTenantPayload) => apiPost<RootTenantSummary>('/root/tenants', payload),
+  listTenantAdmins: (tenantId: string) => apiGet<{ admins: RootTenantAdminSummary[] }>(`/root/tenants/${encodeURIComponent(tenantId)}/admins`),
+  grantTenantAdmin: (tenantId: string, payload: { email: string; display_name?: string | null; expires_at?: string | null }) =>
+    apiPost<{ admins: RootTenantAdminSummary[] }>(`/root/tenants/${encodeURIComponent(tenantId)}/admins`, payload),
   getAccessProfile: (email: string) => apiGet<RootAccessProfile>(`/root/access?email=${encodeURIComponent(email)}`),
   upsertAccessProfile: (payload: RootAccessUpsertPayload) => apiPut<RootAccessProfile>('/root/access', payload),
   getTenantBranding: (tenantId: string) => apiGet<RootTenantBranding>(`/root/tenants/${encodeURIComponent(tenantId)}/branding`),
@@ -129,7 +156,9 @@ export type {
   RootAccessProfile,
   RootRole,
   RootSession,
+  RootTenantAdminSummary,
   RootTenantBranding,
+  RootCreateTenantPayload,
   RootTenantSummary,
   TenantBrandingAssetKind,
   TenantMembershipKind,

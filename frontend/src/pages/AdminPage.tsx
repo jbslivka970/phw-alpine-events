@@ -1078,6 +1078,9 @@ function AdminPage() {
             <p className="page-subtitle" style={{ marginBottom: '0.9rem' }}>
               Manage root and tenant access centrally without schema edits. This updates app user root flags, tenant memberships, and optional member personas.
             </p>
+            <p className="admin-note" style={{ marginBottom: '0.9rem' }}>
+              Tenant provisioning, branding uploads, and tenant-admin grants now live on the dedicated root console: <Link to="/root">Open Root Tenant Administration</Link>.
+            </p>
 
             <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
               <input

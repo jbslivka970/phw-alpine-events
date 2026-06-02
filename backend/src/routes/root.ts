@@ -20,6 +20,11 @@ import {
   upsertTenantBranding,
   type TenantBrandingAssetKind,
 } from '../services/rootTenantBrandingService';
+import {
+  createTenant,
+  grantTenantAdminByEmail,
+  listTenantAdmins,
+} from '../services/tenantService';
 
 const router = Router();
 
@@ -77,6 +82,103 @@ router.get('/tenants', async (_req, res, next) => {
     res.json({ tenants });
   } catch (error) {
     if (sendBrandingServiceError(res, error)) {
+      return;
+    }
+    next(error);
+  }
+});
+
+router.post('/tenants', writeLimiter, async (req, res, next) => {
+  try {
+    const slug = typeof req.body?.slug === 'string' ? req.body.slug.trim() : '';
+    const displayName = typeof req.body?.display_name === 'string' ? req.body.display_name.trim() : '';
+    const tenantType = typeof req.body?.tenant_type === 'string' ? req.body.tenant_type.trim().toLowerCase() : undefined;
+    const status = typeof req.body?.status === 'string' ? req.body.status.trim().toLowerCase() : undefined;
+    const timezone = typeof req.body?.timezone === 'string' ? req.body.timezone.trim() : undefined;
+    const isDemo = req.body?.is_demo == null ? undefined : Boolean(req.body.is_demo);
+    const isOperational = req.body?.is_operational == null ? undefined : Boolean(req.body.is_operational);
+
+    if (!slug) {
+      res.status(400).json({ error: 'slug is required' });
+      return;
+    }
+    if (!displayName) {
+      res.status(400).json({ error: 'display_name is required' });
+      return;
+    }
+
+    const tenant = await createTenant({
+      slug,
+      displayName,
+      tenantType: tenantType as 'program' | 'demo' | 'system' | undefined,
+      status: status as 'active' | 'suspended' | 'archived' | undefined,
+      timezone,
+      isDemo,
+      isOperational,
+    });
+
+    res.status(201).json(tenant);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to create tenant';
+    if (message.includes('already exists')) {
+      res.status(409).json({ error: message });
+      return;
+    }
+    if (message.includes('required')) {
+      res.status(400).json({ error: message });
+      return;
+    }
+    next(error);
+  }
+});
+
+router.get('/tenants/:tenantId/admins', async (req, res, next) => {
+  try {
+    const tenantId = String(req.params.tenantId ?? '').trim();
+    if (!isValidGuid(tenantId)) {
+      res.status(400).json({ error: 'tenantId must be a valid UUID' });
+      return;
+    }
+    const admins = await listTenantAdmins(tenantId);
+    res.json({ admins });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/tenants/:tenantId/admins', writeLimiter, async (req, res, next) => {
+  try {
+    const tenantId = String(req.params.tenantId ?? '').trim();
+    const email = typeof req.body?.email === 'string' ? req.body.email.trim() : '';
+    const displayName = typeof req.body?.display_name === 'string' ? req.body.display_name.trim() : null;
+    const expiresAt = typeof req.body?.expires_at === 'string' ? req.body.expires_at.trim() : null;
+
+    if (!isValidGuid(tenantId)) {
+      res.status(400).json({ error: 'tenantId must be a valid UUID' });
+      return;
+    }
+    if (!email || !email.includes('@')) {
+      res.status(400).json({ error: 'Valid email is required' });
+      return;
+    }
+
+    const admins = await grantTenantAdminByEmail({
+      tenantId,
+      email,
+      displayName,
+      actorEmail: req.user?.email ?? null,
+      expiresAt,
+    });
+
+    res.json({ admins });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to grant tenant admin';
+    if (message.includes('Tenant not found')) {
+      res.status(404).json({ error: message });
+      return;
+    }
+    if (message.includes('required') || message.includes('valid')) {
+      res.status(400).json({ error: message });
       return;
     }
     next(error);
