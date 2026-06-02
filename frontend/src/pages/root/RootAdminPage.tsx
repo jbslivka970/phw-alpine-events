@@ -18,6 +18,11 @@ type TenantCreateForm = {
 }
 
 function RootAdminPage() {
+  const frontendProdHost = 'https://phwalpineeventsfe873a.azurewebsites.net'
+  const backendProdHost = 'https://phwalpineeventsjb873a.azurewebsites.net'
+  const backendStagingHost = 'https://phwalpineeventsjb873a-staging.azurewebsites.net'
+  const frontendStagingHost: string | null = null
+
   const [sessionReady, setSessionReady] = useState(false)
   const [isRoot, setIsRoot] = useState(false)
   const [sessionError, setSessionError] = useState<string | null>(null)
@@ -372,6 +377,47 @@ function RootAdminPage() {
         ) : (
           <p className="admin-note">No branding found for this tenant.</p>
         )}
+      </section>
+
+      <section className="admin-card" style={{ marginBottom: '1rem' }}>
+        <h2 className="admin-section-title">Blob CORS Helper</h2>
+        <p className="admin-note" style={{ marginBottom: '0.5rem' }}>
+          Detected Azure topology in this subscription:
+        </p>
+        <ul style={{ marginTop: 0 }}>
+          <li>Frontend production host: {frontendProdHost}</li>
+          <li>Backend production host: {backendProdHost}</li>
+          <li>Backend staging slot host: {backendStagingHost}</li>
+          <li>
+            Frontend staging slot host: {frontendStagingHost ?? 'not detected'}
+            {!frontendStagingHost ? ' (no frontend staging slot exists yet)' : ''}
+          </li>
+        </ul>
+
+        <p className="admin-note" style={{ marginBottom: '0.5rem' }}>
+          Browser-direct Blob uploads require CORS on the storage account. Apply this template with your storage account values:
+        </p>
+        <pre style={{
+          background: '#f4f4f4',
+          border: '1px solid #ddd',
+          borderRadius: 6,
+          padding: '0.75rem',
+          overflowX: 'auto',
+          fontSize: '0.8rem',
+          marginBottom: '0.5rem',
+        }}>{`az storage cors add \\
+  --services b \\
+  --origins ${frontendProdHost} https://app.phwcoloradoalpine.org \\
+  --methods GET PUT OPTIONS HEAD \\
+  --allowed-headers "*" \\
+  --exposed-headers "ETag,x-ms-request-id,x-ms-version" \\
+  --max-age 3600 \\
+  --account-name <storage-account-name> \\
+  --account-key <storage-account-key>`}</pre>
+
+        <p className="admin-note" style={{ marginBottom: 0 }}>
+          If you add a frontend staging slot later, include that staging frontend origin in CORS origins before running staging upload tests.
+        </p>
       </section>
 
       <section className="admin-card">
