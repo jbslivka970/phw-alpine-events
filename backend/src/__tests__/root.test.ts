@@ -82,6 +82,42 @@ describe('root routes', () => {
     expect(res.body.error).toContain('app_role');
   });
 
+  it('PUT /api/v1/root/access validates root_role', async () => {
+    const res = await request(app)
+      .put('/api/v1/root/access')
+      .send({
+        email: 'sarnitro@gmail.com',
+        app_role: 'superadmin',
+        is_root: true,
+        root_role: 'invalid_root',
+        tenant_memberships: [],
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain('root_role');
+  });
+
+  it('PUT /api/v1/root/access validates tenant membership kind', async () => {
+    const res = await request(app)
+      .put('/api/v1/root/access')
+      .send({
+        email: 'sarnitro@gmail.com',
+        app_role: 'superadmin',
+        is_root: true,
+        root_role: 'root_admin',
+        tenant_memberships: [
+          {
+            tenant_id: '1b6b9719-663a-4e56-8f7d-9a4bd4c10001',
+            role: 'admin',
+            membership_kind: 'invalid_kind',
+          },
+        ],
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain('membership_kind');
+  });
+
   it('PUT /api/v1/root/access forwards valid payload to service', async () => {
     upsertRootAccessProfileMock.mockResolvedValue({
       email: 'sarnitro@gmail.com',
