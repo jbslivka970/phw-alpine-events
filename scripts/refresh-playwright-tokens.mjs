@@ -46,6 +46,12 @@ const postLoginTimeoutMs = Number.isFinite(perRoleTimeoutMs) && perRoleTimeoutMs
   ? Math.max(90_000, perRoleTimeoutMs - 10_000)
   : 90_000;
 
+function isEnabled(value) {
+  return /^(1|true|yes|on)$/i.test(String(value || '').trim());
+}
+
+const captureBrowserStateAfterRopc = isEnabled(process.env.PW_REFRESH_BROWSER_CAPTURE_AFTER_ROPC);
+
 /* ── ROPC (Resource Owner Password Credentials) configuration ─────────── */
 const ropcPolicy = (process.env.AZURE_B2C_ROPC_POLICY || '').trim();
 const azureTenantName = (
@@ -121,6 +127,90 @@ function decodeJwtPayload(jwt) {
   }
 }
 
+function normalizeEmail(value) {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim().toLowerCase();
+  return normalized.includes('@') ? normalized : null;
+}
+
+function firstEmailClaimValue(value) {
+  if (typeof value === 'string') {
+    return normalizeEmail(value);
+  }
+
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      const normalized = firstEmailClaimValue(entry);
+      if (normalized) return normalized;
+    }
+  }
+
+  return null;
+}
+
+function resolveEmailForStorage(ropcResult, fallbackUsername) {
+  const idClaims = ropcResult.idToken ? decodeJwtPayload(ropcResult.idToken) : {};
+  const accessClaims = decodeJwtPayload(ropcResult.accessToken);
+  const claimSets = [idClaims, accessClaims].filter(Boolean);
+
+  for (const claims of claimSets) {
+    for (const key of ['email', 'preferred_username', 'upn', 'emails', 'otherMails']) {
+      const resolved = firstEmailClaimValue(claims[key]);
+      if (resolved) return resolved;
+    }
+
+    const signInNames = claims.signInNames;
+    if (signInNames && typeof signInNames === 'object') {
+      const resolved = firstEmailClaimValue(signInNames.emailAddress);
+      if (resolved) return resolved;
+    }
+
+    for (const [key, value] of Object.entries(claims)) {
+      if (!key.toLowerCase().includes('email')) continue;
+      const resolved = firstEmailClaimValue(value);
+      if (resolved) return resolved;
+    }
+  }
+
+  return normalizeEmail(fallbackUsername);
+}
+
+function roleNameToLocalRole(name) {
+  if (name === 'admin') return 'ADMIN';
+  if (name === 'event_creator') return 'EVENT_CREATOR';
+  return 'USER';
+}
+
+function buildExternalE2EStorageState(role, ropcResult, appOrigin) {
+  const idClaims = ropcResult.idToken ? decodeJwtPayload(ropcResult.idToken) : {};
+  const accessClaims = decodeJwtPayload(ropcResult.accessToken);
+  const userId = idClaims.oid || accessClaims.oid || accessClaims.sub || '';
+  const email = resolveEmailForStorage(ropcResult, role.username);
+
+  const entries = [
+    { name: 'phw_e2e_external_auth', value: '1' },
+    { name: 'phw_e2e_external_token', value: ropcResult.accessToken },
+    { name: 'phw_e2e_role', value: roleNameToLocalRole(role.name) },
+  ];
+
+  if (email) {
+    entries.push({ name: 'phw_e2e_external_email', value: email });
+  }
+
+  if (userId) {
+    entries.push({ name: 'phw_e2e_external_user_id', value: String(userId) });
+  }
+
+  if (ropcResult.idToken) {
+    entries.push({ name: 'phw_e2e_external_id_token', value: ropcResult.idToken });
+  }
+
+  return {
+    cookies: [],
+    origins: [{ origin: appOrigin, localStorage: entries }],
+  };
+}
+
 async function acquireTokenByROPC(role) {
   if (!ropcEnabled) return null;
 
@@ -170,91 +260,6 @@ async function acquireTokenByROPC(role) {
   } finally {
     clearTimeout(timeoutId);
   }
-}
-
-/**
- * Build a Playwright storageState JSON with MSAL-compatible cache entries
- * so that browser tests can start in an authenticated state without
- * performing an interactive login.
- */
-function buildSyntheticStorageState(ropcResult, appOrigin) {
-  const idClaims = ropcResult.idToken ? decodeJwtPayload(ropcResult.idToken) : {};
-  const accessClaims = decodeJwtPayload(ropcResult.accessToken);
-
-  const oid = idClaims.oid || accessClaims.oid || accessClaims.sub || 'unknown';
-  const tid = idClaims.tid || accessClaims.tid || azureTenantId || '';
-  const issuer = idClaims.iss || accessClaims.iss || '';
-  const environment = issuer ? (() => { try { return new URL(issuer).hostname; } catch { return azureAuthorityHost; } })() : azureAuthorityHost;
-  const username = idClaims.preferred_username || idClaims.email || idClaims.emails?.[0] || '';
-  const name = idClaims.name || '';
-
-  const homeAccountId = `${oid}.${tid}`;
-  const realm = tid;
-  const clientInfo = Buffer.from(JSON.stringify({ uid: oid, utid: tid })).toString('base64url');
-  const now = Math.floor(Date.now() / 1000);
-  const expiresOn = now + (ropcResult.expiresIn || 3600);
-  const target = ropcResult.scope || `openid profile email ${azureClientId}`;
-
-  const accountKey = `${homeAccountId}-${environment}-${realm}`;
-  const accessTokenKey = `${homeAccountId}-${environment}-accesstoken-${azureClientId}-${realm}-${target}`;
-  const idTokenKey = `${homeAccountId}-${environment}-idtoken-${azureClientId}-${realm}`;
-
-  const entries = [
-    {
-      name: accountKey,
-      value: JSON.stringify({
-        homeAccountId,
-        environment,
-        realm,
-        localAccountId: oid,
-        username,
-        name,
-        authorityType: 'MSSTS',
-        clientInfo,
-      }),
-    },
-    {
-      name: accessTokenKey,
-      value: JSON.stringify({
-        homeAccountId,
-        environment,
-        credentialType: 'AccessToken',
-        clientId: azureClientId,
-        secret: ropcResult.accessToken,
-        realm,
-        target,
-        cachedAt: String(now),
-        expiresOn: String(expiresOn),
-        extendedExpiresOn: String(expiresOn + 3600),
-        tokenType: 'Bearer',
-      }),
-    },
-  ];
-
-  if (ropcResult.idToken) {
-    entries.push({
-      name: idTokenKey,
-      value: JSON.stringify({
-        homeAccountId,
-        environment,
-        credentialType: 'IdToken',
-        clientId: azureClientId,
-        secret: ropcResult.idToken,
-        realm,
-      }),
-    });
-  }
-
-  // Active account marker so MSAL knows which account to use
-  entries.push({
-    name: `msal.${azureClientId}.active-account`,
-    value: accountKey,
-  });
-
-  return {
-    cookies: [],
-    origins: [{ origin: appOrigin, localStorage: entries }],
-  };
 }
 
 /* ── Browser-based login helpers (fallback when ROPC unavailable) ─────── */
@@ -690,10 +695,18 @@ async function main() {
       }
     }
 
-    // ── Strategy 2: Browser login for real storageState (preferred for browser suites) ──
-    // Always attempt browser login to capture real MSAL v5 encrypted storage state.
-    // ROPC token is kept for API tests even if browser capture fails.
-    {
+    if (ropcResult && token && appOrigin) {
+      const externalState = buildExternalE2EStorageState(role, ropcResult, appOrigin);
+      fs.writeFileSync(role.statePath, JSON.stringify(externalState, null, 2), 'utf8');
+      hasBrowserStorageState = true;
+      console.log(`[refresh-playwright-tokens] ${role.name}: wrote external E2E storage state from ROPC`);
+    }
+
+    // ── Strategy 2: Browser login for real storageState (diagnostic fallback) ──
+    // Google-federated and CIAM browser flows are not reliable enough for the
+    // deploy path.  When ROPC succeeds, the deterministic external-auth state
+    // above is authoritative; interactive capture remains opt-in for debugging.
+    if (!token || captureBrowserStateAfterRopc) {
       try {
         const browserToken = await loginAndCaptureWithTimeout({
           username: role.username,
@@ -714,15 +727,15 @@ async function main() {
           }
           console.warn(`[refresh-playwright-tokens] skipped ${role.name}: ${reason}`);
         } else {
-          if (ropcResult && appOrigin) {
+          if (!hasBrowserStorageState && ropcResult && appOrigin) {
             try {
-              const syntheticState = buildSyntheticStorageState(ropcResult, appOrigin);
-              fs.writeFileSync(role.statePath, JSON.stringify(syntheticState, null, 2), 'utf8');
+              const externalState = buildExternalE2EStorageState(role, ropcResult, appOrigin);
+              fs.writeFileSync(role.statePath, JSON.stringify(externalState, null, 2), 'utf8');
               hasBrowserStorageState = true;
-              console.warn(`[refresh-playwright-tokens] ${role.name}: browser storage capture failed; wrote synthetic MSAL storage state fallback: ${reason}`);
+              console.warn(`[refresh-playwright-tokens] ${role.name}: browser storage capture failed; wrote external E2E storage state fallback: ${reason}`);
             } catch (writeError) {
               const writeReason = writeError instanceof Error ? writeError.message : String(writeError);
-              console.warn(`[refresh-playwright-tokens] ${role.name}: failed to write synthetic storage fallback (${writeReason}); retaining token-only auth state path: ${reason}`);
+              console.warn(`[refresh-playwright-tokens] ${role.name}: failed to write external E2E storage fallback (${writeReason}); retaining token-only auth state path: ${reason}`);
             }
           } else {
             console.warn(`[refresh-playwright-tokens] ${role.name}: browser storage capture failed, retaining token-only auth state path: ${reason}`);

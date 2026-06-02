@@ -1,5 +1,5 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useAuth } from '../useAuth'
 
 const mockSetTokenGetter = vi.fn()
@@ -22,6 +22,7 @@ vi.mock('../../authConfig', () => ({
     ADMIN: 'ADMIN',
     EVENT_CREATOR: 'EVENT_CREATOR',
     USER: 'USER',
+    TAVF_CREATOR: 'TAVF_CREATOR',
   },
 }))
 
@@ -56,6 +57,7 @@ describe('useAuth auth flow regression coverage', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    window.localStorage.clear()
     vi.stubGlobal('fetch', mockFetch as unknown as typeof fetch)
 
     mockUseMsal.mockReturnValue({
@@ -79,6 +81,11 @@ describe('useAuth auth flow regression coverage', () => {
       status: 200,
       json: async () => ({ auth_roles: [] }),
     })
+  })
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
+    window.localStorage.clear()
   })
 
   it('uses popup sign-in flow when login is requested', async () => {
@@ -253,6 +260,34 @@ describe('useAuth auth flow regression coverage', () => {
 
     const requestInit = mockFetch.mock.calls[0]?.[1] as { headers?: Record<string, string> } | undefined
     expect(requestInit?.headers?.['X-Id-Token-Email']).toBeUndefined()
+  })
+
+  it('uses seeded external E2E token and email hint for browser auth state', async () => {
+    vi.stubEnv('VITE_E2E_EXTERNAL_AUTH', '1')
+    window.localStorage.setItem('phw_e2e_external_auth', '1')
+    window.localStorage.setItem('phw_e2e_external_token', 'external-token')
+    window.localStorage.setItem('phw_e2e_external_email', 'member@example.org')
+    window.localStorage.setItem('phw_e2e_external_user_id', 'member-1')
+    window.localStorage.setItem('phw_e2e_role', 'USER')
+
+    mockUseMsal.mockReturnValue({
+      accounts: [],
+      instance: msalInstance,
+      inProgress: 'none',
+    })
+    mockUseIsAuthenticated.mockReturnValue(false)
+
+    const { result } = renderHook(() => useAuth())
+
+    await waitFor(() => {
+      expect(mockSetTokenGetter).toHaveBeenCalled()
+      expect(mockSetEmailHint).toHaveBeenCalledWith('member@example.org')
+    })
+
+    const getter = mockSetTokenGetter.mock.calls.at(-1)?.[0] as (() => Promise<string | null>)
+    await expect(getter()).resolves.toBe('external-token')
+    expect(result.current.isAuthenticated).toBe(true)
+    expect(result.current.user?.email).toBe('member@example.org')
   })
 
   it('shares backend-resolved roles across separate useAuth hook instances', async () => {

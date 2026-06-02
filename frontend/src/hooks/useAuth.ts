@@ -833,7 +833,7 @@ function useAuth() {
   useEffect(() => {
     if (externalE2ESessionActive && externalE2EToken) {
       setTokenGetter(async () => externalE2EToken)
-      setEmailHint(null)
+      setEmailHint(externalE2EEmail)
       return
     }
 
@@ -846,7 +846,7 @@ function useAuth() {
     setEmailHint(resolveEmailHintHeader(accountClaims, account?.username))
 
     setTokenGetter(acquireAccessToken)
-  }, [account, accountClaims, acquireAccessToken, externalE2ESessionActive, externalE2EToken, localE2EAuth, localE2ERole])
+  }, [account, accountClaims, acquireAccessToken, externalE2EEmail, externalE2ESessionActive, externalE2EToken, localE2EAuth, localE2ERole])
 
   const localUser: AuthUser = {
     id: `e2e-${localE2ERole.toLowerCase()}`,

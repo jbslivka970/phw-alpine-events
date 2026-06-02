@@ -227,6 +227,32 @@ function collectIdTokenEmailsFromState(storageState) {
   return Array.from(new Set(results));
 }
 
+function collectExternalE2EEmailsFromState(storageState) {
+  const results = [];
+  const origins = Array.isArray(storageState?.origins) ? storageState.origins : [];
+
+  for (const origin of origins) {
+    const localStorage = Array.isArray(origin?.localStorage) ? origin.localStorage : [];
+    const externalAuthEnabled = localStorage.some((entry) => entry?.name === 'phw_e2e_external_auth' && String(entry?.value || '') === '1');
+    if (!externalAuthEnabled) {
+      continue;
+    }
+
+    for (const entry of localStorage) {
+      if (entry?.name !== 'phw_e2e_external_email') {
+        continue;
+      }
+
+      const email = String(entry?.value || '').trim().toLowerCase();
+      if (email && email.includes('@')) {
+        results.push(email);
+      }
+    }
+  }
+
+  return Array.from(new Set(results));
+}
+
 function collectErrorsForAuthStatePreflight(statePathValue) {
   const errors = [];
   const statePath = path.resolve(process.cwd(), statePathValue);
@@ -245,9 +271,12 @@ function collectErrorsForAuthStatePreflight(statePathValue) {
     return errors;
   }
 
-  const emails = collectIdTokenEmailsFromState(parsed);
+  const emails = [
+    ...collectIdTokenEmailsFromState(parsed),
+    ...collectExternalE2EEmailsFromState(parsed),
+  ];
   if (emails.length === 0) {
-    errors.push(`Auth state file ${statePath} does not contain an id_token email claim. browser-auth-email-hint will fail.`);
+    errors.push(`Auth state file ${statePath} does not contain an id_token email claim or external E2E email seed. browser-auth-email-hint will fail.`);
   }
 
   return errors;
