@@ -1,4 +1,4 @@
-import { apiGet, apiPut } from './client'
+import { apiGet, apiPost, apiPut } from './client'
 
 type AppUserRole = 'admin' | 'superadmin' | 'event_creator' | 'tavf_creator' | 'user'
 type RootRole = 'root_admin' | 'support'
@@ -78,11 +78,47 @@ interface RootAccessUpsertPayload {
   }>
 }
 
+type TenantBrandingAssetKind = 'logo' | 'logo_dark' | 'hero'
+
+interface RootTenantBranding {
+  tenant_id: string
+  org_long_name: string | null
+  org_short_name: string | null
+  support_email: string | null
+  accessibility_email: string | null
+  logo_url: string | null
+  logo_dark_url: string | null
+  hero_image_urls: string[]
+  primary_color: string | null
+  accent_color: string | null
+  dark_color: string | null
+  program_tagline: string | null
+  portal_login_url: string | null
+  mission_blurb: string | null
+  created_at: string
+  updated_at: string
+}
+
+interface RootBrandingUploadUrlResponse {
+  upload_url: string
+  blob_url: string
+  blob_path: string
+  expires_at: string
+  required_headers: Record<string, string>
+}
+
 const rootApi = {
   getSession: () => apiGet<RootSession>('/root/session'),
   listTenants: () => apiGet<{ tenants: RootTenantSummary[] }>('/root/tenants'),
   getAccessProfile: (email: string) => apiGet<RootAccessProfile>(`/root/access?email=${encodeURIComponent(email)}`),
   upsertAccessProfile: (payload: RootAccessUpsertPayload) => apiPut<RootAccessProfile>('/root/access', payload),
+  getTenantBranding: (tenantId: string) => apiGet<RootTenantBranding>(`/root/tenants/${encodeURIComponent(tenantId)}/branding`),
+  upsertTenantBranding: (tenantId: string, payload: Partial<RootTenantBranding>) =>
+    apiPut<RootTenantBranding>(`/root/tenants/${encodeURIComponent(tenantId)}/branding`, payload),
+  createBrandingAssetUploadUrl: (tenantId: string, payload: { file_name: string; content_type: string; asset_kind: TenantBrandingAssetKind }) =>
+    apiPost<RootBrandingUploadUrlResponse>(`/root/tenants/${encodeURIComponent(tenantId)}/branding/assets/upload-url`, payload),
+  commitBrandingAsset: (tenantId: string, payload: { asset_kind: TenantBrandingAssetKind; asset_url: string }) =>
+    apiPost<RootTenantBranding>(`/root/tenants/${encodeURIComponent(tenantId)}/branding/assets/commit`, payload),
 }
 
 export { rootApi }
@@ -93,7 +129,9 @@ export type {
   RootAccessProfile,
   RootRole,
   RootSession,
+  RootTenantBranding,
   RootTenantSummary,
+  TenantBrandingAssetKind,
   TenantMembershipKind,
   TenantMembershipRole,
 }

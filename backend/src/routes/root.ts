@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, type Response } from 'express';
 import authenticate from '../middleware/auth';
 import { apiLimiter, writeLimiter } from '../middleware/rateLimiter';
 import { requireRoot } from '../middleware/requireRoot';
@@ -13,6 +13,13 @@ import {
   type TenantMembershipKind,
   type TenantMembershipRole,
 } from '../services/rootAccessService';
+import {
+  commitBrandingAsset,
+  createBrandingAssetUploadUrl,
+  getTenantBranding,
+  upsertTenantBranding,
+  type TenantBrandingAssetKind,
+} from '../services/rootTenantBrandingService';
 
 const router = Router();
 
@@ -21,6 +28,30 @@ const ROOT_ROLES: RootRole[] = ['root_admin', 'support'];
 const TENANT_ROLES: TenantMembershipRole[] = ['member', 'admin', 'event_creator', 'tavf_creator', 'support', 'root_admin'];
 const MEMBERSHIP_KINDS: TenantMembershipKind[] = ['home', 'temporary_demo', 'admin'];
 const PERSONAS: MemberPersona[] = ['participant', 'volunteer', 'mentor', 'guide', 'staff'];
+const BRANDING_ASSET_KINDS: TenantBrandingAssetKind[] = ['logo', 'logo_dark', 'hero'];
+
+function isValidGuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value.trim());
+}
+
+function sendBrandingServiceError(res: Response, error: unknown): boolean {
+  const message = error instanceof Error ? error.message : '';
+  if (message === 'Tenant not found') {
+    res.status(404).json({ error: message });
+    return true;
+  }
+  if (message.includes('Only image uploads are allowed')
+    || message.includes('assetUrl is required')
+    || message.includes('assetUrl does not belong')) {
+    res.status(400).json({ error: message });
+    return true;
+  }
+  if (message.includes('Blob storage credentials are not configured')) {
+    res.status(503).json({ error: message });
+    return true;
+  }
+  return false;
+}
 
 router.use(apiLimiter, authenticate, requireRoot);
 
@@ -33,6 +64,9 @@ router.get('/session', async (req, res, next) => {
     }
     res.json(session);
   } catch (error) {
+    if (sendBrandingServiceError(res, error)) {
+      return;
+    }
     next(error);
   }
 });
@@ -41,6 +75,142 @@ router.get('/tenants', async (_req, res, next) => {
   try {
     const tenants = await listTenantsForRoot();
     res.json({ tenants });
+  } catch (error) {
+    if (sendBrandingServiceError(res, error)) {
+      return;
+    }
+    next(error);
+  }
+});
+
+router.get('/tenants/:tenantId/branding', async (req, res, next) => {
+  try {
+    const tenantId = String(req.params.tenantId ?? '').trim();
+    if (!isValidGuid(tenantId)) {
+      res.status(400).json({ error: 'tenantId must be a valid UUID' });
+      return;
+    }
+
+    const branding = await getTenantBranding(tenantId);
+    if (!branding) {
+      res.status(404).json({ error: 'Tenant branding not found' });
+      return;
+    }
+
+    res.json(branding);
+  } catch (error) {
+    if (sendBrandingServiceError(res, error)) {
+      return;
+    }
+    next(error);
+  }
+});
+
+router.put('/tenants/:tenantId/branding', writeLimiter, async (req, res, next) => {
+  try {
+    const tenantId = String(req.params.tenantId ?? '').trim();
+    if (!isValidGuid(tenantId)) {
+      res.status(400).json({ error: 'tenantId must be a valid UUID' });
+      return;
+    }
+
+    const heroImageUrls = Array.isArray(req.body?.hero_image_urls)
+      ? req.body.hero_image_urls.map((value: unknown) => String(value).trim()).filter((value: string) => value.length > 0)
+      : undefined;
+
+    const branding = await upsertTenantBranding({
+      tenantId,
+      org_long_name: req.body?.org_long_name,
+      org_short_name: req.body?.org_short_name,
+      support_email: req.body?.support_email,
+      accessibility_email: req.body?.accessibility_email,
+      logo_url: req.body?.logo_url,
+      logo_dark_url: req.body?.logo_dark_url,
+      hero_image_urls: heroImageUrls,
+      primary_color: req.body?.primary_color,
+      accent_color: req.body?.accent_color,
+      dark_color: req.body?.dark_color,
+      program_tagline: req.body?.program_tagline,
+      portal_login_url: req.body?.portal_login_url,
+      mission_blurb: req.body?.mission_blurb,
+    });
+
+    res.json(branding);
+  } catch (error) {
+    if (sendBrandingServiceError(res, error)) {
+      return;
+    }
+    next(error);
+  }
+});
+
+router.post('/tenants/:tenantId/branding/assets/upload-url', writeLimiter, async (req, res, next) => {
+  try {
+    const tenantId = String(req.params.tenantId ?? '').trim();
+    const fileName = typeof req.body?.file_name === 'string' ? req.body.file_name.trim() : '';
+    const contentType = typeof req.body?.content_type === 'string' ? req.body.content_type.trim() : '';
+    const assetKind = typeof req.body?.asset_kind === 'string'
+      ? req.body.asset_kind.trim().toLowerCase() as TenantBrandingAssetKind
+      : null;
+
+    if (!isValidGuid(tenantId)) {
+      res.status(400).json({ error: 'tenantId must be a valid UUID' });
+      return;
+    }
+    if (!fileName) {
+      res.status(400).json({ error: 'file_name is required' });
+      return;
+    }
+    if (!contentType) {
+      res.status(400).json({ error: 'content_type is required' });
+      return;
+    }
+    if (!assetKind || !BRANDING_ASSET_KINDS.includes(assetKind)) {
+      res.status(400).json({ error: `asset_kind must be one of: ${BRANDING_ASSET_KINDS.join(', ')}` });
+      return;
+    }
+
+    const upload = await createBrandingAssetUploadUrl({
+      tenantId,
+      fileName,
+      contentType,
+      assetKind,
+    });
+
+    res.json(upload);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/tenants/:tenantId/branding/assets/commit', writeLimiter, async (req, res, next) => {
+  try {
+    const tenantId = String(req.params.tenantId ?? '').trim();
+    const assetUrl = typeof req.body?.asset_url === 'string' ? req.body.asset_url.trim() : '';
+    const assetKind = typeof req.body?.asset_kind === 'string'
+      ? req.body.asset_kind.trim().toLowerCase() as TenantBrandingAssetKind
+      : null;
+
+    if (!isValidGuid(tenantId)) {
+      res.status(400).json({ error: 'tenantId must be a valid UUID' });
+      return;
+    }
+    if (!assetUrl) {
+      res.status(400).json({ error: 'asset_url is required' });
+      return;
+    }
+    if (!assetKind || !BRANDING_ASSET_KINDS.includes(assetKind)) {
+      res.status(400).json({ error: `asset_kind must be one of: ${BRANDING_ASSET_KINDS.join(', ')}` });
+      return;
+    }
+
+    const branding = await commitBrandingAsset({
+      tenantId,
+      assetKind,
+      assetUrl,
+    });
+
+    res.json(branding);
   } catch (error) {
     next(error);
   }
