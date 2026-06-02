@@ -68,6 +68,16 @@ Preparatory schema work, bootstrap updates, and behind-flag tenant plumbing can 
     - `backend/src/routes/admin.ts` now scopes identity and blast member-targeted flows by active tenant membership.
     - Focused backend route tests for tavf/admin and backend typecheck passed after these changes.
 
+6. Notification/reporting tenant hardening expanded
+    - `backend/src/routes/reports.ts` now guards event-scoped notification reporting endpoints against cross-tenant event access.
+    - `backend/src/routes/sms.ts` now scopes admin inbound SMS log reads by active tenant when tenant support tables/columns are present.
+    - Focused backend route tests for reports/sms and backend typecheck passed after these changes.
+
+7. Staging denial-matrix harness added; live staging attempt currently blocked by environment config
+    - Added Playwright matrix coverage for forced `X-Tenant-Id` denial using authenticated admin/event_creator/member tokens.
+    - Attempted the check against `https://phwalpineeventsjb873a-staging.azurewebsites.net/api/v1`.
+    - Result: all three roles still received `200` on `GET /events` with an inaccessible tenant header, which indicates the staging slot is not currently enforcing tenant context (`MULTI_TENANT_ENABLED=true` is not active there yet, or equivalent slot config is not in effect).
+
 ### Completed slices in main
 
 1. Tenant context and auth integration
@@ -112,7 +122,7 @@ Preparatory schema work, bootstrap updates, and behind-flag tenant plumbing can 
 
 1. Continue guard pattern to remaining event-id dependent queries not yet explicitly checked by tenant access guard (if any emerge during QA).
 2. Extend the same compatibility-safe guard style to remaining high-impact notification/reporting entry points where event/member ids can be dereferenced.
-3. Prepare a pre-release verification run focused on cross-tenant denial matrix before enabling `MULTI_TENANT_ENABLED` outside controlled environments.
+3. Enable tenant enforcement on the staging slot and rerun the cross-tenant denial matrix before enabling `MULTI_TENANT_ENABLED` outside controlled environments.
 
 ### Post-deploy todo list
 
@@ -121,9 +131,10 @@ Preparatory schema work, bootstrap updates, and behind-flag tenant plumbing can 
 - [x] Review `backend/src/routes/support.ts`; no tenant-sensitive event/member dereference paths currently require route guards.
 - [x] Extend tenant guard pattern to `backend/src/routes/admin.ts` for event/member dereference paths.
 - [x] Extend tenant guard pattern to event-scoped notification reporting endpoints in `backend/src/routes/reports.ts`.
+- [x] Extend tenant guard pattern to admin inbound SMS log reads in `backend/src/routes/sms.ts`.
 - [ ] Extend tenant guard pattern to notification-related route/service entry points that can dereference cross-tenant ids.
 - [ ] Add or update focused route tests for remaining newly guarded families (`reports`, notifications).
-- [ ] Run a cross-tenant denial matrix test pass in staging with `MULTI_TENANT_ENABLED=true`.
+- [ ] Run a cross-tenant denial matrix test pass in staging with `MULTI_TENANT_ENABLED=true`. Attempted June 2, 2026 against the staging slot, but the slot still returned `200` for inaccessible `X-Tenant-Id` headers across admin/event_creator/member roles.
 - [ ] Update this document with a new dated implementation checkpoint after the above items are complete.
 
 ---
