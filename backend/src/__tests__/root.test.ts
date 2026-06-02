@@ -34,7 +34,7 @@ const upsertTenantMessagingMock = jest.fn();
 const listDemoAccessMembershipsMock = jest.fn();
 const grantDemoAccessByEmailMock = jest.fn();
 const revokeDemoAccessMembershipMock = jest.fn();
-const resetDemoAccessMembershipsMock = jest.fn();
+const resetAndReseedDemoTenantMock = jest.fn();
 
 jest.mock('../middleware/auth', () => ({
   __esModule: true,
@@ -82,7 +82,7 @@ jest.mock('../services/tenantService', () => ({
   listDemoAccessMemberships: (...args: unknown[]) => listDemoAccessMembershipsMock(...args),
   grantDemoAccessByEmail: (...args: unknown[]) => grantDemoAccessByEmailMock(...args),
   revokeDemoAccessMembership: (...args: unknown[]) => revokeDemoAccessMembershipMock(...args),
-  resetDemoAccessMemberships: (...args: unknown[]) => resetDemoAccessMembershipsMock(...args),
+  resetAndReseedDemoTenant: (...args: unknown[]) => resetAndReseedDemoTenantMock(...args),
 }));
 
 jest.mock('../services/rootTenantMessagingService', () => ({
@@ -555,5 +555,51 @@ describe('root routes', () => {
       actorEmail: 'root@example.com',
       expiresAt: '2030-01-01T00:00:00.000Z',
     });
+  });
+
+  it('POST /api/v1/root/tenants/:tenantId/demo/reset resets memberships and reseeds by default', async () => {
+    resetAndReseedDemoTenantMock.mockResolvedValue({
+      revoked_count: 2,
+      memberships: [],
+      reseed: {
+        members_seeded: 3,
+        events_seeded: 2,
+        responses_seeded: 3,
+        groups_seeded: 4,
+        reseeded: true,
+        skipped_reason: null,
+      },
+    });
+
+    const res = await request(app)
+      .post('/api/v1/root/tenants/1b6b9719-663a-4e56-8f7d-9a4bd4c10001/demo/reset')
+      .send({});
+
+    expect(res.status).toBe(200);
+    expect(resetAndReseedDemoTenantMock).toHaveBeenCalledWith('1b6b9719-663a-4e56-8f7d-9a4bd4c10001', { reseed: true });
+    expect(res.body.reseed?.reseeded).toBe(true);
+  });
+
+  it('POST /api/v1/root/tenants/:tenantId/demo/reset forwards reseed=false override', async () => {
+    resetAndReseedDemoTenantMock.mockResolvedValue({
+      revoked_count: 0,
+      memberships: [],
+      reseed: {
+        members_seeded: 0,
+        events_seeded: 0,
+        responses_seeded: 0,
+        groups_seeded: 0,
+        reseeded: false,
+        skipped_reason: 'reseed disabled by request',
+      },
+    });
+
+    const res = await request(app)
+      .post('/api/v1/root/tenants/1b6b9719-663a-4e56-8f7d-9a4bd4c10001/demo/reset')
+      .send({ reseed: false });
+
+    expect(res.status).toBe(200);
+    expect(resetAndReseedDemoTenantMock).toHaveBeenCalledWith('1b6b9719-663a-4e56-8f7d-9a4bd4c10001', { reseed: false });
+    expect(res.body.reseed?.reseeded).toBe(false);
   });
 });

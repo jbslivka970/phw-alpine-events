@@ -499,7 +499,12 @@ function RootAdminPage() {
     try {
       const result = await rootApi.resetDemoMemberships(selectedTenantId)
       setDemoMemberships(result.memberships)
-      setDemoSuccess(`Revoked ${result.revoked_count} active demo memberships.`)
+      const reseedSummary = result.reseed.reseeded
+        ? ` Reseeded ${result.reseed.members_seeded} members, ${result.reseed.events_seeded} events, and ${result.reseed.responses_seeded} responses.`
+        : result.reseed.skipped_reason
+          ? ` Reseed skipped: ${result.reseed.skipped_reason}.`
+          : ''
+      setDemoSuccess(`Revoked ${result.revoked_count} active demo memberships.${reseedSummary}`)
     } catch (error) {
       setDemoError(toUserErrorMessage(error, 'Failed to reset demo memberships.'))
     } finally {

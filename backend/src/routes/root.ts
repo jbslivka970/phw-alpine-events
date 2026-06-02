@@ -29,8 +29,8 @@ import {
   listDemoAccessMemberships,
   listTenantMemberships,
   listTenantAdmins,
+  resetAndReseedDemoTenant,
   revokeTenantAdminByUserId,
-  resetDemoAccessMemberships,
   setTenantStatus,
   updateTenantMembership,
   revokeDemoAccessMembership,
@@ -572,12 +572,13 @@ router.delete('/tenants/:tenantId/demo/memberships/:membershipId', writeLimiter,
 router.post('/tenants/:tenantId/demo/reset', writeLimiter, async (req, res, next) => {
   try {
     const tenantId = String(req.params.tenantId ?? '').trim();
+    const reseed = req.body?.reseed == null ? true : Boolean(req.body.reseed);
     if (!isValidGuid(tenantId)) {
       res.status(400).json({ error: 'tenantId must be a valid UUID' });
       return;
     }
 
-    const resetResult = await resetDemoAccessMemberships(tenantId);
+    const resetResult = await resetAndReseedDemoTenant(tenantId, { reseed });
     res.json(resetResult);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to reset demo memberships';

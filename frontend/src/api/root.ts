@@ -184,6 +184,19 @@ interface RootDemoMembershipSummary {
   expires_at: string | null
 }
 
+interface RootDemoResetSummary {
+  revoked_count: number
+  memberships: RootDemoMembershipSummary[]
+  reseed: {
+    members_seeded: number
+    events_seeded: number
+    responses_seeded: number
+    groups_seeded: number
+    reseeded: boolean
+    skipped_reason: string | null
+  }
+}
+
 const rootApi = {
   getSession: () => apiGet<RootSession>('/root/session'),
   listTenants: () => apiGet<{ tenants: RootTenantSummary[] }>('/root/tenants'),
@@ -215,8 +228,8 @@ const rootApi = {
     apiPost<{ memberships: RootDemoMembershipSummary[] }>(`/root/tenants/${encodeURIComponent(tenantId)}/demo/memberships`, payload),
   revokeDemoMembership: (tenantId: string, membershipId: string) =>
     apiDelete<{ memberships: RootDemoMembershipSummary[] }>(`/root/tenants/${encodeURIComponent(tenantId)}/demo/memberships/${encodeURIComponent(membershipId)}`),
-  resetDemoMemberships: (tenantId: string) =>
-    apiPost<{ revoked_count: number; memberships: RootDemoMembershipSummary[] }>(`/root/tenants/${encodeURIComponent(tenantId)}/demo/reset`, {}),
+  resetDemoMemberships: (tenantId: string, payload?: { reseed?: boolean }) =>
+    apiPost<RootDemoResetSummary>(`/root/tenants/${encodeURIComponent(tenantId)}/demo/reset`, payload ?? {}),
   getAccessProfile: (email: string) => apiGet<RootAccessProfile>(`/root/access?email=${encodeURIComponent(email)}`),
   upsertAccessProfile: (payload: RootAccessUpsertPayload) => apiPut<RootAccessProfile>('/root/access', payload),
   getTenantBranding: (tenantId: string) => apiGet<RootTenantBranding>(`/root/tenants/${encodeURIComponent(tenantId)}/branding`),
@@ -240,6 +253,7 @@ export type {
   RootTenantBranding,
   RootCreateTenantPayload,
   RootDemoMembershipSummary,
+  RootDemoResetSummary,
   RootTenantMessaging,
   RootTenantMembershipSummary,
   RootTenantUsageSummary,

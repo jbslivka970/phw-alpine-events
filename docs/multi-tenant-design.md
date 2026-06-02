@@ -96,6 +96,15 @@ Preparatory schema work, bootstrap updates, and behind-flag tenant plumbing can 
         - `frontend/src/api/root.ts` now includes client contracts for listing, granting, and updating tenant memberships.
         - Focused root route tests now pass with 31/31 coverage in `backend/src/__tests__/root.test.ts`.
 
+11. Demo reset flow upgraded from membership-only reset to reset + compatibility-safe reseed
+        - `backend/src/services/tenantService.ts` now provides `resetAndReseedDemoTenant(...)`, which:
+            - revokes active temporary demo memberships
+            - attempts synthetic workspace reseed for the demo tenant (members/events/responses and tenant-scoped groups) when tenant columns are available
+            - returns explicit reseed stats and skip reason when schema support is incomplete
+        - `POST /api/v1/root/tenants/:tenantId/demo/reset` now accepts optional `{ reseed: boolean }` and returns reseed summary payload.
+        - Root UI now surfaces reseed outcomes in success messaging for the Demo Access Lifecycle section.
+        - Focused root route tests now pass with 33/33 in `backend/src/__tests__/root.test.ts`.
+
 7. Staging denial-matrix harness added; live staging attempt currently blocked by environment config
     - Added Playwright matrix coverage for forced `X-Tenant-Id` denial using authenticated admin/event_creator/member tokens.
     - Attempted the check against `https://phwalpineeventsjb873a-staging.azurewebsites.net/api/v1`.

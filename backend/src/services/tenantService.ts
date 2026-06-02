@@ -79,6 +79,21 @@ interface DemoAccessSummary {
   expires_at: string | null;
 }
 
+interface DemoReseedSummary {
+  members_seeded: number;
+  events_seeded: number;
+  responses_seeded: number;
+  groups_seeded: number;
+  reseeded: boolean;
+  skipped_reason: string | null;
+}
+
+interface DemoResetSummary {
+  revoked_count: number;
+  memberships: DemoAccessSummary[];
+  reseed: DemoReseedSummary;
+}
+
 type TenantMembershipRole = 'member' | 'admin' | 'event_creator' | 'tavf_creator' | 'support' | 'root_admin';
 type TenantMembershipKind = 'home' | 'temporary_demo' | 'admin';
 type TenantMembershipStatus = 'active' | 'revoked';
@@ -729,6 +744,192 @@ async function resetDemoAccessMemberships(tenantId: string): Promise<{ revoked_c
   }
 }
 
+async function reseedDemoTenantWorkspace(tenantId: string): Promise<DemoReseedSummary> {
+  const pool = await getPool();
+  const result = await pool
+    .request()
+    .input('tenant_id', sql.UniqueIdentifier, tenantId)
+    .query<{
+      members_seeded: number;
+      events_seeded: number;
+      responses_seeded: number;
+      groups_seeded: number;
+      reseeded: number;
+      skipped_reason: string | null;
+    }>(
+      `DECLARE @has_member_tenant BIT = CASE WHEN OBJECT_ID(N'dbo.member', N'U') IS NOT NULL AND COL_LENGTH('dbo.member', 'tenant_id') IS NOT NULL THEN 1 ELSE 0 END;
+       DECLARE @has_event_tenant BIT = CASE WHEN OBJECT_ID(N'dbo.event', N'U') IS NOT NULL AND COL_LENGTH('dbo.event', 'tenant_id') IS NOT NULL THEN 1 ELSE 0 END;
+       DECLARE @has_event_response_tenant BIT = CASE WHEN OBJECT_ID(N'dbo.event_response', N'U') IS NOT NULL AND COL_LENGTH('dbo.event_response', 'tenant_id') IS NOT NULL THEN 1 ELSE 0 END;
+       DECLARE @has_group_tenant BIT = CASE WHEN OBJECT_ID(N'dbo.[group]', N'U') IS NOT NULL AND COL_LENGTH('dbo.[group]', 'tenant_id') IS NOT NULL THEN 1 ELSE 0 END;
+
+       IF @has_member_tenant = 0 OR @has_event_tenant = 0
+       BEGIN
+         SELECT
+           0 AS members_seeded,
+           0 AS events_seeded,
+           0 AS responses_seeded,
+           0 AS groups_seeded,
+           0 AS reseeded,
+           'tenant_id columns are not available on member/event tables; skipped reseed' AS skipped_reason;
+         RETURN;
+       END
+
+       DECLARE @now DATETIME = GETUTCDATE();
+       DECLARE @seedMemberOne UNIQUEIDENTIFIER = NEWID();
+       DECLARE @seedMemberTwo UNIQUEIDENTIFIER = NEWID();
+       DECLARE @seedMemberThree UNIQUEIDENTIFIER = NEWID();
+       DECLARE @seedEventOne UNIQUEIDENTIFIER = NEWID();
+       DECLARE @seedEventTwo UNIQUEIDENTIFIER = NEWID();
+
+       DECLARE @responses_deleted INT = 0;
+       DECLARE @events_deleted INT = 0;
+       DECLARE @members_deleted INT = 0;
+
+       IF @has_event_response_tenant = 1
+       BEGIN
+         DELETE FROM dbo.event_response
+         WHERE tenant_id = @tenant_id;
+         SET @responses_deleted = @@ROWCOUNT;
+       END
+
+       DELETE FROM dbo.event
+       WHERE tenant_id = @tenant_id;
+       SET @events_deleted = @@ROWCOUNT;
+
+       DELETE FROM dbo.member
+       WHERE tenant_id = @tenant_id;
+       SET @members_deleted = @@ROWCOUNT;
+
+       IF @has_group_tenant = 1
+       BEGIN
+         DECLARE @tenant_slug NVARCHAR(100) = (
+           SELECT TOP (1) slug
+           FROM dbo.tenant
+           WHERE tenant_id = @tenant_id
+         );
+
+         DECLARE @prefix NVARCHAR(130) = COALESCE(@tenant_slug, 'demo') + N' ';
+
+         MERGE dbo.[group] AS target
+         USING (
+           SELECT @tenant_id AS tenant_id, @prefix + N'ALL' AS group_name, N'Demo audience seed group' AS description, 1 AS is_system
+           UNION ALL SELECT @tenant_id, @prefix + N'ADMIN', N'Demo admin seed group', 1
+           UNION ALL SELECT @tenant_id, @prefix + N'VOLUNTEERS', N'Demo volunteers seed group', 1
+           UNION ALL SELECT @tenant_id, @prefix + N'PARTICIPANTS', N'Demo participants seed group', 1
+         ) AS source
+           ON target.tenant_id = source.tenant_id
+          AND target.group_name = source.group_name
+         WHEN MATCHED THEN
+           UPDATE SET description = source.description, is_system = source.is_system
+         WHEN NOT MATCHED THEN
+           INSERT (group_id, tenant_id, group_name, description, is_system, created_at)
+           VALUES (NEWID(), source.tenant_id, source.group_name, source.description, source.is_system, @now);
+       END
+
+       INSERT INTO dbo.member (
+         member_id,
+         tenant_id,
+         first_name,
+         last_name,
+         email,
+         is_active,
+         source,
+         created_at,
+         updated_at
+       )
+       VALUES
+         (@seedMemberOne, @tenant_id, N'Demo', N'Participant', N'demo.participant+' + CONVERT(NVARCHAR(36), @tenant_id) + N'@example.org', 1, N'manual', @now, @now),
+         (@seedMemberTwo, @tenant_id, N'Demo', N'Volunteer', N'demo.volunteer+' + CONVERT(NVARCHAR(36), @tenant_id) + N'@example.org', 1, N'manual', @now, @now),
+         (@seedMemberThree, @tenant_id, N'Demo', N'Mentor', N'demo.mentor+' + CONVERT(NVARCHAR(36), @tenant_id) + N'@example.org', 1, N'manual', @now, @now);
+
+       INSERT INTO dbo.event (
+         event_id,
+         tenant_id,
+         title,
+         description,
+         location,
+         event_date,
+         status,
+         created_at,
+         updated_at
+       )
+       VALUES
+         (@seedEventOne, @tenant_id, N'Demo Volunteer Orientation', N'Synthetic demo orientation event', N'Demo Center', DATEADD(DAY, 14, @now), N'published', @now, @now),
+         (@seedEventTwo, @tenant_id, N'Demo Weekend Program', N'Synthetic demo weekend program event', N'Demo Trailhead', DATEADD(DAY, 21, @now), N'published', @now, @now);
+
+       IF @has_event_response_tenant = 1
+       BEGIN
+         INSERT INTO dbo.event_response (
+           response_id,
+           event_id,
+           member_id,
+           tenant_id,
+           response,
+           response_role,
+           responded_at
+         )
+         VALUES
+           (NEWID(), @seedEventOne, @seedMemberOne, @tenant_id, N'yes', N'PARTICIPANT', @now),
+           (NEWID(), @seedEventOne, @seedMemberTwo, @tenant_id, N'yes', N'MENTOR', @now),
+           (NEWID(), @seedEventTwo, @seedMemberThree, @tenant_id, N'maybe', N'MENTOR', @now);
+       END
+
+       SELECT
+         3 AS members_seeded,
+         2 AS events_seeded,
+         CASE WHEN @has_event_response_tenant = 1 THEN 3 ELSE 0 END AS responses_seeded,
+         CASE WHEN @has_group_tenant = 1 THEN 4 ELSE 0 END AS groups_seeded,
+         1 AS reseeded,
+         NULL AS skipped_reason;`
+    );
+
+  const row = result.recordset[0] ?? {
+    members_seeded: 0,
+    events_seeded: 0,
+    responses_seeded: 0,
+    groups_seeded: 0,
+    reseeded: 0,
+    skipped_reason: 'reseed did not return a result',
+  };
+
+  return {
+    members_seeded: Number(row.members_seeded ?? 0),
+    events_seeded: Number(row.events_seeded ?? 0),
+    responses_seeded: Number(row.responses_seeded ?? 0),
+    groups_seeded: Number(row.groups_seeded ?? 0),
+    reseeded: Number(row.reseeded ?? 0) === 1,
+    skipped_reason: row.skipped_reason ?? null,
+  };
+}
+
+async function resetAndReseedDemoTenant(
+  tenantId: string,
+  options?: { reseed?: boolean }
+): Promise<DemoResetSummary> {
+  const resetResult = await resetDemoAccessMemberships(tenantId);
+  const shouldReseed = options?.reseed !== false;
+
+  if (!shouldReseed) {
+    return {
+      ...resetResult,
+      reseed: {
+        members_seeded: 0,
+        events_seeded: 0,
+        responses_seeded: 0,
+        groups_seeded: 0,
+        reseeded: false,
+        skipped_reason: 'reseed disabled by request',
+      },
+    };
+  }
+
+  const reseedResult = await reseedDemoTenantWorkspace(tenantId);
+  return {
+    ...resetResult,
+    reseed: reseedResult,
+  };
+}
+
 async function revokeTenantAdminByUserId(tenantId: string, userId: string): Promise<TenantAdminSummary[]> {
   const pool = await getPool();
   const transaction = new sql.Transaction(pool);
@@ -1221,6 +1422,7 @@ export {
   listTenantMemberships,
   listTenantAdmins,
   revokeTenantAdminByUserId,
+  resetAndReseedDemoTenant,
   resetDemoAccessMemberships,
   setTenantStatus,
   updateTenantMembership,
@@ -1229,6 +1431,7 @@ export {
 export type {
   CreateTenantInput,
   DemoAccessSummary,
+  DemoResetSummary,
   GrantDemoAccessInput,
   TenantMembershipSummary,
   TenantAdminSummary,
