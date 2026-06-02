@@ -36,6 +36,33 @@ Preparatory schema work, bootstrap updates, and behind-flag tenant plumbing can 
 
 ## Implementation status (June 1, 2026)
 
+### Checkpoint update (June 2, 2026)
+
+1. CI/CD auth gate reliability
+        - Browser email-hint regression now runs after deploy completes, so it validates the newly deployed frontend bundle instead of racing a stale deployment.
+        - Latest mainline CI/CD run passed with deploy, backend/frontend smoke, token refresh, and browser email-hint checks green.
+
+2. Production tenant-access verification completed (live Azure SQL audit)
+        - Executed a read-only tenant membership audit directly against Azure SQL using Azure AD token auth and a temporary firewall rule.
+        - Confirmed Colorado Alpine tenant/admin mappings remained intact.
+        - Confirmed pre-remediation state had no active multi-tenant users.
+
+3. Scoped production remediation completed
+        - Applied a targeted SQL remediation for `sarnitro@gmail.com` only:
+            - Added active Demo user membership (`role=admin`, `membership_kind=admin`).
+            - Added active Demo member linkage (`role=member`, `membership_kind=temporary_demo`).
+        - Post-remediation verification confirmed:
+            - Exactly one active multi-tenant user: `sarnitro@gmail.com`.
+            - Colorado Alpine admin membership mapping still healthy.
+            - No admin drift rows.
+
+4. Regression hardening added before next deploy checkpoint
+        - Added frontend `AdminPage` tests covering:
+            - Root section visible only for root sessions.
+            - Root profile load/save payload path.
+        - Added backend `/api/v1/root/access` route validation tests for invalid `root_role` and invalid `membership_kind`.
+        - Added reusable SQL audit script: `scripts/verify-tenant-membership-audit.sql`.
+
 ### Completed slices in main
 
 1. Tenant context and auth integration
