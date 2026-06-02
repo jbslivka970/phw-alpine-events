@@ -1,4 +1,4 @@
-import { apiGet, apiPost, apiPut } from './client'
+import { apiDelete, apiGet, apiPost, apiPut } from './client'
 
 type AppUserRole = 'admin' | 'superadmin' | 'event_creator' | 'tavf_creator' | 'user'
 type RootRole = 'root_admin' | 'support'
@@ -79,6 +79,7 @@ interface RootAccessUpsertPayload {
 }
 
 type TenantBrandingAssetKind = 'logo' | 'logo_dark' | 'hero'
+type SmsProvider = 'acs' | 'twilio' | 'telnyx' | null
 
 interface RootTenantBranding {
   tenant_id: string
@@ -130,6 +131,33 @@ interface RootTenantAdminSummary {
   expires_at: string | null
 }
 
+interface RootTenantMessaging {
+  tenant_id: string
+  email_from: string | null
+  email_reply_to: string | null
+  email_bcc_monitor: string | null
+  sms_provider: SmsProvider
+  sms_from: string | null
+  twilio_messaging_service_sid: string | null
+  telnyx_messaging_profile_id: string | null
+  telnyx_from_number: string | null
+  created_at: string
+  updated_at: string
+}
+
+interface RootDemoMembershipSummary {
+  tenant_membership_id: string
+  tenant_id: string
+  user_id: string
+  email: string
+  display_name: string | null
+  role: string
+  membership_kind: string
+  status: string
+  starts_at: string
+  expires_at: string | null
+}
+
 const rootApi = {
   getSession: () => apiGet<RootSession>('/root/session'),
   listTenants: () => apiGet<{ tenants: RootTenantSummary[] }>('/root/tenants'),
@@ -137,6 +165,17 @@ const rootApi = {
   listTenantAdmins: (tenantId: string) => apiGet<{ admins: RootTenantAdminSummary[] }>(`/root/tenants/${encodeURIComponent(tenantId)}/admins`),
   grantTenantAdmin: (tenantId: string, payload: { email: string; display_name?: string | null; expires_at?: string | null }) =>
     apiPost<{ admins: RootTenantAdminSummary[] }>(`/root/tenants/${encodeURIComponent(tenantId)}/admins`, payload),
+  getTenantMessaging: (tenantId: string) => apiGet<RootTenantMessaging>(`/root/tenants/${encodeURIComponent(tenantId)}/messaging`),
+  upsertTenantMessaging: (tenantId: string, payload: Partial<RootTenantMessaging>) =>
+    apiPut<RootTenantMessaging>(`/root/tenants/${encodeURIComponent(tenantId)}/messaging`, payload),
+  listDemoMemberships: (tenantId: string) =>
+    apiGet<{ memberships: RootDemoMembershipSummary[] }>(`/root/tenants/${encodeURIComponent(tenantId)}/demo/memberships`),
+  grantDemoMembership: (tenantId: string, payload: { email: string; display_name?: string | null; expires_at: string }) =>
+    apiPost<{ memberships: RootDemoMembershipSummary[] }>(`/root/tenants/${encodeURIComponent(tenantId)}/demo/memberships`, payload),
+  revokeDemoMembership: (tenantId: string, membershipId: string) =>
+    apiDelete<{ memberships: RootDemoMembershipSummary[] }>(`/root/tenants/${encodeURIComponent(tenantId)}/demo/memberships/${encodeURIComponent(membershipId)}`),
+  resetDemoMemberships: (tenantId: string) =>
+    apiPost<{ revoked_count: number; memberships: RootDemoMembershipSummary[] }>(`/root/tenants/${encodeURIComponent(tenantId)}/demo/reset`, {}),
   getAccessProfile: (email: string) => apiGet<RootAccessProfile>(`/root/access?email=${encodeURIComponent(email)}`),
   upsertAccessProfile: (payload: RootAccessUpsertPayload) => apiPut<RootAccessProfile>('/root/access', payload),
   getTenantBranding: (tenantId: string) => apiGet<RootTenantBranding>(`/root/tenants/${encodeURIComponent(tenantId)}/branding`),
@@ -159,7 +198,10 @@ export type {
   RootTenantAdminSummary,
   RootTenantBranding,
   RootCreateTenantPayload,
+  RootDemoMembershipSummary,
+  RootTenantMessaging,
   RootTenantSummary,
+  SmsProvider,
   TenantBrandingAssetKind,
   TenantMembershipKind,
   TenantMembershipRole,

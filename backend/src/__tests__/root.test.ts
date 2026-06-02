@@ -23,6 +23,12 @@ const commitBrandingAssetMock = jest.fn();
 const createTenantMock = jest.fn();
 const listTenantAdminsMock = jest.fn();
 const grantTenantAdminByEmailMock = jest.fn();
+const getTenantMessagingMock = jest.fn();
+const upsertTenantMessagingMock = jest.fn();
+const listDemoAccessMembershipsMock = jest.fn();
+const grantDemoAccessByEmailMock = jest.fn();
+const revokeDemoAccessMembershipMock = jest.fn();
+const resetDemoAccessMembershipsMock = jest.fn();
 
 jest.mock('../middleware/auth', () => ({
   __esModule: true,
@@ -55,6 +61,16 @@ jest.mock('../services/tenantService', () => ({
   createTenant: (...args: unknown[]) => createTenantMock(...args),
   listTenantAdmins: (...args: unknown[]) => listTenantAdminsMock(...args),
   grantTenantAdminByEmail: (...args: unknown[]) => grantTenantAdminByEmailMock(...args),
+  listDemoAccessMemberships: (...args: unknown[]) => listDemoAccessMembershipsMock(...args),
+  grantDemoAccessByEmail: (...args: unknown[]) => grantDemoAccessByEmailMock(...args),
+  revokeDemoAccessMembership: (...args: unknown[]) => revokeDemoAccessMembershipMock(...args),
+  resetDemoAccessMemberships: (...args: unknown[]) => resetDemoAccessMembershipsMock(...args),
+}));
+
+jest.mock('../services/rootTenantMessagingService', () => ({
+  __esModule: true,
+  getTenantMessaging: (...args: unknown[]) => getTenantMessagingMock(...args),
+  upsertTenantMessaging: (...args: unknown[]) => upsertTenantMessagingMock(...args),
 }));
 
 import rootRouter from '../routes/root';
@@ -342,6 +358,58 @@ describe('root routes', () => {
       displayName: 'Admin User',
       actorEmail: 'root@example.com',
       expiresAt: null,
+    });
+  });
+
+  it('PUT /api/v1/root/tenants/:tenantId/messaging validates sms provider', async () => {
+    const res = await request(app)
+      .put('/api/v1/root/tenants/1b6b9719-663a-4e56-8f7d-9a4bd4c10001/messaging')
+      .send({ sms_provider: 'invalid' });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain('sms_provider');
+  });
+
+  it('PUT /api/v1/root/tenants/:tenantId/messaging saves messaging payload', async () => {
+    upsertTenantMessagingMock.mockResolvedValue({ tenant_id: '1b6b9719-663a-4e56-8f7d-9a4bd4c10001', sms_provider: 'telnyx' });
+
+    const res = await request(app)
+      .put('/api/v1/root/tenants/1b6b9719-663a-4e56-8f7d-9a4bd4c10001/messaging')
+      .send({
+        email_from: 'scheduler@example.org',
+        sms_provider: 'telnyx',
+      });
+
+    expect(res.status).toBe(200);
+    expect(upsertTenantMessagingMock).toHaveBeenCalled();
+  });
+
+  it('POST /api/v1/root/tenants/:tenantId/demo/memberships requires expires_at', async () => {
+    const res = await request(app)
+      .post('/api/v1/root/tenants/1b6b9719-663a-4e56-8f7d-9a4bd4c10001/demo/memberships')
+      .send({ email: 'member@example.com' });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain('expires_at');
+  });
+
+  it('POST /api/v1/root/tenants/:tenantId/demo/memberships grants temporary demo access', async () => {
+    grantDemoAccessByEmailMock.mockResolvedValue([{ email: 'member@example.com' }]);
+
+    const res = await request(app)
+      .post('/api/v1/root/tenants/1b6b9719-663a-4e56-8f7d-9a4bd4c10001/demo/memberships')
+      .send({
+        email: 'member@example.com',
+        expires_at: '2030-01-01T00:00:00.000Z',
+      });
+
+    expect(res.status).toBe(200);
+    expect(grantDemoAccessByEmailMock).toHaveBeenCalledWith({
+      tenantId: '1b6b9719-663a-4e56-8f7d-9a4bd4c10001',
+      email: 'member@example.com',
+      displayName: null,
+      actorEmail: 'root@example.com',
+      expiresAt: '2030-01-01T00:00:00.000Z',
     });
   });
 });

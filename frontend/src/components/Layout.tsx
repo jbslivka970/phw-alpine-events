@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { ROLES } from '../authConfig';
 import { useTenantContext } from '../contexts/TenantContext';
@@ -32,7 +32,7 @@ export default function Layout() {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, logout, canCreateTavfPostings } = useAuth();
-  const { activeTenant, tenants } = useTenantContext();
+  const { activeTenant, tenants, selectTenant } = useTenantContext();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   useEffect(() => {
@@ -51,7 +51,14 @@ export default function Layout() {
   const tenantShortName = branding?.org_short_name ?? tenantDisplayName;
   const tenantLogoUrl = branding?.logo_url || '/branding/PHWTroutLogoSagebrush-1.png';
   const tenantAccent = branding?.primary_color ?? '#1f5f4a';
-  const canSwitchTenant = tenants.length > 1;
+  const eligibleTenants = useMemo(() => tenants.filter((tenant) => {
+    if (!tenant.expires_at) {
+      return true;
+    }
+    const expiresAt = Date.parse(tenant.expires_at);
+    return Number.isNaN(expiresAt) || expiresAt > Date.now();
+  }), [tenants]);
+  const canSwitchTenant = eligibleTenants.length > 1;
   const visibleItems = NAV_ITEMS
     .filter((item) => !item.role || roles.includes(item.role as typeof ROLES[keyof typeof ROLES]))
     .filter((item) => item.to !== '/tavf' || canAccessTavf);
@@ -111,13 +118,20 @@ export default function Layout() {
             )}
             <div className="phw-layout__user-actions">
               {canSwitchTenant && (
-                <button
-                  className="btn btn--outline btn--sm"
-                  type="button"
-                  onClick={() => navigate('/tenant/select')}
-                >
-                  Switch tenant
-                </button>
+                <label className="phw-layout__tenant-switcher">
+                  <span className="phw-layout__tenant-switcher-label">Operate as</span>
+                  <select
+                    className="members-input"
+                    value={activeTenant?.tenant_id ?? ''}
+                    onChange={(event) => selectTenant(event.target.value)}
+                  >
+                    {eligibleTenants.map((tenant) => (
+                      <option key={tenant.tenant_id} value={tenant.tenant_id}>
+                        {tenant.display_name}{tenant.is_demo ? ' (Demo)' : ''}
+                      </option>
+                    ))}
+                  </select>
+                </label>
               )}
               <button className="btn btn--outline btn--sm" type="button" onClick={handleLogout}>
                 Sign out

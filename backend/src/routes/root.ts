@@ -22,9 +22,18 @@ import {
 } from '../services/rootTenantBrandingService';
 import {
   createTenant,
+  grantDemoAccessByEmail,
   grantTenantAdminByEmail,
+  listDemoAccessMemberships,
   listTenantAdmins,
+  resetDemoAccessMemberships,
+  revokeDemoAccessMembership,
 } from '../services/tenantService';
+import {
+  getTenantMessaging,
+  upsertTenantMessaging,
+  type SmsProvider,
+} from '../services/rootTenantMessagingService';
 
 const router = Router();
 
@@ -34,6 +43,7 @@ const TENANT_ROLES: TenantMembershipRole[] = ['member', 'admin', 'event_creator'
 const MEMBERSHIP_KINDS: TenantMembershipKind[] = ['home', 'temporary_demo', 'admin'];
 const PERSONAS: MemberPersona[] = ['participant', 'volunteer', 'mentor', 'guide', 'staff'];
 const BRANDING_ASSET_KINDS: TenantBrandingAssetKind[] = ['logo', 'logo_dark', 'hero'];
+const SMS_PROVIDERS: Array<Exclude<SmsProvider, null>> = ['acs', 'twilio', 'telnyx'];
 
 function isValidGuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value.trim());
@@ -179,6 +189,185 @@ router.post('/tenants/:tenantId/admins', writeLimiter, async (req, res, next) =>
     }
     if (message.includes('required') || message.includes('valid')) {
       res.status(400).json({ error: message });
+      return;
+    }
+    next(error);
+  }
+});
+
+router.get('/tenants/:tenantId/messaging', async (req, res, next) => {
+  try {
+    const tenantId = String(req.params.tenantId ?? '').trim();
+    if (!isValidGuid(tenantId)) {
+      res.status(400).json({ error: 'tenantId must be a valid UUID' });
+      return;
+    }
+
+    const messaging = await getTenantMessaging(tenantId);
+    if (!messaging) {
+      res.status(404).json({ error: 'Tenant messaging not found' });
+      return;
+    }
+
+    res.json(messaging);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.put('/tenants/:tenantId/messaging', writeLimiter, async (req, res, next) => {
+  try {
+    const tenantId = String(req.params.tenantId ?? '').trim();
+    if (!isValidGuid(tenantId)) {
+      res.status(400).json({ error: 'tenantId must be a valid UUID' });
+      return;
+    }
+
+    const smsProvider = req.body?.sms_provider == null
+      ? null
+      : String(req.body.sms_provider).trim().toLowerCase() as SmsProvider;
+    if (smsProvider && !SMS_PROVIDERS.includes(smsProvider as Exclude<SmsProvider, null>)) {
+      res.status(400).json({ error: `sms_provider must be one of: ${SMS_PROVIDERS.join(', ')}` });
+      return;
+    }
+
+    const messaging = await upsertTenantMessaging({
+      tenantId,
+      email_from: req.body?.email_from,
+      email_reply_to: req.body?.email_reply_to,
+      email_bcc_monitor: req.body?.email_bcc_monitor,
+      sms_provider: smsProvider,
+      sms_from: req.body?.sms_from,
+      twilio_messaging_service_sid: req.body?.twilio_messaging_service_sid,
+      telnyx_messaging_profile_id: req.body?.telnyx_messaging_profile_id,
+      telnyx_from_number: req.body?.telnyx_from_number,
+    });
+
+    res.json(messaging);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to save tenant messaging';
+    if (message.includes('Tenant not found')) {
+      res.status(404).json({ error: message });
+      return;
+    }
+    if (message.includes('must be')) {
+      res.status(400).json({ error: message });
+      return;
+    }
+    next(error);
+  }
+});
+
+router.get('/tenants/:tenantId/demo/memberships', async (req, res, next) => {
+  try {
+    const tenantId = String(req.params.tenantId ?? '').trim();
+    if (!isValidGuid(tenantId)) {
+      res.status(400).json({ error: 'tenantId must be a valid UUID' });
+      return;
+    }
+
+    const memberships = await listDemoAccessMemberships(tenantId);
+    res.json({ memberships });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/tenants/:tenantId/demo/memberships', writeLimiter, async (req, res, next) => {
+  try {
+    const tenantId = String(req.params.tenantId ?? '').trim();
+    const email = typeof req.body?.email === 'string' ? req.body.email.trim() : '';
+    const displayName = typeof req.body?.display_name === 'string' ? req.body.display_name.trim() : null;
+    const expiresAt = typeof req.body?.expires_at === 'string' ? req.body.expires_at.trim() : '';
+
+    if (!isValidGuid(tenantId)) {
+      res.status(400).json({ error: 'tenantId must be a valid UUID' });
+      return;
+    }
+    if (!email || !email.includes('@')) {
+      res.status(400).json({ error: 'Valid email is required' });
+      return;
+    }
+    if (!expiresAt) {
+      res.status(400).json({ error: 'expires_at is required' });
+      return;
+    }
+
+    const memberships = await grantDemoAccessByEmail({
+      tenantId,
+      email,
+      displayName,
+      actorEmail: req.user?.email ?? null,
+      expiresAt,
+    });
+
+    res.json({ memberships });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to grant demo access';
+    if (message.includes('Tenant not found')) {
+      res.status(404).json({ error: message });
+      return;
+    }
+    if (message.includes('not a demo tenant')) {
+      res.status(409).json({ error: message });
+      return;
+    }
+    if (message.includes('required') || message.includes('valid') || message.includes('future')) {
+      res.status(400).json({ error: message });
+      return;
+    }
+    next(error);
+  }
+});
+
+router.delete('/tenants/:tenantId/demo/memberships/:membershipId', writeLimiter, async (req, res, next) => {
+  try {
+    const tenantId = String(req.params.tenantId ?? '').trim();
+    const membershipId = String(req.params.membershipId ?? '').trim();
+
+    if (!isValidGuid(tenantId)) {
+      res.status(400).json({ error: 'tenantId must be a valid UUID' });
+      return;
+    }
+    if (!isValidGuid(membershipId)) {
+      res.status(400).json({ error: 'membershipId must be a valid UUID' });
+      return;
+    }
+
+    const memberships = await revokeDemoAccessMembership(tenantId, membershipId);
+    res.json({ memberships });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to revoke demo access';
+    if (message.includes('Tenant not found')) {
+      res.status(404).json({ error: message });
+      return;
+    }
+    if (message.includes('not a demo tenant')) {
+      res.status(409).json({ error: message });
+      return;
+    }
+    next(error);
+  }
+});
+
+router.post('/tenants/:tenantId/demo/reset', writeLimiter, async (req, res, next) => {
+  try {
+    const tenantId = String(req.params.tenantId ?? '').trim();
+    if (!isValidGuid(tenantId)) {
+      res.status(400).json({ error: 'tenantId must be a valid UUID' });
+      return;
+    }
+
+    const resetResult = await resetDemoAccessMemberships(tenantId);
+    res.json(resetResult);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to reset demo memberships';
+    if (message.includes('Tenant not found')) {
+      res.status(404).json({ error: message });
+      return;
+    }
+    if (message.includes('not a demo tenant')) {
+      res.status(409).json({ error: message });
       return;
     }
     next(error);

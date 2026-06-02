@@ -2,8 +2,10 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { rootApi } from '../../api/root'
 import type {
+  RootDemoMembershipSummary,
   RootTenantAdminSummary,
   RootTenantBranding,
+  RootTenantMessaging,
   RootTenantSummary,
   TenantBrandingAssetKind,
 } from '../../api/root'
@@ -58,6 +60,22 @@ function RootAdminPage() {
   const [adminDisplayName, setAdminDisplayName] = useState('')
   const [adminExpiresAt, setAdminExpiresAt] = useState('')
 
+  const [messaging, setMessaging] = useState<RootTenantMessaging | null>(null)
+  const [messagingBusy, setMessagingBusy] = useState(false)
+  const [messagingSaveBusy, setMessagingSaveBusy] = useState(false)
+  const [messagingError, setMessagingError] = useState<string | null>(null)
+  const [messagingSuccess, setMessagingSuccess] = useState<string | null>(null)
+
+  const [demoMemberships, setDemoMemberships] = useState<RootDemoMembershipSummary[]>([])
+  const [demoLoadBusy, setDemoLoadBusy] = useState(false)
+  const [demoGrantBusy, setDemoGrantBusy] = useState(false)
+  const [demoResetBusy, setDemoResetBusy] = useState(false)
+  const [demoError, setDemoError] = useState<string | null>(null)
+  const [demoSuccess, setDemoSuccess] = useState<string | null>(null)
+  const [demoEmail, setDemoEmail] = useState('')
+  const [demoDisplayName, setDemoDisplayName] = useState('')
+  const [demoExpiresAt, setDemoExpiresAt] = useState('')
+
   const selectedTenant = useMemo(
     () => tenants.find((tenant) => tenant.tenant_id === selectedTenantId) ?? null,
     [tenants, selectedTenantId]
@@ -79,31 +97,45 @@ function RootAdminPage() {
     }
   }
 
-  async function loadBrandingAndAdmins(tenantId: string): Promise<void> {
+  async function loadTenantDetails(tenantId: string): Promise<void> {
     if (!tenantId) {
       setBranding(null)
       setTenantAdmins([])
+      setMessaging(null)
+      setDemoMemberships([])
       return
     }
 
     setBrandingBusy(true)
     setAdminLoadBusy(true)
+    setMessagingBusy(true)
+    setDemoLoadBusy(true)
     setBrandingError(null)
+    setMessagingError(null)
+    setDemoError(null)
 
     try {
-      const [brandingResponse, adminsResponse] = await Promise.all([
+      const [brandingResponse, adminsResponse, messagingResponse, demoResponse] = await Promise.all([
         rootApi.getTenantBranding(tenantId),
         rootApi.listTenantAdmins(tenantId),
+        rootApi.getTenantMessaging(tenantId),
+        rootApi.listDemoMemberships(tenantId),
       ])
       setBranding(brandingResponse)
       setTenantAdmins(adminsResponse.admins)
+      setMessaging(messagingResponse)
+      setDemoMemberships(demoResponse.memberships)
     } catch (error) {
       setBranding(null)
       setTenantAdmins([])
+      setMessaging(null)
+      setDemoMemberships([])
       setBrandingError(toUserErrorMessage(error, 'Failed to load tenant branding/admin assignments.'))
     } finally {
       setBrandingBusy(false)
       setAdminLoadBusy(false)
+      setMessagingBusy(false)
+      setDemoLoadBusy(false)
     }
   }
 
@@ -144,7 +176,7 @@ function RootAdminPage() {
     if (!sessionReady || !isRoot || !selectedTenantId) {
       return
     }
-    void loadBrandingAndAdmins(selectedTenantId)
+    void loadTenantDetails(selectedTenantId)
   }, [sessionReady, isRoot, selectedTenantId])
 
   async function handleCreateTenant(): Promise<void> {
@@ -262,6 +294,97 @@ function RootAdminPage() {
     }
   }
 
+  async function handleSaveMessaging(): Promise<void> {
+    if (!selectedTenantId || !messaging) {
+      return
+    }
+
+    setMessagingSaveBusy(true)
+    setMessagingError(null)
+    setMessagingSuccess(null)
+
+    try {
+      const saved = await rootApi.upsertTenantMessaging(selectedTenantId, {
+        email_from: messaging.email_from,
+        email_reply_to: messaging.email_reply_to,
+        email_bcc_monitor: messaging.email_bcc_monitor,
+        sms_provider: messaging.sms_provider,
+        sms_from: messaging.sms_from,
+        twilio_messaging_service_sid: messaging.twilio_messaging_service_sid,
+        telnyx_messaging_profile_id: messaging.telnyx_messaging_profile_id,
+        telnyx_from_number: messaging.telnyx_from_number,
+      })
+      setMessaging(saved)
+      setMessagingSuccess(`Saved tenant messaging for ${selectedTenant?.display_name ?? 'tenant'}.`)
+    } catch (error) {
+      setMessagingError(toUserErrorMessage(error, 'Failed to save tenant messaging.'))
+    } finally {
+      setMessagingSaveBusy(false)
+    }
+  }
+
+  async function handleGrantDemoAccess(): Promise<void> {
+    if (!selectedTenantId || !demoExpiresAt || !demoEmail.trim()) {
+      return
+    }
+
+    setDemoGrantBusy(true)
+    setDemoError(null)
+    setDemoSuccess(null)
+
+    try {
+      const result = await rootApi.grantDemoMembership(selectedTenantId, {
+        email: demoEmail.trim(),
+        display_name: demoDisplayName.trim() || null,
+        expires_at: new Date(demoExpiresAt).toISOString(),
+      })
+      setDemoMemberships(result.memberships)
+      setDemoSuccess(`Granted temporary demo access to ${demoEmail.trim()}.`)
+      setDemoEmail('')
+      setDemoDisplayName('')
+      setDemoExpiresAt('')
+    } catch (error) {
+      setDemoError(toUserErrorMessage(error, 'Failed to grant demo access.'))
+    } finally {
+      setDemoGrantBusy(false)
+    }
+  }
+
+  async function handleRevokeDemoAccess(membershipId: string): Promise<void> {
+    if (!selectedTenantId) {
+      return
+    }
+
+    setDemoError(null)
+    setDemoSuccess(null)
+    try {
+      const result = await rootApi.revokeDemoMembership(selectedTenantId, membershipId)
+      setDemoMemberships(result.memberships)
+      setDemoSuccess('Revoked demo access membership.')
+    } catch (error) {
+      setDemoError(toUserErrorMessage(error, 'Failed to revoke demo access.'))
+    }
+  }
+
+  async function handleResetDemoAccess(): Promise<void> {
+    if (!selectedTenantId) {
+      return
+    }
+
+    setDemoResetBusy(true)
+    setDemoError(null)
+    setDemoSuccess(null)
+    try {
+      const result = await rootApi.resetDemoMemberships(selectedTenantId)
+      setDemoMemberships(result.memberships)
+      setDemoSuccess(`Revoked ${result.revoked_count} active demo memberships.`)
+    } catch (error) {
+      setDemoError(toUserErrorMessage(error, 'Failed to reset demo memberships.'))
+    } finally {
+      setDemoResetBusy(false)
+    }
+  }
+
   if (!sessionReady) {
     return <section className="page"><p>Loading root session…</p></section>
   }
@@ -303,6 +426,93 @@ function RootAdminPage() {
             {createBusy ? 'Creating…' : 'Create Tenant'}
           </button>
         </div>
+      </section>
+
+      <section className="admin-card" style={{ marginBottom: '1rem' }}>
+        <h2 className="admin-section-title">Tenant Messaging Configuration</h2>
+        <p className="admin-note" style={{ marginBottom: '0.75rem' }}>
+          Store non-secret sender metadata here. Keep provider API secrets in Key Vault-backed app settings.
+        </p>
+        {messagingError && <p className="ui-notice ui-notice--error">{messagingError}</p>}
+        {messagingSuccess && <p className="ui-notice ui-notice--success">{messagingSuccess}</p>}
+
+        {!selectedTenantId || messagingBusy ? (
+          <p>Loading tenant messaging…</p>
+        ) : messaging ? (
+          <>
+            <div className="admin-grid admin-grid--3" style={{ marginBottom: '0.75rem' }}>
+              <input className="members-input" placeholder="Email from" value={messaging.email_from ?? ''} onChange={(e) => setMessaging((current) => current ? { ...current, email_from: e.target.value } : current)} />
+              <input className="members-input" placeholder="Email reply-to" value={messaging.email_reply_to ?? ''} onChange={(e) => setMessaging((current) => current ? { ...current, email_reply_to: e.target.value } : current)} />
+              <input className="members-input" placeholder="Email BCC monitor" value={messaging.email_bcc_monitor ?? ''} onChange={(e) => setMessaging((current) => current ? { ...current, email_bcc_monitor: e.target.value } : current)} />
+
+              <select className="members-input" value={messaging.sms_provider ?? ''} onChange={(e) => setMessaging((current) => current ? { ...current, sms_provider: (e.target.value || null) as RootTenantMessaging['sms_provider'] } : current)}>
+                <option value="">(none)</option>
+                <option value="acs">acs</option>
+                <option value="twilio">twilio</option>
+                <option value="telnyx">telnyx</option>
+              </select>
+              <input className="members-input" placeholder="SMS from number" value={messaging.sms_from ?? ''} onChange={(e) => setMessaging((current) => current ? { ...current, sms_from: e.target.value } : current)} />
+              <input className="members-input" placeholder="Twilio Messaging Service SID" value={messaging.twilio_messaging_service_sid ?? ''} onChange={(e) => setMessaging((current) => current ? { ...current, twilio_messaging_service_sid: e.target.value } : current)} />
+
+              <input className="members-input" placeholder="Telnyx Messaging Profile ID" value={messaging.telnyx_messaging_profile_id ?? ''} onChange={(e) => setMessaging((current) => current ? { ...current, telnyx_messaging_profile_id: e.target.value } : current)} />
+              <input className="members-input" placeholder="Telnyx from number" value={messaging.telnyx_from_number ?? ''} onChange={(e) => setMessaging((current) => current ? { ...current, telnyx_from_number: e.target.value } : current)} />
+            </div>
+            <button className="btn btn--primary btn--sm" disabled={messagingSaveBusy} onClick={() => void handleSaveMessaging()}>
+              {messagingSaveBusy ? 'Saving…' : 'Save Messaging'}
+            </button>
+          </>
+        ) : (
+          <p className="admin-note">No messaging row found for this tenant.</p>
+        )}
+      </section>
+
+      <section className="admin-card" style={{ marginBottom: '1rem' }}>
+        <h2 className="admin-section-title">Demo Access Lifecycle</h2>
+        <p className="admin-note" style={{ marginBottom: '0.75rem' }}>
+          Grant expiring temporary demo memberships and revoke or reset them in one place.
+        </p>
+        {demoError && <p className="ui-notice ui-notice--error">{demoError}</p>}
+        {demoSuccess && <p className="ui-notice ui-notice--success">{demoSuccess}</p>}
+
+        {selectedTenant?.is_demo ? (
+          <>
+            <div className="admin-grid admin-grid--3" style={{ marginBottom: '0.75rem' }}>
+              <input className="members-input" placeholder="user email" value={demoEmail} onChange={(e) => setDemoEmail(e.target.value)} />
+              <input className="members-input" placeholder="display name (optional)" value={demoDisplayName} onChange={(e) => setDemoDisplayName(e.target.value)} />
+              <input className="members-input" type="datetime-local" value={demoExpiresAt} onChange={(e) => setDemoExpiresAt(e.target.value)} />
+            </div>
+            <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.75rem', flexWrap: 'wrap' }}>
+              <button className="btn btn--primary btn--sm" disabled={demoGrantBusy || !demoEmail.trim() || !demoExpiresAt} onClick={() => void handleGrantDemoAccess()}>
+                {demoGrantBusy ? 'Granting…' : 'Grant Demo Access'}
+              </button>
+              <button className="btn btn--secondary btn--sm" disabled={demoResetBusy} onClick={() => void handleResetDemoAccess()}>
+                {demoResetBusy ? 'Resetting…' : 'Reset All Demo Access'}
+              </button>
+            </div>
+
+            {demoLoadBusy ? (
+              <p>Loading demo memberships…</p>
+            ) : demoMemberships.length === 0 ? (
+              <p className="admin-note">No active temporary demo memberships.</p>
+            ) : (
+              <ul>
+                {demoMemberships.map((membership) => (
+                  <li key={membership.tenant_membership_id} style={{ marginBottom: '0.35rem' }}>
+                    <strong>{membership.email}</strong>
+                    {membership.display_name ? ` (${membership.display_name})` : ''}
+                    {membership.expires_at ? ` • expires ${new Date(membership.expires_at).toLocaleString()}` : ''}
+                    {' '}
+                    <button className="btn btn--outline btn--sm" onClick={() => void handleRevokeDemoAccess(membership.tenant_membership_id)}>
+                      Revoke
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </>
+        ) : (
+          <p className="admin-note">Select a tenant marked as demo to manage temporary demo memberships.</p>
+        )}
       </section>
 
       <section className="admin-card" style={{ marginBottom: '1rem' }}>

@@ -574,6 +574,33 @@ textarea:focus-visible {
   gap: 8px;
 }
 
+.phw-layout__tenant-switcher {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.phw-layout__tenant-switcher-label {
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.phw-layout__tenant-switcher .members-input {
+  min-width: 190px;
+  height: 34px;
+  padding: 0.35rem 0.55rem;
+  border-color: rgba(255, 255, 255, 0.26);
+  background: rgba(10, 22, 35, 0.55);
+  color: #f8fafc;
+}
+
+.phw-layout__tenant-switcher .members-input:focus {
+  border-color: var(--phw-golden-400);
+}
+
 .phw-layout__username {
   color: rgba(255, 255, 255, 0.55);
   font-size: 12px;
@@ -1040,6 +1067,15 @@ textarea:focus-visible {
 
   .phw-layout__user-actions {
     justify-content: flex-end;
+  }
+
+  .phw-layout__tenant-switcher {
+    max-width: 66vw;
+  }
+
+  .phw-layout__tenant-switcher .members-input {
+    min-width: 0;
+    width: 100%;
   }
 
   .phw-layout__username {
