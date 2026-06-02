@@ -63,7 +63,7 @@ router.get('/', apiLimiter, authenticate, requireAnyAuthenticatedRole, async (re
     const isActiveRaw = req.query.isActive as string | undefined;
     const isActive = isActiveRaw === undefined ? undefined : isActiveRaw !== 'false';
 
-    const result = await listMembers({ page, pageSize, search, isActive });
+    const result = await listMembers({ page, pageSize, search, isActive, tenantId: req.tenantId });
     res.json({ ...result, page, pageSize });
   } catch (error) {
     next(error);
@@ -78,7 +78,7 @@ router.get('/me', apiLimiter, authenticate, requireAnyAuthenticatedRole, async (
       return;
     }
 
-    const member = await getMemberById(memberId);
+    const member = await getMemberById(memberId, { tenantId: req.tenantId });
     if (!member) {
       res.status(404).json({ error: 'Member not found.' });
       return;
@@ -116,7 +116,7 @@ router.patch('/me/phone', writeLimiter, authenticate, requireAnyAuthenticatedRol
       return;
     }
 
-    const updated = await updateMember(memberId, { mobile_phone: normalizedPhone });
+    const updated = await updateMember(memberId, { mobile_phone: normalizedPhone }, { tenantId: req.tenantId });
     if (!updated) {
       res.status(404).json({ error: 'Member not found.' });
       return;
@@ -209,7 +209,7 @@ router.put(
 
 router.get('/:id', apiLimiter, authenticate, requireAnyAuthenticatedRole, async (req, res, next) => {
   try {
-    const member = await getMemberById(req.params.id);
+    const member = await getMemberById(req.params.id, { tenantId: req.tenantId });
     if (!member) {
       res.status(404).json({ error: 'Member not found.' });
       return;
@@ -707,7 +707,7 @@ router.post('/', writeLimiter, authenticate, requireAdmin, async (req, res, next
       return;
     }
 
-    const member = await createMember(req.body);
+    const member = await createMember(req.body, { tenantId: req.tenantId });
     res.status(201).json(member);
   } catch (error: unknown) {
     if (isHttpError(error, 409)) {
@@ -720,7 +720,7 @@ router.post('/', writeLimiter, authenticate, requireAdmin, async (req, res, next
 
 router.patch('/:id', writeLimiter, authenticate, requireAdmin, async (req, res, next) => {
   try {
-    const member = await updateMember(req.params.id, req.body);
+    const member = await updateMember(req.params.id, req.body, { tenantId: req.tenantId });
     if (!member) {
       res.status(404).json({ error: 'Member not found.' });
       return;
@@ -738,7 +738,7 @@ router.patch('/:id', writeLimiter, authenticate, requireAdmin, async (req, res, 
 
 router.delete('/:id', writeLimiter, authenticate, requireAdmin, async (req, res, next) => {
   try {
-    const member = await deactivateMember(req.params.id);
+    const member = await deactivateMember(req.params.id, { tenantId: req.tenantId });
     if (!member) {
       res.status(404).json({ error: 'Member not found.' });
       return;
@@ -752,7 +752,7 @@ router.delete('/:id', writeLimiter, authenticate, requireAdmin, async (req, res,
 
 router.delete('/:id/purge', writeLimiter, authenticate, requireAdmin, async (req, res, next) => {
   try {
-    const member = await hardDeleteMember(req.params.id);
+    const member = await hardDeleteMember(req.params.id, { tenantId: req.tenantId });
     if (!member) {
       res.status(404).json({ error: 'Member not found.' });
       return;

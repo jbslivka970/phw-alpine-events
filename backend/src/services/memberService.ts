@@ -54,45 +54,99 @@ interface MemberListOptions {
   pageSize?: number;
   search?: string;
   isActive?: boolean;
+  tenantId?: string;
+}
+
+interface MemberScopeOptions {
+  tenantId?: string;
+}
+
+function isMultiTenantEnabled(): boolean {
+  const raw = process.env['MULTI_TENANT_ENABLED'];
+  if (!raw) {
+    return false;
+  }
+
+  return ['1', 'true', 'yes', 'on'].includes(raw.trim().toLowerCase());
+}
+
+function shouldApplyTenantScope(tenantId: string | undefined): tenantId is string {
+  return isMultiTenantEnabled() && Boolean(tenantId?.trim());
+}
+
+function tenantMembershipPredicate(memberAlias: string): string {
+  return `EXISTS (
+    SELECT 1
+    FROM dbo.tenant_membership tm
+    WHERE tm.member_id = ${memberAlias}.member_id
+      AND tm.tenant_id = @tenant_id
+      AND tm.status = 'active'
+      AND tm.revoked_at IS NULL
+      AND tm.starts_at <= GETUTCDATE()
+      AND (tm.expires_at IS NULL OR tm.expires_at > GETUTCDATE())
+  )`;
+}
+
+function applyTenantInput(request: sql.Request, tenantId: string | undefined): sql.Request {
+  if (!shouldApplyTenantScope(tenantId)) {
+    return request;
+  }
+
+  return request.input('tenant_id', sql.UniqueIdentifier, tenantId);
 }
 
 async function findByComposite(
   email: string,
   firstName: string,
-  lastName: string
+  lastName: string,
+  scope: MemberScopeOptions = {}
 ): Promise<Member | null> {
+  const whereParts = [
+    'LOWER(email) = @email',
+    'first_name = @first_name',
+    'last_name = @last_name',
+  ];
+  if (shouldApplyTenantScope(scope.tenantId)) {
+    whereParts.push(tenantMembershipPredicate('m'));
+  }
+
   const pool = await getPool();
-  const result = await pool
-    .request()
+  const request = applyTenantInput(pool.request(), scope.tenantId)
     .input('email', sql.NVarChar, email.toLowerCase().trim())
     .input('first_name', sql.NVarChar, firstName.trim())
-    .input('last_name', sql.NVarChar, lastName.trim())
-    .query<Member>(
-      `SELECT * FROM member
-       WHERE LOWER(email) = @email
-         AND first_name = @first_name
-         AND last_name = @last_name`
-    );
+    .input('last_name', sql.NVarChar, lastName.trim());
+
+  const result = await request.query<Member>(
+    `SELECT m.* FROM member m
+     WHERE ${whereParts.join('\n       AND ')}`
+  );
 
   return result.recordset[0] ?? null;
 }
 
-async function getMemberById(memberId: string): Promise<Member | null> {
+async function getMemberById(memberId: string, scope: MemberScopeOptions = {}): Promise<Member | null> {
+  const whereParts = ['m.member_id = @member_id'];
+  if (shouldApplyTenantScope(scope.tenantId)) {
+    whereParts.push(tenantMembershipPredicate('m'));
+  }
+
   const pool = await getPool();
-  const result = await pool
-    .request()
+  const result = await applyTenantInput(pool.request(), scope.tenantId)
     .input('member_id', sql.UniqueIdentifier, memberId)
-    .query<Member>('SELECT * FROM member WHERE member_id = @member_id');
+    .query<Member>(`SELECT m.* FROM member m WHERE ${whereParts.join(' AND ')}`);
 
   return result.recordset[0] ?? null;
 }
 
 async function listMembers(opts: MemberListOptions = {}): Promise<{ data: Member[]; total: number }> {
-  const { isActive, page = 1, pageSize = 50, search } = opts;
+  const { isActive, page = 1, pageSize = 50, search, tenantId } = opts;
   const offset = (page - 1) * pageSize;
   const pool = await getPool();
 
   let where = 'WHERE 1=1';
+  if (shouldApplyTenantScope(tenantId)) {
+    where += ` AND ${tenantMembershipPredicate('m')}`;
+  }
   if (isActive !== undefined) {
     where += ' AND is_active = @is_active';
   }
@@ -101,6 +155,7 @@ async function listMembers(opts: MemberListOptions = {}): Promise<{ data: Member
   }
 
   const applyInputs = (request: sql.Request) => {
+    applyTenantInput(request, tenantId);
     if (isActive !== undefined) {
       request.input('is_active', sql.Bit, isActive ? 1 : 0);
     }
@@ -152,7 +207,7 @@ async function listMembers(opts: MemberListOptions = {}): Promise<{ data: Member
        OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY`
     ),
     applyInputs(pool.request()).query<{ total: number }>(
-      `SELECT COUNT(*) AS total FROM member ${where}`
+      `SELECT COUNT(*) AS total FROM member m ${where}`
     ),
   ]);
 
@@ -162,10 +217,10 @@ async function listMembers(opts: MemberListOptions = {}): Promise<{ data: Member
   };
 }
 
-async function createMember(input: CreateMemberInput): Promise<Member> {
+async function createMember(input: CreateMemberInput, scope: MemberScopeOptions = {}): Promise<Member> {
   const phone = toE164(input.mobile_phone ?? null);
 
-  const existing = await findByComposite(input.email, input.first_name, input.last_name);
+  const existing = await findByComposite(input.email, input.first_name, input.last_name, scope);
   if (existing) {
     throw Object.assign(new Error('A member with that email, first name, and last name already exists.'), {
       statusCode: 409,
@@ -195,11 +250,63 @@ async function createMember(input: CreateMemberInput): Promise<Member> {
           @email_opt_out, @salutation, @title, @account_name, @source)`
     );
 
-  return result.recordset[0];
+  const created = result.recordset[0];
+  if (created && shouldApplyTenantScope(scope.tenantId)) {
+    await pool
+      .request()
+      .input('tenant_id', sql.UniqueIdentifier, scope.tenantId)
+      .input('member_id', sql.UniqueIdentifier, created.member_id)
+      .query(
+        `IF OBJECT_ID(N'dbo.tenant_membership', N'U') IS NOT NULL
+           AND NOT EXISTS (
+             SELECT 1
+             FROM dbo.tenant_membership
+             WHERE tenant_id = @tenant_id
+               AND member_id = @member_id
+               AND membership_kind = N'home'
+               AND status = N'active'
+               AND revoked_at IS NULL
+           )
+         BEGIN
+           INSERT INTO dbo.tenant_membership (
+             tenant_membership_id,
+             tenant_id,
+             user_id,
+             member_id,
+             role,
+             membership_kind,
+             home_tenant_id,
+             starts_at,
+             expires_at,
+             status,
+             created_by_user_id,
+             created_at,
+             revoked_at
+           )
+           VALUES (
+             NEWID(),
+             @tenant_id,
+             NULL,
+             @member_id,
+             N'member',
+             N'home',
+             @tenant_id,
+             GETUTCDATE(),
+             NULL,
+             N'active',
+             NULL,
+             GETUTCDATE(),
+             NULL
+           );
+         END`
+      );
+  }
+
+  return created;
 }
 
-async function updateMember(memberId: string, input: UpdateMemberInput): Promise<Member | null> {
-  const existing = await getMemberById(memberId);
+async function updateMember(memberId: string, input: UpdateMemberInput, scope: MemberScopeOptions = {}): Promise<Member | null> {
+  const existing = await getMemberById(memberId, scope);
   if (!existing) {
     return null;
   }
@@ -215,7 +322,7 @@ async function updateMember(memberId: string, input: UpdateMemberInput): Promise
     input.email !== undefined;
 
   if (identityChanged) {
-    const conflict = await findByComposite(email, firstName, lastName);
+    const conflict = await findByComposite(email, firstName, lastName, scope);
     if (conflict && conflict.member_id !== memberId) {
       throw Object.assign(
         new Error('Another member with that email, first name, and last name already exists.'),
@@ -228,8 +335,7 @@ async function updateMember(memberId: string, input: UpdateMemberInput): Promise
     (value !== undefined ? value : fallback) ? 1 : 0;
 
   const pool = await getPool();
-  const result = await pool
-    .request()
+  const result = await applyTenantInput(pool.request(), scope.tenantId)
     .input('member_id', sql.UniqueIdentifier, memberId)
     .input('first_name', sql.NVarChar, firstName)
     .input('last_name', sql.NVarChar, lastName)
@@ -254,29 +360,35 @@ async function updateMember(memberId: string, input: UpdateMemberInput): Promise
          last_manual_edit = GETUTCDATE(),
          updated_at      = GETUTCDATE()
        OUTPUT INSERTED.*
-       WHERE member_id = @member_id`
+       WHERE member_id = @member_id
+         ${shouldApplyTenantScope(scope.tenantId) ? `AND ${tenantMembershipPredicate('member')}` : ''}`
     );
 
   return result.recordset[0] ?? null;
 }
 
-async function deactivateMember(memberId: string): Promise<Member | null> {
+async function deactivateMember(memberId: string, scope: MemberScopeOptions = {}): Promise<Member | null> {
   const pool = await getPool();
-  const result = await pool
-    .request()
+  const result = await applyTenantInput(pool.request(), scope.tenantId)
     .input('member_id', sql.UniqueIdentifier, memberId)
     .query<Member>(
       `UPDATE member SET
          is_active = 0,
          updated_at = GETUTCDATE()
        OUTPUT INSERTED.*
-       WHERE member_id = @member_id`
+       WHERE member_id = @member_id
+         ${shouldApplyTenantScope(scope.tenantId) ? `AND ${tenantMembershipPredicate('member')}` : ''}`
     );
 
   return result.recordset[0] ?? null;
 }
 
-async function hardDeleteMember(memberId: string): Promise<Member | null> {
+async function hardDeleteMember(memberId: string, scope: MemberScopeOptions = {}): Promise<Member | null> {
+  const scopedExisting = await getMemberById(memberId, scope);
+  if (!scopedExisting) {
+    return null;
+  }
+
   const pool = await getPool();
 
   // Capture the linked Entra object ID BEFORE the transaction, because the CASCADE

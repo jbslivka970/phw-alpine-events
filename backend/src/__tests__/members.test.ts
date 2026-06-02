@@ -37,12 +37,16 @@ jest.mock('../middleware/auth', () => ({
     const headerRoles = (req.headers['x-test-roles'] as string | undefined) ?? 'ADMIN';
     const headerSub = (req.headers['x-test-sub'] as string | undefined) ?? '00000000-0000-0000-0000-000000000001';
     const headerEmail = (req.headers['x-test-email'] as string | undefined) ?? 'admin@example.com';
+    const headerTenantId = req.headers['x-test-tenant-id'] as string | undefined;
     req.user = {
       sub: headerSub,
       email: headerEmail,
       roles: headerRoles.split(',') as ('ADMIN' | 'EVENT_CREATOR' | 'USER')[],
       rawClaims: {},
     };
+    if (headerTenantId) {
+      req.tenantId = headerTenantId;
+    }
     next();
   },
 }));
@@ -97,6 +101,24 @@ describe('members routes', () => {
       pageSize: 10,
       search: undefined,
       isActive: undefined,
+      tenantId: undefined,
+    });
+  });
+
+  it('GET /api/members forwards tenant context when present', async () => {
+    (memberService.listMembers as jest.Mock).mockResolvedValue({ data: [], total: 0 });
+
+    const res = await request(app)
+      .get('/api/members')
+      .set('x-test-tenant-id', '1b6b9719-663a-4e56-8f7d-9a4bd4c10001');
+
+    expect(res.status).toBe(200);
+    expect(memberService.listMembers).toHaveBeenCalledWith({
+      page: 1,
+      pageSize: 50,
+      search: undefined,
+      isActive: undefined,
+      tenantId: '1b6b9719-663a-4e56-8f7d-9a4bd4c10001',
     });
   });
 
