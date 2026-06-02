@@ -108,6 +108,7 @@ jobs:
           docker run --rm \
             --user "$(id -u):$(id -g)" \
             -v "$PWD:/zap/wrk:rw" \
+            -v "$PWD/reports:/home/zap:rw" \
             ghcr.io/zaproxy/zaproxy:stable \
             zap-baseline.py \
             -t "$TARGET_URL" \
@@ -130,6 +131,7 @@ jobs:
           docker run --rm \
             --user "$(id -u):$(id -g)" \
             -v "$PWD:/zap/wrk:rw" \
+            -v "$PWD/reports:/home/zap:rw" \
             ghcr.io/zaproxy/zaproxy:stable \
             zap-baseline.py \
             -t "$TARGET_URL" \

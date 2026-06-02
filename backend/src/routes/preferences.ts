@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { getPool, sql } from '../db';
 import authenticate from '../middleware/auth';
+import { DEFAULT_TENANT_ID } from '../middleware/resolveTenantContext';
 import { apiLimiter, writeLimiter } from '../middleware/rateLimiter';
 import { requireAdmin } from '../middleware/rbac';
 import { verifyEmailUnsubscribeToken } from '../services/emailPreferenceLinkService';
@@ -14,7 +15,49 @@ interface UnsubscribeResult {
   statusCode: number;
   outcome: UnsubscribeOutcome;
   memberId?: string;
+  tenantId?: string;
   email?: string;
+}
+
+type PreferenceTenantSupport = {
+  hasLogTenantId: boolean;
+  hasMemberTenantId: boolean;
+};
+
+let cachedPreferenceTenantSupport: PreferenceTenantSupport | null = null;
+
+function isMultiTenantEnabled(): boolean {
+  const raw = process.env['MULTI_TENANT_ENABLED'];
+  if (!raw) {
+    return false;
+  }
+
+  return ['1', 'true', 'yes', 'on'].includes(raw.trim().toLowerCase());
+}
+
+function resolveTenantId(req: { tenantId?: string }): string {
+  return (req.tenantId ?? DEFAULT_TENANT_ID).trim().toLowerCase();
+}
+
+async function getPreferenceTenantSupport(pool: Awaited<ReturnType<typeof getPool>>): Promise<PreferenceTenantSupport> {
+  if (cachedPreferenceTenantSupport) {
+    return cachedPreferenceTenantSupport;
+  }
+
+  const result = await pool
+    .request()
+    .query<{ has_log_tenant_id: number; has_member_tenant_id: number }>(
+      `SELECT
+          CASE WHEN COL_LENGTH('dbo.email_preference_log', 'tenant_id') IS NULL THEN 0 ELSE 1 END AS has_log_tenant_id,
+          CASE WHEN COL_LENGTH('dbo.member', 'tenant_id') IS NULL THEN 0 ELSE 1 END AS has_member_tenant_id`
+    );
+
+  cachedPreferenceTenantSupport = {
+    hasLogTenantId: result.recordset[0]?.has_log_tenant_id === 1,
+    hasMemberTenantId: result.recordset[0]?.has_member_tenant_id === 1,
+  };
+
+  return cachedPreferenceTenantSupport;
 }
 
 function renderUnsubscribeHtml(result: UnsubscribeResult): string {
@@ -75,18 +118,33 @@ async function processUnsubscribeToken(tokenString: string): Promise<Unsubscribe
   }
 
   const pool = await getPool();
-  const memberResult = await pool
+  const tenantSupport = await getPreferenceTenantSupport(pool);
+  const enforceTokenTenant = Boolean(token.tenantId && tenantSupport.hasMemberTenantId);
+
+  const memberRequest = pool
     .request()
-    .input('member_id', sql.UniqueIdentifier, token.memberId)
-    .query<{ member_id: string; email: string; email_opt_out: boolean }>(
-      `SELECT member_id, email, ISNULL(email_opt_out, 0) AS email_opt_out
-       FROM member
-       WHERE member_id = @member_id`
-    );
+    .input('member_id', sql.UniqueIdentifier, token.memberId);
+
+  if (enforceTokenTenant) {
+    memberRequest.input('tenant_id', sql.UniqueIdentifier, token.tenantId ?? null);
+  }
+
+  const memberResult = await memberRequest.query<{ member_id: string; email: string; email_opt_out: boolean; tenant_id?: string | null }>(
+    tenantSupport.hasMemberTenantId
+      ? `SELECT member_id, email, ISNULL(email_opt_out, 0) AS email_opt_out, tenant_id
+         FROM member
+         WHERE member_id = @member_id
+           ${enforceTokenTenant ? 'AND tenant_id = @tenant_id' : ''}`
+      : `SELECT member_id, email, ISNULL(email_opt_out, 0) AS email_opt_out
+         FROM member
+         WHERE member_id = @member_id`
+  );
 
   const member = memberResult.recordset[0];
+  const resolvedTenantId = member?.tenant_id ?? token.tenantId;
   if (!member) {
     await notificationService.writeEmailPreferenceLog({
+      tenantId: token.tenantId,
       action: 'opt_out',
       source: 'link',
       outcome: 'member_not_found',
@@ -97,12 +155,14 @@ async function processUnsubscribeToken(tokenString: string): Promise<Unsubscribe
     return {
       statusCode: 404,
       outcome: 'member_not_found',
+      tenantId: token.tenantId,
     };
   }
 
   if (member.email_opt_out) {
     await notificationService.writeEmailPreferenceLog({
       memberId: member.member_id,
+      tenantId: resolvedTenantId,
       recipientEmail: member.email,
       action: 'opt_out',
       source: 'link',
@@ -115,23 +175,31 @@ async function processUnsubscribeToken(tokenString: string): Promise<Unsubscribe
       statusCode: 200,
       outcome: 'already_unsubscribed',
       memberId: member.member_id,
+      tenantId: resolvedTenantId,
       email: member.email,
     };
   }
 
-  await pool
+  const updateRequest = pool
     .request()
-    .input('member_id', sql.UniqueIdentifier, member.member_id)
-    .query(
-      `UPDATE member
-       SET email_opt_out = 1,
-           updated_at = GETUTCDATE(),
-           last_manual_edit = GETUTCDATE()
-       WHERE member_id = @member_id`
-    );
+    .input('member_id', sql.UniqueIdentifier, member.member_id);
+
+  if (enforceTokenTenant) {
+    updateRequest.input('tenant_id', sql.UniqueIdentifier, token.tenantId ?? null);
+  }
+
+  await updateRequest.query(
+    `UPDATE member
+     SET email_opt_out = 1,
+         updated_at = GETUTCDATE(),
+         last_manual_edit = GETUTCDATE()
+     WHERE member_id = @member_id
+       ${enforceTokenTenant ? 'AND tenant_id = @tenant_id' : ''}`
+  );
 
   await notificationService.writeEmailPreferenceLog({
     memberId: member.member_id,
+    tenantId: resolvedTenantId,
     recipientEmail: member.email,
     action: 'opt_out',
     source: 'link',
@@ -144,6 +212,7 @@ async function processUnsubscribeToken(tokenString: string): Promise<Unsubscribe
     statusCode: 200,
     outcome: 'unsubscribed',
     memberId: member.member_id,
+    tenantId: resolvedTenantId,
     email: member.email,
   };
 }
@@ -181,27 +250,50 @@ router.get('/email/logs', apiLimiter, authenticate, requireAdmin, async (req, re
     const source = typeof req.query.source === 'string' ? req.query.source : undefined;
 
     const pool = await getPool();
-    const result = await pool
+    const tenantId = resolveTenantId(req);
+    const tenantSupport = await getPreferenceTenantSupport(pool);
+    const applyTenantScope = isMultiTenantEnabled() && (tenantSupport.hasLogTenantId || tenantSupport.hasMemberTenantId);
+
+    const tenantFilter = !applyTenantScope
+      ? ''
+      : tenantSupport.hasLogTenantId
+        ? 'AND tenant_id = @tenant_id'
+        : tenantSupport.hasMemberTenantId
+          ? `AND EXISTS (
+               SELECT 1
+               FROM dbo.member member_scope
+               WHERE member_scope.member_id = email_preference_log.member_id
+                 AND member_scope.tenant_id = @tenant_id
+             )`
+          : '';
+
+    const queryRequest = pool
       .request()
       .input('limit', sql.Int, limit)
       .input('outcome', sql.NVarChar, outcome ?? null)
-      .input('source', sql.NVarChar, source ?? null)
-      .query(
-        `SELECT TOP (@limit)
-            email_preference_log_id,
-            member_id,
-            recipient_email,
-            action,
-            source,
-            outcome,
-            token_expires_at,
-            notes,
-            recorded_at
-         FROM email_preference_log
-         WHERE (@outcome IS NULL OR outcome = @outcome)
-           AND (@source IS NULL OR source = @source)
-         ORDER BY recorded_at DESC`
-      );
+      .input('source', sql.NVarChar, source ?? null);
+
+    if (applyTenantScope) {
+      queryRequest.input('tenant_id', sql.UniqueIdentifier, tenantId);
+    }
+
+    const result = await queryRequest.query(
+      `SELECT TOP (@limit)
+          email_preference_log_id,
+          member_id,
+          recipient_email,
+          action,
+          source,
+          outcome,
+          token_expires_at,
+          notes,
+          recorded_at
+       FROM email_preference_log
+       WHERE (@outcome IS NULL OR outcome = @outcome)
+         AND (@source IS NULL OR source = @source)
+         ${tenantFilter}
+       ORDER BY recorded_at DESC`
+    );
 
     res.json({
       count: result.recordset.length,

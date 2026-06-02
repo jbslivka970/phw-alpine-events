@@ -3,6 +3,7 @@ import { loadRsvpLinkConfig } from '../config';
 
 interface VerifiedEmailPreferenceToken {
   memberId: string;
+  tenantId?: string;
   email?: string;
   expiresAt?: string;
 }
@@ -58,7 +59,7 @@ function getPublicApiBaseUrl(): string {
   throw new Error('PUBLIC_API_BASE_URL (or WEBSITE_HOSTNAME) is required in production to generate unsubscribe links.');
 }
 
-function createEmailUnsubscribeToken(memberId: string, email?: string): string {
+function createEmailUnsubscribeToken(memberId: string, email?: string, tenantId?: string): string {
   const secret = getTokenSecret();
   const expiryHours = parseExpiryHours(process.env['EMAIL_PREFERENCE_TOKEN_EXPIRY_HOURS'], 24 * 30);
 
@@ -66,6 +67,7 @@ function createEmailUnsubscribeToken(memberId: string, email?: string): string {
     {
       type: 'email-unsubscribe',
       memberId,
+      ...(tenantId ? { tenantId } : {}),
       ...(email ? { email } : {}),
     },
     secret,
@@ -85,6 +87,7 @@ function verifyEmailUnsubscribeToken(token: string): VerifiedEmailPreferenceToke
   }
 
   const memberId = typeof payload['memberId'] === 'string' ? payload['memberId'] : '';
+  const tenantId = typeof payload['tenantId'] === 'string' ? payload['tenantId'] : undefined;
   const email = typeof payload['email'] === 'string' ? payload['email'] : undefined;
 
   if (!memberId) {
@@ -93,13 +96,14 @@ function verifyEmailUnsubscribeToken(token: string): VerifiedEmailPreferenceToke
 
   return {
     memberId,
+    tenantId,
     email,
     expiresAt: typeof payload['exp'] === 'number' ? new Date(payload['exp'] * 1000).toISOString() : undefined,
   };
 }
 
-function buildMemberEmailUnsubscribeUrl(memberId: string, email?: string): string {
-  const token = createEmailUnsubscribeToken(memberId, email);
+function buildMemberEmailUnsubscribeUrl(memberId: string, email?: string, tenantId?: string): string {
+  const token = createEmailUnsubscribeToken(memberId, email, tenantId);
   const publicApiBaseUrl = getPublicApiBaseUrl();
   return `${publicApiBaseUrl}/api/v1/preferences/email/unsubscribe/${encodeURIComponent(token)}`;
 }

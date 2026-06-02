@@ -18,12 +18,14 @@ jest.mock('../middleware/auth', () => ({
   __esModule: true,
   default: (req: express.Request, _res: express.Response, next: express.NextFunction) => {
     const headerRoles = (req.headers['x-test-roles'] as string | undefined) ?? 'ADMIN';
+    const tenantId = (req.headers['x-test-tenant-id'] as string | undefined) ?? '00000000-0000-4000-8000-000000000010';
     req.user = {
       sub: '00000000-0000-0000-0000-000000000001',
       email: 'admin@example.com',
       roles: headerRoles.split(',') as ('ADMIN' | 'EVENT_CREATOR' | 'USER')[],
       rawClaims: {},
     };
+    req.tenantId = tenantId;
     next();
   },
 }));
@@ -46,19 +48,27 @@ describe('templates routes', () => {
   it('GET /api/templates returns templates list', async () => {
     const mockRequest = {
       input: jest.fn().mockReturnThis(),
-      query: jest.fn().mockResolvedValue({
-        recordset: [
-          {
-            template_id: '00000000-0000-4000-8000-000000000001',
-            template_name: 'Event Invite',
-            channel: 'email',
-            subject: 'Invitation',
-            body: '<p>Hello</p>',
-            is_active: true,
-            created_at: new Date('2026-03-01T00:00:00.000Z'),
-            updated_at: new Date('2026-03-02T00:00:00.000Z'),
-          },
-        ],
+      query: jest.fn().mockImplementation(async (sqlText: string) => {
+        if (sqlText.includes("COL_LENGTH('dbo.notification_template', 'tenant_id')")) {
+          return {
+            recordset: [{ has_template_tenant_id: 1, has_template_version_tenant_id: 1 }],
+          };
+        }
+
+        return {
+          recordset: [
+            {
+              template_id: '00000000-0000-4000-8000-000000000001',
+              template_name: 'Event Invite',
+              channel: 'email',
+              subject: 'Invitation',
+              body: '<p>Hello</p>',
+              is_active: true,
+              created_at: new Date('2026-03-01T00:00:00.000Z'),
+              updated_at: new Date('2026-03-02T00:00:00.000Z'),
+            },
+          ],
+        };
       }),
     };
 
@@ -69,6 +79,33 @@ describe('templates routes', () => {
     expect(res.status).toBe(200);
     expect(res.body).toHaveLength(1);
     expect(res.body[0].template_name).toBe('Event Invite');
+  });
+
+  it('GET /api/templates applies tenant filter when multi-tenant support is available', async () => {
+    const previous = process.env.MULTI_TENANT_ENABLED;
+    process.env.MULTI_TENANT_ENABLED = 'true';
+
+    const tenantInput = '00000000-0000-4000-8000-0000000000aa';
+    const querySpy = jest
+      .fn()
+      .mockImplementationOnce(async () => ({ recordset: [] }));
+
+    const mockRequest = {
+      input: jest.fn().mockReturnThis(),
+      query: querySpy,
+    };
+
+    (getPool as jest.Mock).mockResolvedValue({ request: () => mockRequest });
+
+    const res = await request(app)
+      .get('/api/templates')
+      .set('x-test-tenant-id', tenantInput);
+
+    expect(res.status).toBe(200);
+    expect(String(querySpy.mock.calls[0]?.[0] ?? '')).toContain('tenant_id = @tenant_id');
+    expect(mockRequest.input).toHaveBeenCalledWith('tenant_id', 'UniqueIdentifier', tenantInput);
+
+    process.env.MULTI_TENANT_ENABLED = previous;
   });
 
   it('POST /api/templates validates required subject for email templates', async () => {

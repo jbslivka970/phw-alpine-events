@@ -70,12 +70,30 @@ interface EventNotificationPayload {
   event_lead_name?: string | null;
   event_lead_email?: string | null;
   updateReason?: string | null;
+  tenantId?: string;
 }
 
 interface EventUpdateNotificationPayload extends EventNotificationPayload {
   changedFields: string[];
   changeSummary?: string | null;
   updateReason?: string | null;
+}
+
+let cachedEmailPreferenceLogHasTenantId: boolean | null = null;
+
+async function emailPreferenceLogHasTenantIdColumn(pool: Awaited<ReturnType<typeof getPool>>): Promise<boolean> {
+  if (cachedEmailPreferenceLogHasTenantId !== null) {
+    return cachedEmailPreferenceLogHasTenantId;
+  }
+
+  const result = await pool
+    .request()
+    .query<{ has_tenant_id: number }>(
+      `SELECT CASE WHEN COL_LENGTH('dbo.email_preference_log', 'tenant_id') IS NULL THEN 0 ELSE 1 END AS has_tenant_id`
+    );
+
+  cachedEmailPreferenceLogHasTenantId = result.recordset[0]?.has_tenant_id === 1;
+  return cachedEmailPreferenceLogHasTenantId;
 }
 
 const EVENT_PUBLISH_COOLDOWN_MINUTES = 30;
@@ -119,6 +137,7 @@ interface SendEmailOptions {
   textBody?: string;
   templateId?: string;
   memberId?: string;
+  tenantId?: string;
   eventId?: string;
   operationType?: string;
   operationReason?: string;
@@ -494,7 +513,7 @@ class NotificationService {
 
     let unsubscribeUrl: string;
     try {
-      unsubscribeUrl = buildMemberEmailUnsubscribeUrl(options.memberId, options.to);
+      unsubscribeUrl = buildMemberEmailUnsubscribeUrl(options.memberId, options.to, options.tenantId);
     } catch (error) {
       console.warn('[NotificationService] Failed to build unsubscribe URL; sending email without preference footer.', error);
       return options;
@@ -641,6 +660,7 @@ class NotificationService {
 
   async writeEmailPreferenceLog(entry: {
     memberId?: string;
+    tenantId?: string;
     recipientEmail?: string;
     action: EmailPreferenceAction;
     source: EmailPreferenceSource;
@@ -651,7 +671,8 @@ class NotificationService {
     try {
       const pool = await getPool();
       const tokenExpiresAt = entry.tokenExpiresAt ? new Date(entry.tokenExpiresAt) : null;
-      await pool
+      const hasTenantIdColumn = await emailPreferenceLogHasTenantIdColumn(pool);
+      const request = pool
         .request()
         .input('member_id', sql.UniqueIdentifier, toNullableUuid(entry.memberId))
         .input('recipient_email', sql.NVarChar(255), entry.recipientEmail ?? null)
@@ -659,31 +680,61 @@ class NotificationService {
         .input('source', sql.NVarChar(20), entry.source)
         .input('outcome', sql.NVarChar(30), entry.outcome)
         .input('token_expires_at', sql.DateTime, tokenExpiresAt)
-        .input('notes', sql.NVarChar(500), entry.notes ?? null)
-        .query(
-          `INSERT INTO email_preference_log (
-              email_preference_log_id,
-              member_id,
-              recipient_email,
-              action,
-              source,
-              outcome,
-              token_expires_at,
-              notes,
-              recorded_at
-           )
-           VALUES (
-              NEWID(),
-              @member_id,
-              @recipient_email,
-              @action,
-              @source,
-              @outcome,
-              @token_expires_at,
-              @notes,
-              GETUTCDATE()
-           )`
-        );
+        .input('notes', sql.NVarChar(500), entry.notes ?? null);
+
+      if (hasTenantIdColumn) {
+        request.input('tenant_id', sql.UniqueIdentifier, toNullableUuid(entry.tenantId));
+      }
+
+      await request.query(
+        hasTenantIdColumn
+          ? `INSERT INTO email_preference_log (
+                email_preference_log_id,
+                tenant_id,
+                member_id,
+                recipient_email,
+                action,
+                source,
+                outcome,
+                token_expires_at,
+                notes,
+                recorded_at
+             )
+             VALUES (
+                NEWID(),
+                @tenant_id,
+                @member_id,
+                @recipient_email,
+                @action,
+                @source,
+                @outcome,
+                @token_expires_at,
+                @notes,
+                GETUTCDATE()
+             )`
+          : `INSERT INTO email_preference_log (
+                email_preference_log_id,
+                member_id,
+                recipient_email,
+                action,
+                source,
+                outcome,
+                token_expires_at,
+                notes,
+                recorded_at
+             )
+             VALUES (
+                NEWID(),
+                @member_id,
+                @recipient_email,
+                @action,
+                @source,
+                @outcome,
+                @token_expires_at,
+                @notes,
+                GETUTCDATE()
+             )`
+      );
     } catch (error) {
       console.error('[NotificationService] Failed to write email_preference_log', error);
     }

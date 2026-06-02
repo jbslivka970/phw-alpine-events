@@ -73,6 +73,11 @@ Preparatory schema work, bootstrap updates, and behind-flag tenant plumbing can 
     - `backend/src/routes/sms.ts` now scopes admin inbound SMS log reads by active tenant when tenant support tables/columns are present.
     - Focused backend route tests for reports/sms and backend typecheck passed after these changes.
 
+8. Notification template and preference log tenant scoping expanded
+    - `backend/src/routes/templates.ts` now applies compatibility-safe tenant scoping for template list/create/update/delete/history/rollback flows when tenant columns are present and multi-tenant mode is enabled.
+    - `backend/src/routes/preferences.ts` now scopes admin email-preference log reads by active tenant using `email_preference_log.tenant_id` when available, with `member.tenant_id` fallback filtering for older schemas.
+    - Focused route tests were updated to assert tenant-filter application for templates/preferences under multi-tenant mode.
+
 7. Staging denial-matrix harness added; live staging attempt currently blocked by environment config
     - Added Playwright matrix coverage for forced `X-Tenant-Id` denial using authenticated admin/event_creator/member tokens.
     - Attempted the check against `https://phwalpineeventsjb873a-staging.azurewebsites.net/api/v1`.
@@ -132,8 +137,8 @@ Preparatory schema work, bootstrap updates, and behind-flag tenant plumbing can 
 - [x] Extend tenant guard pattern to `backend/src/routes/admin.ts` for event/member dereference paths.
 - [x] Extend tenant guard pattern to event-scoped notification reporting endpoints in `backend/src/routes/reports.ts`.
 - [x] Extend tenant guard pattern to admin inbound SMS log reads in `backend/src/routes/sms.ts`.
-- [ ] Extend tenant guard pattern to notification-related route/service entry points that can dereference cross-tenant ids.
-- [ ] Add or update focused route tests for remaining newly guarded families (`reports`, notifications).
+- [x] Extend tenant guard pattern to notification-related route/service entry points that can dereference cross-tenant ids.
+- [x] Add or update focused route tests for remaining newly guarded families (`reports`, notifications).
 - [ ] Run a cross-tenant denial matrix test pass in staging with `MULTI_TENANT_ENABLED=true`. Attempted June 2, 2026 against the staging slot, but the slot still returned `200` for inaccessible `X-Tenant-Id` headers across admin/event_creator/member roles.
 - [ ] Update this document with a new dated implementation checkpoint after the above items are complete.
 
