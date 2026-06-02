@@ -7,6 +7,7 @@ import type {
   RootTenantBranding,
   RootTenantMessaging,
   RootTenantSummary,
+  RootTenantUsageSummary,
   TenantBrandingAssetKind,
 } from '../../api/root'
 import { toUserErrorMessage } from '../../utils/errorMessage'
@@ -56,9 +57,17 @@ function RootAdminPage() {
   const [adminGrantBusy, setAdminGrantBusy] = useState(false)
   const [adminGrantError, setAdminGrantError] = useState<string | null>(null)
   const [adminGrantSuccess, setAdminGrantSuccess] = useState<string | null>(null)
+  const [adminRevokeBusyUserId, setAdminRevokeBusyUserId] = useState<string | null>(null)
   const [adminEmail, setAdminEmail] = useState('')
   const [adminDisplayName, setAdminDisplayName] = useState('')
   const [adminExpiresAt, setAdminExpiresAt] = useState('')
+
+  const [tenantStatusBusy, setTenantStatusBusy] = useState(false)
+  const [tenantStatusMessage, setTenantStatusMessage] = useState<string | null>(null)
+
+  const [usage, setUsage] = useState<RootTenantUsageSummary | null>(null)
+  const [usageBusy, setUsageBusy] = useState(false)
+  const [usageError, setUsageError] = useState<string | null>(null)
 
   const [messaging, setMessaging] = useState<RootTenantMessaging | null>(null)
   const [messagingBusy, setMessagingBusy] = useState(false)
@@ -103,6 +112,7 @@ function RootAdminPage() {
       setTenantAdmins([])
       setMessaging(null)
       setDemoMemberships([])
+      setUsage(null)
       return
     }
 
@@ -110,32 +120,39 @@ function RootAdminPage() {
     setAdminLoadBusy(true)
     setMessagingBusy(true)
     setDemoLoadBusy(true)
+    setUsageBusy(true)
     setBrandingError(null)
     setMessagingError(null)
     setDemoError(null)
+    setUsageError(null)
 
     try {
-      const [brandingResponse, adminsResponse, messagingResponse, demoResponse] = await Promise.all([
+      const [brandingResponse, adminsResponse, messagingResponse, demoResponse, usageResponse] = await Promise.all([
         rootApi.getTenantBranding(tenantId),
         rootApi.listTenantAdmins(tenantId),
         rootApi.getTenantMessaging(tenantId),
         rootApi.listDemoMemberships(tenantId),
+        rootApi.getTenantUsage(tenantId),
       ])
       setBranding(brandingResponse)
       setTenantAdmins(adminsResponse.admins)
       setMessaging(messagingResponse)
       setDemoMemberships(demoResponse.memberships)
+      setUsage(usageResponse)
     } catch (error) {
       setBranding(null)
       setTenantAdmins([])
       setMessaging(null)
       setDemoMemberships([])
+      setUsage(null)
       setBrandingError(toUserErrorMessage(error, 'Failed to load tenant branding/admin assignments.'))
+      setUsageError(toUserErrorMessage(error, 'Failed to load tenant usage summary.'))
     } finally {
       setBrandingBusy(false)
       setAdminLoadBusy(false)
       setMessagingBusy(false)
       setDemoLoadBusy(false)
+      setUsageBusy(false)
     }
   }
 
@@ -291,6 +308,44 @@ function RootAdminPage() {
       setAdminGrantError(toUserErrorMessage(error, 'Failed to grant tenant admin access.'))
     } finally {
       setAdminGrantBusy(false)
+    }
+  }
+
+  async function handleRevokeAdmin(userId: string, adminEmailValue: string): Promise<void> {
+    if (!selectedTenantId) {
+      return
+    }
+
+    setAdminRevokeBusyUserId(userId)
+    setAdminGrantError(null)
+    setAdminGrantSuccess(null)
+    try {
+      const result = await rootApi.revokeTenantAdmin(selectedTenantId, userId)
+      setTenantAdmins(result.admins)
+      setAdminGrantSuccess(`Revoked admin access for ${adminEmailValue}.`)
+    } catch (error) {
+      setAdminGrantError(toUserErrorMessage(error, 'Failed to revoke tenant admin access.'))
+    } finally {
+      setAdminRevokeBusyUserId(null)
+    }
+  }
+
+  async function handleSetTenantSuspended(action: 'suspend' | 'reactivate'): Promise<void> {
+    if (!selectedTenantId) {
+      return
+    }
+
+    setTenantStatusBusy(true)
+    setTenantStatusMessage(null)
+    setTenantLoadError(null)
+    try {
+      await rootApi.setTenantSuspended(selectedTenantId, { action })
+      await refreshTenants()
+      setTenantStatusMessage(action === 'suspend' ? 'Tenant suspended.' : 'Tenant reactivated.')
+    } catch (error) {
+      setTenantLoadError(toUserErrorMessage(error, 'Failed to update tenant status.'))
+    } finally {
+      setTenantStatusBusy(false)
     }
   }
 
@@ -518,16 +573,49 @@ function RootAdminPage() {
       <section className="admin-card" style={{ marginBottom: '1rem' }}>
         <h2 className="admin-section-title">Tenant Selection</h2>
         {tenantLoadError && <p className="ui-notice ui-notice--error">{tenantLoadError}</p>}
+        {tenantStatusMessage && <p className="ui-notice ui-notice--success">{tenantStatusMessage}</p>}
         <div className="admin-grid admin-grid--2">
           <select className="members-input" value={selectedTenantId} onChange={(e) => setSelectedTenantId(e.target.value)} disabled={tenantLoadBusy || tenants.length === 0}>
             {tenants.map((tenant) => (
               <option key={tenant.tenant_id} value={tenant.tenant_id}>{tenant.display_name} ({tenant.slug})</option>
             ))}
           </select>
-          <button className="btn btn--secondary btn--sm" disabled={tenantLoadBusy} onClick={() => void refreshTenants()}>
-            {tenantLoadBusy ? 'Refreshing…' : 'Refresh Tenants'}
-          </button>
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+            <button className="btn btn--secondary btn--sm" disabled={tenantLoadBusy} onClick={() => void refreshTenants()}>
+              {tenantLoadBusy ? 'Refreshing…' : 'Refresh Tenants'}
+            </button>
+            {selectedTenant?.status === 'suspended' ? (
+              <button className="btn btn--primary btn--sm" disabled={tenantStatusBusy} onClick={() => void handleSetTenantSuspended('reactivate')}>
+                {tenantStatusBusy ? 'Applying…' : 'Reactivate Tenant'}
+              </button>
+            ) : (
+              <button className="btn btn--outline btn--sm" disabled={tenantStatusBusy || !selectedTenantId} onClick={() => void handleSetTenantSuspended('suspend')}>
+                {tenantStatusBusy ? 'Applying…' : 'Suspend Tenant'}
+              </button>
+            )}
+          </div>
         </div>
+      </section>
+
+      <section className="admin-card" style={{ marginBottom: '1rem' }}>
+        <h2 className="admin-section-title">Tenant Usage Summary</h2>
+        {usageError && <p className="ui-notice ui-notice--error">{usageError}</p>}
+        {usageBusy ? (
+          <p>Loading usage metrics…</p>
+        ) : usage ? (
+          <div className="admin-grid admin-grid--3">
+            <div><strong>Members:</strong> {usage.members_total}</div>
+            <div><strong>Events:</strong> {usage.events_total}</div>
+            <div><strong>Event responses:</strong> {usage.event_responses_total}</div>
+            <div><strong>Notifications:</strong> {usage.notifications_total}</div>
+            <div><strong>Failed notifications:</strong> {usage.notification_failures_total}</div>
+            <div><strong>Email opt-outs:</strong> {usage.email_opt_out_total}</div>
+            <div><strong>SMS opt-outs:</strong> {usage.sms_opt_out_total}</div>
+            <div><strong>Calculated:</strong> {new Date(usage.calculated_at).toLocaleString()}</div>
+          </div>
+        ) : (
+          <p className="admin-note">No usage summary available for this tenant.</p>
+        )}
       </section>
 
       <section className="admin-card" style={{ marginBottom: '1rem' }}>
@@ -654,6 +742,14 @@ function RootAdminPage() {
                 <strong>{admin.email}</strong>
                 {admin.display_name ? ` (${admin.display_name})` : ''}
                 {admin.expires_at ? ` • expires ${new Date(admin.expires_at).toLocaleString()}` : ''}
+                {' '}
+                <button
+                  className="btn btn--outline btn--sm"
+                  disabled={adminRevokeBusyUserId === admin.user_id}
+                  onClick={() => void handleRevokeAdmin(admin.user_id, admin.email)}
+                >
+                  {adminRevokeBusyUserId === admin.user_id ? 'Revoking…' : 'Revoke'}
+                </button>
               </li>
             ))}
           </ul>

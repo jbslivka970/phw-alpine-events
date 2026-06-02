@@ -22,11 +22,14 @@ import {
 } from '../services/rootTenantBrandingService';
 import {
   createTenant,
+  getTenantUsageSummary,
   grantDemoAccessByEmail,
   grantTenantAdminByEmail,
   listDemoAccessMemberships,
   listTenantAdmins,
+  revokeTenantAdminByUserId,
   resetDemoAccessMemberships,
+  setTenantStatus,
   revokeDemoAccessMembership,
 } from '../services/tenantService';
 import {
@@ -44,6 +47,7 @@ const MEMBERSHIP_KINDS: TenantMembershipKind[] = ['home', 'temporary_demo', 'adm
 const PERSONAS: MemberPersona[] = ['participant', 'volunteer', 'mentor', 'guide', 'staff'];
 const BRANDING_ASSET_KINDS: TenantBrandingAssetKind[] = ['logo', 'logo_dark', 'hero'];
 const SMS_PROVIDERS: Array<Exclude<SmsProvider, null>> = ['acs', 'twilio', 'telnyx'];
+const TENANT_STATUSES = ['active', 'suspended'] as const;
 
 function isValidGuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value.trim());
@@ -189,6 +193,79 @@ router.post('/tenants/:tenantId/admins', writeLimiter, async (req, res, next) =>
     }
     if (message.includes('required') || message.includes('valid')) {
       res.status(400).json({ error: message });
+      return;
+    }
+    next(error);
+  }
+});
+
+router.delete('/tenants/:tenantId/admins/:userId', writeLimiter, async (req, res, next) => {
+  try {
+    const tenantId = String(req.params.tenantId ?? '').trim();
+    const userId = String(req.params.userId ?? '').trim();
+
+    if (!isValidGuid(tenantId)) {
+      res.status(400).json({ error: 'tenantId must be a valid UUID' });
+      return;
+    }
+    if (!isValidGuid(userId)) {
+      res.status(400).json({ error: 'userId must be a valid UUID' });
+      return;
+    }
+
+    const admins = await revokeTenantAdminByUserId(tenantId, userId);
+    res.json({ admins });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to revoke tenant admin';
+    if (message.includes('Tenant not found')) {
+      res.status(404).json({ error: message });
+      return;
+    }
+    next(error);
+  }
+});
+
+router.post('/tenants/:tenantId/suspend', writeLimiter, async (req, res, next) => {
+  try {
+    const tenantId = String(req.params.tenantId ?? '').trim();
+    const requestedAction = typeof req.body?.action === 'string' ? req.body.action.trim().toLowerCase() : 'suspend';
+    const suspend = requestedAction !== 'reactivate';
+
+    if (!isValidGuid(tenantId)) {
+      res.status(400).json({ error: 'tenantId must be a valid UUID' });
+      return;
+    }
+    if (!['suspend', 'reactivate'].includes(requestedAction)) {
+      res.status(400).json({ error: 'action must be either suspend or reactivate' });
+      return;
+    }
+
+    const tenant = await setTenantStatus(tenantId, suspend ? TENANT_STATUSES[1] : TENANT_STATUSES[0]);
+    res.json({ tenant, action: suspend ? 'suspend' : 'reactivate' });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to update tenant status';
+    if (message.includes('Tenant not found')) {
+      res.status(404).json({ error: message });
+      return;
+    }
+    next(error);
+  }
+});
+
+router.get('/tenants/:tenantId/usage', async (req, res, next) => {
+  try {
+    const tenantId = String(req.params.tenantId ?? '').trim();
+    if (!isValidGuid(tenantId)) {
+      res.status(400).json({ error: 'tenantId must be a valid UUID' });
+      return;
+    }
+
+    const usage = await getTenantUsageSummary(tenantId);
+    res.json(usage);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to load tenant usage';
+    if (message.includes('Tenant not found')) {
+      res.status(404).json({ error: message });
       return;
     }
     next(error);

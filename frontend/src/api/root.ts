@@ -145,6 +145,18 @@ interface RootTenantMessaging {
   updated_at: string
 }
 
+interface RootTenantUsageSummary {
+  tenant_id: string
+  members_total: number
+  events_total: number
+  event_responses_total: number
+  notifications_total: number
+  notification_failures_total: number
+  email_opt_out_total: number
+  sms_opt_out_total: number
+  calculated_at: string
+}
+
 interface RootDemoMembershipSummary {
   tenant_membership_id: string
   tenant_id: string
@@ -165,6 +177,11 @@ const rootApi = {
   listTenantAdmins: (tenantId: string) => apiGet<{ admins: RootTenantAdminSummary[] }>(`/root/tenants/${encodeURIComponent(tenantId)}/admins`),
   grantTenantAdmin: (tenantId: string, payload: { email: string; display_name?: string | null; expires_at?: string | null }) =>
     apiPost<{ admins: RootTenantAdminSummary[] }>(`/root/tenants/${encodeURIComponent(tenantId)}/admins`, payload),
+  revokeTenantAdmin: (tenantId: string, userId: string) =>
+    apiDelete<{ admins: RootTenantAdminSummary[] }>(`/root/tenants/${encodeURIComponent(tenantId)}/admins/${encodeURIComponent(userId)}`),
+  setTenantSuspended: (tenantId: string, payload: { action: 'suspend' | 'reactivate' }) =>
+    apiPost<{ tenant: RootTenantSummary; action: 'suspend' | 'reactivate' }>(`/root/tenants/${encodeURIComponent(tenantId)}/suspend`, payload),
+  getTenantUsage: (tenantId: string) => apiGet<RootTenantUsageSummary>(`/root/tenants/${encodeURIComponent(tenantId)}/usage`),
   getTenantMessaging: (tenantId: string) => apiGet<RootTenantMessaging>(`/root/tenants/${encodeURIComponent(tenantId)}/messaging`),
   upsertTenantMessaging: (tenantId: string, payload: Partial<RootTenantMessaging>) =>
     apiPut<RootTenantMessaging>(`/root/tenants/${encodeURIComponent(tenantId)}/messaging`, payload),
@@ -200,6 +217,7 @@ export type {
   RootCreateTenantPayload,
   RootDemoMembershipSummary,
   RootTenantMessaging,
+  RootTenantUsageSummary,
   RootTenantSummary,
   SmsProvider,
   TenantBrandingAssetKind,

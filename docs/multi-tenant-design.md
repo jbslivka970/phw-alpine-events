@@ -78,6 +78,15 @@ Preparatory schema work, bootstrap updates, and behind-flag tenant plumbing can 
     - `backend/src/routes/preferences.ts` now scopes admin email-preference log reads by active tenant using `email_preference_log.tenant_id` when available, with `member.tenant_id` fallback filtering for older schemas.
     - Focused route tests were updated to assert tenant-filter application for templates/preferences under multi-tenant mode.
 
+9. Root control-plane coverage expanded for tenant lifecycle and observability
+        - `backend/src/routes/root.ts` now includes root-only endpoints for:
+            - revoking tenant admin membership (`DELETE /tenants/:tenantId/admins/:userId`)
+            - suspending/reactivating tenants (`POST /tenants/:tenantId/suspend` with `action=suspend|reactivate`)
+            - per-tenant usage metrics (`GET /tenants/:tenantId/usage`)
+        - `backend/src/services/tenantService.ts` now includes compatibility-safe implementations for admin revoke, tenant status updates, and tenant usage aggregation across members/events/responses/notifications/opt-outs.
+        - `frontend/src/api/root.ts` and `frontend/src/pages/root/RootAdminPage.tsx` now expose these operations in the root UI (revoke admin action, suspend/reactivate controls, usage summary panel).
+        - Root route contract tests were expanded and now pass with 26/26 focused root tests.
+
 7. Staging denial-matrix harness added; live staging attempt currently blocked by environment config
     - Added Playwright matrix coverage for forced `X-Tenant-Id` denial using authenticated admin/event_creator/member tokens.
     - Attempted the check against `https://phwalpineeventsjb873a-staging.azurewebsites.net/api/v1`.
@@ -139,6 +148,7 @@ Preparatory schema work, bootstrap updates, and behind-flag tenant plumbing can 
 - [x] Extend tenant guard pattern to admin inbound SMS log reads in `backend/src/routes/sms.ts`.
 - [x] Extend tenant guard pattern to notification-related route/service entry points that can dereference cross-tenant ids.
 - [x] Add or update focused route tests for remaining newly guarded families (`reports`, notifications).
+- [x] Expand root control-plane coverage for tenant admin revocation, tenant suspend/reactivate, and per-tenant usage metrics.
 - [ ] Run a cross-tenant denial matrix test pass in staging with `MULTI_TENANT_ENABLED=true`. Attempted June 2, 2026 against the staging slot, but the slot still returned `200` for inaccessible `X-Tenant-Id` headers across admin/event_creator/member roles.
 - [ ] Update this document with a new dated implementation checkpoint after the above items are complete.
 

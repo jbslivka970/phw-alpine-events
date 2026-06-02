@@ -23,6 +23,9 @@ const commitBrandingAssetMock = jest.fn();
 const createTenantMock = jest.fn();
 const listTenantAdminsMock = jest.fn();
 const grantTenantAdminByEmailMock = jest.fn();
+const revokeTenantAdminByUserIdMock = jest.fn();
+const setTenantStatusMock = jest.fn();
+const getTenantUsageSummaryMock = jest.fn();
 const getTenantMessagingMock = jest.fn();
 const upsertTenantMessagingMock = jest.fn();
 const listDemoAccessMembershipsMock = jest.fn();
@@ -61,6 +64,9 @@ jest.mock('../services/tenantService', () => ({
   createTenant: (...args: unknown[]) => createTenantMock(...args),
   listTenantAdmins: (...args: unknown[]) => listTenantAdminsMock(...args),
   grantTenantAdminByEmail: (...args: unknown[]) => grantTenantAdminByEmailMock(...args),
+  revokeTenantAdminByUserId: (...args: unknown[]) => revokeTenantAdminByUserIdMock(...args),
+  setTenantStatus: (...args: unknown[]) => setTenantStatusMock(...args),
+  getTenantUsageSummary: (...args: unknown[]) => getTenantUsageSummaryMock(...args),
   listDemoAccessMemberships: (...args: unknown[]) => listDemoAccessMembershipsMock(...args),
   grantDemoAccessByEmail: (...args: unknown[]) => grantDemoAccessByEmailMock(...args),
   revokeDemoAccessMembership: (...args: unknown[]) => revokeDemoAccessMembershipMock(...args),
@@ -359,6 +365,60 @@ describe('root routes', () => {
       actorEmail: 'root@example.com',
       expiresAt: null,
     });
+  });
+
+  it('DELETE /api/v1/root/tenants/:tenantId/admins/:userId revokes admin membership', async () => {
+    revokeTenantAdminByUserIdMock.mockResolvedValue([{ email: 'admin@example.com' }]);
+
+    const res = await request(app)
+      .delete('/api/v1/root/tenants/1b6b9719-663a-4e56-8f7d-9a4bd4c10001/admins/2b6b9719-663a-4e56-8f7d-9a4bd4c10002');
+
+    expect(res.status).toBe(200);
+    expect(revokeTenantAdminByUserIdMock).toHaveBeenCalledWith(
+      '1b6b9719-663a-4e56-8f7d-9a4bd4c10001',
+      '2b6b9719-663a-4e56-8f7d-9a4bd4c10002'
+    );
+  });
+
+  it('POST /api/v1/root/tenants/:tenantId/suspend validates action', async () => {
+    const res = await request(app)
+      .post('/api/v1/root/tenants/1b6b9719-663a-4e56-8f7d-9a4bd4c10001/suspend')
+      .send({ action: 'pause' });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain('action');
+  });
+
+  it('POST /api/v1/root/tenants/:tenantId/suspend forwards suspend action', async () => {
+    setTenantStatusMock.mockResolvedValue({ tenant_id: '1b6b9719-663a-4e56-8f7d-9a4bd4c10001', status: 'suspended' });
+
+    const res = await request(app)
+      .post('/api/v1/root/tenants/1b6b9719-663a-4e56-8f7d-9a4bd4c10001/suspend')
+      .send({ action: 'suspend' });
+
+    expect(res.status).toBe(200);
+    expect(setTenantStatusMock).toHaveBeenCalledWith('1b6b9719-663a-4e56-8f7d-9a4bd4c10001', 'suspended');
+  });
+
+  it('GET /api/v1/root/tenants/:tenantId/usage returns usage payload', async () => {
+    getTenantUsageSummaryMock.mockResolvedValue({
+      tenant_id: '1b6b9719-663a-4e56-8f7d-9a4bd4c10001',
+      members_total: 12,
+      events_total: 4,
+      event_responses_total: 21,
+      notifications_total: 33,
+      notification_failures_total: 2,
+      email_opt_out_total: 1,
+      sms_opt_out_total: 0,
+      calculated_at: '2026-06-02T00:00:00.000Z',
+    });
+
+    const res = await request(app)
+      .get('/api/v1/root/tenants/1b6b9719-663a-4e56-8f7d-9a4bd4c10001/usage');
+
+    expect(res.status).toBe(200);
+    expect(res.body.members_total).toBe(12);
+    expect(getTenantUsageSummaryMock).toHaveBeenCalledWith('1b6b9719-663a-4e56-8f7d-9a4bd4c10001');
   });
 
   it('PUT /api/v1/root/tenants/:tenantId/messaging validates sms provider', async () => {

@@ -25,6 +25,18 @@ interface TenantSummary {
   created_at: string;
 }
 
+interface TenantUsageSummary {
+  tenant_id: string;
+  members_total: number;
+  events_total: number;
+  event_responses_total: number;
+  notifications_total: number;
+  notification_failures_total: number;
+  email_opt_out_total: number;
+  sms_opt_out_total: number;
+  calculated_at: string;
+}
+
 interface GrantTenantAdminInput {
   tenantId: string;
   email: string;
@@ -65,6 +77,18 @@ interface DemoAccessSummary {
   status: string;
   starts_at: string;
   expires_at: string | null;
+}
+
+interface TenantStatusRow {
+  tenant_id: string;
+  slug: string;
+  display_name: string;
+  tenant_type: TenantType;
+  status: TenantStatus;
+  timezone: string;
+  is_demo: boolean | number;
+  is_operational: boolean | number;
+  created_at: Date | string;
 }
 
 function asBool(value: boolean | number | null | undefined): boolean {
@@ -670,13 +694,256 @@ async function resetDemoAccessMemberships(tenantId: string): Promise<{ revoked_c
   }
 }
 
+async function revokeTenantAdminByUserId(tenantId: string, userId: string): Promise<TenantAdminSummary[]> {
+  const pool = await getPool();
+  const transaction = new sql.Transaction(pool);
+  await transaction.begin();
+
+  try {
+    const tenantLookup = await new sql.Request(transaction)
+      .input('tenant_id', sql.UniqueIdentifier, tenantId)
+      .query<{ tenant_id: string }>('SELECT tenant_id FROM dbo.tenant WHERE tenant_id = @tenant_id');
+    if (!tenantLookup.recordset[0]) {
+      throw new Error('Tenant not found');
+    }
+
+    await new sql.Request(transaction)
+      .input('tenant_id', sql.UniqueIdentifier, tenantId)
+      .input('user_id', sql.UniqueIdentifier, userId)
+      .query(
+        `UPDATE dbo.tenant_membership
+         SET status = 'revoked',
+             revoked_at = GETUTCDATE()
+         WHERE tenant_id = @tenant_id
+           AND user_id = @user_id
+           AND membership_kind = 'admin'
+           AND status = 'active'
+           AND revoked_at IS NULL`
+      );
+
+    await transaction.commit();
+    return listTenantAdmins(tenantId);
+  } catch (error) {
+    await transaction.rollback();
+    throw error;
+  }
+}
+
+async function setTenantStatus(tenantId: string, status: TenantStatus): Promise<TenantSummary> {
+  const pool = await getPool();
+  const result = await pool
+    .request()
+    .input('tenant_id', sql.UniqueIdentifier, tenantId)
+    .input('status', sql.NVarChar(20), status)
+    .query<TenantStatusRow>(
+      `IF NOT EXISTS (SELECT 1 FROM dbo.tenant WHERE tenant_id = @tenant_id)
+         THROW 50001, 'Tenant not found', 1;
+
+       UPDATE dbo.tenant
+       SET status = @status,
+           is_operational = CASE
+             WHEN @status = 'active' THEN CASE WHEN is_demo = 1 THEN 0 ELSE 1 END
+             ELSE 0
+           END
+       WHERE tenant_id = @tenant_id;
+
+       SELECT TOP (1)
+         tenant_id,
+         slug,
+         display_name,
+         tenant_type,
+         status,
+         timezone,
+         is_demo,
+         is_operational,
+         created_at
+       FROM dbo.tenant
+       WHERE tenant_id = @tenant_id;`
+    );
+
+  const row = result.recordset[0];
+  if (!row) {
+    throw new Error('Tenant not found');
+  }
+
+  return {
+    tenant_id: row.tenant_id,
+    slug: row.slug,
+    display_name: row.display_name,
+    tenant_type: row.tenant_type,
+    status: row.status,
+    timezone: row.timezone,
+    is_demo: asBool(row.is_demo),
+    is_operational: asBool(row.is_operational),
+    created_at: asIso(row.created_at) ?? new Date().toISOString(),
+  };
+}
+
+async function getTenantUsageSummary(tenantId: string): Promise<TenantUsageSummary> {
+  const pool = await getPool();
+  const result = await pool
+    .request()
+    .input('tenant_id', sql.UniqueIdentifier, tenantId)
+    .query<{
+      members_total: number;
+      events_total: number;
+      event_responses_total: number;
+      notifications_total: number;
+      notification_failures_total: number;
+      email_opt_out_total: number;
+      sms_opt_out_total: number;
+    }>(
+      `IF NOT EXISTS (SELECT 1 FROM dbo.tenant WHERE tenant_id = @tenant_id)
+         THROW 50001, 'Tenant not found', 1;
+
+       DECLARE @members_total BIGINT = 0;
+       DECLARE @events_total BIGINT = 0;
+       DECLARE @event_responses_total BIGINT = 0;
+       DECLARE @notifications_total BIGINT = 0;
+       DECLARE @notification_failures_total BIGINT = 0;
+       DECLARE @email_opt_out_total BIGINT = 0;
+       DECLARE @sms_opt_out_total BIGINT = 0;
+
+       IF OBJECT_ID(N'dbo.member', N'U') IS NOT NULL
+       BEGIN
+         IF COL_LENGTH('dbo.member', 'tenant_id') IS NOT NULL
+           SELECT @members_total = COUNT_BIG(*)
+           FROM dbo.member
+           WHERE tenant_id = @tenant_id
+             AND is_active = 1;
+         ELSE
+           SELECT @members_total = COUNT_BIG(*)
+           FROM dbo.member
+           WHERE is_active = 1;
+       END
+
+       IF OBJECT_ID(N'dbo.event', N'U') IS NOT NULL
+       BEGIN
+         IF COL_LENGTH('dbo.event', 'tenant_id') IS NOT NULL
+           SELECT @events_total = COUNT_BIG(*)
+           FROM dbo.event
+           WHERE tenant_id = @tenant_id;
+         ELSE
+           SELECT @events_total = COUNT_BIG(*)
+           FROM dbo.event;
+       END
+
+       IF OBJECT_ID(N'dbo.event_response', N'U') IS NOT NULL
+       BEGIN
+         IF COL_LENGTH('dbo.event_response', 'tenant_id') IS NOT NULL
+           SELECT @event_responses_total = COUNT_BIG(*)
+           FROM dbo.event_response
+           WHERE tenant_id = @tenant_id;
+         ELSE
+           SELECT @event_responses_total = COUNT_BIG(*)
+           FROM dbo.event_response;
+       END
+
+       IF OBJECT_ID(N'dbo.notification_log', N'U') IS NOT NULL
+       BEGIN
+         IF COL_LENGTH('dbo.notification_log', 'tenant_id') IS NOT NULL
+         BEGIN
+           SELECT @notifications_total = COUNT_BIG(*)
+           FROM dbo.notification_log
+           WHERE tenant_id = @tenant_id;
+
+           SELECT @notification_failures_total = COUNT_BIG(*)
+           FROM dbo.notification_log
+           WHERE tenant_id = @tenant_id
+             AND LOWER(COALESCE(status, '')) = 'failed';
+         END
+         ELSE
+         BEGIN
+           SELECT @notifications_total = COUNT_BIG(*)
+           FROM dbo.notification_log;
+
+           SELECT @notification_failures_total = COUNT_BIG(*)
+           FROM dbo.notification_log
+           WHERE LOWER(COALESCE(status, '')) = 'failed';
+         END
+       END
+
+       IF OBJECT_ID(N'dbo.email_preference_log', N'U') IS NOT NULL
+       BEGIN
+         IF COL_LENGTH('dbo.email_preference_log', 'tenant_id') IS NOT NULL
+           SELECT @email_opt_out_total = COUNT_BIG(*)
+           FROM dbo.email_preference_log
+           WHERE tenant_id = @tenant_id
+             AND action = 'opt_out';
+         ELSE IF OBJECT_ID(N'dbo.member', N'U') IS NOT NULL AND COL_LENGTH('dbo.member', 'tenant_id') IS NOT NULL
+           SELECT @email_opt_out_total = COUNT_BIG(*)
+           FROM dbo.email_preference_log epl
+           INNER JOIN dbo.member m ON m.member_id = epl.member_id
+           WHERE m.tenant_id = @tenant_id
+             AND epl.action = 'opt_out';
+         ELSE
+           SELECT @email_opt_out_total = COUNT_BIG(*)
+           FROM dbo.email_preference_log
+           WHERE action = 'opt_out';
+       END
+
+       IF OBJECT_ID(N'dbo.sms_consent_log', N'U') IS NOT NULL
+       BEGIN
+         IF COL_LENGTH('dbo.sms_consent_log', 'tenant_id') IS NOT NULL
+           SELECT @sms_opt_out_total = COUNT_BIG(*)
+           FROM dbo.sms_consent_log
+           WHERE tenant_id = @tenant_id
+             AND action = 'opt_out';
+         ELSE IF OBJECT_ID(N'dbo.member', N'U') IS NOT NULL AND COL_LENGTH('dbo.member', 'tenant_id') IS NOT NULL
+           SELECT @sms_opt_out_total = COUNT_BIG(*)
+           FROM dbo.sms_consent_log scl
+           INNER JOIN dbo.member m ON m.member_id = scl.member_id
+           WHERE m.tenant_id = @tenant_id
+             AND scl.action = 'opt_out';
+         ELSE
+           SELECT @sms_opt_out_total = COUNT_BIG(*)
+           FROM dbo.sms_consent_log
+           WHERE action = 'opt_out';
+       END
+
+       SELECT
+         CAST(@members_total AS INT) AS members_total,
+         CAST(@events_total AS INT) AS events_total,
+         CAST(@event_responses_total AS INT) AS event_responses_total,
+         CAST(@notifications_total AS INT) AS notifications_total,
+         CAST(@notification_failures_total AS INT) AS notification_failures_total,
+         CAST(@email_opt_out_total AS INT) AS email_opt_out_total,
+         CAST(@sms_opt_out_total AS INT) AS sms_opt_out_total;`
+    );
+
+  const row = result.recordset[0] ?? {
+    members_total: 0,
+    events_total: 0,
+    event_responses_total: 0,
+    notifications_total: 0,
+    notification_failures_total: 0,
+    email_opt_out_total: 0,
+    sms_opt_out_total: 0,
+  };
+
+  return {
+    tenant_id: tenantId,
+    members_total: Number(row.members_total ?? 0),
+    events_total: Number(row.events_total ?? 0),
+    event_responses_total: Number(row.event_responses_total ?? 0),
+    notifications_total: Number(row.notifications_total ?? 0),
+    notification_failures_total: Number(row.notification_failures_total ?? 0),
+    email_opt_out_total: Number(row.email_opt_out_total ?? 0),
+    sms_opt_out_total: Number(row.sms_opt_out_total ?? 0),
+    calculated_at: new Date().toISOString(),
+  };
+}
+
 export {
   createTenant,
+  getTenantUsageSummary,
   grantDemoAccessByEmail,
   grantTenantAdminByEmail,
   listDemoAccessMemberships,
   listTenantAdmins,
+  revokeTenantAdminByUserId,
   resetDemoAccessMemberships,
+  setTenantStatus,
   revokeDemoAccessMembership,
 };
 export type {
@@ -684,5 +951,6 @@ export type {
   DemoAccessSummary,
   GrantDemoAccessInput,
   TenantAdminSummary,
+  TenantUsageSummary,
   TenantSummary,
 };
