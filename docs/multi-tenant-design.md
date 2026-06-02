@@ -111,17 +111,18 @@ Preparatory schema work, bootstrap updates, and behind-flag tenant plumbing can 
 ### Resume point after testing
 
 1. Continue guard pattern to remaining event-id dependent queries not yet explicitly checked by tenant access guard (if any emerge during QA).
-2. Extend the same compatibility-safe guard style to remaining high-impact route families (`notifications`, `support`) where event/member ids can be dereferenced.
+2. Extend the same compatibility-safe guard style to remaining high-impact notification/reporting entry points where event/member ids can be dereferenced.
 3. Prepare a pre-release verification run focused on cross-tenant denial matrix before enabling `MULTI_TENANT_ENABLED` outside controlled environments.
 
 ### Post-deploy todo list
 
 - [ ] Run post-deploy QA pass and enumerate any remaining event-id dependent queries that still need `ensureTenantEventAccess`.
 - [x] Extend tenant guard pattern to `backend/src/routes/tavf.ts` for event/member dereference paths.
-- [ ] Extend tenant guard pattern to `backend/src/routes/support.ts` for event/member dereference paths.
+- [x] Review `backend/src/routes/support.ts`; no tenant-sensitive event/member dereference paths currently require route guards.
 - [x] Extend tenant guard pattern to `backend/src/routes/admin.ts` for event/member dereference paths.
+- [x] Extend tenant guard pattern to event-scoped notification reporting endpoints in `backend/src/routes/reports.ts`.
 - [ ] Extend tenant guard pattern to notification-related route/service entry points that can dereference cross-tenant ids.
-- [ ] Add or update focused route tests for remaining newly guarded families (`support`, notifications).
+- [ ] Add or update focused route tests for remaining newly guarded families (`reports`, notifications).
 - [ ] Run a cross-tenant denial matrix test pass in staging with `MULTI_TENANT_ENABLED=true`.
 - [ ] Update this document with a new dated implementation checkpoint after the above items are complete.
 

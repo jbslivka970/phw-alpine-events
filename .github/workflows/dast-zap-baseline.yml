@@ -37,6 +37,7 @@ jobs:
         run: |
           echo "Running ZAP baseline against: $TARGET_URL"
           docker run --rm \
+            --user "$(id -u):$(id -g)" \
             -v "$PWD:/zap/wrk:rw" \
             ghcr.io/zaproxy/zaproxy:stable \
             zap-baseline.py \

@@ -78,7 +78,12 @@ jobs:
             *) token_var="PW_MEMBER_TOKEN" ;;
           esac
 
-          token_value="$(grep -E "^${token_var}=" "$token_file" | head -n1 | cut -d'=' -f2- || true)"
+          set -a
+          # tokens.env is emitted as shell exports by the auth refresh job.
+          source "$token_file"
+          set +a
+
+          token_value="${!token_var:-}"
           if [ -z "$token_value" ]; then
             echo "token_present=false" >> "$GITHUB_OUTPUT"
             echo "No token value found for role: $AUTH_ROLE"
@@ -101,6 +106,7 @@ jobs:
           echo "Running authenticated ZAP baseline against: $TARGET_URL"
 
           docker run --rm \
+            --user "$(id -u):$(id -g)" \
             -v "$PWD:/zap/wrk:rw" \
             ghcr.io/zaproxy/zaproxy:stable \
             zap-baseline.py \
@@ -122,6 +128,7 @@ jobs:
           echo "Authenticated token unavailable; running fallback baseline scan against: $TARGET_URL"
 
           docker run --rm \
+            --user "$(id -u):$(id -g)" \
             -v "$PWD:/zap/wrk:rw" \
             ghcr.io/zaproxy/zaproxy:stable \
             zap-baseline.py \

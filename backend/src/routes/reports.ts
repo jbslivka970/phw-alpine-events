@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { getPool, sql } from '../db';
 import authenticate from '../middleware/auth';
+import { DEFAULT_TENANT_ID } from '../middleware/resolveTenantContext';
 import { apiLimiter } from '../middleware/rateLimiter';
 import { requireAdmin } from '../middleware/rbac';
 import { getAcsEmailProviderDeliveryStatus } from '../services/notifications';
@@ -120,6 +121,12 @@ interface EventNotificationCoverageRow {
   inferred_reason: string;
 }
 
+type ReportEventTenantSupport = {
+  hasTenantId: boolean;
+};
+
+let cachedReportEventTenantSupport: ReportEventTenantSupport | null = null;
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -190,6 +197,68 @@ function deriveNoAttemptReason(emailEligible: boolean, smsEligible: boolean): st
   }
 
   return 'no_log_entry';
+}
+
+function isMultiTenantEnabled(): boolean {
+  const raw = process.env['MULTI_TENANT_ENABLED'];
+  if (!raw) {
+    return false;
+  }
+
+  return ['1', 'true', 'yes', 'on'].includes(raw.trim().toLowerCase());
+}
+
+async function getReportEventTenantSupport(pool: Awaited<ReturnType<typeof getPool>>): Promise<ReportEventTenantSupport> {
+  if (cachedReportEventTenantSupport) {
+    return cachedReportEventTenantSupport;
+  }
+
+  const result = await pool
+    .request()
+    .query<{ has_tenant_id: number }>(
+      `SELECT CASE WHEN COL_LENGTH('dbo.event', 'tenant_id') IS NULL THEN 0 ELSE 1 END AS has_tenant_id`
+    );
+
+  cachedReportEventTenantSupport = {
+    hasTenantId: result.recordset[0]?.has_tenant_id === 1,
+  };
+
+  return cachedReportEventTenantSupport;
+}
+
+async function ensureTenantEventAccess(
+  req: Request,
+  res: Response,
+  pool: Awaited<ReturnType<typeof getPool>>,
+  eventId: string,
+): Promise<boolean> {
+  const tenantId = (req.tenantId ?? DEFAULT_TENANT_ID).trim().toLowerCase();
+  if (!isMultiTenantEnabled()) {
+    return true;
+  }
+
+  const support = await getReportEventTenantSupport(pool);
+  if (!support.hasTenantId) {
+    return true;
+  }
+
+  const result = await pool
+    .request()
+    .input('event_id', sql.UniqueIdentifier, eventId)
+    .input('tenant_id', sql.UniqueIdentifier, tenantId)
+    .query<{ event_id: string }>(
+      `SELECT TOP 1 event_id
+       FROM event
+       WHERE event_id = @event_id
+         AND tenant_id = @tenant_id`
+    );
+
+  if (!result.recordset[0]) {
+    res.status(404).json({ error: 'Event not found' });
+    return false;
+  }
+
+  return true;
 }
 
 async function queryEventSummary(fromDate: Date, toDate: Date): Promise<EventSummaryRow[]> {
@@ -528,6 +597,10 @@ router.get('/delivery/logs', apiLimiter, authenticate, requireAdmin, async (req:
 
   try {
     const pool = await getPool();
+    if (eventId && !(await ensureTenantEventAccess(req, res, pool, eventId))) {
+      return;
+    }
+
     const baseRequest = pool
       .request()
       .input('fromDate', sql.DateTime, fromDate)
@@ -742,6 +815,10 @@ router.get('/delivery/event/:eventId/coverage', apiLimiter, authenticate, requir
 
   try {
     const pool = await getPool();
+    if (!(await ensureTenantEventAccess(req, res, pool, eventId))) {
+      return;
+    }
+
     const targetResult = await pool
       .request()
       .input('eventId', sql.UniqueIdentifier, eventId)
