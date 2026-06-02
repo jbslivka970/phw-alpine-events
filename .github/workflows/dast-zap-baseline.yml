@@ -43,6 +43,7 @@ jobs:
             ghcr.io/zaproxy/zaproxy:stable \
             zap-baseline.py \
             -t "$TARGET_URL" \
+            --autooff \
             -m 5 \
             -I \
             -r /zap/wrk/reports/zap-baseline.html \

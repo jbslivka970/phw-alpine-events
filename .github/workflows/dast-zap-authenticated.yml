@@ -112,6 +112,7 @@ jobs:
             ghcr.io/zaproxy/zaproxy:stable \
             zap-baseline.py \
             -t "$TARGET_URL" \
+            --autooff \
             -m 5 \
             -j \
             -I \
@@ -135,6 +136,7 @@ jobs:
             ghcr.io/zaproxy/zaproxy:stable \
             zap-baseline.py \
             -t "$TARGET_URL" \
+            --autooff \
             -m 5 \
             -j \
             -I \
