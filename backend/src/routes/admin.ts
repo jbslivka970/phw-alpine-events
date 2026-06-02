@@ -1,8 +1,9 @@
 import { ensureEventSummaryEmailConfigTable, normalizeEmail } from '../services/eventSummaryEmailConfig';
 import { listPrograms, normalizeProgramNameList, normalizeStateNameInput, replaceProgramsForState } from '../services/programCatalogService';
-import { Router } from 'express';
+import { Request, Router } from 'express';
 import { randomUUID } from 'crypto';
 import { getPool, sql } from '../db';
+import { DEFAULT_TENANT_ID } from '../middleware/resolveTenantContext';
 import authenticate from '../middleware/auth';
 import { apiLimiter, writeLimiter } from '../middleware/rateLimiter';
 import { requireAdmin } from '../middleware/rbac';
@@ -140,6 +141,68 @@ interface IdentityInviteTraceRow {
   redirect_url_override: string | null;
   status: 'invited' | 'failed';
   error: string | null;
+}
+
+interface AdminTenantScope {
+  apply: boolean;
+  tenantId: string;
+}
+
+interface AdminTenantSupport {
+  hasMemberTenantTable: boolean;
+}
+
+let cachedAdminTenantSupport: AdminTenantSupport | null = null;
+
+function isMultiTenantEnabled(): boolean {
+  const raw = process.env['MULTI_TENANT_ENABLED'];
+  if (!raw) {
+    return false;
+  }
+
+  return ['1', 'true', 'yes', 'on'].includes(raw.trim().toLowerCase());
+}
+
+async function getAdminTenantSupport(pool: Awaited<ReturnType<typeof getPool>>): Promise<AdminTenantSupport> {
+  if (cachedAdminTenantSupport) {
+    return cachedAdminTenantSupport;
+  }
+
+  const result = await pool
+    .request()
+    .query<{ has_member_tenant_table: number }>(
+      `SELECT CASE WHEN OBJECT_ID('dbo.member_tenant', 'U') IS NULL THEN 0 ELSE 1 END AS has_member_tenant_table`
+    );
+
+  cachedAdminTenantSupport = {
+    hasMemberTenantTable: result.recordset[0]?.has_member_tenant_table === 1,
+  };
+
+  return cachedAdminTenantSupport;
+}
+
+async function resolveAdminTenantScope(req: Request): Promise<AdminTenantScope> {
+  const pool = await getPool();
+  const tenantId = (req.tenantId ?? DEFAULT_TENANT_ID).trim().toLowerCase();
+  if (!isMultiTenantEnabled()) {
+    return { apply: false, tenantId };
+  }
+
+  const support = await getAdminTenantSupport(pool);
+  return {
+    apply: support.hasMemberTenantTable,
+    tenantId,
+  };
+}
+
+function memberTenantPredicate(alias: string): string {
+  return `EXISTS (
+    SELECT 1
+    FROM dbo.member_tenant mt
+    WHERE mt.member_id = ${alias}.member_id
+      AND mt.tenant_id = @tenant_id
+      AND mt.is_active = 1
+  )`;
 }
 
 function normalizeOptionalEmailInput(value: unknown): string | null {
@@ -733,7 +796,8 @@ router.post('/import', writeLimiter, async (req, res) => {
 
 router.post('/ai/invite-draft', writeLimiter, async (req, res) => {
   try {
-    const { draft, source, tone } = await resolveInviteDraftRequest(req.body as InviteDraftRequestBody);
+    const tenantScope = await resolveAdminTenantScope(req);
+    const { draft, source, tone } = await resolveInviteDraftRequest(req.body as InviteDraftRequestBody, tenantScope);
 
     res.json({
       ...draft,
@@ -775,7 +839,8 @@ router.post('/ai/invite-draft/apply', writeLimiter, async (req, res) => {
     const reviewNoteRaw = (req.body?.review_note as string | undefined)?.trim();
     const reviewNote = reviewNoteRaw && reviewNoteRaw.length > 0 ? reviewNoteRaw.slice(0, 500) : null;
 
-    const { draft, source, tone } = await resolveInviteDraftRequest(req.body as InviteDraftRequestBody);
+    const tenantScope = await resolveAdminTenantScope(req);
+    const { draft, source, tone } = await resolveInviteDraftRequest(req.body as InviteDraftRequestBody, tenantScope);
     const subjectOverride = typeof req.body?.subject === 'string' ? req.body.subject.trim() : '';
     const emailBodyOverride = typeof req.body?.emailBody === 'string' ? req.body.emailBody.trim() : '';
     const smsBodyOverride = typeof req.body?.smsBody === 'string' ? req.body.smsBody.trim() : '';
@@ -1060,6 +1125,7 @@ router.get('/identity/status/:memberId([0-9a-fA-F-]{36})', async (req, res) => {
 
 router.post('/identity/status/bulk', apiLimiter, async (req, res) => {
   try {
+    const tenantScope = await resolveAdminTenantScope(req);
     const memberIdsRaw = req.body?.member_ids;
     if (!Array.isArray(memberIdsRaw)) {
       res.status(400).json({ error: 'member_ids array is required.' });
@@ -1082,7 +1148,7 @@ router.post('/identity/status/bulk', apiLimiter, async (req, res) => {
 
     // Pass reconcile:false so this read-only display call never triggers Graph API
     // lookups. Use the "Reconcile shown accounts" button for a fresh Graph sync.
-    const result = await getIdentityStatusesByMemberIds(memberIds, { reconcile: false });
+    const result = await getIdentityStatusesByMemberIds(memberIds, { reconcile: false }, tenantScope);
 
     const found = new Map(result.map((row) => [row.member_id.toLowerCase(), row]));
     const data = memberIds.map((memberId) => {
@@ -1112,8 +1178,9 @@ router.post('/identity/status/bulk', apiLimiter, async (req, res) => {
   }
 });
 
-router.get('/identity/status/summary', apiLimiter, async (_req, res) => {
+router.get('/identity/status/summary', apiLimiter, async (req, res) => {
   try {
+    const tenantScope = await resolveAdminTenantScope(req);
     // Serve from cache when fresh — avoids repeated Graph API calls on every page load.
     const cached = getCachedIdentitySummary();
     if (cached) {
@@ -1122,13 +1189,18 @@ router.get('/identity/status/summary', apiLimiter, async (_req, res) => {
     }
 
     const pool = await getPool();
-    const memberResult = await pool
-      .request()
-      .query<{ member_id: string }>(
-        `SELECT member_id
-         FROM member
-         WHERE is_active = 1`
-      );
+    const memberRequest = pool.request();
+    let memberWhereClause = 'is_active = 1';
+    if (tenantScope.apply) {
+      memberRequest.input('tenant_id', sql.UniqueIdentifier, tenantScope.tenantId);
+      memberWhereClause += ` AND ${memberTenantPredicate('member')}`;
+    }
+
+    const memberResult = await memberRequest.query<{ member_id: string }>(
+      `SELECT member_id
+       FROM member
+       WHERE ${memberWhereClause}`
+    );
 
     const memberIds = memberResult.recordset.map((row) => row.member_id);
     if (memberIds.length === 0) {
@@ -1149,7 +1221,7 @@ router.get('/identity/status/summary', apiLimiter, async (_req, res) => {
       const chunk = memberIds.slice(index, index + chunkSize);
       // Use reconcile:false so the summary reads from DB only — no Graph API calls.
       // The Reconcile button triggers Graph lookups explicitly when needed.
-      const chunkStatuses = await getIdentityStatusesByMemberIds(chunk, { reconcile: false });
+      const chunkStatuses = await getIdentityStatusesByMemberIds(chunk, { reconcile: false }, tenantScope);
       statuses.push(...chunkStatuses);
     }
 
@@ -1188,15 +1260,22 @@ router.get('/identity/status/summary', apiLimiter, async (_req, res) => {
 
 router.get('/identity/invite-trace/:memberId', async (req, res) => {
   try {
+    const tenantScope = await resolveAdminTenantScope(req);
     const memberId = (req.params.memberId as string | undefined)?.trim();
     if (!memberId) {
       res.status(400).json({ error: 'memberId is required.' });
       return;
     }
 
+    const member = await getMemberIdentityTarget(memberId, tenantScope);
+    if (!member) {
+      res.status(404).json({ error: 'Member not found.' });
+      return;
+    }
+
     const limitRaw = parsePositiveInt(req.query.limit as string | undefined, 20);
     const limit = Math.min(limitRaw, 100);
-    const traces = await getInviteTraceByMemberId(memberId, limit);
+    const traces = await getInviteTraceByMemberId(memberId, limit, tenantScope);
     res.status(200).json({ data: traces });
   } catch (error) {
     console.error('GET /admin/identity/invite-trace/:memberId failed', error);
@@ -1206,6 +1285,7 @@ router.get('/identity/invite-trace/:memberId', async (req, res) => {
 
 router.post('/identity/invite', writeLimiter, async (req, res) => {
   try {
+    const tenantScope = await resolveAdminTenantScope(req);
     if (!isProvisioningEnabled()) {
       res.status(503).json({ error: 'Entra provisioning is not configured for this environment.' });
       return;
@@ -1218,7 +1298,7 @@ router.post('/identity/invite', writeLimiter, async (req, res) => {
       return;
     }
 
-    const member = await getMemberIdentityTarget(memberId);
+    const member = await getMemberIdentityTarget(memberId, tenantScope);
     if (!member) {
       res.status(404).json({ error: 'Member not found.' });
       return;
@@ -1232,7 +1312,7 @@ router.post('/identity/invite', writeLimiter, async (req, res) => {
       return;
     }
 
-    const existingStatus = await getIdentityStatusByMemberId(member.member_id);
+    const existingStatus = await getIdentityStatusByMemberId(member.member_id, tenantScope);
     if (existingStatus?.status === 'linked') {
       res.status(409).json({ error: 'Member already has access. No duplicate invite was sent.' });
       return;
@@ -1300,6 +1380,7 @@ router.post('/identity/invite', writeLimiter, async (req, res) => {
 
 router.post('/identity/invite/bulk', writeLimiter, async (req, res) => {
   try {
+    const tenantScope = await resolveAdminTenantScope(req);
     if (!isProvisioningEnabled()) {
       res.status(503).json({ error: 'Entra provisioning is not configured for this environment.' });
       return;
@@ -1327,12 +1408,12 @@ router.post('/identity/invite/bulk', writeLimiter, async (req, res) => {
 
     const currentUser = req.user?.email ?? req.user?.sub ?? 'unknown';
     const results: Array<{ member_id: string; status: 'invited' | 'skipped' | 'failed'; reason?: string }> = [];
-    const existingStatuses = await getIdentityStatusesByMemberIds(memberIds);
+    const existingStatuses = await getIdentityStatusesByMemberIds(memberIds, {}, tenantScope);
     const existingStatusByMemberId = new Map(existingStatuses.map((status) => [status.member_id.toLowerCase(), status]));
 
     for (const memberId of memberIds) {
       try {
-        const member = await getMemberIdentityTarget(memberId);
+        const member = await getMemberIdentityTarget(memberId, tenantScope);
         if (!member) {
           results.push({ member_id: memberId, status: 'skipped', reason: 'member_not_found' });
           continue;
@@ -1426,11 +1507,12 @@ router.post('/identity/invite/bulk', writeLimiter, async (req, res) => {
 
 router.post('/identity/reconcile', writeLimiter, async (req, res) => {
   try {
+    const tenantScope = await resolveAdminTenantScope(req);
     const memberIdsRaw = req.body?.member_ids;
     let memberIds: string[];
 
     if (memberIdsRaw === undefined) {
-      memberIds = await getActiveMemberIds();
+      memberIds = await getActiveMemberIds(tenantScope);
     } else {
       if (!Array.isArray(memberIdsRaw)) {
         res.status(400).json({ error: 'member_ids must be an array when provided.' });
@@ -1452,8 +1534,8 @@ router.post('/identity/reconcile', writeLimiter, async (req, res) => {
       return;
     }
 
-    const before = await getIdentityStatusesByMemberIds(memberIds, { reconcile: false });
-    const after = await getIdentityStatusesByMemberIds(memberIds);
+    const before = await getIdentityStatusesByMemberIds(memberIds, { reconcile: false }, tenantScope);
+    const after = await getIdentityStatusesByMemberIds(memberIds, {}, tenantScope);
     const beforeByMemberId = new Map(before.map((status) => [status.member_id.toLowerCase(), status]));
 
     const reconciled = after.filter((status) => {
@@ -1481,6 +1563,7 @@ router.post('/identity/reconcile', writeLimiter, async (req, res) => {
 
 router.post('/identity/relink', writeLimiter, async (req, res) => {
   try {
+    const tenantScope = await resolveAdminTenantScope(req);
     const memberId = (req.body?.member_id as string | undefined)?.trim();
     const email = (req.body?.email as string | undefined)?.trim().toLowerCase();
     const entraObjectId = (req.body?.entra_object_id as string | undefined)?.trim();
@@ -1490,6 +1573,12 @@ router.post('/identity/relink', writeLimiter, async (req, res) => {
 
     if (!memberId) {
       res.status(400).json({ error: 'member_id is required.' });
+      return;
+    }
+
+    const member = await getMemberIdentityTarget(memberId, tenantScope);
+    if (!member) {
+      res.status(404).json({ error: 'Member not found.' });
       return;
     }
 
@@ -1535,7 +1624,7 @@ router.post('/identity/relink', writeLimiter, async (req, res) => {
            );`
       );
 
-    const updated = await getIdentityStatusByMemberId(memberId);
+    const updated = await getIdentityStatusByMemberId(member.member_id, tenantScope);
     res.status(200).json(updated);
   } catch (error) {
     console.error('POST /admin/identity/relink failed', error);
@@ -1543,7 +1632,7 @@ router.post('/identity/relink', writeLimiter, async (req, res) => {
   }
 });
 
-async function resolveInviteDraftRequest(body: InviteDraftRequestBody): Promise<{
+async function resolveInviteDraftRequest(body: InviteDraftRequestBody, tenantScope?: AdminTenantScope): Promise<{
   draft: Awaited<ReturnType<typeof generateInviteDraft>>;
   source: 'event' | 'ad_hoc';
   tone: InviteTone;
@@ -1559,14 +1648,19 @@ async function resolveInviteDraftRequest(body: InviteDraftRequestBody): Promise<
 
   if (eventId) {
     const pool = await getPool();
-    const eventResult = await pool
+    const eventRequest = pool
       .request()
-      .input('event_id', sql.UniqueIdentifier, eventId)
-      .query<{ title: string; event_date: Date | string; location: string | null; description: string | null }>(
-        `SELECT title, event_date, location, description
-         FROM event
-         WHERE event_id = @event_id`
-      );
+      .input('event_id', sql.UniqueIdentifier, eventId);
+    let tenantPredicate = '';
+    if (tenantScope?.apply) {
+      eventRequest.input('tenant_id', sql.UniqueIdentifier, tenantScope.tenantId);
+      tenantPredicate = ' AND tenant_id = @tenant_id';
+    }
+    const eventResult = await eventRequest.query<{ title: string; event_date: Date | string; location: string | null; description: string | null }>(
+      `SELECT title, event_date, location, description
+       FROM event
+       WHERE event_id = @event_id${tenantPredicate}`
+    );
 
     const event = eventResult.recordset[0];
     if (!event) {
@@ -1678,20 +1772,21 @@ function parseOptionalPositiveInt(value: unknown): number | undefined {
   return normalized > 0 ? normalized : undefined;
 }
 
-async function getIdentityStatusByMemberId(memberId: string): Promise<IdentityStatusRow | null> {
-  const statuses = await getIdentityStatusesByMemberIds([memberId]);
+async function getIdentityStatusByMemberId(memberId: string, tenantScope?: AdminTenantScope): Promise<IdentityStatusRow | null> {
+  const statuses = await getIdentityStatusesByMemberIds([memberId], {}, tenantScope);
   return statuses[0] ?? null;
 }
 
 async function getIdentityStatusesByMemberIds(
   memberIds: string[],
-  options: { reconcile?: boolean } = {}
+  options: { reconcile?: boolean } = {},
+  tenantScope?: AdminTenantScope,
 ): Promise<IdentityStatusRow[]> {
   if (memberIds.length === 0) {
     return [];
   }
 
-  let rows = await loadIdentityStatusJoinedRows(memberIds);
+  let rows = await loadIdentityStatusJoinedRows(memberIds, tenantScope);
 
   rows = await applyAppUserEmailNormalizationFallback(rows);
 
@@ -1702,13 +1797,18 @@ async function getIdentityStatusesByMemberIds(
   return rows.map(toIdentityStatusRow);
 }
 
-async function loadIdentityStatusJoinedRows(memberIds: string[]): Promise<IdentityStatusJoinedRow[]> {
+async function loadIdentityStatusJoinedRows(memberIds: string[], tenantScope?: AdminTenantScope): Promise<IdentityStatusJoinedRow[]> {
   const pool = await getPool();
   const query = memberIds.map((_, index) => `@member_id_${index}`).join(', ');
   const request = pool.request();
   memberIds.forEach((memberId, index) => {
     request.input(`member_id_${index}`, sql.UniqueIdentifier, memberId);
   });
+  let tenantPredicate = '';
+  if (tenantScope?.apply) {
+    request.input('tenant_id', sql.UniqueIdentifier, tenantScope.tenantId);
+    tenantPredicate = ` AND ${memberTenantPredicate('m')}`;
+  }
 
   const result = await request.query<IdentityStatusJoinedRow>(
     `SELECT
@@ -1757,22 +1857,26 @@ async function loadIdentityStatusJoinedRows(memberIds: string[]): Promise<Identi
          user_match.last_login DESC,
          user_match.updated_at DESC
      ) u
-     WHERE m.member_id IN (${query})`
+      WHERE m.member_id IN (${query})${tenantPredicate}`
   );
 
   return Array.from(result.recordset);
 }
 
-async function getActiveMemberIds(): Promise<string[]> {
+async function getActiveMemberIds(tenantScope?: AdminTenantScope): Promise<string[]> {
   const pool = await getPool();
-  const result = await pool
-    .request()
-    .query<{ member_id: string }>(
-      `SELECT member_id
-       FROM member
-       WHERE is_active = 1
-       ORDER BY member_id`
-    );
+  const request = pool.request();
+  let whereClause = 'is_active = 1';
+  if (tenantScope?.apply) {
+    request.input('tenant_id', sql.UniqueIdentifier, tenantScope.tenantId);
+    whereClause += ` AND ${memberTenantPredicate('member')}`;
+  }
+  const result = await request.query<{ member_id: string }>(
+    `SELECT member_id
+     FROM member
+     WHERE ${whereClause}
+     ORDER BY member_id`
+  );
 
   return result.recordset
     .map((row) => row.member_id)
@@ -2153,7 +2257,7 @@ function toIdentityStatusRow(row: IdentityStatusJoinedRow): IdentityStatusRow {
   };
 }
 
-async function getMemberIdentityTarget(memberId: string): Promise<{
+async function getMemberIdentityTarget(memberId: string, tenantScope?: AdminTenantScope): Promise<{
   member_id: string;
   first_name: string;
   last_name: string;
@@ -2161,20 +2265,26 @@ async function getMemberIdentityTarget(memberId: string): Promise<{
   is_active: boolean;
 } | null> {
   const pool = await getPool();
-  const result = await pool
+  const request = pool
     .request()
-    .input('member_id', sql.UniqueIdentifier, memberId)
-    .query<{
-      member_id: string;
-      first_name: string;
-      last_name: string;
-      email: string;
-      is_active: boolean;
-    }>(
-      `SELECT member_id, first_name, last_name, email, is_active
-       FROM member
-       WHERE member_id = @member_id`
-    );
+    .input('member_id', sql.UniqueIdentifier, memberId);
+  let tenantPredicate = '';
+  if (tenantScope?.apply) {
+    request.input('tenant_id', sql.UniqueIdentifier, tenantScope.tenantId);
+    tenantPredicate = ` AND ${memberTenantPredicate('member')}`;
+  }
+
+  const result = await request.query<{
+    member_id: string;
+    first_name: string;
+    last_name: string;
+    email: string;
+    is_active: boolean;
+  }>(
+    `SELECT member_id, first_name, last_name, email, is_active
+     FROM member
+     WHERE member_id = @member_id${tenantPredicate}`
+  );
   return result.recordset[0] ?? null;
 }
 
@@ -2274,13 +2384,26 @@ async function persistIdentityInviteTrace(payload: {
     );
 }
 
-async function getInviteTraceByMemberId(memberId: string, limit: number): Promise<IdentityInviteTraceRow[]> {
+async function getInviteTraceByMemberId(memberId: string, limit: number, tenantScope?: AdminTenantScope): Promise<IdentityInviteTraceRow[]> {
   const pool = await getPool();
-  const result = await pool
+  const request = pool
     .request()
     .input('member_id', sql.NVarChar(64), memberId)
-    .input('limit', sql.Int, limit)
-    .query<IdentityInviteTraceRow>(
+    .input('limit', sql.Int, limit);
+  let tenantPredicate = '';
+  if (tenantScope?.apply) {
+    request.input('tenant_id', sql.UniqueIdentifier, tenantScope.tenantId);
+    tenantPredicate = `
+           AND EXISTS (
+             SELECT 1
+             FROM dbo.member_tenant mt
+             WHERE mt.member_id = TRY_CONVERT(uniqueidentifier, identity_invite_trace.member_id)
+               AND mt.tenant_id = @tenant_id
+               AND mt.is_active = 1
+           )`;
+  }
+
+  const result = await request.query<IdentityInviteTraceRow>(
       `IF OBJECT_ID('identity_invite_trace', 'U') IS NULL
        BEGIN
          SELECT TOP 0
@@ -2314,6 +2437,7 @@ async function getInviteTraceByMemberId(memberId: string, limit: number): Promis
            error
          FROM identity_invite_trace
          WHERE member_id = @member_id
+           ${tenantPredicate}
          ORDER BY occurred_at DESC;
        END`
     );
@@ -2394,10 +2518,15 @@ function validateBlastBody(body: Partial<BlastBody>): string | null {
 async function queryBlastRecipients(
   pool: Awaited<ReturnType<typeof getPool>>,
   body: BlastBody,
+  tenantScope?: AdminTenantScope,
 ): Promise<Array<{ member_id: string; email: string; mobile_phone: string | null; first_name: string }>> {
   const req = pool.request().input('channel', sql.NVarChar(10), body.channel);
 
   let whereClause = `m.is_active = 1`;
+  if (tenantScope?.apply) {
+    req.input('tenant_id', sql.UniqueIdentifier, tenantScope.tenantId);
+    whereClause += ` AND ${memberTenantPredicate('m')}`;
+  }
 
   if (body.channel === 'email') {
     // When opt_override is true we still require a valid email address, but skip
@@ -2483,8 +2612,9 @@ router.post('/blast/preview', writeLimiter, async (req, res) => {
   }
 
   try {
+    const tenantScope = await resolveAdminTenantScope(req);
     const pool = await getPool();
-    const recipients = await queryBlastRecipients(pool, body as BlastBody);
+    const recipients = await queryBlastRecipients(pool, body as BlastBody, tenantScope);
     res.status(200).json({ recipient_count: recipients.length });
   } catch (error) {
     console.error('POST /admin/blast/preview failed', error);
@@ -2510,9 +2640,10 @@ router.post('/blast/send', writeLimiter, async (req, res) => {
   const sentBy = req.user?.email ?? req.user?.sub ?? 'unknown';
 
   try {
+    const tenantScope = await resolveAdminTenantScope(req);
     const pool = await getPool();
     await ensureBlastLogTable(pool);
-    const recipients = await queryBlastRecipients(pool, blastBody);
+    const recipients = await queryBlastRecipients(pool, blastBody, tenantScope);
 
     if (recipients.length === 0) {
       res.status(200).json({ sent: 0, skipped: 0, failed: 0, message: 'No eligible recipients found.' });

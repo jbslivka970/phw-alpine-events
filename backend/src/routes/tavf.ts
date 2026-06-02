@@ -4,6 +4,7 @@ import { apiLimiter, writeLimiter } from '../middleware/rateLimiter';
 import { requireEventCreatorOrAdmin, requireTavfCreator } from '../middleware/rbac';
 import * as tavf from '../services/tavfService';
 import { getPool, sql } from '../db';
+import { DEFAULT_TENANT_ID } from '../middleware/resolveTenantContext';
 import { invalidateShortLivedCache, withShortLivedCache } from '../services/shortLivedCache';
 
 const router = Router();
@@ -24,6 +25,192 @@ function parsePositiveIntQuery(value: unknown, max: number): number | undefined 
 }
 
 const DASHBOARD_CACHE_TTL_MS = 20_000;
+
+type TavfTenantScope = {
+  apply: boolean;
+  tenantId: string;
+};
+
+type TavfTenantSupport = {
+  hasMemberTenantTable: boolean;
+};
+
+let cachedTavfTenantSupport: TavfTenantSupport | null = null;
+
+function isMultiTenantEnabled(): boolean {
+  const raw = process.env['MULTI_TENANT_ENABLED'];
+  if (!raw) {
+    return false;
+  }
+
+  return ['1', 'true', 'yes', 'on'].includes(raw.trim().toLowerCase());
+}
+
+async function getTavfTenantSupport(pool: Awaited<ReturnType<typeof getPool>>): Promise<TavfTenantSupport> {
+  if (cachedTavfTenantSupport) {
+    return cachedTavfTenantSupport;
+  }
+
+  const result = await pool
+    .request()
+    .query<{ has_member_tenant_table: number }>(
+      `SELECT CASE WHEN OBJECT_ID('dbo.member_tenant', 'U') IS NULL THEN 0 ELSE 1 END AS has_member_tenant_table`
+    );
+
+  cachedTavfTenantSupport = {
+    hasMemberTenantTable: result.recordset[0]?.has_member_tenant_table === 1,
+  };
+
+  return cachedTavfTenantSupport;
+}
+
+async function resolveTavfTenantScope(req: Request, pool: Awaited<ReturnType<typeof getPool>>): Promise<TavfTenantScope> {
+  const tenantId = (req.tenantId ?? DEFAULT_TENANT_ID).trim().toLowerCase();
+  if (!isMultiTenantEnabled()) {
+    return { apply: false, tenantId };
+  }
+
+  const support = await getTavfTenantSupport(pool);
+  return {
+    apply: support.hasMemberTenantTable,
+    tenantId,
+  };
+}
+
+async function ensurePostingTenantAccess(
+  req: Request,
+  res: Response,
+  pool: Awaited<ReturnType<typeof getPool>>,
+  postingId: string,
+): Promise<boolean> {
+  const tenantScope = await resolveTavfTenantScope(req, pool);
+  if (!tenantScope.apply) {
+    return true;
+  }
+
+  const result = await pool
+    .request()
+    .input('posting_id', sql.UniqueIdentifier, postingId)
+    .input('tenant_id', sql.UniqueIdentifier, tenantScope.tenantId)
+    .query<{ posting_id: string }>(
+      `SELECT TOP 1 p.posting_id
+       FROM dbo.tavf_posting p
+       INNER JOIN dbo.member_tenant mt
+         ON mt.member_id = p.guide_member_id
+        AND mt.tenant_id = @tenant_id
+        AND mt.is_active = 1
+       WHERE p.posting_id = @posting_id`
+    );
+
+  if (!result.recordset[0]) {
+    res.status(404).json({ error: 'Posting not found' });
+    return false;
+  }
+
+  return true;
+}
+
+async function ensureApplicationTenantAccess(
+  req: Request,
+  res: Response,
+  pool: Awaited<ReturnType<typeof getPool>>,
+  applicationId: string,
+): Promise<boolean> {
+  const tenantScope = await resolveTavfTenantScope(req, pool);
+  if (!tenantScope.apply) {
+    return true;
+  }
+
+  const result = await pool
+    .request()
+    .input('application_id', sql.UniqueIdentifier, applicationId)
+    .input('tenant_id', sql.UniqueIdentifier, tenantScope.tenantId)
+    .query<{ application_id: string }>(
+      `SELECT TOP 1 a.application_id
+       FROM dbo.tavf_application a
+       INNER JOIN dbo.tavf_posting p
+         ON p.posting_id = a.posting_id
+       INNER JOIN dbo.member_tenant mt
+         ON mt.member_id = p.guide_member_id
+        AND mt.tenant_id = @tenant_id
+        AND mt.is_active = 1
+       WHERE a.application_id = @application_id`
+    );
+
+  if (!result.recordset[0]) {
+    res.status(404).json({ error: 'Application not found' });
+    return false;
+  }
+
+  return true;
+}
+
+async function ensureMatchTenantAccess(
+  req: Request,
+  res: Response,
+  pool: Awaited<ReturnType<typeof getPool>>,
+  matchId: string,
+): Promise<boolean> {
+  const tenantScope = await resolveTavfTenantScope(req, pool);
+  if (!tenantScope.apply) {
+    return true;
+  }
+
+  const result = await pool
+    .request()
+    .input('match_id', sql.UniqueIdentifier, matchId)
+    .input('tenant_id', sql.UniqueIdentifier, tenantScope.tenantId)
+    .query<{ match_id: string }>(
+      `SELECT TOP 1 tm.match_id
+       FROM dbo.tavf_match tm
+       INNER JOIN dbo.tavf_posting p
+         ON p.posting_id = tm.posting_id
+       INNER JOIN dbo.member_tenant mt
+         ON mt.member_id = p.guide_member_id
+        AND mt.tenant_id = @tenant_id
+        AND mt.is_active = 1
+       WHERE tm.match_id = @match_id`
+    );
+
+  if (!result.recordset[0]) {
+    res.status(404).json({ error: 'Match not found' });
+    return false;
+  }
+
+  return true;
+}
+
+async function ensureMemberInTenant(
+  req: Request,
+  res: Response,
+  pool: Awaited<ReturnType<typeof getPool>>,
+  memberId: string,
+  notFoundMessage: string,
+): Promise<boolean> {
+  const tenantScope = await resolveTavfTenantScope(req, pool);
+  if (!tenantScope.apply) {
+    return true;
+  }
+
+  const result = await pool
+    .request()
+    .input('member_id', sql.UniqueIdentifier, memberId)
+    .input('tenant_id', sql.UniqueIdentifier, tenantScope.tenantId)
+    .query<{ member_id: string }>(
+      `SELECT TOP 1 member_id
+       FROM dbo.member_tenant
+       WHERE member_id = @member_id
+         AND tenant_id = @tenant_id
+         AND is_active = 1`
+    );
+
+  if (!result.recordset[0]) {
+    res.status(404).json({ error: notFoundMessage });
+    return false;
+  }
+
+  return true;
+}
 
 function isSchemaAvailabilityError(error: unknown): boolean {
   if (!(error instanceof Error)) {
@@ -134,7 +321,33 @@ router.get('/postings', apiLimiter, async (req: Request, res: Response): Promise
       ...(status ? { status } : {}),
       ...(limit ? { limit } : {}),
     }));
-    res.json(postings);
+
+    if (!isMultiTenantEnabled()) {
+      res.json(postings);
+      return;
+    }
+
+    const pool = await getPool();
+    const tenantScope = await resolveTavfTenantScope(req, pool);
+    if (!tenantScope.apply) {
+      res.json(postings);
+      return;
+    }
+
+    const allowedIds = await pool
+      .request()
+      .input('tenant_id', sql.UniqueIdentifier, tenantScope.tenantId)
+      .query<{ posting_id: string }>(
+        `SELECT p.posting_id
+         FROM dbo.tavf_posting p
+         INNER JOIN dbo.member_tenant mt
+           ON mt.member_id = p.guide_member_id
+          AND mt.tenant_id = @tenant_id
+          AND mt.is_active = 1`
+      );
+    const allowedPostingIds = new Set(allowedIds.recordset.map((row) => row.posting_id.toLowerCase()));
+    res.json(postings.filter((posting) => allowedPostingIds.has(posting.posting_id.toLowerCase())));
+    return;
   } catch (err) {
     if (isSchemaAvailabilityError(err)) {
       console.warn('[tavf] listPostings schema unavailable; returning empty list', err);
@@ -151,6 +364,12 @@ router.get('/postings', apiLimiter, async (req: Request, res: Response): Promise
  */
 router.get('/postings/:id', apiLimiter, async (req: Request, res: Response): Promise<void> => {
   try {
+    if (isMultiTenantEnabled()) {
+      const pool = await getPool();
+      if (!(await ensurePostingTenantAccess(req, res, pool, req.params['id']!))) {
+        return;
+      }
+    }
     const posting = await tavf.getPosting(req.params['id']!);
     if (!posting) {
       res.status(404).json({ error: 'Posting not found' });
@@ -169,6 +388,8 @@ router.get('/postings/:id', apiLimiter, async (req: Request, res: Response): Pro
  */
 router.post('/postings', writeLimiter, requireTavfCreator, async (req: Request, res: Response): Promise<void> => {
   try {
+    const multiTenantEnabled = isMultiTenantEnabled();
+    const pool = multiTenantEnabled ? await getPool() : null;
     const { guide_member_id, event_date, location, capacity, species, description } = req.body as Partial<tavf.CreatePostingInput>;
     if (!event_date || !location || !capacity) {
       res.status(400).json({ error: 'event_date, location, and capacity are required' });
@@ -191,6 +412,12 @@ router.post('/postings', writeLimiter, requireTavfCreator, async (req: Request, 
     if (!resolvedGuideMemberId) {
       res.status(400).json({ error: 'Unable to resolve a member profile for this authenticated user.' });
       return;
+    }
+
+    if (multiTenantEnabled && pool) {
+      if (!(await ensureMemberInTenant(req, res, pool, resolvedGuideMemberId, 'Guide member profile not found for active tenant.'))) {
+        return;
+      }
     }
 
     const posting = await tavf.createPosting({
@@ -218,6 +445,12 @@ router.post('/postings', writeLimiter, requireTavfCreator, async (req: Request, 
  */
 router.patch('/postings/:id', writeLimiter, requireEventCreatorOrAdmin, async (req: Request, res: Response): Promise<void> => {
   try {
+    if (isMultiTenantEnabled()) {
+      const pool = await getPool();
+      if (!(await ensurePostingTenantAccess(req, res, pool, req.params['id']!))) {
+        return;
+      }
+    }
     const updated = await tavf.updatePosting(req.params['id']!, req.body as tavf.UpdatePostingInput);
     if (!updated) {
       res.status(404).json({ error: 'Posting not found' });
@@ -235,6 +468,12 @@ router.patch('/postings/:id', writeLimiter, requireEventCreatorOrAdmin, async (r
  */
 router.delete('/postings/:id', writeLimiter, requireEventCreatorOrAdmin, async (req: Request, res: Response): Promise<void> => {
   try {
+    if (isMultiTenantEnabled()) {
+      const pool = await getPool();
+      if (!(await ensurePostingTenantAccess(req, res, pool, req.params['id']!))) {
+        return;
+      }
+    }
     const deleted = await tavf.deletePosting(req.params['id']!);
     if (!deleted) {
       res.status(404).json({ error: 'Posting not found' });
@@ -256,6 +495,12 @@ router.delete('/postings/:id', writeLimiter, requireEventCreatorOrAdmin, async (
  */
 router.get('/postings/:id/applications', apiLimiter, async (req: Request, res: Response): Promise<void> => {
   try {
+    if (isMultiTenantEnabled()) {
+      const pool = await getPool();
+      if (!(await ensurePostingTenantAccess(req, res, pool, req.params['id']!))) {
+        return;
+      }
+    }
     const applications = await tavf.listApplicationsForPosting(req.params['id']!);
     if (hasElevatedTavfAccess(req.user)) {
       res.json(applications);
@@ -281,6 +526,13 @@ router.get('/postings/:id/applications', apiLimiter, async (req: Request, res: R
  */
 router.post('/postings/:id/applications', writeLimiter, async (req: Request, res: Response): Promise<void> => {
   try {
+    const multiTenantEnabled = isMultiTenantEnabled();
+    const pool = multiTenantEnabled ? await getPool() : null;
+    if (multiTenantEnabled && pool) {
+      if (!(await ensurePostingTenantAccess(req, res, pool, req.params['id']!))) {
+        return;
+      }
+    }
     const { vet_member_id: requestedVetMemberId, notes } = req.body as { vet_member_id?: string; notes?: string };
     const elevatedAccess = hasElevatedTavfAccess(req.user);
     const resolveCurrentMemberIdSafe = async (): Promise<string | null> => {
@@ -317,6 +569,12 @@ router.post('/postings/:id/applications', writeLimiter, async (req: Request, res
       return;
     }
 
+    if (multiTenantEnabled && pool) {
+      if (!(await ensureMemberInTenant(req, res, pool, vetMemberId, 'Member profile not found for active tenant.'))) {
+        return;
+      }
+    }
+
     const application = await tavf.createApplication({
       posting_id: req.params['id']!,
       vet_member_id: vetMemberId,
@@ -347,6 +605,12 @@ router.post('/postings/:id/applications', writeLimiter, async (req: Request, res
  */
 router.get('/applications/:id', apiLimiter, requireEventCreatorOrAdmin, async (req: Request, res: Response): Promise<void> => {
   try {
+    if (isMultiTenantEnabled()) {
+      const pool = await getPool();
+      if (!(await ensureApplicationTenantAccess(req, res, pool, req.params['id']!))) {
+        return;
+      }
+    }
     const application = await tavf.getApplication(req.params['id']!);
     if (!application) {
       res.status(404).json({ error: 'Application not found' });
@@ -365,6 +629,12 @@ router.get('/applications/:id', apiLimiter, requireEventCreatorOrAdmin, async (r
  */
 router.patch('/applications/:id/status', writeLimiter, requireEventCreatorOrAdmin, async (req: Request, res: Response): Promise<void> => {
   try {
+    if (isMultiTenantEnabled()) {
+      const pool = await getPool();
+      if (!(await ensureApplicationTenantAccess(req, res, pool, req.params['id']!))) {
+        return;
+      }
+    }
     const { status } = req.body as { status: tavf.ApplicationStatus };
     if (!status) {
       res.status(400).json({ error: 'status is required' });
@@ -390,10 +660,30 @@ router.patch('/applications/:id/status', writeLimiter, requireEventCreatorOrAdmi
  * GET /api/tavf/matches
  * Returns all matches (admin/event creator use).
  */
-router.get('/matches', apiLimiter, requireEventCreatorOrAdmin, async (_req: Request, res: Response): Promise<void> => {
+router.get('/matches', apiLimiter, requireEventCreatorOrAdmin, async (req: Request, res: Response): Promise<void> => {
   try {
     const postings = await tavf.listPostings();
-    const allMatches = await Promise.all(postings.map((posting) => tavf.listMatchesForPosting(posting.posting_id)));
+    let postingIds = postings.map((posting) => posting.posting_id);
+    if (isMultiTenantEnabled()) {
+      const pool = await getPool();
+      const tenantScope = await resolveTavfTenantScope(req, pool);
+      if (tenantScope.apply) {
+      const postingResult = await pool
+        .request()
+        .input('tenant_id', sql.UniqueIdentifier, tenantScope.tenantId)
+        .query<{ posting_id: string }>(
+          `SELECT p.posting_id
+           FROM dbo.tavf_posting p
+           INNER JOIN dbo.member_tenant mt
+             ON mt.member_id = p.guide_member_id
+            AND mt.tenant_id = @tenant_id
+            AND mt.is_active = 1`
+        );
+      const allowedIds = new Set(postingResult.recordset.map((row) => row.posting_id.toLowerCase()));
+      postingIds = postingIds.filter((postingId) => allowedIds.has(postingId.toLowerCase()));
+      }
+    }
+    const allMatches = await Promise.all(postingIds.map((postingId) => tavf.listMatchesForPosting(postingId)));
     res.json(allMatches.flat());
   } catch (err) {
     console.error('[tavf] listAllMatches error', err);
@@ -406,6 +696,12 @@ router.get('/matches', apiLimiter, requireEventCreatorOrAdmin, async (_req: Requ
  */
 router.get('/postings/:id/matches', apiLimiter, requireEventCreatorOrAdmin, async (req: Request, res: Response): Promise<void> => {
   try {
+    if (isMultiTenantEnabled()) {
+      const pool = await getPool();
+      if (!(await ensurePostingTenantAccess(req, res, pool, req.params['id']!))) {
+        return;
+      }
+    }
     const matches = await tavf.listMatchesForPosting(req.params['id']!);
     res.json(matches);
   } catch (err) {
@@ -420,11 +716,31 @@ router.get('/postings/:id/matches', apiLimiter, requireEventCreatorOrAdmin, asyn
  */
 router.post('/matches', writeLimiter, requireEventCreatorOrAdmin, async (req: Request, res: Response): Promise<void> => {
   try {
+    const multiTenantEnabled = isMultiTenantEnabled();
+    const pool = multiTenantEnabled ? await getPool() : null;
     const { posting_id, application_id, matched_by, notes } = req.body as tavf.CreateMatchInput;
     if (!posting_id || !application_id) {
       res.status(400).json({ error: 'posting_id and application_id are required' });
       return;
     }
+
+    if (multiTenantEnabled && pool) {
+      if (!(await ensurePostingTenantAccess(req, res, pool, posting_id))) {
+        return;
+      }
+
+      if (!(await ensureApplicationTenantAccess(req, res, pool, application_id))) {
+        return;
+      }
+
+      if (typeof matched_by === 'string' && UUID_PATTERN.test(matched_by)) {
+        const isInTenant = await ensureMemberInTenant(req, res, pool, matched_by, 'Match operator not found for active tenant.');
+        if (!isInTenant) {
+          return;
+        }
+      }
+    }
+
     const match = await tavf.createMatch({ posting_id, application_id, matched_by, notes });
     res.status(201).json(match);
   } catch (err) {
@@ -438,6 +754,12 @@ router.post('/matches', writeLimiter, requireEventCreatorOrAdmin, async (req: Re
  */
 router.get('/matches/:id', apiLimiter, requireEventCreatorOrAdmin, async (req: Request, res: Response): Promise<void> => {
   try {
+    if (isMultiTenantEnabled()) {
+      const pool = await getPool();
+      if (!(await ensureMatchTenantAccess(req, res, pool, req.params['id']!))) {
+        return;
+      }
+    }
     const match = await tavf.getMatch(req.params['id']!);
     if (!match) {
       res.status(404).json({ error: 'Match not found' });
@@ -456,6 +778,12 @@ router.get('/matches/:id', apiLimiter, requireEventCreatorOrAdmin, async (req: R
  */
 router.delete('/matches/:id', writeLimiter, requireEventCreatorOrAdmin, async (req: Request, res: Response): Promise<void> => {
   try {
+    if (isMultiTenantEnabled()) {
+      const pool = await getPool();
+      if (!(await ensureMatchTenantAccess(req, res, pool, req.params['id']!))) {
+        return;
+      }
+    }
     const updated = await tavf.cancelMatch(req.params['id']!);
     if (!updated) {
       res.status(404).json({ error: 'Match not found' });
@@ -470,10 +798,18 @@ router.delete('/matches/:id', writeLimiter, requireEventCreatorOrAdmin, async (r
 
 router.get('/subscription/me', apiLimiter, async (req: Request, res: Response): Promise<void> => {
   try {
+    const multiTenantEnabled = isMultiTenantEnabled();
+    const pool = multiTenantEnabled ? await getPool() : null;
     const memberId = await resolveCurrentMemberId(req.user);
     if (!memberId) {
       res.status(404).json({ error: 'No member profile found for authenticated account.' });
       return;
+    }
+
+    if (multiTenantEnabled && pool) {
+      if (!(await ensureMemberInTenant(req, res, pool, memberId, 'No member profile found for active tenant.'))) {
+        return;
+      }
     }
 
     const subscription = await tavf.getNotificationSubscription(memberId);
@@ -486,10 +822,18 @@ router.get('/subscription/me', apiLimiter, async (req: Request, res: Response): 
 
 router.put('/subscription/me', writeLimiter, async (req: Request, res: Response): Promise<void> => {
   try {
+    const multiTenantEnabled = isMultiTenantEnabled();
+    const pool = multiTenantEnabled ? await getPool() : null;
     const memberId = await resolveCurrentMemberId(req.user);
     if (!memberId) {
       res.status(404).json({ error: 'No member profile found for authenticated account.' });
       return;
+    }
+
+    if (multiTenantEnabled && pool) {
+      if (!(await ensureMemberInTenant(req, res, pool, memberId, 'No member profile found for active tenant.'))) {
+        return;
+      }
     }
 
     const isSubscribed = req.body?.is_subscribed;
