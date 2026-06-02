@@ -30,20 +30,17 @@ jobs:
         uses: actions/checkout@v5
 
       - name: Prepare report directory
-        run: mkdir -p reports
+        run: mkdir -p reports && chmod 777 reports
 
       - name: Run OWASP ZAP baseline (non-blocking)
         continue-on-error: true
         run: |
           echo "Running ZAP baseline against: $TARGET_URL"
           docker run --rm \
-            --user "$(id -u):$(id -g)" \
             -v "$PWD:/zap/wrk:rw" \
-            -v "$PWD/reports:/home/zap:rw" \
             ghcr.io/zaproxy/zaproxy:stable \
             zap-baseline.py \
             -t "$TARGET_URL" \
-            --autooff \
             -m 5 \
             -I \
             -r /zap/wrk/reports/zap-baseline.html \

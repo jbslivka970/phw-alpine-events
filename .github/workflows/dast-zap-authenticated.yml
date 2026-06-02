@@ -46,7 +46,7 @@ jobs:
         uses: actions/checkout@v5
 
       - name: Prepare report directory
-        run: mkdir -p reports tests/e2e/.auth
+        run: mkdir -p reports tests/e2e/.auth && chmod 777 reports
 
       - name: Download Playwright auth state from triggering run
         id: download_auth_state
@@ -106,13 +106,10 @@ jobs:
           echo "Running authenticated ZAP baseline against: $TARGET_URL"
 
           docker run --rm \
-            --user "$(id -u):$(id -g)" \
             -v "$PWD:/zap/wrk:rw" \
-            -v "$PWD/reports:/home/zap:rw" \
             ghcr.io/zaproxy/zaproxy:stable \
             zap-baseline.py \
             -t "$TARGET_URL" \
-            --autooff \
             -m 5 \
             -j \
             -I \
@@ -130,13 +127,10 @@ jobs:
           echo "Authenticated token unavailable; running fallback baseline scan against: $TARGET_URL"
 
           docker run --rm \
-            --user "$(id -u):$(id -g)" \
             -v "$PWD:/zap/wrk:rw" \
-            -v "$PWD/reports:/home/zap:rw" \
             ghcr.io/zaproxy/zaproxy:stable \
             zap-baseline.py \
             -t "$TARGET_URL" \
-            --autooff \
             -m 5 \
             -j \
             -I \
