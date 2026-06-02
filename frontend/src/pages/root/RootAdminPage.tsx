@@ -21,7 +21,7 @@ function RootAdminPage() {
   const frontendProdHost = 'https://phwalpineeventsfe873a.azurewebsites.net'
   const backendProdHost = 'https://phwalpineeventsjb873a.azurewebsites.net'
   const backendStagingHost = 'https://phwalpineeventsjb873a-staging.azurewebsites.net'
-  const frontendStagingHost: string | null = null
+  const frontendStagingHost: string | null = 'https://phwalpineeventsfe873a-staging.azurewebsites.net'
 
   const [sessionReady, setSessionReady] = useState(false)
   const [isRoot, setIsRoot] = useState(false)
