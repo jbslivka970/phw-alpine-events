@@ -122,6 +122,31 @@ async function resolveEventTenantScope(req: Request, pool: Awaited<ReturnType<ty
   };
 }
 
+async function ensureTenantEventAccess(req: Request, res: Response, pool: Awaited<ReturnType<typeof getPool>>, eventId: string): Promise<boolean> {
+  const tenantScope = await resolveEventTenantScope(req, pool);
+  if (!tenantScope.apply) {
+    return true;
+  }
+
+  const result = await pool
+    .request()
+    .input('event_id', sql.UniqueIdentifier, eventId)
+    .input('tenant_id', sql.UniqueIdentifier, tenantScope.tenantId)
+    .query<{ event_id: string }>(
+      `SELECT TOP 1 event_id
+       FROM event
+       WHERE event_id = @event_id
+         AND tenant_id = @tenant_id`
+    );
+
+  if (!result.recordset[0]) {
+    res.status(404).json({ error: 'Event not found' });
+    return false;
+  }
+
+  return true;
+}
+
 // Derived projections that overlay event.event_lead_member_id with member name/email.
 // Used as drop-in replacements for legacy event_lead_name/event_lead_email column reads.
 const EVENT_LEAD_NAME_SELECT = `(SELECT TOP 1 LTRIM(RTRIM(ISNULL(lm.first_name, N'') + N' ' + ISNULL(lm.last_name, N''))) FROM dbo.member lm WHERE lm.member_id = event_lead_member_id) AS event_lead_name`;
@@ -2279,6 +2304,11 @@ async function loadEventReportData(eventId: string): Promise<EventReportData | n
 
 router.get('/:id/report.csv', apiLimiter, authenticate, requireEventCreatorOrAdmin, async (req, res) => {
   try {
+    const pool = await getPool();
+    if (!(await ensureTenantEventAccess(req, res, pool, req.params.id))) {
+      return;
+    }
+
     const report = await loadEventReportData(req.params.id);
     if (!report) {
       res.status(404).json({ error: 'Event not found' });
@@ -2302,6 +2332,11 @@ router.get('/:id/report.csv', apiLimiter, authenticate, requireEventCreatorOrAdm
 
 router.get('/:id/report.txt', apiLimiter, authenticate, requireEventCreatorOrAdmin, async (req, res) => {
   try {
+    const pool = await getPool();
+    if (!(await ensureTenantEventAccess(req, res, pool, req.params.id))) {
+      return;
+    }
+
     const report = await loadEventReportData(req.params.id);
     if (!report) {
       res.status(404).json({ error: 'Event not found' });
@@ -2325,6 +2360,11 @@ router.get('/:id/report.txt', apiLimiter, authenticate, requireEventCreatorOrAdm
 
 router.get('/:id/report.pdf', apiLimiter, authenticate, requireEventCreatorOrAdmin, async (req, res) => {
   try {
+    const pool = await getPool();
+    if (!(await ensureTenantEventAccess(req, res, pool, req.params.id))) {
+      return;
+    }
+
     const report = await loadEventReportData(req.params.id);
     if (!report) {
       res.status(404).json({ error: 'Event not found' });
@@ -2348,6 +2388,11 @@ router.get('/:id/report.pdf', apiLimiter, authenticate, requireEventCreatorOrAdm
 
 const sendLeadPrepSummary = async (req: Request, res: Response): Promise<void> => {
   try {
+    const pool = await getPool();
+    if (!(await ensureTenantEventAccess(req, res, pool, req.params.id))) {
+      return;
+    }
+
     const actor = req.user?.email ?? req.user?.sub ?? 'unknown';
     const actorName = req.user?.name;
     const result = await sendPreEventLeadSummaryEmail({
@@ -2387,6 +2432,11 @@ router.post('/:id/report/email', writeLimiter, authenticate, requireEventCreator
 
 router.post('/:id/participation-summary/email', writeLimiter, authenticate, requireEventCreatorOrAdmin, async (req, res) => {
   try {
+    const pool = await getPool();
+    if (!(await ensureTenantEventAccess(req, res, pool, req.params.id))) {
+      return;
+    }
+
     const actor = req.user?.email ?? req.user?.sub ?? 'unknown';
     const result = await sendPostEventParticipationSummaryEmail({
       eventId: req.params.id,
@@ -2423,6 +2473,10 @@ router.post('/:id/ai-draft', writeLimiter, authenticate, requireEventCreatorOrAd
   try {
     const tone = parseAiTone(req.body?.tone);
     const pool = await getPool();
+    if (!(await ensureTenantEventAccess(req, res, pool, req.params.id))) {
+      return;
+    }
+
     const eventResult = await pool
       .request()
       .input('event_id', sql.UniqueIdentifier, req.params.id)
@@ -3006,6 +3060,10 @@ function responseBias(response: string): number {
 router.get('/:id/assignments', apiLimiter, authenticate, requireAnyAuthenticatedRole, async (req, res) => {
   try {
     const pool = await getPool();
+    if (!(await ensureTenantEventAccess(req, res, pool, req.params.id))) {
+      return;
+    }
+
     const result = await pool
       .request()
       .input('event_id', sql.UniqueIdentifier, req.params.id)
@@ -3035,6 +3093,10 @@ router.get('/:id/assignments', apiLimiter, authenticate, requireAnyAuthenticated
 router.get('/:id/guest-assignments', apiLimiter, authenticate, requireAnyAuthenticatedRole, async (req, res) => {
   try {
     const pool = await getPool();
+    if (!(await ensureTenantEventAccess(req, res, pool, req.params.id))) {
+      return;
+    }
+
     await ensureGuestAssignmentDependencies(pool);
     const support = await getGuestAssignmentColumnSupport(pool);
 
@@ -3147,6 +3209,10 @@ router.post('/:id/guest-assignments', writeLimiter, authenticate, requireEventCr
     }
 
     const pool = await getPool();
+    if (!(await ensureTenantEventAccess(req, res, pool, req.params.id))) {
+      return;
+    }
+
     await ensureGuestAssignmentDependencies(pool);
     const support = await getGuestAssignmentColumnSupport(pool);
 
@@ -3297,6 +3363,10 @@ router.post('/:id/guest-assignments', writeLimiter, authenticate, requireEventCr
 router.delete('/:id/guest-assignments/:guestAssignmentId', writeLimiter, authenticate, requireEventCreatorOrAdmin, async (req, res) => {
   try {
     const pool = await getPool();
+    if (!(await ensureTenantEventAccess(req, res, pool, req.params.id))) {
+      return;
+    }
+
     await ensureGuestAssignmentDependencies(pool);
     const support = await getGuestAssignmentColumnSupport(pool);
 
@@ -3337,6 +3407,10 @@ router.post('/:id/assignments', writeLimiter, authenticate, requireEventCreatorO
     }
 
     const pool = await getPool();
+    if (!(await ensureTenantEventAccess(req, res, pool, req.params.id))) {
+      return;
+    }
+
     const result = await pool
       .request()
       .input('event_id', sql.UniqueIdentifier, req.params.id)
@@ -3394,6 +3468,10 @@ router.post('/:id/assignments', writeLimiter, authenticate, requireEventCreatorO
 router.delete('/:id/assignments/:assignmentId', writeLimiter, authenticate, requireEventCreatorOrAdmin, async (req, res) => {
   try {
     const pool = await getPool();
+    if (!(await ensureTenantEventAccess(req, res, pool, req.params.id))) {
+      return;
+    }
+
     const result = await pool
       .request()
       .input('event_id', sql.UniqueIdentifier, req.params.id)
@@ -3422,6 +3500,10 @@ router.patch('/:id/assignments/:assignmentId/attendance', writeLimiter, authenti
     }
 
     const pool = await getPool();
+    if (!(await ensureTenantEventAccess(req, res, pool, req.params.id))) {
+      return;
+    }
+
     const result = await pool
       .request()
       .input('event_id', sql.UniqueIdentifier, req.params.id)
@@ -3457,6 +3539,10 @@ router.get('/:id/assignment-recommendations', apiLimiter, authenticate, requireE
     const limit = Number.isFinite(rawLimit) ? Math.max(1, Math.min(rawLimit, 100)) : 20;
 
     const pool = await getPool();
+    if (!(await ensureTenantEventAccess(req, res, pool, req.params.id))) {
+      return;
+    }
+
     await ensureMemberTestAccountColumn(pool);
     const result = await pool
       .request()

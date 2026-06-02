@@ -34,6 +34,53 @@ Preparatory schema work, bootstrap updates, and behind-flag tenant plumbing can 
     - If any controlled SMS test is required, restrict to `TEST_NOTIFICATION_SMS_ALLOWLIST` test numbers only and never target real production recipient lists.
     - Do not execute notification-producing smokes/e2e against production URLs during implementation unless explicitly approved for a scheduled release test.
 
+## Implementation status (June 1, 2026)
+
+### Completed slices in main
+
+1. Tenant context and auth integration
+    - `resolveTenantContext` middleware is active in auth success paths.
+    - Backward compatibility path is preserved when `MULTI_TENANT_ENABLED=false`.
+    - Header-based tenant selection and membership checks are active when enabled.
+
+2. Member domain tenant scoping (compatibility-safe)
+    - Member route/service operations pass and consume active tenant context.
+    - Member CRUD enforces tenant scope when enabled.
+    - New members receive a home tenant membership when created in enabled mode.
+
+3. Core event endpoint tenant scoping (compatibility-safe)
+    - `GET /api/events`, `GET /api/events/:id`, `POST /api/events`, `PUT /api/events/:id`, and `DELETE /api/events/:id` are tenant-scoped when enabled and schema supports `event.tenant_id`.
+    - Runtime guard checks for `event.tenant_id` column existence to avoid breaking older schema states.
+
+4. Extended event-id guard coverage (compatibility-safe)
+    - Tenant access guard now protects event-id scoped downstream routes, including:
+      - assignments and guest assignments
+      - assignment recommendations
+      - report exports (csv/txt/pdf)
+      - lead summary email, report email alias, participation summary email
+      - event AI draft generation
+
+### Current behavior contract
+
+1. With `MULTI_TENANT_ENABLED=false`
+    - Existing users should observe no behavior change.
+    - Default tenant behavior remains in place.
+
+2. With `MULTI_TENANT_ENABLED=true`
+    - Event and member access is constrained to the active tenant context.
+    - Cross-tenant event-id access returns not found for guarded routes.
+
+### Validation status snapshot
+
+1. Backend typecheck has been run successfully after each tenant-guard increment.
+2. Tenant resolver tests, member route tests, and event route tests include new tenant guard coverage and are currently passing.
+
+### Resume point after testing
+
+1. Continue guard pattern to remaining event-id dependent queries not yet explicitly checked by tenant access guard (if any emerge during QA).
+2. Extend the same compatibility-safe guard style to other high-impact route families (`tavf`, `notifications`, `support`, `admin`) where event/member ids can be dereferenced.
+3. Prepare a pre-release verification run focused on cross-tenant denial matrix before enabling `MULTI_TENANT_ENABLED` outside controlled environments.
+
 ---
 
 ## Phases

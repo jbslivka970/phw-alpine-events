@@ -137,6 +137,54 @@ describe('events routes', () => {
     expect(mockRequest.input).toHaveBeenCalledWith('tenant_id', 'UniqueIdentifier', '1b6b9719-663a-4e56-8f7d-9a4bd4c10001');
   });
 
+  it('GET /api/events/:id/assignments returns 404 for cross-tenant event access when enabled', async () => {
+    process.env.MULTI_TENANT_ENABLED = 'true';
+
+    const mockRequest = createRequest(async (query) => {
+      if (query.includes("COL_LENGTH('dbo.event', 'tenant_id')")) {
+        return { recordset: [{ has_tenant_id: 1 }] };
+      }
+
+      if (query.includes('SELECT TOP 1 event_id') && query.includes('tenant_id = @tenant_id')) {
+        return { recordset: [] };
+      }
+
+      return { recordset: [] };
+    });
+    (getPool as jest.Mock).mockResolvedValue({ request: () => mockRequest });
+
+    const res = await request(app)
+      .get('/api/events/event-1/assignments')
+      .set('x-test-tenant-id', '1b6b9719-663a-4e56-8f7d-9a4bd4c10001');
+
+    expect(res.status).toBe(404);
+    expect(res.body.error).toBe('Event not found');
+  });
+
+  it('GET /api/events/:id/report.csv returns 404 for cross-tenant event access when enabled', async () => {
+    process.env.MULTI_TENANT_ENABLED = 'true';
+
+    const mockRequest = createRequest(async (query) => {
+      if (query.includes("COL_LENGTH('dbo.event', 'tenant_id')")) {
+        return { recordset: [{ has_tenant_id: 1 }] };
+      }
+
+      if (query.includes('SELECT TOP 1 event_id') && query.includes('tenant_id = @tenant_id')) {
+        return { recordset: [] };
+      }
+
+      return { recordset: [] };
+    });
+    (getPool as jest.Mock).mockResolvedValue({ request: () => mockRequest });
+
+    const res = await request(app)
+      .get('/api/events/event-1/report.csv')
+      .set('x-test-tenant-id', '1b6b9719-663a-4e56-8f7d-9a4bd4c10001');
+
+    expect(res.status).toBe(404);
+    expect(res.body.error).toBe('Event not found');
+  });
+
   it('GET /api/events/:id/assignment-recommendations returns ranked equity rows', async () => {
     const mockRequest = createRequest(async () => ({
       recordset: [
