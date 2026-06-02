@@ -8,6 +8,11 @@ const authStepMaxAttempts = 60;
 const authStepSleepMs = 800;
 const headerSafeAsciiRegex = /^[\x20-\x7e]+$/;
 
+type BrowserAuthEmailState = {
+  externalEmail: string | null;
+  idTokenClaims: Record<string, unknown> | null;
+};
+
 async function sleep(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -320,6 +325,54 @@ async function resolveTenantGate(page: Page): Promise<boolean> {
   return !stillOnTenantSelectionRoute && !tenantPickerStillVisible && !/\/login(\?|$)/i.test(page.url());
 }
 
+async function readBrowserAuthEmailState(page: Page): Promise<BrowserAuthEmailState> {
+  return page.evaluate(() => {
+    const decodeJwtClaims = (jwt: string): Record<string, unknown> | null => {
+      try {
+        if (!jwt || jwt.split('.').length !== 3) {
+          return null;
+        }
+
+        const payloadPart = jwt.split('.')[1]?.replace(/-/g, '+').replace(/_/g, '/');
+        if (!payloadPart) {
+          return null;
+        }
+
+        const padded = payloadPart + '='.repeat((4 - (payloadPart.length % 4)) % 4);
+        return JSON.parse(atob(padded)) as Record<string, unknown>;
+      } catch {
+        return null;
+      }
+    };
+
+    const externalEmail = window.localStorage.getItem('phw_e2e_external_email');
+    const keys = Object.keys(window.localStorage);
+    const idTokenKeys = keys.filter((key) => key.toLowerCase().includes('idtoken') || key === 'phw_e2e_external_id_token');
+
+    for (const idTokenKey of idTokenKeys) {
+      const raw = window.localStorage.getItem(idTokenKey);
+      if (!raw) {
+        continue;
+      }
+
+      let jwt = raw;
+      try {
+        const parsed = JSON.parse(raw) as { secret?: string };
+        jwt = parsed.secret ?? raw;
+      } catch {
+        jwt = raw;
+      }
+
+      const claims = decodeJwtClaims(jwt);
+      if (claims) {
+        return { externalEmail, idTokenClaims: claims };
+      }
+    }
+
+    return { externalEmail, idTokenClaims: null };
+  });
+}
+
 test.describe('Auth Email Hint Regression', () => {
   test.setTimeout(120_000);
   test.use({ storageState: memberStatePath });
@@ -327,66 +380,6 @@ test.describe('Auth Email Hint Regression', () => {
   test.skip(!appBaseUrl, 'E2E_APP_URL is required.');
 
   test('sends id token email in X-Id-Token-Email header', async ({ page }) => {
-    await page.goto(`${appBaseUrl}/dashboard`, { waitUntil: 'domcontentloaded' }).catch(() => {});
-
-    if (/\/login(\?|$)/i.test(page.url())) {
-      if (!memberUsername || !memberPassword) {
-        throw new Error('member storage state is unauthenticated and PW_MEMBER_USER/PW_MEMBER_PASS fallback credentials are not configured.');
-      }
-
-      await loginWithCredentials(page, memberUsername, memberPassword);
-    }
-
-    if (/\/login(\?|$)/i.test(page.url())) {
-      test.skip(true, 'browser-auth-email-hint could not establish an authenticated session after storage-state and credential fallback.');
-    }
-
-    const tenantReady = await resolveTenantGate(page);
-    if (!tenantReady) {
-      throw new Error('browser-auth-email-hint could not establish tenant context after authentication.');
-    }
-
-    await expect(page).not.toHaveURL(/\/login(\?|$)/i, { timeout: 15_000 });
-
-    const idTokenClaims = await page.evaluate(() => {
-      const keys = Object.keys(window.localStorage);
-      const idTokenKeys = keys.filter((key) => key.toLowerCase().includes('idtoken'));
-      if (idTokenKeys.length === 0) {
-        return null;
-      }
-
-      for (const idTokenKey of idTokenKeys) {
-        try {
-          const raw = window.localStorage.getItem(idTokenKey);
-          if (!raw) {
-            continue;
-          }
-
-          const parsed = JSON.parse(raw) as { secret?: string };
-          const jwt = parsed.secret;
-          if (!jwt || jwt.split('.').length !== 3) {
-            continue;
-          }
-
-          const payloadPart = jwt.split('.')[1]?.replace(/-/g, '+').replace(/_/g, '/');
-          if (!payloadPart) {
-            continue;
-          }
-
-          const padded = payloadPart + '='.repeat((4 - (payloadPart.length % 4)) % 4);
-          return JSON.parse(atob(padded)) as Record<string, unknown>;
-        } catch {
-          // Try the next id_token entry if this one cannot be decoded.
-        }
-      }
-
-      return null;
-    });
-
-    const expectedEmailHint = resolveExpectedEmailHint(idTokenClaims ?? {}, memberUsername);
-    expect(expectedEmailHint, 'a usable email hint should be derivable from id_token claims or member username fallback.').toBeTruthy();
-    const expectedHeaderValue = expectedEmailHint as string;
-
     let capturedHeader: string | null = null;
     const onRequest = (request: Request) => {
       if (!request.url().toLowerCase().includes('/api/v1/')) {
@@ -401,15 +394,46 @@ test.describe('Auth Email Hint Regression', () => {
 
     page.on('request', onRequest);
 
-    await page.goto(`${appBaseUrl}/events`, { waitUntil: 'domcontentloaded' });
-    await page.waitForLoadState('networkidle').catch(() => {});
+    try {
+      await page.goto(`${appBaseUrl}/dashboard`, { waitUntil: 'domcontentloaded' }).catch(() => {});
 
-    await page.goto(`${appBaseUrl}/dashboard`, { waitUntil: 'domcontentloaded' }).catch(() => {});
-    await sleep(2_000);
+      if (/\/login(\?|$)/i.test(page.url())) {
+        if (!memberUsername || !memberPassword) {
+          throw new Error('member storage state is unauthenticated and PW_MEMBER_USER/PW_MEMBER_PASS fallback credentials are not configured.');
+        }
 
-    page.off('request', onRequest);
+        await loginWithCredentials(page, memberUsername, memberPassword);
+      }
 
-    expect(capturedHeader, 'frontend should send X-Id-Token-Email on API calls').toBeTruthy();
-    expect(capturedHeader).toBe(expectedHeaderValue);
+      if (/\/login(\?|$)/i.test(page.url())) {
+        test.skip(true, 'browser-auth-email-hint could not establish an authenticated session after storage-state and credential fallback.');
+      }
+
+      const tenantReady = await resolveTenantGate(page);
+      if (!tenantReady) {
+        throw new Error('browser-auth-email-hint could not establish tenant context after authentication.');
+      }
+
+      await expect(page).not.toHaveURL(/\/login(\?|$)/i, { timeout: 15_000 });
+
+      const authEmailState = await readBrowserAuthEmailState(page);
+      const externalEmailHint = normalizeEmailHintValue(authEmailState.externalEmail);
+      const expectedEmailHint = isUsableEmailHint(externalEmailHint)
+        ? externalEmailHint
+        : resolveExpectedEmailHint(authEmailState.idTokenClaims ?? {}, memberUsername);
+      expect(expectedEmailHint, 'a usable email hint should be derivable from external E2E auth state, id_token claims, or member username fallback.').toBeTruthy();
+      const expectedHeaderValue = expectedEmailHint as string;
+
+      await page.goto(`${appBaseUrl}/events`, { waitUntil: 'domcontentloaded' });
+      await page.waitForLoadState('networkidle').catch(() => {});
+
+      await page.goto(`${appBaseUrl}/dashboard`, { waitUntil: 'domcontentloaded' }).catch(() => {});
+      await sleep(2_000);
+
+      expect(capturedHeader, 'frontend should send X-Id-Token-Email on API calls').toBeTruthy();
+      expect(capturedHeader).toBe(expectedHeaderValue);
+    } finally {
+      page.off('request', onRequest);
+    }
   });
 });

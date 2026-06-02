@@ -200,12 +200,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     needs:
-      - build
       - e2e_refresh_auth_state
+      - deploy
+      - deploy_frontend
     permissions:
       contents: read
     continue-on-error: true
-    if: ${{ ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && github.event.inputs.run_full_e2e == 'true')) && vars.E2E_API_BASE_URL != '' && vars.E2E_APP_URL != '' }}
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.E2E_API_BASE_URL != '' && vars.E2E_APP_URL != '' }}
 
     steps:
     - uses: actions/checkout@v5
@@ -248,15 +249,15 @@ jobs:
         name: playwright-auth-state-${{ github.run_id }}
         path: tests/e2e/.auth
 
-    - name: Probe member auth state id_token email claim
+    - name: Probe member auth state email hint
       id: member_email_hint_probe
       continue-on-error: true
       run: node scripts/ci/check-e2e-auth-preflight.mjs --mode=auth-state --state-path=tests/e2e/.auth/member.json
 
-    - name: Warn when member id_token email claim is missing
+    - name: Warn when member auth state email hint is missing
       if: ${{ steps.member_email_hint_probe.outcome != 'success' }}
       run: |
-        echo "::warning::Member auth state is missing id_token email claim."
+        echo "::warning::Member auth state is missing id_token email claim or external E2E email seed."
         echo "::warning::Proceeding to browser-auth-email-hint regression, which will attempt credential login fallback."
 
     - name: Run browser auth email-hint regression
@@ -511,15 +512,15 @@ jobs:
           fi
         done
 
-    - name: Probe member auth state id_token email claim
+    - name: Probe member auth state email hint
       id: member_email_hint_probe
       continue-on-error: true
       run: node scripts/ci/check-e2e-auth-preflight.mjs --mode=auth-state --state-path=tests/e2e/.auth/member.json
 
-    - name: Warn when member id_token email claim is missing
+    - name: Warn when member auth state email hint is missing
       if: ${{ steps.member_email_hint_probe.outcome != 'success' }}
       run: |
-        echo "::warning::Member auth state is missing id_token email claim."
+        echo "::warning::Member auth state is missing id_token email claim or external E2E email seed."
         echo "::warning::Auth-refresh remains green so non-email-hint suites can execute; e2e_browser_auth_email_hint will enforce this as a hard requirement."
 
     - name: Upload debug screenshots on auth failure
@@ -856,7 +857,6 @@ jobs:
     - build
     - e2e_browser_launch_smoke_local
     - e2e_api_role_matrix
-    - e2e_browser_auth_email_hint
     permissions:
       contents: read
       id-token: write
