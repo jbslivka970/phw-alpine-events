@@ -43,10 +43,25 @@ describe('resolveTenantContext', () => {
     process.env['MULTI_TENANT_ENABLED'] = originalFlag;
   });
 
-  it('keeps default tenant when MULTI_TENANT_ENABLED is false', async () => {
+  it('rejects non-default tenant header when MULTI_TENANT_ENABLED is false', async () => {
     process.env['MULTI_TENANT_ENABLED'] = 'false';
 
     const req = buildReq({ headers: { 'x-tenant-id': '9f6bdc68-5d77-4fbe-a33a-3dcfd662d123' } });
+    const res = buildRes();
+    const next: NextFunction = jest.fn();
+
+    await resolveTenantContext(req, res, next);
+
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(res.json).toHaveBeenCalledWith({ error: 'Requested tenant is not accessible for this account.' });
+    expect(listTenantsForAuthenticatedUser).not.toHaveBeenCalled();
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('keeps default tenant when MULTI_TENANT_ENABLED is false and no tenant header is sent', async () => {
+    process.env['MULTI_TENANT_ENABLED'] = 'false';
+
+    const req = buildReq();
     const res = buildRes();
     const next: NextFunction = jest.fn();
 
