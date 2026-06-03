@@ -1325,36 +1325,40 @@ async function getTenantUsageSummary(tenantId: string): Promise<TenantUsageSumma
            FROM dbo.notification_log
            WHERE tenant_id = @tenant_id;
 
-           SELECT @notification_failures_total = COUNT_BIG(*)
-           FROM dbo.notification_log
-           WHERE tenant_id = @tenant_id
-             AND LOWER(COALESCE(status, '')) = 'failed';
+           IF COL_LENGTH('dbo.notification_log', 'status') IS NOT NULL
+             SELECT @notification_failures_total = COUNT_BIG(*)
+             FROM dbo.notification_log
+             WHERE tenant_id = @tenant_id
+               AND LOWER(COALESCE(status, '')) = 'failed';
          END
          ELSE
          BEGIN
            SELECT @notifications_total = COUNT_BIG(*)
            FROM dbo.notification_log;
 
-           SELECT @notification_failures_total = COUNT_BIG(*)
-           FROM dbo.notification_log
-           WHERE LOWER(COALESCE(status, '')) = 'failed';
+           IF COL_LENGTH('dbo.notification_log', 'status') IS NOT NULL
+             SELECT @notification_failures_total = COUNT_BIG(*)
+             FROM dbo.notification_log
+             WHERE LOWER(COALESCE(status, '')) = 'failed';
          END
        END
 
        IF OBJECT_ID(N'dbo.email_preference_log', N'U') IS NOT NULL
        BEGIN
-         IF COL_LENGTH('dbo.email_preference_log', 'tenant_id') IS NOT NULL
+         IF COL_LENGTH('dbo.email_preference_log', 'action') IS NOT NULL
+            AND COL_LENGTH('dbo.email_preference_log', 'tenant_id') IS NOT NULL
            SELECT @email_opt_out_total = COUNT_BIG(*)
            FROM dbo.email_preference_log
            WHERE tenant_id = @tenant_id
              AND action = 'opt_out';
-         ELSE IF OBJECT_ID(N'dbo.member', N'U') IS NOT NULL AND COL_LENGTH('dbo.member', 'tenant_id') IS NOT NULL
+         ELSE IF COL_LENGTH('dbo.email_preference_log', 'action') IS NOT NULL
+            AND OBJECT_ID(N'dbo.member', N'U') IS NOT NULL AND COL_LENGTH('dbo.member', 'tenant_id') IS NOT NULL
            SELECT @email_opt_out_total = COUNT_BIG(*)
            FROM dbo.email_preference_log epl
            INNER JOIN dbo.member m ON m.member_id = epl.member_id
            WHERE m.tenant_id = @tenant_id
              AND epl.action = 'opt_out';
-         ELSE
+         ELSE IF COL_LENGTH('dbo.email_preference_log', 'action') IS NOT NULL
            SELECT @email_opt_out_total = COUNT_BIG(*)
            FROM dbo.email_preference_log
            WHERE action = 'opt_out';
@@ -1362,18 +1366,20 @@ async function getTenantUsageSummary(tenantId: string): Promise<TenantUsageSumma
 
        IF OBJECT_ID(N'dbo.sms_consent_log', N'U') IS NOT NULL
        BEGIN
-         IF COL_LENGTH('dbo.sms_consent_log', 'tenant_id') IS NOT NULL
+         IF COL_LENGTH('dbo.sms_consent_log', 'action') IS NOT NULL
+            AND COL_LENGTH('dbo.sms_consent_log', 'tenant_id') IS NOT NULL
            SELECT @sms_opt_out_total = COUNT_BIG(*)
            FROM dbo.sms_consent_log
            WHERE tenant_id = @tenant_id
              AND action = 'opt_out';
-         ELSE IF OBJECT_ID(N'dbo.member', N'U') IS NOT NULL AND COL_LENGTH('dbo.member', 'tenant_id') IS NOT NULL
+         ELSE IF COL_LENGTH('dbo.sms_consent_log', 'action') IS NOT NULL
+            AND OBJECT_ID(N'dbo.member', N'U') IS NOT NULL AND COL_LENGTH('dbo.member', 'tenant_id') IS NOT NULL
            SELECT @sms_opt_out_total = COUNT_BIG(*)
            FROM dbo.sms_consent_log scl
            INNER JOIN dbo.member m ON m.member_id = scl.member_id
            WHERE m.tenant_id = @tenant_id
              AND scl.action = 'opt_out';
-         ELSE
+         ELSE IF COL_LENGTH('dbo.sms_consent_log', 'action') IS NOT NULL
            SELECT @sms_opt_out_total = COUNT_BIG(*)
            FROM dbo.sms_consent_log
            WHERE action = 'opt_out';
