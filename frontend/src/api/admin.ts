@@ -1,4 +1,4 @@
-import { apiDelete, apiGet, apiPost, apiPut } from './client';
+import { apiDelete, apiGet, apiPatch, apiPost, apiPut } from './client';
 
 interface InviteDraftRequest {
   event_id?: string;
@@ -181,6 +181,66 @@ interface UserRoleAssignmentsResponse {
   assignments: UserRoleAssignment[];
 }
 
+interface TenantAdminBranding {
+  tenant_id: string;
+  org_long_name: string | null;
+  org_short_name: string | null;
+  support_email: string | null;
+  accessibility_email: string | null;
+  logo_url: string | null;
+  logo_dark_url: string | null;
+  hero_image_urls: string[];
+  primary_color: string | null;
+  accent_color: string | null;
+  dark_color: string | null;
+  program_tagline: string | null;
+  portal_login_url: string | null;
+  mission_blurb: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+interface TenantAdminMessaging {
+  tenant_id: string;
+  email_from: string | null;
+  email_reply_to: string | null;
+  email_bcc_monitor: string | null;
+  sms_provider: 'acs' | 'twilio' | 'telnyx' | null;
+  sms_from: string | null;
+  twilio_messaging_service_sid: string | null;
+  telnyx_messaging_profile_id: string | null;
+  telnyx_from_number: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+interface TenantAdminGrantSummary {
+  tenant_membership_id: string;
+  tenant_id: string;
+  user_id: string;
+  email: string;
+  display_name: string | null;
+  role: string;
+  membership_kind: string;
+  status: string;
+  starts_at: string;
+  expires_at: string | null;
+}
+
+interface TenantMembershipSummary {
+  tenant_membership_id: string;
+  tenant_id: string;
+  user_id: string | null;
+  member_id: string | null;
+  subject_email: string | null;
+  subject_display_name: string | null;
+  role: string;
+  membership_kind: string;
+  status: string;
+  starts_at: string;
+  expires_at: string | null;
+}
+
 const adminApi = {
   generateInviteDraft: (payload: InviteDraftRequest) =>
     apiPost<InviteDraftResponse>('/admin/ai/invite-draft', payload),
@@ -265,6 +325,36 @@ const adminApi = {
     apiPost<UserRoleAssignment>('/admin/app-roles/assign', { email, role }),
   removeAppRole: (assignmentId: string) =>
     apiDelete<{ message: string }>(`/admin/app-roles/assignments/${assignmentId}`),
+  getTenantBranding: () =>
+    apiGet<TenantAdminBranding>('/admin/tenant/branding'),
+  updateTenantBranding: (payload: Partial<TenantAdminBranding>) =>
+    apiPut<TenantAdminBranding>('/admin/tenant/branding', payload),
+  getTenantMessaging: () =>
+    apiGet<TenantAdminMessaging>('/admin/tenant/messaging'),
+  updateTenantMessaging: (payload: {
+    email_from?: string | null;
+    email_reply_to?: string | null;
+    email_bcc_monitor?: string | null;
+  }) => apiPut<TenantAdminMessaging>('/admin/tenant/messaging', payload),
+  listTenantAdmins: () =>
+    apiGet<{ admins: TenantAdminGrantSummary[] }>('/admin/tenant/admins'),
+  grantTenantAdmin: (payload: { email: string; display_name?: string | null; expires_at?: string | null }) =>
+    apiPost<{ admins: TenantAdminGrantSummary[] }>('/admin/tenant/admins', payload),
+  revokeTenantAdmin: (userId: string) =>
+    apiDelete<{ admins: TenantAdminGrantSummary[] }>(`/admin/tenant/admins/${encodeURIComponent(userId)}`),
+  listTenantMemberships: () =>
+    apiGet<{ memberships: TenantMembershipSummary[] }>('/admin/tenant/memberships'),
+  grantTenantMembership: (payload: {
+    email: string;
+    display_name?: string | null;
+    role: string;
+    membership_kind: string;
+    expires_at?: string | null;
+  }) => apiPost<{ memberships: TenantMembershipSummary[] }>('/admin/tenant/memberships', payload),
+  updateTenantMembership: (
+    membershipId: string,
+    payload: { role?: string; membership_kind?: string; status?: string; expires_at?: string | null }
+  ) => apiPatch<{ memberships: TenantMembershipSummary[] }>(`/admin/tenant/memberships/${encodeURIComponent(membershipId)}`, payload),
   blastPreview: (payload: BlastRequest) =>
     apiPost<{ recipient_count: number }>('/admin/blast/preview', payload),
   blastSend: (payload: BlastRequest & { confirm: 'SEND' }) =>
@@ -325,6 +415,10 @@ export type {
   AppRoleAvailable,
   UserRoleAssignment,
   UserRoleAssignmentsResponse,
+  TenantAdminBranding,
+  TenantAdminMessaging,
+  TenantAdminGrantSummary,
+  TenantMembershipSummary,
   BlastRequest,
   BlastTarget,
   BlastLogEntry,

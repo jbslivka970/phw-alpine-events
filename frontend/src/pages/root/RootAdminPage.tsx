@@ -663,7 +663,7 @@ function RootAdminPage() {
   return (
     <section className="page">
       <h1>Root Tenant Administration</h1>
-      <p className="admin-note">Create tenants, manage branding with Blob-backed image uploads, and grant tenant admins.</p>
+      <p className="admin-note">Create tenants, monitor usage, and manage demo lifecycle. Tenant branding, messaging metadata, and tenant access are managed inside the tenant admin portal.</p>
 
       <section className="admin-card" style={{ marginBottom: '1rem' }}>
         <h2 className="admin-section-title">Create Tenant</h2>
@@ -712,47 +712,10 @@ function RootAdminPage() {
       </section>
 
       <section className="admin-card" style={{ marginBottom: '1rem' }}>
-        <h2 className="admin-section-title">
-          Tenant Messaging Configuration
-          {panelBadge(messagingBusy, messagingError)}
-        </h2>
-        <p className="admin-note" style={{ marginBottom: '0.75rem' }}>
-          Store non-secret sender metadata here. Keep provider API secrets in Key Vault-backed app settings.
+        <h2 className="admin-section-title">Tenant-Scoped Controls</h2>
+        <p className="admin-note" style={{ marginBottom: 0 }}>
+          Branding, tenant messaging metadata (email from/reply-to/BCC), tenant admin grants, and tenant memberships are managed in <Link to="/admin">Admin</Link> within the active tenant context.
         </p>
-        {messagingError && <p className="ui-notice ui-notice--error">{messagingError}</p>}
-        {messagingSuccess && <p className="ui-notice ui-notice--success">{messagingSuccess}</p>}
-
-        {!selectedTenantId || messagingBusy ? (
-          <p>Loading tenant messaging…</p>
-        ) : messaging ? (
-          <>
-            <div className="admin-grid admin-grid--3" style={{ marginBottom: '0.75rem' }}>
-              <input className="members-input" placeholder="Email from" value={messaging.email_from ?? ''} onChange={(e) => setMessaging((current) => current ? { ...current, email_from: e.target.value } : current)} />
-              <input className="members-input" placeholder="Email reply-to" value={messaging.email_reply_to ?? ''} onChange={(e) => setMessaging((current) => current ? { ...current, email_reply_to: e.target.value } : current)} />
-              <input className="members-input" placeholder="Email BCC monitor" value={messaging.email_bcc_monitor ?? ''} onChange={(e) => setMessaging((current) => current ? { ...current, email_bcc_monitor: e.target.value } : current)} />
-
-              <select className="members-input" value={messaging.sms_provider ?? ''} onChange={(e) => setMessaging((current) => current ? { ...current, sms_provider: (e.target.value || null) as RootTenantMessaging['sms_provider'] } : current)}>
-                <option value="">(none)</option>
-                <option value="acs">acs</option>
-                <option value="twilio">twilio</option>
-                <option value="telnyx">telnyx</option>
-              </select>
-              <input className="members-input" placeholder="SMS from number" value={messaging.sms_from ?? ''} onChange={(e) => setMessaging((current) => current ? { ...current, sms_from: e.target.value } : current)} />
-              <input className="members-input" placeholder="Twilio Messaging Service SID" value={messaging.twilio_messaging_service_sid ?? ''} onChange={(e) => setMessaging((current) => current ? { ...current, twilio_messaging_service_sid: e.target.value } : current)} />
-
-              <input className="members-input" placeholder="Telnyx Messaging Profile ID" value={messaging.telnyx_messaging_profile_id ?? ''} onChange={(e) => setMessaging((current) => current ? { ...current, telnyx_messaging_profile_id: e.target.value } : current)} />
-              <input className="members-input" placeholder="Telnyx from number" value={messaging.telnyx_from_number ?? ''} onChange={(e) => setMessaging((current) => current ? { ...current, telnyx_from_number: e.target.value } : current)} />
-            </div>
-            <button className="btn btn--primary btn--sm" disabled={messagingSaveBusy} onClick={() => void handleSaveMessaging()}>
-              {messagingSaveBusy ? 'Saving…' : 'Save Messaging'}
-            </button>
-            <button className="btn btn--outline btn--sm" style={{ marginLeft: '0.5rem' }} disabled={messagingBusy} onClick={() => void handleRetryMessaging()}>
-              {messagingBusy ? 'Retrying…' : 'Retry'}
-            </button>
-          </>
-        ) : (
-          <p className="admin-note">No messaging row found for this tenant.</p>
-        )}
       </section>
 
       <section className="admin-card" style={{ marginBottom: '1rem' }}>
@@ -859,71 +822,6 @@ function RootAdminPage() {
       </section>
 
       <section className="admin-card" style={{ marginBottom: '1rem' }}>
-        <h2 className="admin-section-title">
-          Branding Editor
-          {panelBadge(brandingBusy, brandingError)}
-        </h2>
-        {brandingError && <p className="ui-notice ui-notice--error">{brandingError}</p>}
-        {brandingSuccess && <p className="ui-notice ui-notice--success">{brandingSuccess}</p>}
-        <button className="btn btn--outline btn--sm" style={{ marginBottom: '0.75rem' }} disabled={brandingBusy || !selectedTenantId} onClick={() => void handleRetryBranding()}>
-          {brandingBusy ? 'Retrying…' : 'Retry Branding'}
-        </button>
-
-        {!selectedTenantId || brandingBusy ? (
-          <p>Loading branding…</p>
-        ) : branding ? (
-          <>
-            <div className="admin-grid admin-grid--2" style={{ marginBottom: '0.75rem' }}>
-              <input className="members-input" value={branding.org_long_name ?? ''} placeholder="Org long name" onChange={(e) => setBranding((current) => current ? { ...current, org_long_name: e.target.value } : current)} />
-              <input className="members-input" value={branding.org_short_name ?? ''} placeholder="Org short name" onChange={(e) => setBranding((current) => current ? { ...current, org_short_name: e.target.value } : current)} />
-              <input className="members-input" value={branding.support_email ?? ''} placeholder="Support email" onChange={(e) => setBranding((current) => current ? { ...current, support_email: e.target.value } : current)} />
-              <input className="members-input" value={branding.accessibility_email ?? ''} placeholder="Accessibility email" onChange={(e) => setBranding((current) => current ? { ...current, accessibility_email: e.target.value } : current)} />
-              <input className="members-input" value={branding.primary_color ?? ''} placeholder="Primary color (#hex)" onChange={(e) => setBranding((current) => current ? { ...current, primary_color: e.target.value } : current)} />
-              <input className="members-input" value={branding.accent_color ?? ''} placeholder="Accent color (#hex)" onChange={(e) => setBranding((current) => current ? { ...current, accent_color: e.target.value } : current)} />
-              <input className="members-input" value={branding.dark_color ?? ''} placeholder="Dark color (#hex)" onChange={(e) => setBranding((current) => current ? { ...current, dark_color: e.target.value } : current)} />
-              <input className="members-input" value={branding.portal_login_url ?? ''} placeholder="Portal login URL" onChange={(e) => setBranding((current) => current ? { ...current, portal_login_url: e.target.value } : current)} />
-            </div>
-
-            <textarea className="members-input" rows={3} value={branding.program_tagline ?? ''} placeholder="Program tagline" onChange={(e) => setBranding((current) => current ? { ...current, program_tagline: e.target.value } : current)} style={{ marginBottom: '0.5rem' }} />
-            <textarea className="members-input" rows={4} value={branding.mission_blurb ?? ''} placeholder="Mission blurb" onChange={(e) => setBranding((current) => current ? { ...current, mission_blurb: e.target.value } : current)} style={{ marginBottom: '0.75rem' }} />
-
-            <div className="admin-grid admin-grid--3" style={{ marginBottom: '0.75rem' }}>
-              <label className="members-field-label">
-                Logo upload
-                <input className="members-input" type="file" accept="image/*" onChange={(e) => {
-                  const file = e.target.files?.[0]
-                  if (file) void handleBlobUpload(file, 'logo')
-                  e.currentTarget.value = ''
-                }} />
-              </label>
-              <label className="members-field-label">
-                Dark logo upload
-                <input className="members-input" type="file" accept="image/*" onChange={(e) => {
-                  const file = e.target.files?.[0]
-                  if (file) void handleBlobUpload(file, 'logo_dark')
-                  e.currentTarget.value = ''
-                }} />
-              </label>
-              <label className="members-field-label">
-                Hero upload
-                <input className="members-input" type="file" accept="image/*" onChange={(e) => {
-                  const file = e.target.files?.[0]
-                  if (file) void handleBlobUpload(file, 'hero')
-                  e.currentTarget.value = ''
-                }} />
-              </label>
-            </div>
-
-            <button className="btn btn--primary btn--sm" disabled={brandingSaveBusy} onClick={() => void handleSaveBranding()}>
-              {brandingSaveBusy ? 'Saving…' : 'Save Branding'}
-            </button>
-          </>
-        ) : (
-          <p className="admin-note">No branding found for this tenant.</p>
-        )}
-      </section>
-
-      <section className="admin-card" style={{ marginBottom: '1rem' }}>
         <h2 className="admin-section-title">Blob CORS Helper</h2>
         <p className="admin-note" style={{ marginBottom: '0.5rem' }}>
           Detected Azure topology in this subscription:
@@ -964,109 +862,6 @@ function RootAdminPage() {
         </p>
       </section>
 
-      <section className="admin-card">
-        <h2 className="admin-section-title">
-          Tenant Admin Grants
-          {panelBadge(adminLoadBusy, adminGrantError)}
-        </h2>
-        {adminGrantError && <p className="ui-notice ui-notice--error">{adminGrantError}</p>}
-        {adminGrantSuccess && <p className="ui-notice ui-notice--success">{adminGrantSuccess}</p>}
-        <button className="btn btn--outline btn--sm" style={{ marginBottom: '0.75rem' }} disabled={adminLoadBusy || !selectedTenantId} onClick={() => void handleRetryAdmins()}>
-          {adminLoadBusy ? 'Retrying…' : 'Retry Admins'}
-        </button>
-        <div className="admin-grid admin-grid--3" style={{ marginBottom: '0.75rem' }}>
-          <input className="members-input" placeholder="admin email" value={adminEmail} onChange={(e) => setAdminEmail(e.target.value)} />
-          <input className="members-input" placeholder="display name (optional)" value={adminDisplayName} onChange={(e) => setAdminDisplayName(e.target.value)} />
-          <input className="members-input" type="datetime-local" value={adminExpiresAt} onChange={(e) => setAdminExpiresAt(e.target.value)} />
-          <button className="btn btn--primary btn--sm" disabled={adminGrantBusy || !adminEmail.trim() || !selectedTenantId} onClick={() => void handleGrantAdmin()}>
-            {adminGrantBusy ? 'Granting…' : 'Grant Tenant Admin'}
-          </button>
-        </div>
-
-        {adminLoadBusy ? (
-          <p>Loading tenant admins…</p>
-        ) : tenantAdmins.length === 0 ? (
-          <p className="admin-note">No active tenant admins assigned.</p>
-        ) : (
-          <ul>
-            {tenantAdmins.map((admin) => (
-              <li key={admin.tenant_membership_id}>
-                <strong>{admin.email}</strong>
-                {admin.display_name ? ` (${admin.display_name})` : ''}
-                {admin.expires_at ? ` • expires ${new Date(admin.expires_at).toLocaleString()}` : ''}
-                {' '}
-                <button
-                  className="btn btn--outline btn--sm"
-                  disabled={adminRevokeBusyUserId === admin.user_id}
-                  onClick={() => void handleRevokeAdmin(admin.user_id, admin.email)}
-                >
-                  {adminRevokeBusyUserId === admin.user_id ? 'Revoking…' : 'Revoke'}
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-
-      <section className="admin-card" style={{ marginTop: '1rem' }}>
-        <h2 className="admin-section-title">
-          Tenant Memberships
-          {panelBadge(membershipLoadBusy, membershipError)}
-        </h2>
-        {membershipError && <p className="ui-notice ui-notice--error">{membershipError}</p>}
-        {membershipSuccess && <p className="ui-notice ui-notice--success">{membershipSuccess}</p>}
-        <button className="btn btn--outline btn--sm" style={{ marginBottom: '0.75rem' }} disabled={membershipLoadBusy || !selectedTenantId} onClick={() => void handleRetryMemberships()}>
-          {membershipLoadBusy ? 'Retrying…' : 'Retry Memberships'}
-        </button>
-
-        <div className="admin-grid admin-grid--3" style={{ marginBottom: '0.75rem' }}>
-          <input className="members-input" placeholder="user email" value={membershipEmail} onChange={(e) => setMembershipEmail(e.target.value)} />
-          <input className="members-input" placeholder="display name (optional)" value={membershipDisplayName} onChange={(e) => setMembershipDisplayName(e.target.value)} />
-          <input className="members-input" type="datetime-local" value={membershipExpiresAt} onChange={(e) => setMembershipExpiresAt(e.target.value)} />
-          <select className="members-input" value={membershipRole} onChange={(e) => setMembershipRole(e.target.value)}>
-            <option value="member">member</option>
-            <option value="admin">admin</option>
-            <option value="event_creator">event_creator</option>
-            <option value="tavf_creator">tavf_creator</option>
-            <option value="support">support</option>
-            <option value="root_admin">root_admin</option>
-          </select>
-          <select className="members-input" value={membershipKind} onChange={(e) => setMembershipKind(e.target.value)}>
-            <option value="home">home</option>
-            <option value="temporary_demo">temporary_demo</option>
-            <option value="admin">admin</option>
-          </select>
-          <button className="btn btn--primary btn--sm" disabled={membershipBusy || !membershipEmail.trim() || !selectedTenantId} onClick={() => void handleGrantTenantMembership()}>
-            {membershipBusy ? 'Saving…' : 'Grant Membership'}
-          </button>
-        </div>
-
-        {membershipLoadBusy ? (
-          <p>Loading memberships…</p>
-        ) : tenantMemberships.length === 0 ? (
-          <p className="admin-note">No memberships found for this tenant.</p>
-        ) : (
-          <ul>
-            {tenantMemberships.map((membership) => (
-              <li key={membership.tenant_membership_id}>
-                <strong>{membership.subject_email ?? '(no email)'}</strong>
-                {membership.subject_display_name ? ` (${membership.subject_display_name})` : ''}
-                {` • ${membership.role}/${membership.membership_kind}`}
-                {` • ${membership.status}`}
-                {membership.expires_at ? ` • expires ${new Date(membership.expires_at).toLocaleString()}` : ''}
-                {membership.status !== 'revoked' ? (
-                  <>
-                    {' '}
-                    <button className="btn btn--outline btn--sm" disabled={membershipBusy} onClick={() => void handleRevokeTenantMembership(membership.tenant_membership_id)}>
-                      Revoke
-                    </button>
-                  </>
-                ) : null}
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
     </section>
   )
 }

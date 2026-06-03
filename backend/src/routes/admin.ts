@@ -22,6 +22,16 @@ import {
 import { notificationService } from '../services/notifications';
 import type { SendEmailOptions, SendSmsOptions } from '../services/notifications';
 import { runRetentionJob } from '../jobs/retentionJob';
+import { getTenantBranding, upsertTenantBranding } from '../services/rootTenantBrandingService';
+import { getTenantMessaging, upsertTenantMessaging } from '../services/rootTenantMessagingService';
+import {
+  grantTenantAdminByEmail,
+  grantTenantMembershipByEmail,
+  listTenantAdmins,
+  listTenantMemberships,
+  revokeTenantAdminByUserId,
+  updateTenantMembership,
+} from '../services/tenantService';
 
 const router = Router();
 
@@ -46,6 +56,13 @@ function invalidateIdentitySummaryCache() {
   _identitySummaryCache = null;
 }
 const APP_DB_ROLES = ['admin', 'superadmin', 'event_creator', 'tavf_creator', 'user'] as const;
+const TENANT_ROLES = ['member', 'admin', 'event_creator', 'tavf_creator', 'support', 'root_admin'] as const;
+const MEMBERSHIP_KINDS = ['home', 'temporary_demo', 'admin'] as const;
+const MEMBERSHIP_STATUSES = ['active', 'revoked'] as const;
+
+function isValidGuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value.trim());
+}
 
 type InviteTone = 'friendly' | 'professional';
 
@@ -441,6 +458,297 @@ function logIdentityInviteTrace(payload: {
 }
 
 router.use(apiLimiter, authenticate, requireAdmin);
+
+router.get('/tenant/branding', async (req, res, next) => {
+  try {
+    const tenantId = (req.tenantId ?? DEFAULT_TENANT_ID).trim();
+    if (!isValidGuid(tenantId)) {
+      res.status(400).json({ error: 'Resolved tenantId must be a valid UUID' });
+      return;
+    }
+
+    const branding = await getTenantBranding(tenantId);
+    if (!branding) {
+      res.status(404).json({ error: 'Tenant branding not found' });
+      return;
+    }
+
+    res.json(branding);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.put('/tenant/branding', writeLimiter, async (req, res, next) => {
+  try {
+    const tenantId = (req.tenantId ?? DEFAULT_TENANT_ID).trim();
+    if (!isValidGuid(tenantId)) {
+      res.status(400).json({ error: 'Resolved tenantId must be a valid UUID' });
+      return;
+    }
+
+    const heroImageUrls = Array.isArray(req.body?.hero_image_urls)
+      ? req.body.hero_image_urls.map((value: unknown) => String(value).trim()).filter((value: string) => value.length > 0)
+      : undefined;
+
+    const branding = await upsertTenantBranding({
+      tenantId,
+      org_long_name: req.body?.org_long_name,
+      org_short_name: req.body?.org_short_name,
+      support_email: req.body?.support_email,
+      accessibility_email: req.body?.accessibility_email,
+      logo_url: req.body?.logo_url,
+      logo_dark_url: req.body?.logo_dark_url,
+      hero_image_urls: heroImageUrls,
+      primary_color: req.body?.primary_color,
+      accent_color: req.body?.accent_color,
+      dark_color: req.body?.dark_color,
+      program_tagline: req.body?.program_tagline,
+      portal_login_url: req.body?.portal_login_url,
+      mission_blurb: req.body?.mission_blurb,
+    });
+
+    res.json(branding);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/tenant/messaging', async (req, res, next) => {
+  try {
+    const tenantId = (req.tenantId ?? DEFAULT_TENANT_ID).trim();
+    if (!isValidGuid(tenantId)) {
+      res.status(400).json({ error: 'Resolved tenantId must be a valid UUID' });
+      return;
+    }
+
+    const messaging = await getTenantMessaging(tenantId);
+    if (!messaging) {
+      res.status(404).json({ error: 'Tenant messaging not found' });
+      return;
+    }
+
+    res.json(messaging);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.put('/tenant/messaging', writeLimiter, async (req, res, next) => {
+  try {
+    const tenantId = (req.tenantId ?? DEFAULT_TENANT_ID).trim();
+    if (!isValidGuid(tenantId)) {
+      res.status(400).json({ error: 'Resolved tenantId must be a valid UUID' });
+      return;
+    }
+
+    const messaging = await upsertTenantMessaging({
+      tenantId,
+      email_from: req.body?.email_from,
+      email_reply_to: req.body?.email_reply_to,
+      email_bcc_monitor: req.body?.email_bcc_monitor,
+    });
+
+    res.json(messaging);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to save tenant messaging';
+    if (message.includes('must be')) {
+      res.status(400).json({ error: message });
+      return;
+    }
+    next(error);
+  }
+});
+
+router.get('/tenant/admins', async (req, res, next) => {
+  try {
+    const tenantId = (req.tenantId ?? DEFAULT_TENANT_ID).trim();
+    if (!isValidGuid(tenantId)) {
+      res.status(400).json({ error: 'Resolved tenantId must be a valid UUID' });
+      return;
+    }
+
+    const admins = await listTenantAdmins(tenantId);
+    res.json({ admins });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/tenant/admins', writeLimiter, async (req, res, next) => {
+  try {
+    const tenantId = (req.tenantId ?? DEFAULT_TENANT_ID).trim();
+    const email = typeof req.body?.email === 'string' ? req.body.email.trim() : '';
+    const displayName = typeof req.body?.display_name === 'string' ? req.body.display_name.trim() : null;
+    const expiresAt = typeof req.body?.expires_at === 'string' ? req.body.expires_at.trim() : null;
+
+    if (!isValidGuid(tenantId)) {
+      res.status(400).json({ error: 'Resolved tenantId must be a valid UUID' });
+      return;
+    }
+    if (!email || !email.includes('@')) {
+      res.status(400).json({ error: 'Valid email is required' });
+      return;
+    }
+
+    const admins = await grantTenantAdminByEmail({
+      tenantId,
+      email,
+      displayName,
+      actorEmail: req.user?.email ?? null,
+      expiresAt,
+    });
+
+    res.json({ admins });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to grant tenant admin';
+    if (message.includes('required') || message.includes('valid')) {
+      res.status(400).json({ error: message });
+      return;
+    }
+    next(error);
+  }
+});
+
+router.delete('/tenant/admins/:userId', writeLimiter, async (req, res, next) => {
+  try {
+    const tenantId = (req.tenantId ?? DEFAULT_TENANT_ID).trim();
+    const userId = String(req.params.userId ?? '').trim();
+
+    if (!isValidGuid(tenantId)) {
+      res.status(400).json({ error: 'Resolved tenantId must be a valid UUID' });
+      return;
+    }
+    if (!isValidGuid(userId)) {
+      res.status(400).json({ error: 'userId must be a valid UUID' });
+      return;
+    }
+
+    const admins = await revokeTenantAdminByUserId(tenantId, userId);
+    res.json({ admins });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/tenant/memberships', async (req, res, next) => {
+  try {
+    const tenantId = (req.tenantId ?? DEFAULT_TENANT_ID).trim();
+    if (!isValidGuid(tenantId)) {
+      res.status(400).json({ error: 'Resolved tenantId must be a valid UUID' });
+      return;
+    }
+
+    const memberships = await listTenantMemberships(tenantId);
+    res.json({ memberships });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/tenant/memberships', writeLimiter, async (req, res, next) => {
+  try {
+    const tenantId = (req.tenantId ?? DEFAULT_TENANT_ID).trim();
+    const email = typeof req.body?.email === 'string' ? req.body.email.trim() : '';
+    const displayName = typeof req.body?.display_name === 'string' ? req.body.display_name.trim() : null;
+    const role = typeof req.body?.role === 'string' ? req.body.role.trim().toLowerCase() : '';
+    const membershipKind = typeof req.body?.membership_kind === 'string' ? req.body.membership_kind.trim().toLowerCase() : '';
+    const expiresAt = typeof req.body?.expires_at === 'string' && req.body.expires_at.trim().length > 0
+      ? req.body.expires_at.trim()
+      : null;
+
+    if (!isValidGuid(tenantId)) {
+      res.status(400).json({ error: 'Resolved tenantId must be a valid UUID' });
+      return;
+    }
+    if (!email || !email.includes('@')) {
+      res.status(400).json({ error: 'Valid email is required' });
+      return;
+    }
+    if (!TENANT_ROLES.includes(role as (typeof TENANT_ROLES)[number])) {
+      res.status(400).json({ error: `role must be one of: ${TENANT_ROLES.join(', ')}` });
+      return;
+    }
+    if (!MEMBERSHIP_KINDS.includes(membershipKind as (typeof MEMBERSHIP_KINDS)[number])) {
+      res.status(400).json({ error: `membership_kind must be one of: ${MEMBERSHIP_KINDS.join(', ')}` });
+      return;
+    }
+
+    const memberships = await grantTenantMembershipByEmail({
+      tenantId,
+      email,
+      displayName,
+      actorEmail: req.user?.email ?? null,
+      role: role as (typeof TENANT_ROLES)[number],
+      membershipKind: membershipKind as (typeof MEMBERSHIP_KINDS)[number],
+      expiresAt,
+    });
+
+    res.json({ memberships });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to grant tenant membership';
+    if (message.includes('required') || message.includes('valid')) {
+      res.status(400).json({ error: message });
+      return;
+    }
+    next(error);
+  }
+});
+
+router.patch('/tenant/memberships/:membershipId', writeLimiter, async (req, res, next) => {
+  try {
+    const tenantId = (req.tenantId ?? DEFAULT_TENANT_ID).trim();
+    const membershipId = String(req.params.membershipId ?? '').trim();
+    const role = typeof req.body?.role === 'string' ? req.body.role.trim().toLowerCase() : undefined;
+    const membershipKind = typeof req.body?.membership_kind === 'string' ? req.body.membership_kind.trim().toLowerCase() : undefined;
+    const status = typeof req.body?.status === 'string' ? req.body.status.trim().toLowerCase() : undefined;
+    const hasExpiresAtField = Object.prototype.hasOwnProperty.call(req.body ?? {}, 'expires_at');
+    const expiresAt = hasExpiresAtField
+      ? (typeof req.body?.expires_at === 'string' ? req.body.expires_at.trim() : null)
+      : undefined;
+
+    if (!isValidGuid(tenantId)) {
+      res.status(400).json({ error: 'Resolved tenantId must be a valid UUID' });
+      return;
+    }
+    if (!isValidGuid(membershipId)) {
+      res.status(400).json({ error: 'membershipId must be a valid UUID' });
+      return;
+    }
+    if (role && !TENANT_ROLES.includes(role as (typeof TENANT_ROLES)[number])) {
+      res.status(400).json({ error: `role must be one of: ${TENANT_ROLES.join(', ')}` });
+      return;
+    }
+    if (membershipKind && !MEMBERSHIP_KINDS.includes(membershipKind as (typeof MEMBERSHIP_KINDS)[number])) {
+      res.status(400).json({ error: `membership_kind must be one of: ${MEMBERSHIP_KINDS.join(', ')}` });
+      return;
+    }
+    if (status && !MEMBERSHIP_STATUSES.includes(status as (typeof MEMBERSHIP_STATUSES)[number])) {
+      res.status(400).json({ error: `status must be one of: ${MEMBERSHIP_STATUSES.join(', ')}` });
+      return;
+    }
+    if (!role && !membershipKind && !status && expiresAt === undefined) {
+      res.status(400).json({ error: 'At least one field must be provided: role, membership_kind, status, expires_at' });
+      return;
+    }
+
+    const memberships = await updateTenantMembership(tenantId, membershipId, {
+      role: role as (typeof TENANT_ROLES)[number] | undefined,
+      membershipKind: membershipKind as (typeof MEMBERSHIP_KINDS)[number] | undefined,
+      status: status as (typeof MEMBERSHIP_STATUSES)[number] | undefined,
+      expiresAt: expiresAt === undefined ? undefined : (expiresAt || null),
+    });
+
+    res.json({ memberships });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to update tenant membership';
+    if (message.includes('required') || message.includes('valid')) {
+      res.status(400).json({ error: message });
+      return;
+    }
+    next(error);
+  }
+});
 
 router.get('/users', async (req, res) => {
   try {

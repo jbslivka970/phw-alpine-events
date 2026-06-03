@@ -102,6 +102,7 @@ const BLOB_ACCOUNT_NAME = process.env['TENANT_BRANDING_BLOB_ACCOUNT_NAME']?.trim
 const BLOB_ACCOUNT_KEY = process.env['TENANT_BRANDING_BLOB_ACCOUNT_KEY']?.trim() ?? '';
 const BLOB_CONTAINER_NAME = process.env['TENANT_BRANDING_BLOB_CONTAINER']?.trim() || 'tenant-branding';
 const BLOB_PUBLIC_BASE_URL = process.env['TENANT_BRANDING_BLOB_PUBLIC_BASE_URL']?.trim() ?? '';
+const DEFAULT_TENANT_ID = (process.env['DEFAULT_TENANT_ID'] ?? '1b6b9719-663a-4e56-8f7d-9a4bd4c10001').trim().toLowerCase();
 
 function asIsoString(value: Date | string): string {
   const parsed = value instanceof Date ? value : new Date(value);
@@ -207,13 +208,42 @@ function toTenantBranding(row: TenantBrandingRow): TenantBranding {
   };
 }
 
+function mergeBrandingWithDefaults(primary: TenantBrandingRow, fallback: TenantBrandingRow | null): TenantBrandingRow {
+  if (!fallback || primary.tenant_id.toLowerCase() === fallback.tenant_id.toLowerCase()) {
+    return primary;
+  }
+
+  const primaryHeroImages = parseHeroImageUrls(primary.hero_image_urls);
+  const fallbackHeroImages = parseHeroImageUrls(fallback.hero_image_urls);
+
+  return {
+    ...primary,
+    org_long_name: primary.org_long_name ?? fallback.org_long_name,
+    org_short_name: primary.org_short_name ?? fallback.org_short_name,
+    support_email: primary.support_email ?? fallback.support_email,
+    accessibility_email: primary.accessibility_email ?? fallback.accessibility_email,
+    logo_url: primary.logo_url ?? fallback.logo_url,
+    logo_dark_url: primary.logo_dark_url ?? fallback.logo_dark_url,
+    hero_image_urls: primaryHeroImages.length > 0
+      ? primary.hero_image_urls
+      : (fallbackHeroImages.length > 0 ? fallback.hero_image_urls : primary.hero_image_urls),
+    primary_color: primary.primary_color ?? fallback.primary_color,
+    accent_color: primary.accent_color ?? fallback.accent_color,
+    dark_color: primary.dark_color ?? fallback.dark_color,
+    program_tagline: primary.program_tagline ?? fallback.program_tagline,
+    portal_login_url: primary.portal_login_url ?? fallback.portal_login_url,
+    mission_blurb: primary.mission_blurb ?? fallback.mission_blurb,
+  };
+}
+
 async function getTenantBranding(tenantId: string): Promise<TenantBranding | null> {
   const pool = await getPool();
   const result = await pool
     .request()
     .input('tenant_id', sql.UniqueIdentifier, tenantId)
+    .input('default_tenant_id', sql.UniqueIdentifier, DEFAULT_TENANT_ID)
     .query<TenantBrandingRow>(
-      `SELECT TOP (1)
+      `SELECT
           tenant_id,
           org_long_name,
           org_short_name,
@@ -231,11 +261,15 @@ async function getTenantBranding(tenantId: string): Promise<TenantBranding | nul
           created_at,
           updated_at
        FROM dbo.tenant_branding
-       WHERE tenant_id = @tenant_id`
+       WHERE tenant_id IN (@tenant_id, @default_tenant_id)`
     );
 
-  const row = result.recordset[0];
-  return row ? toTenantBranding(row) : null;
+  const tenantRow = result.recordset.find((row) => row.tenant_id.toLowerCase() === tenantId.toLowerCase()) ?? null;
+  if (!tenantRow) {
+    return null;
+  }
+  const fallbackRow = result.recordset.find((row) => row.tenant_id.toLowerCase() === DEFAULT_TENANT_ID) ?? null;
+  return toTenantBranding(mergeBrandingWithDefaults(tenantRow, fallbackRow));
 }
 
 async function upsertTenantBranding(input: UpsertTenantBrandingInput): Promise<TenantBranding> {

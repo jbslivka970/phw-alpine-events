@@ -105,10 +105,38 @@ Preparatory schema work, bootstrap updates, and behind-flag tenant plumbing can 
         - Root UI now surfaces reseed outcomes in success messaging for the Demo Access Lifecycle section.
         - Focused root route tests now pass with 33/33 in `backend/src/__tests__/root.test.ts`.
 
-7. Staging denial-matrix harness added; live staging attempt currently blocked by environment config
-    - Added Playwright matrix coverage for forced `X-Tenant-Id` denial using authenticated admin/event_creator/member tokens.
-    - Attempted the check against `https://phwalpineeventsjb873a-staging.azurewebsites.net/api/v1`.
-    - Result: all three roles still received `200` on `GET /events` with an inaccessible tenant header, which indicates the staging slot is not currently enforcing tenant context (`MULTI_TENANT_ENABLED=true` is not active there yet, or equivalent slot config is not in effect).
+7. Staging denial-matrix harness added; enforcement contract now validated
+        - Added Playwright matrix coverage for forced `X-Tenant-Id` denial using authenticated admin/event_creator/member tokens.
+        - Live staging verification now matches expected root bypass contract:
+            - admin forced inaccessible tenant header returns `200` (root-scoped bypass expected)
+            - event_creator and member forced inaccessible tenant header return `403` with tenant access denial message.
+        - `npm run test:e2e:tenant-denial` passes on staging with fresh exchanged persona tokens.
+
+### Checkpoint update (June 3, 2026)
+
+1. Staging startup-health blocker resolved
+        - Root cause was not missing secrets; startup degradation came from ARM RBAC denial during key-vault-reference verification:
+            - `Microsoft.Web/sites/config/list/action` was denied for the staging runtime managed identity.
+        - Applied site-scope role assignment for backend app identity:
+            - Role: `Website Contributor`
+            - Scope: backend site resource (`phwalpineeventsjb873a`)
+        - Restarted staging slot and re-probed startup:
+            - `GET /api/v1/health` -> `200`
+            - `GET /api/v1/health/startup` -> `200`
+            - startup diagnostics now report `keyVaultReferencesConfigured=true`, source `arm`, no missing references.
+
+2. SCM/Kudu access uncertainty closed
+        - Re-ran staging SCM auth checks after policy updates.
+        - Backend staging SCM latest-deployment endpoint now returns `200` with completed deployment status.
+        - Frontend staging slot confirms `basicPublishingCredentialsPolicies/scm.allow=true` and both list-publishing-credentials and publish-profile credential flows now return `200` for SCM deployment status endpoint.
+
+3. Current release-state snapshot
+        - Latest CI/CD pipeline for head `31fb32a` is successful, with CodeQL and DAST baseline/authenticated checks also successful.
+        - Production remains healthy:
+            - `GET /api/v1/health` -> `200`
+            - `GET /api/v1/health/startup` -> `200`
+            - key-vault-reference check source is `arm` with no missing references.
+        - Staging is now in a valid state for continued validation and real-user testing preparation.
 
 ### Completed slices in main
 
@@ -154,7 +182,7 @@ Preparatory schema work, bootstrap updates, and behind-flag tenant plumbing can 
 
 1. Continue guard pattern to remaining event-id dependent queries not yet explicitly checked by tenant access guard (if any emerge during QA).
 2. Extend the same compatibility-safe guard style to remaining high-impact notification/reporting entry points where event/member ids can be dereferenced.
-3. Enable tenant enforcement on the staging slot and rerun the cross-tenant denial matrix before enabling `MULTI_TENANT_ENABLED` outside controlled environments.
+3. Keep current denial-matrix contract as a regression gate (`admin=200`, `event_creator/member=403`) before each onboarding or rollout window.
 
 ### Post-deploy todo list
 
@@ -167,8 +195,8 @@ Preparatory schema work, bootstrap updates, and behind-flag tenant plumbing can 
 - [x] Extend tenant guard pattern to notification-related route/service entry points that can dereference cross-tenant ids.
 - [x] Add or update focused route tests for remaining newly guarded families (`reports`, notifications).
 - [x] Expand root control-plane coverage for tenant admin revocation, tenant suspend/reactivate, and per-tenant usage metrics.
-- [ ] Run a cross-tenant denial matrix test pass in staging with `MULTI_TENANT_ENABLED=true`. Attempted June 2, 2026 against the staging slot, but the slot still returned `200` for inaccessible `X-Tenant-Id` headers across admin/event_creator/member roles.
-- [ ] Update this document with a new dated implementation checkpoint after the above items are complete.
+- [x] Run a cross-tenant denial matrix test pass in staging with `MULTI_TENANT_ENABLED=true`. Verified live contract (`admin=200`, `event_creator/member=403`) and Playwright suite pass.
+- [x] Update this document with a new dated implementation checkpoint after the above items are complete.
 
 ---
 

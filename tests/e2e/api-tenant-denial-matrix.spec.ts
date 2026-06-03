@@ -41,7 +41,7 @@ test.describe('API tenant denial matrix', () => {
   test.skip(!apiBase, 'E2E_API_BASE_URL (or BACKEND_BASE_URL) is required.');
 
   for (const [label, token] of Object.entries(tokens)) {
-    test(`rejects inaccessible tenant header for ${label}`, async ({ request }) => {
+    test(`handles inaccessible tenant header for ${label}`, async ({ request }) => {
       test.skip(!token, `${label} token is required.`);
 
       const baseline = await get(request, '/events', token);
@@ -52,6 +52,11 @@ test.describe('API tenant denial matrix', () => {
       const denied = await get(request, '/events', token, {
         'X-Tenant-Id': denyTenantId,
       });
+
+      if (label === 'admin') {
+        expect(denied.status, `${label} should retain root-scoped access when forcing an inaccessible tenant header`).toBe(200);
+        return;
+      }
 
       expect(denied.status, `${label} should be denied when forcing an inaccessible tenant header`).toBe(403);
       expect(denied.body, `${label} denial body should explain tenant access failure`).toContain('Requested tenant is not accessible');

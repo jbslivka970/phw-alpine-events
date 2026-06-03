@@ -360,7 +360,7 @@ async function upsertRootAccessProfile(input: UpsertRootAccessInput): Promise<Ro
   const normalizedDisplayName = normalizeNamePart(input.display_name) ?? normalizedEmail;
   const requestedRootRole = input.is_root ? (input.root_role ?? 'root_admin') : null;
   const personaSet = new Set<MemberPersona>((input.personas ?? []).filter(Boolean));
-  const desiredMemberships = input.tenant_memberships ?? [];
+  const desiredMemberships = input.tenant_memberships;
   const pool = await getPool();
   const transaction = new sql.Transaction(pool);
   await transaction.begin();
@@ -406,7 +406,7 @@ async function upsertRootAccessProfile(input: UpsertRootAccessInput): Promise<Ro
     }
 
     let memberId: string | null = null;
-    if (input.ensure_member || personaSet.size > 0 || desiredMemberships.some((membership) => membership.role === 'member')) {
+    if (input.ensure_member || personaSet.size > 0 || (desiredMemberships?.some((membership) => membership.role === 'member') ?? false)) {
       const ensureMemberRequest = await new sql.Request(transaction)
         .input('email', sql.NVarChar(255), normalizedEmail)
         .input('first_name', sql.NVarChar(100), firstName)
@@ -463,7 +463,7 @@ async function upsertRootAccessProfile(input: UpsertRootAccessInput): Promise<Ro
       }
     }
 
-    const normalizedMemberships = desiredMemberships.map((membership) => ({
+    const normalizedMemberships = (desiredMemberships ?? []).map((membership) => ({
       tenant_id: membership.tenant_id,
       role: membership.role,
       membership_kind: membership.membership_kind,
@@ -547,46 +547,48 @@ async function upsertRootAccessProfile(input: UpsertRootAccessInput): Promise<Ro
         );
     }
 
-    const desiredUserMembershipKeys = new Set(
-      normalizedMemberships
-        .filter((membership) => membership.subject_type === 'user')
-        .map((membership) => `${membership.tenant_id}:${membership.membership_kind}`)
-    );
-    const desiredMemberMembershipKeys = new Set(
-      normalizedMemberships
-        .filter((membership) => membership.subject_type === 'member')
-        .map((membership) => `${membership.tenant_id}:${membership.membership_kind}`)
-    );
-
-    const activeMemberships = await new sql.Request(transaction)
-      .input('user_id', sql.UniqueIdentifier, userId)
-      .input('member_id', sql.UniqueIdentifier, memberId)
-      .query<{ tenant_membership_id: string; tenant_id: string; membership_kind: TenantMembershipKind; user_id: string | null; member_id: string | null }>(
-        `SELECT tenant_membership_id, tenant_id, membership_kind, user_id, member_id
-         FROM dbo.tenant_membership
-         WHERE status = 'active'
-           AND revoked_at IS NULL
-           AND ((@user_id IS NOT NULL AND user_id = @user_id) OR (@member_id IS NOT NULL AND member_id = @member_id))`
+    if (desiredMemberships) {
+      const desiredUserMembershipKeys = new Set(
+        normalizedMemberships
+          .filter((membership) => membership.subject_type === 'user')
+          .map((membership) => `${membership.tenant_id}:${membership.membership_kind}`)
+      );
+      const desiredMemberMembershipKeys = new Set(
+        normalizedMemberships
+          .filter((membership) => membership.subject_type === 'member')
+          .map((membership) => `${membership.tenant_id}:${membership.membership_kind}`)
       );
 
-    for (const membership of activeMemberships.recordset) {
-      const key = `${membership.tenant_id}:${membership.membership_kind}`;
-      const shouldKeep = membership.user_id
-        ? desiredUserMembershipKeys.has(key)
-        : desiredMemberMembershipKeys.has(key);
-
-      if (shouldKeep) {
-        continue;
-      }
-
-      await new sql.Request(transaction)
-        .input('tenant_membership_id', sql.UniqueIdentifier, membership.tenant_membership_id)
-        .query(
-          `UPDATE dbo.tenant_membership
-           SET status = 'revoked',
-               revoked_at = GETUTCDATE()
-           WHERE tenant_membership_id = @tenant_membership_id`
+      const activeMemberships = await new sql.Request(transaction)
+        .input('user_id', sql.UniqueIdentifier, userId)
+        .input('member_id', sql.UniqueIdentifier, memberId)
+        .query<{ tenant_membership_id: string; tenant_id: string; membership_kind: TenantMembershipKind; user_id: string | null; member_id: string | null }>(
+          `SELECT tenant_membership_id, tenant_id, membership_kind, user_id, member_id
+           FROM dbo.tenant_membership
+           WHERE status = 'active'
+             AND revoked_at IS NULL
+             AND ((@user_id IS NOT NULL AND user_id = @user_id) OR (@member_id IS NOT NULL AND member_id = @member_id))`
         );
+
+      for (const membership of activeMemberships.recordset) {
+        const key = `${membership.tenant_id}:${membership.membership_kind}`;
+        const shouldKeep = membership.user_id
+          ? desiredUserMembershipKeys.has(key)
+          : desiredMemberMembershipKeys.has(key);
+
+        if (shouldKeep) {
+          continue;
+        }
+
+        await new sql.Request(transaction)
+          .input('tenant_membership_id', sql.UniqueIdentifier, membership.tenant_membership_id)
+          .query(
+            `UPDATE dbo.tenant_membership
+             SET status = 'revoked',
+                 revoked_at = GETUTCDATE()
+             WHERE tenant_membership_id = @tenant_membership_id`
+          );
+      }
     }
 
     await transaction.commit();

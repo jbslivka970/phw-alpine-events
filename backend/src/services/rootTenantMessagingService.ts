@@ -42,6 +42,16 @@ interface UpsertTenantMessagingInput {
   telnyx_from_number?: string | null;
 }
 
+const DEFAULT_TENANT_ID = (process.env['DEFAULT_TENANT_ID'] ?? '1b6b9719-663a-4e56-8f7d-9a4bd4c10001').trim().toLowerCase();
+
+interface GlobalSmsConfig {
+  sms_provider: SmsProvider;
+  sms_from: string | null;
+  twilio_messaging_service_sid: string | null;
+  telnyx_messaging_profile_id: string | null;
+  telnyx_from_number: string | null;
+}
+
 function toIso(value: Date | string): string {
   const parsed = value instanceof Date ? value : new Date(value);
   return Number.isNaN(parsed.getTime()) ? new Date().toISOString() : parsed.toISOString();
@@ -90,13 +100,68 @@ function toTenantMessaging(row: TenantMessagingRow): TenantMessaging {
   };
 }
 
+function resolveGlobalSmsConfig(): GlobalSmsConfig {
+  const explicitProviderRaw = normalizeOptional(process.env['GLOBAL_SMS_PROVIDER'] ?? process.env['SMS_PROVIDER']);
+  const explicitProvider = explicitProviderRaw ? explicitProviderRaw.toLowerCase() as SmsProvider : null;
+
+  const twilioMessagingServiceSid = normalizeOptional(process.env['TWILIO_MESSAGING_SERVICE_SID']);
+  const telnyxMessagingProfileId = normalizeOptional(process.env['TELNYX_MESSAGING_PROFILE_ID']);
+  const telnyxFromNumber = normalizeOptional(process.env['TELNYX_FROM_NUMBER']);
+  const acsFromNumber = normalizeOptional(process.env['ACS_FROM_NUMBER'] ?? process.env['SMS_FROM_NUMBER']);
+  const acsConnectionString = normalizeOptional(process.env['ACS_CONNECTION_STRING']);
+
+  let smsProvider: SmsProvider = null;
+  if (explicitProvider && ['acs', 'twilio', 'telnyx'].includes(explicitProvider)) {
+    smsProvider = explicitProvider;
+  } else if (twilioMessagingServiceSid) {
+    smsProvider = 'twilio';
+  } else if (telnyxMessagingProfileId || telnyxFromNumber) {
+    smsProvider = 'telnyx';
+  } else if (acsConnectionString || acsFromNumber) {
+    smsProvider = 'acs';
+  }
+
+  return {
+    sms_provider: smsProvider,
+    sms_from: smsProvider === 'telnyx' ? telnyxFromNumber : (smsProvider === 'acs' ? acsFromNumber : null),
+    twilio_messaging_service_sid: smsProvider === 'twilio' ? twilioMessagingServiceSid : null,
+    telnyx_messaging_profile_id: smsProvider === 'telnyx' ? telnyxMessagingProfileId : null,
+    telnyx_from_number: smsProvider === 'telnyx' ? telnyxFromNumber : null,
+  };
+}
+
+function mergeEmailDefaults(primary: TenantMessagingRow, fallback: TenantMessagingRow | null): TenantMessagingRow {
+  if (!fallback || primary.tenant_id.toLowerCase() === fallback.tenant_id.toLowerCase()) {
+    return primary;
+  }
+
+  return {
+    ...primary,
+    email_from: primary.email_from ?? fallback.email_from,
+    email_reply_to: primary.email_reply_to ?? fallback.email_reply_to,
+    email_bcc_monitor: primary.email_bcc_monitor ?? fallback.email_bcc_monitor,
+  };
+}
+
+function applyGlobalSmsOverrides(base: TenantMessagingRow, overrides: GlobalSmsConfig): TenantMessagingRow {
+  return {
+    ...base,
+    sms_provider: overrides.sms_provider,
+    sms_from: overrides.sms_from,
+    twilio_messaging_service_sid: overrides.twilio_messaging_service_sid,
+    telnyx_messaging_profile_id: overrides.telnyx_messaging_profile_id,
+    telnyx_from_number: overrides.telnyx_from_number,
+  };
+}
+
 async function getTenantMessaging(tenantId: string): Promise<TenantMessaging | null> {
   const pool = await getPool();
   const result = await pool
     .request()
     .input('tenant_id', sql.UniqueIdentifier, tenantId)
+    .input('default_tenant_id', sql.UniqueIdentifier, DEFAULT_TENANT_ID)
     .query<TenantMessagingRow>(
-      `SELECT TOP (1)
+      `SELECT
           tenant_id,
           email_from,
           email_reply_to,
@@ -109,11 +174,18 @@ async function getTenantMessaging(tenantId: string): Promise<TenantMessaging | n
           created_at,
           updated_at
        FROM dbo.tenant_messaging
-       WHERE tenant_id = @tenant_id`
+       WHERE tenant_id IN (@tenant_id, @default_tenant_id)`
     );
 
-  const row = result.recordset[0];
-  return row ? toTenantMessaging(row) : null;
+  const tenantRow = result.recordset.find((row) => row.tenant_id.toLowerCase() === tenantId.toLowerCase()) ?? null;
+  if (!tenantRow) {
+    return null;
+  }
+
+  const fallbackRow = result.recordset.find((row) => row.tenant_id.toLowerCase() === DEFAULT_TENANT_ID) ?? null;
+  const merged = mergeEmailDefaults(tenantRow, fallbackRow);
+  const withGlobalSms = applyGlobalSmsOverrides(merged, resolveGlobalSmsConfig());
+  return toTenantMessaging(withGlobalSms);
 }
 
 async function upsertTenantMessaging(input: UpsertTenantMessagingInput): Promise<TenantMessaging> {
@@ -125,15 +197,12 @@ async function upsertTenantMessaging(input: UpsertTenantMessagingInput): Promise
   const emailFrom = normalizeOptional(input.email_from);
   const emailReplyTo = normalizeOptional(input.email_reply_to);
   const emailBccMonitor = normalizeOptional(input.email_bcc_monitor);
-  const smsProvider = input.sms_provider ?? null;
-  const smsFrom = normalizeOptional(input.sms_from);
-  const twilioMessagingServiceSid = normalizeOptional(input.twilio_messaging_service_sid);
-  const telnyxMessagingProfileId = normalizeOptional(input.telnyx_messaging_profile_id);
-  const telnyxFromNumber = normalizeOptional(input.telnyx_from_number);
-
-  if (smsProvider && !['acs', 'twilio', 'telnyx'].includes(smsProvider)) {
-    throw new Error('sms_provider must be one of: acs, twilio, telnyx');
-  }
+  const globalSms = resolveGlobalSmsConfig();
+  const smsProvider = globalSms.sms_provider;
+  const smsFrom = globalSms.sms_from;
+  const twilioMessagingServiceSid = globalSms.twilio_messaging_service_sid;
+  const telnyxMessagingProfileId = globalSms.telnyx_messaging_profile_id;
+  const telnyxFromNumber = globalSms.telnyx_from_number;
 
   validateEmail(emailFrom, 'email_from');
   validateEmail(emailReplyTo, 'email_reply_to');

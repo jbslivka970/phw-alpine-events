@@ -50,6 +50,7 @@ app.disable('x-powered-by');
 const defaultAllowedOrigins = [
   'https://app.phwcoloradoalpine.org',
   'https://phwalpineeventsfe873a.azurewebsites.net',
+  'https://phwalpineeventsfe873a-staging.azurewebsites.net',
 ];
 const allowedOrigins = Array.from(new Set([
   ...(corsOrigin ?? '')

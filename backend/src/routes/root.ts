@@ -754,6 +754,7 @@ router.put('/access', writeLimiter, async (req, res, next) => {
     const personas = Array.isArray(req.body?.personas)
       ? req.body.personas.map((value: unknown) => String(value).trim().toLowerCase()) as MemberPersona[]
       : [];
+    const hasTenantMembershipsField = Object.prototype.hasOwnProperty.call(req.body ?? {}, 'tenant_memberships');
     const tenantMemberships = Array.isArray(req.body?.tenant_memberships) ? req.body.tenant_memberships : [];
 
     if (!email || !email.includes('@')) {
@@ -784,18 +785,20 @@ router.put('/access', writeLimiter, async (req, res, next) => {
         : null,
     }));
 
-    for (const membership of normalizedMemberships) {
-      if (!membership.tenant_id) {
-        res.status(400).json({ error: 'tenant_memberships[].tenant_id is required' });
-        return;
-      }
-      if (!membership.role || !TENANT_ROLES.includes(membership.role)) {
-        res.status(400).json({ error: `tenant membership role must be one of: ${TENANT_ROLES.join(', ')}` });
-        return;
-      }
-      if (!membership.membership_kind || !MEMBERSHIP_KINDS.includes(membership.membership_kind)) {
-        res.status(400).json({ error: `membership_kind must be one of: ${MEMBERSHIP_KINDS.join(', ')}` });
-        return;
+    if (hasTenantMembershipsField) {
+      for (const membership of normalizedMemberships) {
+        if (!membership.tenant_id) {
+          res.status(400).json({ error: 'tenant_memberships[].tenant_id is required' });
+          return;
+        }
+        if (!membership.role || !TENANT_ROLES.includes(membership.role)) {
+          res.status(400).json({ error: `tenant membership role must be one of: ${TENANT_ROLES.join(', ')}` });
+          return;
+        }
+        if (!membership.membership_kind || !MEMBERSHIP_KINDS.includes(membership.membership_kind)) {
+          res.status(400).json({ error: `membership_kind must be one of: ${MEMBERSHIP_KINDS.join(', ')}` });
+          return;
+        }
       }
     }
 
@@ -809,7 +812,7 @@ router.put('/access', writeLimiter, async (req, res, next) => {
       first_name: firstName,
       last_name: lastName,
       personas,
-      tenant_memberships: normalizedMemberships,
+      tenant_memberships: hasTenantMembershipsField ? normalizedMemberships : undefined,
       updated_by_email: req.user?.email ?? email,
     });
 

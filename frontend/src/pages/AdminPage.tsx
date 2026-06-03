@@ -1,16 +1,22 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { adminApi } from '../api/admin'
-import type { AdminUser, AppRoleAvailable, UserRoleAssignment, UserRoleAssignmentsResponse, BlastLogEntry } from '../api/admin'
+import type {
+  AdminUser,
+  AppRoleAvailable,
+  UserRoleAssignment,
+  UserRoleAssignmentsResponse,
+  BlastLogEntry,
+  TenantAdminBranding,
+  TenantAdminGrantSummary,
+  TenantAdminMessaging,
+  TenantMembershipSummary,
+} from '../api/admin'
 import { rootApi } from '../api/root'
 import type {
   AppUserRole,
   MemberPersona,
-  RootAccessMembershipSummary,
   RootAccessProfile,
-  RootTenantSummary,
-  TenantMembershipKind,
-  TenantMembershipRole,
 } from '../api/root'
 import { eventsApi } from '../api/events'
 import { groupsApi } from '../api/groups'
@@ -132,7 +138,6 @@ function AdminPage() {
   const [roleRemovingId, setRoleRemovingId] = useState<string | null>(null)
   const [rootSessionReady, setRootSessionReady] = useState(false)
   const [isRootAdmin, setIsRootAdmin] = useState(false)
-  const [rootTenants, setRootTenants] = useState<RootTenantSummary[]>([])
   const [rootLookupEmail, setRootLookupEmail] = useState('sarnitro@gmail.com')
   const [rootLookupBusy, setRootLookupBusy] = useState(false)
   const [rootLookupError, setRootLookupError] = useState<string | null>(null)
@@ -147,12 +152,34 @@ function AdminPage() {
   const [rootFirstName, setRootFirstName] = useState('')
   const [rootLastName, setRootLastName] = useState('')
   const [rootPersonas, setRootPersonas] = useState<MemberPersona[]>(['participant', 'volunteer'])
-  const [rootMemberships, setRootMemberships] = useState<Array<{
-    tenant_id: string
-    role: TenantMembershipRole
-    membership_kind: TenantMembershipKind
-    expires_at: string | null
-  }>>([])
+  const [tenantBranding, setTenantBranding] = useState<TenantAdminBranding | null>(null)
+  const [tenantBrandingBusy, setTenantBrandingBusy] = useState(false)
+  const [tenantBrandingSaveBusy, setTenantBrandingSaveBusy] = useState(false)
+  const [tenantBrandingError, setTenantBrandingError] = useState<string | null>(null)
+  const [tenantBrandingSuccess, setTenantBrandingSuccess] = useState<string | null>(null)
+  const [tenantMessaging, setTenantMessaging] = useState<TenantAdminMessaging | null>(null)
+  const [tenantMessagingBusy, setTenantMessagingBusy] = useState(false)
+  const [tenantMessagingSaveBusy, setTenantMessagingSaveBusy] = useState(false)
+  const [tenantMessagingError, setTenantMessagingError] = useState<string | null>(null)
+  const [tenantMessagingSuccess, setTenantMessagingSuccess] = useState<string | null>(null)
+  const [tenantAdmins, setTenantAdmins] = useState<TenantAdminGrantSummary[]>([])
+  const [tenantAdminsBusy, setTenantAdminsBusy] = useState(false)
+  const [tenantAdminActionBusy, setTenantAdminActionBusy] = useState(false)
+  const [tenantAdminError, setTenantAdminError] = useState<string | null>(null)
+  const [tenantAdminSuccess, setTenantAdminSuccess] = useState<string | null>(null)
+  const [tenantAdminEmail, setTenantAdminEmail] = useState('')
+  const [tenantAdminDisplayName, setTenantAdminDisplayName] = useState('')
+  const [tenantAdminExpiresAt, setTenantAdminExpiresAt] = useState('')
+  const [tenantMemberships, setTenantMemberships] = useState<TenantMembershipSummary[]>([])
+  const [tenantMembershipsBusy, setTenantMembershipsBusy] = useState(false)
+  const [tenantMembershipActionBusy, setTenantMembershipActionBusy] = useState(false)
+  const [tenantMembershipError, setTenantMembershipError] = useState<string | null>(null)
+  const [tenantMembershipSuccess, setTenantMembershipSuccess] = useState<string | null>(null)
+  const [tenantMembershipEmail, setTenantMembershipEmail] = useState('')
+  const [tenantMembershipDisplayName, setTenantMembershipDisplayName] = useState('')
+  const [tenantMembershipRole, setTenantMembershipRole] = useState('member')
+  const [tenantMembershipKind, setTenantMembershipKind] = useState('home')
+  const [tenantMembershipExpiresAt, setTenantMembershipExpiresAt] = useState('')
 
   // ── Blast state ────────────────────────────────────────────────────────────
   const [blastChannel, setBlastChannel] = useState<'email' | 'sms'>('email')
@@ -258,42 +285,24 @@ function AdminPage() {
   }, [])
 
   useEffect(() => {
+    void refreshTenantPortal()
+  }, [])
+
+  useEffect(() => {
     let active = true
 
     Promise.allSettled([
       rootApi.getSession(),
-      rootApi.listTenants(),
     ])
       .then((results) => {
         if (!active) return
 
         const sessionResult = results[0]
-        const tenantResult = results[1]
 
         if (sessionResult.status === 'fulfilled' && sessionResult.value.is_root) {
           setIsRootAdmin(true)
         } else {
           setIsRootAdmin(false)
-        }
-
-        if (tenantResult.status === 'fulfilled') {
-          const tenants = tenantResult.value.tenants
-          setRootTenants(tenants)
-          if (tenants.length > 0) {
-            setRootMemberships((current) => {
-              if (current.length > 0) return current
-              const defaultTenant = tenants.find((tenant) => tenant.slug === 'colorado-alpine') ?? tenants[0]
-              if (!defaultTenant) return current
-              return [
-                {
-                  tenant_id: defaultTenant.tenant_id,
-                  role: 'admin',
-                  membership_kind: 'home',
-                  expires_at: null,
-                },
-              ]
-            })
-          }
         }
       })
       .finally(() => {
@@ -681,13 +690,6 @@ function AdminPage() {
     setRootFirstName(profile.member?.first_name ?? '')
     setRootLastName(profile.member?.last_name ?? '')
     setRootPersonas(profile.personas)
-    const mappedMemberships = profile.tenant_memberships.map((membership: RootAccessMembershipSummary) => ({
-      tenant_id: membership.tenant_id,
-      role: membership.role,
-      membership_kind: membership.membership_kind,
-      expires_at: membership.expires_at,
-    }))
-    setRootMemberships(mappedMemberships)
   }
 
   async function handleRootLookup() {
@@ -732,7 +734,6 @@ function AdminPage() {
         first_name: rootFirstName.trim() || null,
         last_name: rootLastName.trim() || null,
         personas: rootPersonas,
-        tenant_memberships: rootMemberships,
       })
 
       hydrateRootEditor(profile)
@@ -744,19 +745,183 @@ function AdminPage() {
     }
   }
 
-  function upsertRootMembership(index: number, updates: Partial<{
-    tenant_id: string
-    role: TenantMembershipRole
-    membership_kind: TenantMembershipKind
-    expires_at: string | null
-  }>): void {
-    setRootMemberships((current) => current.map((membership, i) => {
-      if (i !== index) return membership
-      return {
-        ...membership,
-        ...updates,
-      }
-    }))
+  async function refreshTenantPortal(): Promise<void> {
+    setTenantBrandingBusy(true)
+    setTenantMessagingBusy(true)
+    setTenantAdminsBusy(true)
+    setTenantMembershipsBusy(true)
+    setTenantBrandingError(null)
+    setTenantMessagingError(null)
+    setTenantAdminError(null)
+    setTenantMembershipError(null)
+
+    const [brandingResult, messagingResult, adminsResult, membershipsResult] = await Promise.allSettled([
+      adminApi.getTenantBranding(),
+      adminApi.getTenantMessaging(),
+      adminApi.listTenantAdmins(),
+      adminApi.listTenantMemberships(),
+    ])
+
+    if (brandingResult.status === 'fulfilled') {
+      setTenantBranding(brandingResult.value)
+    } else {
+      setTenantBranding(null)
+      setTenantBrandingError(toUserErrorMessage(brandingResult.reason, 'Failed to load tenant branding.'))
+    }
+
+    if (messagingResult.status === 'fulfilled') {
+      setTenantMessaging(messagingResult.value)
+    } else {
+      setTenantMessaging(null)
+      setTenantMessagingError(toUserErrorMessage(messagingResult.reason, 'Failed to load tenant messaging metadata.'))
+    }
+
+    if (adminsResult.status === 'fulfilled') {
+      setTenantAdmins(adminsResult.value.admins)
+    } else {
+      setTenantAdmins([])
+      setTenantAdminError(toUserErrorMessage(adminsResult.reason, 'Failed to load tenant admins.'))
+    }
+
+    if (membershipsResult.status === 'fulfilled') {
+      setTenantMemberships(membershipsResult.value.memberships)
+    } else {
+      setTenantMemberships([])
+      setTenantMembershipError(toUserErrorMessage(membershipsResult.reason, 'Failed to load tenant memberships.'))
+    }
+
+    setTenantBrandingBusy(false)
+    setTenantMessagingBusy(false)
+    setTenantAdminsBusy(false)
+    setTenantMembershipsBusy(false)
+  }
+
+  async function handleSaveTenantBranding(): Promise<void> {
+    if (!tenantBranding) return
+    setTenantBrandingSaveBusy(true)
+    setTenantBrandingError(null)
+    setTenantBrandingSuccess(null)
+    try {
+      const saved = await adminApi.updateTenantBranding({
+        org_long_name: tenantBranding.org_long_name,
+        org_short_name: tenantBranding.org_short_name,
+        support_email: tenantBranding.support_email,
+        accessibility_email: tenantBranding.accessibility_email,
+        logo_url: tenantBranding.logo_url,
+        logo_dark_url: tenantBranding.logo_dark_url,
+        hero_image_urls: tenantBranding.hero_image_urls,
+        primary_color: tenantBranding.primary_color,
+        accent_color: tenantBranding.accent_color,
+        dark_color: tenantBranding.dark_color,
+        program_tagline: tenantBranding.program_tagline,
+        portal_login_url: tenantBranding.portal_login_url,
+        mission_blurb: tenantBranding.mission_blurb,
+      })
+      setTenantBranding(saved)
+      setTenantBrandingSuccess('Saved tenant branding settings.')
+    } catch (error) {
+      setTenantBrandingError(toUserErrorMessage(error, 'Failed to save tenant branding.'))
+    } finally {
+      setTenantBrandingSaveBusy(false)
+    }
+  }
+
+  async function handleSaveTenantMessaging(): Promise<void> {
+    if (!tenantMessaging) return
+    setTenantMessagingSaveBusy(true)
+    setTenantMessagingError(null)
+    setTenantMessagingSuccess(null)
+    try {
+      const saved = await adminApi.updateTenantMessaging({
+        email_from: tenantMessaging.email_from,
+        email_reply_to: tenantMessaging.email_reply_to,
+        email_bcc_monitor: tenantMessaging.email_bcc_monitor,
+      })
+      setTenantMessaging(saved)
+      setTenantMessagingSuccess('Saved tenant messaging metadata.')
+    } catch (error) {
+      setTenantMessagingError(toUserErrorMessage(error, 'Failed to save tenant messaging metadata.'))
+    } finally {
+      setTenantMessagingSaveBusy(false)
+    }
+  }
+
+  async function handleGrantTenantAdminPortal(): Promise<void> {
+    if (!tenantAdminEmail.trim()) return
+    setTenantAdminActionBusy(true)
+    setTenantAdminError(null)
+    setTenantAdminSuccess(null)
+    try {
+      const response = await adminApi.grantTenantAdmin({
+        email: tenantAdminEmail.trim(),
+        display_name: tenantAdminDisplayName.trim() || null,
+        expires_at: tenantAdminExpiresAt ? new Date(tenantAdminExpiresAt).toISOString() : null,
+      })
+      setTenantAdmins(response.admins)
+      setTenantAdminSuccess(`Granted tenant admin access to ${tenantAdminEmail.trim()}.`)
+      setTenantAdminEmail('')
+      setTenantAdminDisplayName('')
+      setTenantAdminExpiresAt('')
+    } catch (error) {
+      setTenantAdminError(toUserErrorMessage(error, 'Failed to grant tenant admin access.'))
+    } finally {
+      setTenantAdminActionBusy(false)
+    }
+  }
+
+  async function handleRevokeTenantAdminPortal(userId: string): Promise<void> {
+    setTenantAdminActionBusy(true)
+    setTenantAdminError(null)
+    setTenantAdminSuccess(null)
+    try {
+      const response = await adminApi.revokeTenantAdmin(userId)
+      setTenantAdmins(response.admins)
+      setTenantAdminSuccess('Tenant admin access revoked.')
+    } catch (error) {
+      setTenantAdminError(toUserErrorMessage(error, 'Failed to revoke tenant admin access.'))
+    } finally {
+      setTenantAdminActionBusy(false)
+    }
+  }
+
+  async function handleGrantTenantMembershipPortal(): Promise<void> {
+    if (!tenantMembershipEmail.trim()) return
+    setTenantMembershipActionBusy(true)
+    setTenantMembershipError(null)
+    setTenantMembershipSuccess(null)
+    try {
+      const response = await adminApi.grantTenantMembership({
+        email: tenantMembershipEmail.trim(),
+        display_name: tenantMembershipDisplayName.trim() || null,
+        role: tenantMembershipRole,
+        membership_kind: tenantMembershipKind,
+        expires_at: tenantMembershipExpiresAt ? new Date(tenantMembershipExpiresAt).toISOString() : null,
+      })
+      setTenantMemberships(response.memberships)
+      setTenantMembershipSuccess('Tenant membership granted.')
+      setTenantMembershipEmail('')
+      setTenantMembershipDisplayName('')
+      setTenantMembershipExpiresAt('')
+    } catch (error) {
+      setTenantMembershipError(toUserErrorMessage(error, 'Failed to grant tenant membership.'))
+    } finally {
+      setTenantMembershipActionBusy(false)
+    }
+  }
+
+  async function handleRevokeTenantMembershipPortal(membershipId: string): Promise<void> {
+    setTenantMembershipActionBusy(true)
+    setTenantMembershipError(null)
+    setTenantMembershipSuccess(null)
+    try {
+      const response = await adminApi.updateTenantMembership(membershipId, { status: 'revoked' })
+      setTenantMemberships(response.memberships)
+      setTenantMembershipSuccess('Tenant membership revoked.')
+    } catch (error) {
+      setTenantMembershipError(toUserErrorMessage(error, 'Failed to revoke tenant membership.'))
+    } finally {
+      setTenantMembershipActionBusy(false)
+    }
   }
 
   const provider = inviteDraft?.provider ?? null
@@ -1076,10 +1241,10 @@ function AdminPage() {
           <section className="card admin-tools-card">
             <h2 className="admin-section-title">Root Access Management</h2>
             <p className="page-subtitle" style={{ marginBottom: '0.9rem' }}>
-              Manage root and tenant access centrally without schema edits. This updates app user root flags, tenant memberships, and optional member personas.
+              Manage root account access without schema edits. This updates app user root flags and optional member personas.
             </p>
             <p className="admin-note" style={{ marginBottom: '0.9rem' }}>
-              Tenant provisioning, branding uploads, and tenant-admin grants now live on the dedicated root console: <Link to="/root">Open Root Tenant Administration</Link>.
+              Tenant branding, tenant messaging metadata, tenant admin grants, and tenant memberships are managed in this tenant-scoped admin portal.
             </p>
 
             <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
@@ -1154,66 +1319,6 @@ function AdminPage() {
               </div>
             </div>
 
-            <div style={{ marginBottom: 10 }}>
-              <p className="page-subtitle" style={{ marginBottom: 6 }}>Tenant memberships</p>
-              {rootMemberships.length === 0 && (
-                <p className="page-subtitle">No memberships configured yet.</p>
-              )}
-              <div style={{ display: 'grid', gap: 8 }}>
-                {rootMemberships.map((membership, index) => (
-                  <div key={`${membership.tenant_id}-${index}`} style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr 1fr 1fr auto', gap: 8 }}>
-                    <select className="members-input" value={membership.tenant_id} onChange={(e) => upsertRootMembership(index, { tenant_id: e.target.value })}>
-                      {rootTenants.map((tenant) => (
-                        <option key={tenant.tenant_id} value={tenant.tenant_id}>{tenant.display_name}</option>
-                      ))}
-                    </select>
-                    <select className="members-input" value={membership.role} onChange={(e) => upsertRootMembership(index, { role: e.target.value as TenantMembershipRole })}>
-                      {(['admin', 'event_creator', 'tavf_creator', 'support', 'root_admin', 'member'] as TenantMembershipRole[]).map((role) => (
-                        <option key={role} value={role}>{role}</option>
-                      ))}
-                    </select>
-                    <select className="members-input" value={membership.membership_kind} onChange={(e) => upsertRootMembership(index, { membership_kind: e.target.value as TenantMembershipKind })}>
-                      {(['home', 'admin', 'temporary_demo'] as TenantMembershipKind[]).map((kind) => (
-                        <option key={kind} value={kind}>{kind}</option>
-                      ))}
-                    </select>
-                    <input
-                      className="members-input"
-                      type="datetime-local"
-                      value={membership.expires_at ? membership.expires_at.slice(0, 16) : ''}
-                      onChange={(e) => upsertRootMembership(index, { expires_at: e.target.value ? new Date(e.target.value).toISOString() : null })}
-                      placeholder="Expiry (optional)"
-                    />
-                    <button
-                      className="btn btn--outline btn--sm"
-                      onClick={() => setRootMemberships((current) => current.filter((_, i) => i !== index))}
-                    >
-                      Remove
-                    </button>
-                  </div>
-                ))}
-              </div>
-              <button
-                className="btn btn--outline btn--sm"
-                style={{ marginTop: 8 }}
-                onClick={() => {
-                  const defaultTenant = rootTenants.find((tenant) => tenant.slug === 'colorado-alpine') ?? rootTenants[0]
-                  if (!defaultTenant) return
-                  setRootMemberships((current) => [
-                    ...current,
-                    {
-                      tenant_id: defaultTenant.tenant_id,
-                      role: 'admin',
-                      membership_kind: 'home',
-                      expires_at: null,
-                    },
-                  ])
-                }}
-              >
-                Add Membership
-              </button>
-            </div>
-
             <button className="btn btn--primary btn--sm" disabled={rootSaveBusy} onClick={() => void handleRootSave()}>
               {rootSaveBusy ? 'Saving…' : 'Save Root Access'}
             </button>
@@ -1225,6 +1330,148 @@ function AdminPage() {
             )}
           </section>
         )}
+
+        <section className="card admin-tools-card">
+          <h2 className="admin-section-title">Tenant Branding</h2>
+          <p className="page-subtitle" style={{ marginBottom: '0.9rem' }}>
+            Branding is tenant-scoped and inherits Colorado Alpine defaults until you override fields below.
+          </p>
+          {tenantBrandingError && <p className="ui-notice ui-notice--error">{tenantBrandingError}</p>}
+          {tenantBrandingSuccess && <p className="ui-notice ui-notice--success">{tenantBrandingSuccess}</p>}
+          {!tenantBranding || tenantBrandingBusy ? (
+            <p className="page-subtitle">Loading tenant branding…</p>
+          ) : (
+            <>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8, marginBottom: 8 }}>
+                <input className="members-input" placeholder="Organization long name" value={tenantBranding.org_long_name ?? ''} onChange={(e) => setTenantBranding((current) => current ? { ...current, org_long_name: e.target.value } : current)} />
+                <input className="members-input" placeholder="Organization short name" value={tenantBranding.org_short_name ?? ''} onChange={(e) => setTenantBranding((current) => current ? { ...current, org_short_name: e.target.value } : current)} />
+                <input className="members-input" placeholder="Support email" value={tenantBranding.support_email ?? ''} onChange={(e) => setTenantBranding((current) => current ? { ...current, support_email: e.target.value } : current)} />
+                <input className="members-input" placeholder="Accessibility email" value={tenantBranding.accessibility_email ?? ''} onChange={(e) => setTenantBranding((current) => current ? { ...current, accessibility_email: e.target.value } : current)} />
+                <input className="members-input" placeholder="Logo URL" value={tenantBranding.logo_url ?? ''} onChange={(e) => setTenantBranding((current) => current ? { ...current, logo_url: e.target.value } : current)} />
+                <input className="members-input" placeholder="Dark logo URL" value={tenantBranding.logo_dark_url ?? ''} onChange={(e) => setTenantBranding((current) => current ? { ...current, logo_dark_url: e.target.value } : current)} />
+                <input className="members-input" placeholder="Primary color" value={tenantBranding.primary_color ?? ''} onChange={(e) => setTenantBranding((current) => current ? { ...current, primary_color: e.target.value } : current)} />
+                <input className="members-input" placeholder="Accent color" value={tenantBranding.accent_color ?? ''} onChange={(e) => setTenantBranding((current) => current ? { ...current, accent_color: e.target.value } : current)} />
+                <input className="members-input" placeholder="Dark color" value={tenantBranding.dark_color ?? ''} onChange={(e) => setTenantBranding((current) => current ? { ...current, dark_color: e.target.value } : current)} />
+                <input className="members-input" placeholder="Program tagline" value={tenantBranding.program_tagline ?? ''} onChange={(e) => setTenantBranding((current) => current ? { ...current, program_tagline: e.target.value } : current)} />
+              </div>
+              <input className="members-input" style={{ marginBottom: 8 }} placeholder="Portal login URL" value={tenantBranding.portal_login_url ?? ''} onChange={(e) => setTenantBranding((current) => current ? { ...current, portal_login_url: e.target.value } : current)} />
+              <textarea className="members-input" rows={3} style={{ marginBottom: 8 }} placeholder="Mission blurb" value={tenantBranding.mission_blurb ?? ''} onChange={(e) => setTenantBranding((current) => current ? { ...current, mission_blurb: e.target.value } : current)} />
+              <button className="btn btn--primary btn--sm" disabled={tenantBrandingSaveBusy} onClick={() => void handleSaveTenantBranding()}>
+                {tenantBrandingSaveBusy ? 'Saving…' : 'Save Tenant Branding'}
+              </button>
+            </>
+          )}
+        </section>
+
+        <section className="card admin-tools-card">
+          <h2 className="admin-section-title">Tenant Messaging Metadata</h2>
+          <p className="page-subtitle" style={{ marginBottom: '0.9rem' }}>
+            Email sender metadata is tenant-scoped. SMS transport settings are global and environment-managed.
+          </p>
+          {tenantMessagingError && <p className="ui-notice ui-notice--error">{tenantMessagingError}</p>}
+          {tenantMessagingSuccess && <p className="ui-notice ui-notice--success">{tenantMessagingSuccess}</p>}
+          {!tenantMessaging || tenantMessagingBusy ? (
+            <p className="page-subtitle">Loading tenant messaging metadata…</p>
+          ) : (
+            <>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8, marginBottom: 8 }}>
+                <input className="members-input" placeholder="Email from" value={tenantMessaging.email_from ?? ''} onChange={(e) => setTenantMessaging((current) => current ? { ...current, email_from: e.target.value } : current)} />
+                <input className="members-input" placeholder="Email reply-to" value={tenantMessaging.email_reply_to ?? ''} onChange={(e) => setTenantMessaging((current) => current ? { ...current, email_reply_to: e.target.value } : current)} />
+                <input className="members-input" placeholder="Email BCC monitor" value={tenantMessaging.email_bcc_monitor ?? ''} onChange={(e) => setTenantMessaging((current) => current ? { ...current, email_bcc_monitor: e.target.value } : current)} />
+              </div>
+              <p className="admin-note" style={{ marginBottom: 8 }}>
+                Global SMS transport: provider {tenantMessaging.sms_provider ?? '(none)'}, from {tenantMessaging.sms_from ?? '(none)'}, Twilio SID {tenantMessaging.twilio_messaging_service_sid ?? '(none)'}, Telnyx profile {tenantMessaging.telnyx_messaging_profile_id ?? '(none)'}.
+              </p>
+              <button className="btn btn--primary btn--sm" disabled={tenantMessagingSaveBusy} onClick={() => void handleSaveTenantMessaging()}>
+                {tenantMessagingSaveBusy ? 'Saving…' : 'Save Messaging Metadata'}
+              </button>
+            </>
+          )}
+        </section>
+
+        <section className="card admin-tools-card">
+          <h2 className="admin-section-title">Tenant Admin Grants</h2>
+          {tenantAdminError && <p className="ui-notice ui-notice--error">{tenantAdminError}</p>}
+          {tenantAdminSuccess && <p className="ui-notice ui-notice--success">{tenantAdminSuccess}</p>}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto', gap: 8, marginBottom: 8 }}>
+            <input className="members-input" placeholder="admin email" value={tenantAdminEmail} onChange={(e) => setTenantAdminEmail(e.target.value)} />
+            <input className="members-input" placeholder="display name (optional)" value={tenantAdminDisplayName} onChange={(e) => setTenantAdminDisplayName(e.target.value)} />
+            <input className="members-input" type="datetime-local" value={tenantAdminExpiresAt} onChange={(e) => setTenantAdminExpiresAt(e.target.value)} />
+            <button className="btn btn--primary btn--sm" disabled={tenantAdminActionBusy} onClick={() => void handleGrantTenantAdminPortal()}>
+              {tenantAdminActionBusy ? 'Saving…' : 'Grant Tenant Admin'}
+            </button>
+          </div>
+          {tenantAdminsBusy ? (
+            <p className="page-subtitle">Loading tenant admins…</p>
+          ) : tenantAdmins.length === 0 ? (
+            <p className="page-subtitle">No active tenant admins assigned.</p>
+          ) : (
+            <ul>
+              {tenantAdmins.map((admin) => (
+                <li key={admin.tenant_membership_id} style={{ marginBottom: '0.35rem' }}>
+                  <strong>{admin.email}</strong>
+                  {admin.display_name ? ` (${admin.display_name})` : ''}
+                  {' • '}
+                  {admin.role}/{admin.membership_kind}
+                  {' • '}
+                  {admin.status}
+                  {' '}
+                  <button className="btn btn--outline btn--sm" disabled={tenantAdminActionBusy} onClick={() => void handleRevokeTenantAdminPortal(admin.user_id)}>
+                    Revoke
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+
+        <section className="card admin-tools-card">
+          <h2 className="admin-section-title">Tenant Memberships</h2>
+          {tenantMembershipError && <p className="ui-notice ui-notice--error">{tenantMembershipError}</p>}
+          {tenantMembershipSuccess && <p className="ui-notice ui-notice--success">{tenantMembershipSuccess}</p>}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr 1fr auto', gap: 8, marginBottom: 8 }}>
+            <input className="members-input" placeholder="user email" value={tenantMembershipEmail} onChange={(e) => setTenantMembershipEmail(e.target.value)} />
+            <input className="members-input" placeholder="display name (optional)" value={tenantMembershipDisplayName} onChange={(e) => setTenantMembershipDisplayName(e.target.value)} />
+            <select className="members-input" value={tenantMembershipRole} onChange={(e) => setTenantMembershipRole(e.target.value)}>
+              {['member', 'admin', 'event_creator', 'tavf_creator', 'support'].map((role) => (
+                <option key={role} value={role}>{role}</option>
+              ))}
+            </select>
+            <select className="members-input" value={tenantMembershipKind} onChange={(e) => setTenantMembershipKind(e.target.value)}>
+              {['home', 'admin', 'temporary_demo'].map((kind) => (
+                <option key={kind} value={kind}>{kind}</option>
+              ))}
+            </select>
+            <input className="members-input" type="datetime-local" value={tenantMembershipExpiresAt} onChange={(e) => setTenantMembershipExpiresAt(e.target.value)} />
+            <button className="btn btn--primary btn--sm" disabled={tenantMembershipActionBusy} onClick={() => void handleGrantTenantMembershipPortal()}>
+              {tenantMembershipActionBusy ? 'Saving…' : 'Grant Membership'}
+            </button>
+          </div>
+          {tenantMembershipsBusy ? (
+            <p className="page-subtitle">Loading tenant memberships…</p>
+          ) : tenantMemberships.length === 0 ? (
+            <p className="page-subtitle">No tenant memberships found.</p>
+          ) : (
+            <ul>
+              {tenantMemberships.map((membership) => (
+                <li key={membership.tenant_membership_id} style={{ marginBottom: '0.35rem' }}>
+                  <strong>{membership.subject_email ?? '(unknown email)'}</strong>
+                  {membership.subject_display_name ? ` (${membership.subject_display_name})` : ''}
+                  {' • '}
+                  {membership.role}/{membership.membership_kind}
+                  {' • '}
+                  {membership.status}
+                  {' '}
+                  {membership.status === 'active' && (
+                    <button className="btn btn--outline btn--sm" disabled={tenantMembershipActionBusy} onClick={() => void handleRevokeTenantMembershipPortal(membership.tenant_membership_id)}>
+                      Revoke
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
 
         <section className="card admin-tools-card">
           <h2 className="admin-section-title">AI Invite Draft</h2>

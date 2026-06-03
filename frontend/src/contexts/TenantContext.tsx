@@ -16,6 +16,20 @@ type TenantContextState = {
 }
 
 const ACTIVE_TENANT_STORAGE_KEY = 'phw_active_tenant_id'
+const ROLE_PRIORITY: Record<UserTenantContext['role'], number> = {
+  root_admin: 6,
+  support: 5,
+  admin: 4,
+  event_creator: 3,
+  tavf_creator: 2,
+  member: 1,
+}
+
+const MEMBERSHIP_KIND_PRIORITY: Record<UserTenantContext['membership_kind'], number> = {
+  home: 3,
+  admin: 2,
+  temporary_demo: 1,
+}
 
 const TenantContext = createContext<TenantContextState | null>(null)
 
@@ -43,6 +57,43 @@ function isTenantSelectionExpired(tenant: UserTenantContext): boolean {
   }
   const expiresAt = Date.parse(tenant.expires_at)
   return !Number.isNaN(expiresAt) && expiresAt <= Date.now()
+}
+
+function pickPreferredTenantContext(current: UserTenantContext, candidate: UserTenantContext): UserTenantContext {
+  const currentExpired = isTenantSelectionExpired(current)
+  const candidateExpired = isTenantSelectionExpired(candidate)
+  if (currentExpired !== candidateExpired) {
+    return candidateExpired ? current : candidate
+  }
+
+  const currentMembershipScore = MEMBERSHIP_KIND_PRIORITY[current.membership_kind] ?? 0
+  const candidateMembershipScore = MEMBERSHIP_KIND_PRIORITY[candidate.membership_kind] ?? 0
+  if (currentMembershipScore !== candidateMembershipScore) {
+    return candidateMembershipScore > currentMembershipScore ? candidate : current
+  }
+
+  const currentRoleScore = ROLE_PRIORITY[current.role] ?? 0
+  const candidateRoleScore = ROLE_PRIORITY[candidate.role] ?? 0
+  if (currentRoleScore !== candidateRoleScore) {
+    return candidateRoleScore > currentRoleScore ? candidate : current
+  }
+
+  return current
+}
+
+function dedupeTenantContexts(tenants: UserTenantContext[]): UserTenantContext[] {
+  const deduped = new Map<string, UserTenantContext>()
+  for (const tenant of tenants) {
+    const key = tenant.tenant_id.trim().toLowerCase()
+    const current = deduped.get(key)
+    if (!current) {
+      deduped.set(key, tenant)
+      continue
+    }
+    deduped.set(key, pickPreferredTenantContext(current, tenant))
+  }
+
+  return [...deduped.values()]
 }
 
 function chooseDefaultTenant(tenants: UserTenantContext[], persistedTenantId: string | null): {
@@ -89,7 +140,7 @@ function TenantProvider({ children }: { children: ReactNode }) {
 
     setLoading(true)
     try {
-      const response = await meApi.listTenants()
+      const response = dedupeTenantContexts(await meApi.listTenants())
       const persistedTenantId = getStoredTenantId()
       const { activeTenantId: nextActiveTenantId, needsSelection: shouldSelect } = chooseDefaultTenant(response, persistedTenantId)
 
@@ -165,4 +216,4 @@ function useTenantContext(): TenantContextState {
   return value
 }
 
-export { TenantProvider, useTenantContext, chooseDefaultTenant }
+export { TenantProvider, useTenantContext, chooseDefaultTenant, dedupeTenantContexts }
