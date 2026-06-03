@@ -102,6 +102,28 @@ function RootAdminPage() {
     [tenants, selectedTenantId]
   )
 
+  function panelBadge(busy: boolean, error: string | null) {
+    const background = busy ? '#fff6dd' : error ? '#fde8e8' : '#e8f7ee'
+    const color = busy ? '#7a5b00' : error ? '#9b1c1c' : '#166534'
+    const label = busy ? 'Loading' : error ? 'Error' : 'OK'
+    return (
+      <span
+        style={{
+          marginLeft: '0.5rem',
+          padding: '0.15rem 0.45rem',
+          borderRadius: 999,
+          fontSize: '0.72rem',
+          fontWeight: 700,
+          letterSpacing: '0.02em',
+          background,
+          color,
+        }}
+      >
+        {label}
+      </span>
+    )
+  }
+
   async function refreshTenants(): Promise<void> {
     setTenantLoadBusy(true)
     setTenantLoadError(null)
@@ -299,6 +321,81 @@ function RootAdminPage() {
       setBrandingError(toUserErrorMessage(error, 'Failed to save branding.'))
     } finally {
       setBrandingSaveBusy(false)
+    }
+  }
+
+  async function handleRetryUsage(): Promise<void> {
+    if (!selectedTenantId) return
+    setUsageBusy(true)
+    setUsageError(null)
+    try {
+      const usageResponse = await rootApi.getTenantUsage(selectedTenantId)
+      setUsage(usageResponse)
+    } catch (error) {
+      setUsage(null)
+      setUsageError(toUserErrorMessage(error, 'Failed to load tenant usage summary.'))
+    } finally {
+      setUsageBusy(false)
+    }
+  }
+
+  async function handleRetryBranding(): Promise<void> {
+    if (!selectedTenantId) return
+    setBrandingBusy(true)
+    setBrandingError(null)
+    try {
+      const brandingResponse = await rootApi.getTenantBranding(selectedTenantId)
+      setBranding(brandingResponse)
+    } catch (error) {
+      setBranding(null)
+      setBrandingError(toUserErrorMessage(error, 'Failed to load tenant branding.'))
+    } finally {
+      setBrandingBusy(false)
+    }
+  }
+
+  async function handleRetryAdmins(): Promise<void> {
+    if (!selectedTenantId) return
+    setAdminLoadBusy(true)
+    setAdminGrantError(null)
+    try {
+      const adminsResponse = await rootApi.listTenantAdmins(selectedTenantId)
+      setTenantAdmins(adminsResponse.admins)
+    } catch (error) {
+      setTenantAdmins([])
+      setAdminGrantError(toUserErrorMessage(error, 'Failed to load tenant admin assignments.'))
+    } finally {
+      setAdminLoadBusy(false)
+    }
+  }
+
+  async function handleRetryMemberships(): Promise<void> {
+    if (!selectedTenantId) return
+    setMembershipLoadBusy(true)
+    setMembershipError(null)
+    try {
+      const membershipsResponse = await rootApi.listTenantMemberships(selectedTenantId)
+      setTenantMemberships(membershipsResponse.memberships)
+    } catch (error) {
+      setTenantMemberships([])
+      setMembershipError(toUserErrorMessage(error, 'Failed to load tenant memberships.'))
+    } finally {
+      setMembershipLoadBusy(false)
+    }
+  }
+
+  async function handleRetryMessaging(): Promise<void> {
+    if (!selectedTenantId) return
+    setMessagingBusy(true)
+    setMessagingError(null)
+    try {
+      const messagingResponse = await rootApi.getTenantMessaging(selectedTenantId)
+      setMessaging(messagingResponse)
+    } catch (error) {
+      setMessaging(null)
+      setMessagingError(toUserErrorMessage(error, 'Failed to load tenant messaging configuration.'))
+    } finally {
+      setMessagingBusy(false)
     }
   }
 
@@ -615,7 +712,10 @@ function RootAdminPage() {
       </section>
 
       <section className="admin-card" style={{ marginBottom: '1rem' }}>
-        <h2 className="admin-section-title">Tenant Messaging Configuration</h2>
+        <h2 className="admin-section-title">
+          Tenant Messaging Configuration
+          {panelBadge(messagingBusy, messagingError)}
+        </h2>
         <p className="admin-note" style={{ marginBottom: '0.75rem' }}>
           Store non-secret sender metadata here. Keep provider API secrets in Key Vault-backed app settings.
         </p>
@@ -645,6 +745,9 @@ function RootAdminPage() {
             </div>
             <button className="btn btn--primary btn--sm" disabled={messagingSaveBusy} onClick={() => void handleSaveMessaging()}>
               {messagingSaveBusy ? 'Saving…' : 'Save Messaging'}
+            </button>
+            <button className="btn btn--outline btn--sm" style={{ marginLeft: '0.5rem' }} disabled={messagingBusy} onClick={() => void handleRetryMessaging()}>
+              {messagingBusy ? 'Retrying…' : 'Retry'}
             </button>
           </>
         ) : (
@@ -729,8 +832,14 @@ function RootAdminPage() {
       </section>
 
       <section className="admin-card" style={{ marginBottom: '1rem' }}>
-        <h2 className="admin-section-title">Tenant Usage Summary</h2>
+        <h2 className="admin-section-title">
+          Tenant Usage Summary
+          {panelBadge(usageBusy, usageError)}
+        </h2>
         {usageError && <p className="ui-notice ui-notice--error">{usageError}</p>}
+        <button className="btn btn--outline btn--sm" style={{ marginBottom: '0.75rem' }} disabled={usageBusy || !selectedTenantId} onClick={() => void handleRetryUsage()}>
+          {usageBusy ? 'Retrying…' : 'Retry Usage'}
+        </button>
         {usageBusy ? (
           <p>Loading usage metrics…</p>
         ) : usage ? (
@@ -750,9 +859,15 @@ function RootAdminPage() {
       </section>
 
       <section className="admin-card" style={{ marginBottom: '1rem' }}>
-        <h2 className="admin-section-title">Branding Editor</h2>
+        <h2 className="admin-section-title">
+          Branding Editor
+          {panelBadge(brandingBusy, brandingError)}
+        </h2>
         {brandingError && <p className="ui-notice ui-notice--error">{brandingError}</p>}
         {brandingSuccess && <p className="ui-notice ui-notice--success">{brandingSuccess}</p>}
+        <button className="btn btn--outline btn--sm" style={{ marginBottom: '0.75rem' }} disabled={brandingBusy || !selectedTenantId} onClick={() => void handleRetryBranding()}>
+          {brandingBusy ? 'Retrying…' : 'Retry Branding'}
+        </button>
 
         {!selectedTenantId || brandingBusy ? (
           <p>Loading branding…</p>
@@ -850,9 +965,15 @@ function RootAdminPage() {
       </section>
 
       <section className="admin-card">
-        <h2 className="admin-section-title">Tenant Admin Grants</h2>
+        <h2 className="admin-section-title">
+          Tenant Admin Grants
+          {panelBadge(adminLoadBusy, adminGrantError)}
+        </h2>
         {adminGrantError && <p className="ui-notice ui-notice--error">{adminGrantError}</p>}
         {adminGrantSuccess && <p className="ui-notice ui-notice--success">{adminGrantSuccess}</p>}
+        <button className="btn btn--outline btn--sm" style={{ marginBottom: '0.75rem' }} disabled={adminLoadBusy || !selectedTenantId} onClick={() => void handleRetryAdmins()}>
+          {adminLoadBusy ? 'Retrying…' : 'Retry Admins'}
+        </button>
         <div className="admin-grid admin-grid--3" style={{ marginBottom: '0.75rem' }}>
           <input className="members-input" placeholder="admin email" value={adminEmail} onChange={(e) => setAdminEmail(e.target.value)} />
           <input className="members-input" placeholder="display name (optional)" value={adminDisplayName} onChange={(e) => setAdminDisplayName(e.target.value)} />
@@ -888,9 +1009,15 @@ function RootAdminPage() {
       </section>
 
       <section className="admin-card" style={{ marginTop: '1rem' }}>
-        <h2 className="admin-section-title">Tenant Memberships</h2>
+        <h2 className="admin-section-title">
+          Tenant Memberships
+          {panelBadge(membershipLoadBusy, membershipError)}
+        </h2>
         {membershipError && <p className="ui-notice ui-notice--error">{membershipError}</p>}
         {membershipSuccess && <p className="ui-notice ui-notice--success">{membershipSuccess}</p>}
+        <button className="btn btn--outline btn--sm" style={{ marginBottom: '0.75rem' }} disabled={membershipLoadBusy || !selectedTenantId} onClick={() => void handleRetryMemberships()}>
+          {membershipLoadBusy ? 'Retrying…' : 'Retry Memberships'}
+        </button>
 
         <div className="admin-grid admin-grid--3" style={{ marginBottom: '0.75rem' }}>
           <input className="members-input" placeholder="user email" value={membershipEmail} onChange={(e) => setMembershipEmail(e.target.value)} />
