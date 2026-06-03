@@ -225,11 +225,7 @@ export async function listTenantsForAuthenticatedUser(input: {
           OR (tm.member_id IS NOT NULL AND tm.member_id IN (SELECT member_id FROM candidate_members))
         )
       ORDER BY
-        CASE tm.membership_kind
-          WHEN 'home' THEN 0
-          WHEN 'temporary_demo' THEN 1
-          ELSE 2
-        END,
+        tm.membership_kind ASC,
         t.display_name ASC
     `);
 
