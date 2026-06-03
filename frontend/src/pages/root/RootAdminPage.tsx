@@ -141,40 +141,77 @@ function RootAdminPage() {
     setUsageError(null)
     setMembershipError(null)
 
-    try {
-      const [brandingResponse, adminsResponse, messagingResponse, demoResponse, usageResponse, membershipsResponse] = await Promise.all([
-        rootApi.getTenantBranding(tenantId),
-        rootApi.listTenantAdmins(tenantId),
-        rootApi.getTenantMessaging(tenantId),
-        rootApi.listDemoMemberships(tenantId),
-        rootApi.getTenantUsage(tenantId),
-        rootApi.listTenantMemberships(tenantId),
-      ])
-      setBranding(brandingResponse)
-      setTenantAdmins(adminsResponse.admins)
-      setMessaging(messagingResponse)
-      setDemoMemberships(demoResponse.memberships)
-      setUsage(usageResponse)
-      setTenantMemberships(membershipsResponse.memberships)
-    } catch (error) {
+    const [brandingResult, adminsResult, messagingResult, demoResult, usageResult, membershipsResult] = await Promise.allSettled([
+      rootApi.getTenantBranding(tenantId),
+      rootApi.listTenantAdmins(tenantId),
+      rootApi.getTenantMessaging(tenantId),
+      rootApi.listDemoMemberships(tenantId),
+      rootApi.getTenantUsage(tenantId),
+      rootApi.listTenantMemberships(tenantId),
+    ])
+
+    if (brandingResult.status === 'fulfilled') {
+      setBranding(brandingResult.value)
+    } else {
       setBranding(null)
-      setTenantAdmins([])
-      setMessaging(null)
-      setDemoMemberships([])
-      setUsage(null)
-      setTenantMemberships([])
-      setBrandingError(toUserErrorMessage(error, 'Failed to load tenant branding/admin assignments.'))
-      setUsageError(toUserErrorMessage(error, 'Failed to load tenant usage summary.'))
-      setMembershipError(toUserErrorMessage(error, 'Failed to load tenant memberships.'))
-    } finally {
-      setBrandingBusy(false)
-      setAdminLoadBusy(false)
-      setMessagingBusy(false)
-      setDemoLoadBusy(false)
-      setUsageBusy(false)
-      setMembershipLoadBusy(false)
+      setBrandingError(toUserErrorMessage(brandingResult.reason, 'Failed to load tenant branding.'))
     }
+
+    if (adminsResult.status === 'fulfilled') {
+      setTenantAdmins(adminsResult.value.admins)
+    } else {
+      setTenantAdmins([])
+      setAdminGrantError(toUserErrorMessage(adminsResult.reason, 'Failed to load tenant admin assignments.'))
+    }
+
+    if (messagingResult.status === 'fulfilled') {
+      setMessaging(messagingResult.value)
+    } else {
+      setMessaging(null)
+      setMessagingError(toUserErrorMessage(messagingResult.reason, 'Failed to load tenant messaging configuration.'))
+    }
+
+    if (demoResult.status === 'fulfilled') {
+      setDemoMemberships(demoResult.value.memberships)
+    } else {
+      setDemoMemberships([])
+      setDemoError(toUserErrorMessage(demoResult.reason, 'Failed to load demo memberships.'))
+    }
+
+    if (usageResult.status === 'fulfilled') {
+      setUsage(usageResult.value)
+    } else {
+      setUsage(null)
+      setUsageError(toUserErrorMessage(usageResult.reason, 'Failed to load tenant usage summary.'))
+    }
+
+    if (membershipsResult.status === 'fulfilled') {
+      setTenantMemberships(membershipsResult.value.memberships)
+    } else {
+      setTenantMemberships([])
+      setMembershipError(toUserErrorMessage(membershipsResult.reason, 'Failed to load tenant memberships.'))
+    }
+
+    setBrandingBusy(false)
+    setAdminLoadBusy(false)
+    setMessagingBusy(false)
+    setDemoLoadBusy(false)
+    setUsageBusy(false)
+    setMembershipLoadBusy(false)
   }
+
+  useEffect(() => {
+    if (!selectedTenantId) {
+      return
+    }
+    setBrandingSuccess(null)
+    setAdminGrantError(null)
+    setAdminGrantSuccess(null)
+    setMembershipSuccess(null)
+    setDemoSuccess(null)
+    setMessagingSuccess(null)
+    setTenantStatusMessage(null)
+  }, [selectedTenantId])
 
   useEffect(() => {
     let active = true
@@ -553,6 +590,28 @@ function RootAdminPage() {
             {createBusy ? 'Creating…' : 'Create Tenant'}
           </button>
         </div>
+      </section>
+
+      <section className="admin-card" style={{ marginBottom: '1rem' }}>
+        <h2 className="admin-section-title">Existing Tenants</h2>
+        {tenantLoadError && <p className="ui-notice ui-notice--error">{tenantLoadError}</p>}
+        {tenantLoadBusy ? (
+          <p>Loading tenants…</p>
+        ) : tenants.length === 0 ? (
+          <p className="admin-note">No tenants found yet.</p>
+        ) : (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+            {tenants.map((tenant) => (
+              <button
+                key={tenant.tenant_id}
+                className={tenant.tenant_id === selectedTenantId ? 'btn btn--primary btn--sm' : 'btn btn--outline btn--sm'}
+                onClick={() => setSelectedTenantId(tenant.tenant_id)}
+              >
+                {tenant.display_name} ({tenant.slug})
+              </button>
+            ))}
+          </div>
+        )}
       </section>
 
       <section className="admin-card" style={{ marginBottom: '1rem' }}>
