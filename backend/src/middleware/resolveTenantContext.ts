@@ -61,6 +61,13 @@ async function resolveTenantContext(req: Request, res: Response, next: NextFunct
   }
 
   const multiTenantEnabled = isEnabled(process.env['MULTI_TENANT_ENABLED'], false);
+  const requestedTenantId = normalizeHeaderTenantId(req.headers['x-tenant-id']);
+
+  if (req.user && !multiTenantEnabled && requestedTenantId && requestedTenantId !== DEFAULT_TENANT_ID) {
+    res.status(403).json({ error: 'Requested tenant is not accessible for this account.' });
+    return;
+  }
+
   if (!req.user || !multiTenantEnabled) {
     req.tenantId = DEFAULT_TENANT_ID;
     req.tenantContext = {
@@ -85,7 +92,6 @@ async function resolveTenantContext(req: Request, res: Response, next: NextFunct
     }
 
     const availableTenantIds = memberships.map((tenant) => tenant.tenant_id.toLowerCase());
-    const requestedTenantId = normalizeHeaderTenantId(req.headers['x-tenant-id']);
     const hasRootScope = memberships.some((tenant) => tenant.role === 'root_admin' || tenant.role === 'support');
 
     if (requestedTenantId && !availableTenantIds.includes(requestedTenantId) && !hasRootScope) {
