@@ -121,11 +121,18 @@ interface EventNotificationCoverageRow {
   inferred_reason: string;
 }
 
-type ReportEventTenantSupport = {
-  hasTenantId: boolean;
+type ReportsTenantSupport = {
+  hasEventTenantId: boolean;
+  hasTenantMembershipTable: boolean;
 };
 
-let cachedReportEventTenantSupport: ReportEventTenantSupport | null = null;
+type ReportsTenantScope = {
+  tenantId: string;
+  applyEventScope: boolean;
+  applyMembershipScope: boolean;
+};
+
+let cachedReportsTenantSupport: ReportsTenantSupport | null = null;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -208,22 +215,91 @@ function isMultiTenantEnabled(): boolean {
   return ['1', 'true', 'yes', 'on'].includes(raw.trim().toLowerCase());
 }
 
-async function getReportEventTenantSupport(pool: Awaited<ReturnType<typeof getPool>>): Promise<ReportEventTenantSupport> {
-  if (cachedReportEventTenantSupport) {
-    return cachedReportEventTenantSupport;
+async function getReportsTenantSupport(pool: Awaited<ReturnType<typeof getPool>>): Promise<ReportsTenantSupport> {
+  if (cachedReportsTenantSupport) {
+    return cachedReportsTenantSupport;
   }
 
   const result = await pool
     .request()
-    .query<{ has_tenant_id: number }>(
-      `SELECT CASE WHEN COL_LENGTH('dbo.event', 'tenant_id') IS NULL THEN 0 ELSE 1 END AS has_tenant_id`
+    .query<{ has_event_tenant_id: number; has_tenant_membership_table: number }>(
+      `SELECT
+          CASE WHEN COL_LENGTH('dbo.event', 'tenant_id') IS NULL THEN 0 ELSE 1 END AS has_event_tenant_id,
+          CASE WHEN OBJECT_ID('dbo.tenant_membership', 'U') IS NULL THEN 0 ELSE 1 END AS has_tenant_membership_table`
     );
 
-  cachedReportEventTenantSupport = {
-    hasTenantId: result.recordset[0]?.has_tenant_id === 1,
+  cachedReportsTenantSupport = {
+    hasEventTenantId: result.recordset[0]?.has_event_tenant_id === 1,
+    hasTenantMembershipTable: result.recordset[0]?.has_tenant_membership_table === 1,
   };
 
-  return cachedReportEventTenantSupport;
+  return cachedReportsTenantSupport;
+}
+
+function buildTenantMembershipPredicate(memberAlias: string): string {
+  return `EXISTS (
+    SELECT 1
+    FROM dbo.tenant_membership tm
+    WHERE tm.member_id = ${memberAlias}.member_id
+      AND tm.tenant_id = @tenant_id
+      AND tm.status = 'active'
+      AND tm.revoked_at IS NULL
+      AND tm.starts_at <= GETUTCDATE()
+      AND (tm.expires_at IS NULL OR tm.expires_at > GETUTCDATE())
+  )`;
+}
+
+function buildNotificationLogTenantFilter(logAlias: string, scope: ReportsTenantScope): string {
+  const predicates: string[] = [];
+
+  if (scope.applyEventScope) {
+    predicates.push(`EXISTS (
+      SELECT 1
+      FROM dbo.event e_scope
+      WHERE e_scope.event_id = ${logAlias}.event_id
+        AND e_scope.tenant_id = @tenant_id
+    )`);
+  }
+
+  if (scope.applyMembershipScope) {
+    predicates.push(`EXISTS (
+      SELECT 1
+      FROM dbo.tenant_membership tm
+      WHERE tm.member_id = ${logAlias}.member_id
+        AND tm.tenant_id = @tenant_id
+        AND tm.status = 'active'
+        AND tm.revoked_at IS NULL
+        AND tm.starts_at <= GETUTCDATE()
+        AND (tm.expires_at IS NULL OR tm.expires_at > GETUTCDATE())
+    )`);
+  }
+
+  if (predicates.length === 0) {
+    return '';
+  }
+
+  return `
+           AND (
+             ${predicates.join('\n             OR ')}
+           )`;
+}
+
+async function resolveReportsTenantScope(req: Request, pool: Awaited<ReturnType<typeof getPool>>): Promise<ReportsTenantScope> {
+  const tenantId = (req.tenantId ?? DEFAULT_TENANT_ID).trim().toLowerCase();
+  if (!isMultiTenantEnabled()) {
+    return {
+      tenantId,
+      applyEventScope: false,
+      applyMembershipScope: false,
+    };
+  }
+
+  const support = await getReportsTenantSupport(pool);
+  return {
+    tenantId,
+    applyEventScope: support.hasEventTenantId,
+    applyMembershipScope: support.hasTenantMembershipTable,
+  };
 }
 
 async function ensureTenantEventAccess(
@@ -232,20 +308,15 @@ async function ensureTenantEventAccess(
   pool: Awaited<ReturnType<typeof getPool>>,
   eventId: string,
 ): Promise<boolean> {
-  const tenantId = (req.tenantId ?? DEFAULT_TENANT_ID).trim().toLowerCase();
-  if (!isMultiTenantEnabled()) {
-    return true;
-  }
-
-  const support = await getReportEventTenantSupport(pool);
-  if (!support.hasTenantId) {
+  const scope = await resolveReportsTenantScope(req, pool);
+  if (!scope.applyEventScope) {
     return true;
   }
 
   const result = await pool
     .request()
     .input('event_id', sql.UniqueIdentifier, eventId)
-    .input('tenant_id', sql.UniqueIdentifier, tenantId)
+    .input('tenant_id', sql.UniqueIdentifier, scope.tenantId)
     .query<{ event_id: string }>(
       `SELECT TOP 1 event_id
        FROM event
@@ -261,12 +332,21 @@ async function ensureTenantEventAccess(
   return true;
 }
 
-async function queryEventSummary(fromDate: Date, toDate: Date): Promise<EventSummaryRow[]> {
+async function queryEventSummary(req: Request, fromDate: Date, toDate: Date): Promise<EventSummaryRow[]> {
   const pool = await getPool();
-  const result = await pool
+  const scope = await resolveReportsTenantScope(req, pool);
+  const tenantEventFilter = scope.applyEventScope ? 'AND e.tenant_id = @tenant_id' : '';
+
+  const queryRequest = pool
     .request()
     .input('fromDate', sql.DateTime, fromDate)
-    .input('toDate', sql.DateTime, toDate)
+    .input('toDate', sql.DateTime, toDate);
+
+  if (scope.applyEventScope || scope.applyMembershipScope) {
+    queryRequest.input('tenant_id', sql.UniqueIdentifier, scope.tenantId);
+  }
+
+  const result = await queryRequest
     .query<{
       event_id: string;
       title: string;
@@ -297,6 +377,7 @@ async function queryEventSummary(fromDate: Date, toDate: Date): Promise<EventSum
        LEFT JOIN event_assignment ea ON ea.event_id = e.event_id
        WHERE e.event_date >= @fromDate
          AND e.event_date <= @toDate
+         ${tenantEventFilter}
        GROUP BY
           e.event_id,
           e.title,
@@ -341,7 +422,7 @@ router.get('/summary', apiLimiter, authenticate, requireAdmin, async (req: Reque
   toDate.setHours(23, 59, 59, 999);
 
   try {
-    const events = await queryEventSummary(fromDate, toDate);
+    const events = await queryEventSummary(req, fromDate, toDate);
     const totalEvents = events.length;
     const totalRsvps = events.reduce((sum, row) => sum + row.yes_count + row.no_count + row.maybe_count + row.waitlist_count, 0);
     const totalAttended = events.reduce((sum, row) => sum + row.attended_count, 0);
@@ -387,7 +468,7 @@ router.get('/export', apiLimiter, authenticate, requireAdmin, async (req: Reques
   toDate.setHours(23, 59, 59, 999);
 
   try {
-    const events = await queryEventSummary(fromDate, toDate);
+    const events = await queryEventSummary(req, fromDate, toDate);
     const filename = `phw-events-${formatIsoDate(fromDate)}-to-${formatIsoDate(toDate)}.csv`;
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
@@ -432,10 +513,20 @@ router.get('/participation', apiLimiter, authenticate, requireAdmin, async (req:
 
   try {
     const pool = await getPool();
-    const result = await pool
+    const scope = await resolveReportsTenantScope(req, pool);
+    const membershipFilter = scope.applyMembershipScope ? ` AND ${buildTenantMembershipPredicate('m')}` : '';
+    const eventJoinTenantFilter = scope.applyEventScope ? ' AND e.tenant_id = @tenant_id' : '';
+
+    const queryRequest = pool
       .request()
       .input('year', sql.Int, year)
-      .input('priorYear', sql.Int, priorYear)
+      .input('priorYear', sql.Int, priorYear);
+
+    if (scope.applyEventScope || scope.applyMembershipScope) {
+      queryRequest.input('tenant_id', sql.UniqueIdentifier, scope.tenantId);
+    }
+
+    const result = await queryRequest
       .query<{
         member_id: string;
         first_name: string;
@@ -451,8 +542,9 @@ router.get('/participation', apiLimiter, authenticate, requireAdmin, async (req:
             SUM(CASE WHEN YEAR(e.event_date) = @priorYear AND ea.attended = 1 THEN 1 ELSE 0 END) AS events_attended_prior_year
          FROM member m
          LEFT JOIN event_assignment ea ON ea.member_id = m.member_id
-         LEFT JOIN event e ON e.event_id = ea.event_id AND e.status = 'completed'
+        LEFT JOIN event e ON e.event_id = ea.event_id AND e.status = 'completed'${eventJoinTenantFilter}
          WHERE m.is_active = 1
+        ${membershipFilter}
          GROUP BY m.member_id, m.first_name, m.last_name
          ORDER BY events_attended ASC, m.last_name ASC, m.first_name ASC`
       );
@@ -479,25 +571,35 @@ router.get('/delivery', apiLimiter, authenticate, requireAdmin, async (req: Requ
 
   try {
     const pool = await getPool();
-    const result = await pool
+    const scope = await resolveReportsTenantScope(req, pool);
+    const tenantFilter = buildNotificationLogTenantFilter('nl', scope);
+
+    const queryRequest = pool
       .request()
       .input('fromDate', sql.DateTime, fromDate)
       .input('toDate', sql.DateTime, toDate)
       .input('channel', sql.NVarChar(16), channel)
       .input('status', sql.NVarChar(32), status)
-      .input('operationType', sql.NVarChar(64), operationType)
+      .input('operationType', sql.NVarChar(64), operationType);
+
+    if (scope.applyEventScope || scope.applyMembershipScope) {
+      queryRequest.input('tenant_id', sql.UniqueIdentifier, scope.tenantId);
+    }
+
+    const result = await queryRequest
       .query<DeliverySummaryRow>(
         `SELECT
             channel,
             status,
             operation_type,
             COUNT(*) AS count
-         FROM notification_log
+         FROM notification_log nl
          WHERE sent_at >= @fromDate
            AND sent_at <= @toDate
            AND (@channel IS NULL OR channel = @channel)
            AND (@status IS NULL OR status = @status)
            AND (@operationType IS NULL OR operation_type = @operationType)
+           ${tenantFilter}
          GROUP BY channel, status, operation_type
          ORDER BY channel ASC, status ASC, operation_type ASC`
       );
@@ -528,13 +630,22 @@ router.get('/delivery/trends', apiLimiter, authenticate, requireAdmin, async (re
 
   try {
     const pool = await getPool();
-    const result = await pool
+    const scope = await resolveReportsTenantScope(req, pool);
+    const tenantFilter = buildNotificationLogTenantFilter('nl', scope);
+
+    const queryRequest = pool
       .request()
       .input('fromDate', sql.DateTime, fromDate)
       .input('toDate', sql.DateTime, toDate)
       .input('channel', sql.NVarChar(16), channel)
       .input('status', sql.NVarChar(32), status)
-      .input('operationType', sql.NVarChar(64), operationType)
+      .input('operationType', sql.NVarChar(64), operationType);
+
+    if (scope.applyEventScope || scope.applyMembershipScope) {
+      queryRequest.input('tenant_id', sql.UniqueIdentifier, scope.tenantId);
+    }
+
+    const result = await queryRequest
       .query<{
         day: Date;
         total_count: number;
@@ -550,12 +661,13 @@ router.get('/delivery/trends', apiLimiter, authenticate, requireAdmin, async (re
             SUM(CASE WHEN status IN ('sent', 'delivered', 'stubbed') THEN 1 ELSE 0 END) AS successful_count,
             SUM(CASE WHEN channel = 'email' THEN 1 ELSE 0 END) AS email_count,
             SUM(CASE WHEN channel = 'sms' THEN 1 ELSE 0 END) AS sms_count
-         FROM notification_log
+         FROM notification_log nl
          WHERE sent_at >= @fromDate
            AND sent_at <= @toDate
            AND (@channel IS NULL OR channel = @channel)
            AND (@status IS NULL OR status = @status)
            AND (@operationType IS NULL OR operation_type = @operationType)
+           ${tenantFilter}
          GROUP BY CAST(sent_at AS date)
          ORDER BY day ASC`
       );
@@ -597,6 +709,8 @@ router.get('/delivery/logs', apiLimiter, authenticate, requireAdmin, async (req:
 
   try {
     const pool = await getPool();
+    const scope = await resolveReportsTenantScope(req, pool);
+    const tenantFilter = buildNotificationLogTenantFilter('nl', scope);
     if (eventId && !(await ensureTenantEventAccess(req, res, pool, eventId))) {
       return;
     }
@@ -611,6 +725,10 @@ router.get('/delivery/logs', apiLimiter, authenticate, requireAdmin, async (req:
       .input('eventId', sql.UniqueIdentifier, eventId)
       .input('offset', sql.Int, offset)
       .input('pageSize', sql.Int, pageSize);
+
+    if (scope.applyEventScope || scope.applyMembershipScope) {
+      baseRequest.input('tenant_id', sql.UniqueIdentifier, scope.tenantId);
+    }
 
     const rowsResult = await baseRequest.query<{
       log_id: string;
@@ -639,35 +757,43 @@ router.get('/delivery/logs', apiLimiter, authenticate, requireAdmin, async (req:
           operation_reason,
           provider_id,
           error_detail
-       FROM notification_log
+       FROM notification_log nl
        WHERE sent_at >= @fromDate
          AND sent_at <= @toDate
          AND (@channel IS NULL OR channel = @channel)
          AND (@status IS NULL OR status = @status)
          AND (@operationType IS NULL OR operation_type = @operationType)
          AND (@eventId IS NULL OR event_id = @eventId)
+         ${tenantFilter}
        ORDER BY sent_at DESC
        OFFSET @offset ROWS
        FETCH NEXT @pageSize ROWS ONLY`
     );
 
-    const countResult = await pool
+    const countRequest = pool
       .request()
       .input('fromDate', sql.DateTime, fromDate)
       .input('toDate', sql.DateTime, toDate)
       .input('channel', sql.NVarChar(16), channel)
       .input('status', sql.NVarChar(32), status)
       .input('operationType', sql.NVarChar(64), operationType)
-      .input('eventId', sql.UniqueIdentifier, eventId)
+      .input('eventId', sql.UniqueIdentifier, eventId);
+
+    if (scope.applyEventScope || scope.applyMembershipScope) {
+      countRequest.input('tenant_id', sql.UniqueIdentifier, scope.tenantId);
+    }
+
+    const countResult = await countRequest
       .query<{ total_rows: number }>(
         `SELECT COUNT(*) AS total_rows
-         FROM notification_log
+         FROM notification_log nl
          WHERE sent_at >= @fromDate
            AND sent_at <= @toDate
            AND (@channel IS NULL OR channel = @channel)
            AND (@status IS NULL OR status = @status)
            AND (@operationType IS NULL OR operation_type = @operationType)
-           AND (@eventId IS NULL OR event_id = @eventId)`
+           AND (@eventId IS NULL OR event_id = @eventId)
+           ${tenantFilter}`
       );
 
     const providerStatusByLogId = new Map<string, {
@@ -735,10 +861,19 @@ router.get('/reminders', apiLimiter, authenticate, requireAdmin, async (req: Req
 
   try {
     const pool = await getPool();
-    const duplicates = await pool
+    const scope = await resolveReportsTenantScope(req, pool);
+    const tenantFilter = buildNotificationLogTenantFilter('nl', scope);
+
+    const duplicatesRequest = pool
       .request()
       .input('fromDate', sql.DateTime, fromDate)
-      .input('toDate', sql.DateTime, toDate)
+      .input('toDate', sql.DateTime, toDate);
+
+    if (scope.applyEventScope || scope.applyMembershipScope) {
+      duplicatesRequest.input('tenant_id', sql.UniqueIdentifier, scope.tenantId);
+    }
+
+    const duplicates = await duplicatesRequest
       .query<{
         event_id: string;
         member_id: string;
@@ -754,28 +889,36 @@ router.get('/reminders', apiLimiter, authenticate, requireAdmin, async (req: Req
             COUNT(*) AS send_count,
             MIN(sent_at) AS first_sent_at,
             MAX(sent_at) AS last_sent_at
-         FROM notification_log
+         FROM notification_log nl
          WHERE operation_type = 'event_reminder'
            AND event_id IS NOT NULL
            AND member_id IS NOT NULL
            AND sent_at >= @fromDate
            AND sent_at <= @toDate
            AND status IN ('sent', 'delivered', 'stubbed')
+           ${tenantFilter}
          GROUP BY event_id, member_id, channel
          HAVING COUNT(*) > 1
          ORDER BY send_count DESC, last_sent_at DESC`
       );
 
-    const reminderTotals = await pool
+    const totalsRequest = pool
       .request()
       .input('fromDate', sql.DateTime, fromDate)
-      .input('toDate', sql.DateTime, toDate)
+      .input('toDate', sql.DateTime, toDate);
+
+    if (scope.applyEventScope || scope.applyMembershipScope) {
+      totalsRequest.input('tenant_id', sql.UniqueIdentifier, scope.tenantId);
+    }
+
+    const reminderTotals = await totalsRequest
       .query<{ total_reminder_notifications: number }>(
         `SELECT COUNT(*) AS total_reminder_notifications
-         FROM notification_log
+         FROM notification_log nl
          WHERE operation_type = 'event_reminder'
            AND sent_at >= @fromDate
-           AND sent_at <= @toDate`
+           AND sent_at <= @toDate
+           ${tenantFilter}`
       );
 
     const rows: ReminderDuplicateRow[] = duplicates.recordset.map((row) => ({

@@ -72,11 +72,14 @@ export default function Layout() {
   }
 
   const roles = user?.roles ?? [];
+  const isDemoTenant = Boolean(activeTenant?.is_demo || activeTenant?.slug?.toLowerCase().includes('demo'));
   const canAccessTavf = canCreateTavfPostings();
   const branding = activeTenant?.branding;
   const tenantDisplayName = activeTenant?.display_name ?? 'Colorado Alpine Program';
   const tenantShortName = branding?.org_short_name ?? tenantDisplayName;
-  const tenantLogoUrl = branding?.logo_url || '/branding/PHWTroutLogoSagebrush-1.png';
+  const tenantLogoUrl = isDemoTenant
+    ? '/branding/phw-colorado-alpine-orange.png'
+    : (branding?.logo_url || '/branding/PHWTroutLogoSagebrush-1.png');
   const tenantAccent = branding?.primary_color ?? '#1f5f4a';
   const eligibleTenants = useMemo(() => tenants.filter((tenant) => {
     if (!tenant.expires_at) {
@@ -93,7 +96,7 @@ export default function Layout() {
   const navItems = isRootAdmin ? [...visibleItems, { label: 'Root', to: '/root' }] : visibleItems;
 
   return (
-    <div className="phw-layout">
+    <div className={`phw-layout${isDemoTenant ? ' phw-layout--demo' : ''}`}>
       <a href="#main-content" className="phw-skip-link">Skip to main content</a>
       <nav className="phw-layout__nav">
         <div className="phw-layout__nav-inner">
@@ -105,7 +108,7 @@ export default function Layout() {
               onError={(e) => { e.currentTarget.style.display = 'none'; }}
             />
             <div className="phw-layout__brand-text">
-              <div className="phw-layout__brand-title">Alpine Events</div>
+              <div className="phw-layout__brand-title">{isDemoTenant ? 'Alpine Events Demo' : 'Alpine Events'}</div>
               <div className="phw-layout__brand-subtitle">{tenantDisplayName}</div>
             </div>
           </Link>
@@ -169,6 +172,12 @@ export default function Layout() {
           </div>
         </div>
       </nav>
+
+      {isDemoTenant && (
+        <div className="phw-layout__demo-banner" role="status" aria-live="polite">
+          DEMO INSTANCE · NON-PRODUCTION · SAFE FOR TRAINING AND WALKTHROUGHS
+        </div>
+      )}
 
       <main id="main-content" className="phw-layout__main" tabIndex={-1}>
         <Outlet />

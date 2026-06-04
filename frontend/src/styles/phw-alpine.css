@@ -616,6 +616,65 @@ textarea:focus-visible {
   flex: 1;
 }
 
+.phw-layout__demo-banner {
+  position: sticky;
+  top: 64px;
+  z-index: 35;
+  background: repeating-linear-gradient(
+    135deg,
+    #8b1e1e,
+    #8b1e1e 16px,
+    #c7511f 16px,
+    #c7511f 32px
+  );
+  color: #fff;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.22);
+  text-align: center;
+  padding: 0.45rem 0.9rem;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+}
+
+.phw-layout--demo {
+  background:
+    radial-gradient(circle at 12% -8%, rgba(199, 81, 31, 0.16), transparent 38%),
+    radial-gradient(circle at 88% -18%, rgba(139, 30, 30, 0.17), transparent 42%),
+    var(--phw-slate-50);
+}
+
+.phw-layout--demo .phw-layout__nav {
+  background: linear-gradient(135deg, #5e1a1a 0%, #8b1e1e 46%, #c7511f 100%);
+}
+
+.phw-layout--demo .phw-layout__brand-subtitle {
+  color: #ffe7cc;
+}
+
+.phw-layout--demo .phw-layout__main {
+  position: relative;
+}
+
+.phw-layout--demo .phw-layout__main::before {
+  content: 'DEMO';
+  position: absolute;
+  right: 12px;
+  top: 8px;
+  font-size: clamp(42px, 7vw, 88px);
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: 0.08em;
+  color: rgba(139, 30, 30, 0.07);
+  pointer-events: none;
+  user-select: none;
+}
+
+.phw-layout--demo .phw-layout__footer {
+  background: linear-gradient(180deg, #fff7f2 0%, #fff2e8 100%);
+}
+
 /* ── Footer ────────────────────────────── */
 .phw-layout__footer {
   border-top: 1px solid var(--phw-slate-200);
@@ -913,6 +972,12 @@ textarea:focus-visible {
 /* ========================================================================== */
 
 @media (max-width: 960px) {
+  .phw-layout__demo-banner {
+    top: 0;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+  }
+
   .phw-layout__nav-inner {
     grid-template-columns: 1fr;
     height: auto;
@@ -1055,6 +1120,12 @@ textarea:focus-visible {
 }
 
 @media (max-width: 600px) {
+  .phw-layout--demo .phw-layout__main::before {
+    right: 8px;
+    top: 6px;
+    font-size: clamp(34px, 13vw, 56px);
+  }
+
   .phw-layout__main {
     padding: 0.85rem 0.7rem;
   }

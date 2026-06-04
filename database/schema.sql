@@ -79,6 +79,7 @@ CREATE TABLE dbo.member_group (
 IF OBJECT_ID(N'dbo.event', N'U') IS NULL
 CREATE TABLE dbo.event (
     event_id          UNIQUEIDENTIFIER NOT NULL DEFAULT NEWID(),
+    tenant_id         UNIQUEIDENTIFIER NULL,
     title             NVARCHAR(200)    NOT NULL,
     description       NVARCHAR(MAX)    NULL,
     location          NVARCHAR(300)    NULL,
@@ -101,6 +102,9 @@ CREATE TABLE dbo.event (
 
 IF OBJECT_ID(N'dbo.event', N'U') IS NOT NULL
 BEGIN
+    IF COL_LENGTH('dbo.event', 'tenant_id') IS NULL
+        ALTER TABLE dbo.event ADD tenant_id UNIQUEIDENTIFIER NULL;
+
     IF COL_LENGTH('dbo.event', 'mentor_capacity') IS NULL
         ALTER TABLE dbo.event ADD mentor_capacity INT NULL;
 
@@ -163,6 +167,14 @@ BEGIN
                 SET capacity = NULL
                 WHERE COALESCE(mentor_capacity, 0) + COALESCE(participant_capacity, 0) = 0;
         ';
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM sys.indexes
+        WHERE object_id = OBJECT_ID(N'dbo.event')
+          AND name = N'IX_event_tenant_event_date'
+    )
+        CREATE INDEX IX_event_tenant_event_date ON dbo.event (tenant_id, event_date);
 END
 
 -- ---------------------------------------------------------------------------
@@ -836,6 +848,18 @@ BEGIN
     WHEN NOT MATCHED THEN
         INSERT (tenant_id, slug, display_name, tenant_type, status, timezone, is_demo, is_operational, created_at)
         VALUES (source.tenant_id, source.slug, source.display_name, source.tenant_type, source.status, source.timezone, source.is_demo, source.is_operational, GETUTCDATE());
+
+    IF OBJECT_ID(N'dbo.event', N'U') IS NOT NULL
+       AND COL_LENGTH('dbo.event', 'tenant_id') IS NOT NULL
+       AND NOT EXISTS (
+            SELECT 1
+            FROM sys.foreign_keys
+            WHERE name = N'FK_event_tenant'
+              AND parent_object_id = OBJECT_ID(N'dbo.event')
+       )
+        ALTER TABLE dbo.event
+            ADD CONSTRAINT FK_event_tenant FOREIGN KEY (tenant_id)
+                REFERENCES dbo.tenant (tenant_id);
 END
 
 -- ---------------------------------------------------------------------------
@@ -1058,6 +1082,16 @@ BEGIN
 
     IF @default_tenant_id IS NOT NULL
     BEGIN
+        IF COL_LENGTH('dbo.event', 'tenant_id') IS NOT NULL
+        BEGIN
+                        EXEC sp_executesql
+                                N'UPDATE dbo.event
+                                    SET tenant_id = @default_tenant_id
+                                    WHERE tenant_id IS NULL;',
+                                N'@default_tenant_id UNIQUEIDENTIFIER',
+                                @default_tenant_id = @default_tenant_id;
+        END
+
         DECLARE @backfill_user_memberships_sql NVARCHAR(MAX) = N'
             INSERT INTO dbo.tenant_membership (
                 tenant_membership_id,

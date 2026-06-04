@@ -36,6 +36,7 @@ jest.mock('../middleware/rbac', () => ({
 }));
 
 type QueryResult = { recordset?: unknown[]; rowsAffected?: number[] };
+type QueryResolver = (sqlText: string) => QueryResult;
 
 describe('reports routes', () => {
   const app = express();
@@ -62,9 +63,17 @@ describe('reports routes', () => {
     (getPool as jest.Mock).mockResolvedValue({ request: () => mockRequest });
   }
 
+  function mockPoolWithQueryResolver(resolveQuery: QueryResolver): void {
+    const mockRequest = {
+      input: jest.fn().mockReturnThis(),
+      query: jest.fn().mockImplementation(async (sqlText: string) => resolveQuery(sqlText)),
+    };
+    (getPool as jest.Mock).mockResolvedValue({ request: () => mockRequest });
+  }
+
   it('GET /api/reports/delivery/logs denies cross-tenant event filters', async () => {
     mockPoolWithResults([
-      { recordset: [{ has_tenant_id: 1 }] },
+      { recordset: [{ has_event_tenant_id: 1, has_tenant_membership_table: 1 }] },
       { recordset: [] },
     ]);
 
@@ -89,9 +98,20 @@ describe('reports routes', () => {
   });
 
   it('GET /api/reports/delivery/logs returns rows for an in-tenant event filter', async () => {
-    mockPoolWithResults([
-      { recordset: [{ event_id: '22222222-2222-4222-8222-222222222222' }] },
-      {
+    mockPoolWithQueryResolver((sqlText) => {
+      if (sqlText.includes("COL_LENGTH('dbo.event', 'tenant_id')")) {
+        return { recordset: [{ has_event_tenant_id: 1, has_tenant_membership_table: 1 }] };
+      }
+
+      if (sqlText.includes('SELECT TOP 1 event_id') && sqlText.includes('FROM event')) {
+        return { recordset: [{ event_id: '22222222-2222-4222-8222-222222222222' }] };
+      }
+
+      if (sqlText.includes('COUNT(*) AS total_rows')) {
+        return { recordset: [{ total_rows: 1 }] };
+      }
+
+      return {
         recordset: [
           {
             log_id: '44444444-4444-4444-8444-444444444444',
@@ -108,9 +128,8 @@ describe('reports routes', () => {
             error_detail: null,
           },
         ],
-      },
-      { recordset: [{ total_rows: 1 }] },
-    ]);
+      };
+    });
 
     const res = await request(app)
       .get('/api/reports/delivery/logs')
