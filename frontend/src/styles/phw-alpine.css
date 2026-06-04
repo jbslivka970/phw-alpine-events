@@ -514,7 +514,10 @@ textarea:focus-visible {
   justify-content: center;
   align-items: center;
   gap: 2px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
 }
 
 .phw-layout__menu-toggle {
@@ -617,9 +620,8 @@ textarea:focus-visible {
 }
 
 .phw-layout__demo-banner {
-  position: sticky;
-  top: 64px;
-  z-index: 35;
+  position: relative;
+  z-index: 1;
   background: repeating-linear-gradient(
     135deg,
     #8b1e1e,
@@ -973,7 +975,6 @@ textarea:focus-visible {
 
 @media (max-width: 960px) {
   .phw-layout__demo-banner {
-    top: 0;
     font-size: 11px;
     letter-spacing: 0.08em;
   }
@@ -1015,6 +1016,8 @@ textarea:focus-visible {
     display: none;
     justify-content: flex-start;
     gap: 6px;
+    flex-wrap: wrap;
+    overflow: visible;
     width: 100%;
     background: rgba(0, 0, 0, 0.12);
     border: 1px solid rgba(255, 255, 255, 0.12);
