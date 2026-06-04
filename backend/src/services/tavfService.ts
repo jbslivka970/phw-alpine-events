@@ -16,6 +16,7 @@ async function ensureTavfSchema(): Promise<void> {
       BEGIN
           CREATE TABLE dbo.tavf_posting (
               posting_id      UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+            tenant_id       UNIQUEIDENTIFIER NOT NULL REFERENCES dbo.tenant(tenant_id),
               guide_member_id UNIQUEIDENTIFIER NOT NULL REFERENCES dbo.member(member_id),
               event_date      DATE NOT NULL,
               location        NVARCHAR(500) NOT NULL,
@@ -30,12 +31,14 @@ async function ensureTavfSchema(): Promise<void> {
           CREATE INDEX idx_tavf_posting_guide  ON dbo.tavf_posting(guide_member_id);
           CREATE INDEX idx_tavf_posting_date   ON dbo.tavf_posting(event_date);
           CREATE INDEX idx_tavf_posting_status ON dbo.tavf_posting(status);
+            CREATE INDEX idx_tavf_posting_tenant_status_date ON dbo.tavf_posting(tenant_id, status, event_date);
       END;
 
       IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'tavf_application')
       BEGIN
           CREATE TABLE dbo.tavf_application (
               application_id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+            tenant_id      UNIQUEIDENTIFIER NOT NULL REFERENCES dbo.tenant(tenant_id),
               posting_id     UNIQUEIDENTIFIER NOT NULL REFERENCES dbo.tavf_posting(posting_id),
               vet_member_id  UNIQUEIDENTIFIER NOT NULL REFERENCES dbo.member(member_id),
               notes          NVARCHAR(1000),
@@ -47,12 +50,14 @@ async function ensureTavfSchema(): Promise<void> {
           );
           CREATE INDEX idx_tavf_application_posting ON dbo.tavf_application(posting_id);
           CREATE INDEX idx_tavf_application_vet     ON dbo.tavf_application(vet_member_id);
+            CREATE INDEX idx_tavf_application_tenant_status ON dbo.tavf_application(tenant_id, status, applied_at);
       END;
 
       IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'tavf_match')
       BEGIN
           CREATE TABLE dbo.tavf_match (
               match_id       UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+            tenant_id      UNIQUEIDENTIFIER NOT NULL REFERENCES dbo.tenant(tenant_id),
               posting_id     UNIQUEIDENTIFIER NOT NULL REFERENCES dbo.tavf_posting(posting_id),
               application_id UNIQUEIDENTIFIER NOT NULL REFERENCES dbo.tavf_application(application_id),
               matched_by     UNIQUEIDENTIFIER REFERENCES dbo.member(member_id),
@@ -64,7 +69,140 @@ async function ensureTavfSchema(): Promise<void> {
           );
           CREATE INDEX idx_tavf_match_posting     ON dbo.tavf_match(posting_id);
           CREATE INDEX idx_tavf_match_application ON dbo.tavf_match(application_id);
+          CREATE INDEX idx_tavf_match_tenant_status ON dbo.tavf_match(tenant_id, status, matched_at);
       END;
+
+      IF COL_LENGTH('dbo.tavf_posting', 'tenant_id') IS NULL
+        ALTER TABLE dbo.tavf_posting ADD tenant_id UNIQUEIDENTIFIER NULL;
+
+      IF COL_LENGTH('dbo.tavf_application', 'tenant_id') IS NULL
+        ALTER TABLE dbo.tavf_application ADD tenant_id UNIQUEIDENTIFIER NULL;
+
+      IF COL_LENGTH('dbo.tavf_match', 'tenant_id') IS NULL
+        ALTER TABLE dbo.tavf_match ADD tenant_id UNIQUEIDENTIFIER NULL;
+
+      DECLARE @default_tenant_id UNIQUEIDENTIFIER;
+      SELECT TOP (1) @default_tenant_id = t.tenant_id
+      FROM dbo.tenant t
+      WHERE t.slug = N'colorado-alpine';
+
+      IF @default_tenant_id IS NULL
+        SELECT TOP (1) @default_tenant_id = t.tenant_id
+        FROM dbo.tenant t
+        WHERE t.status = N'active'
+        ORDER BY t.created_at ASC;
+
+      IF @default_tenant_id IS NOT NULL
+      BEGIN
+        UPDATE p
+        SET p.tenant_id = COALESCE(tm.tenant_id, @default_tenant_id)
+        FROM dbo.tavf_posting p
+        OUTER APPLY (
+          SELECT TOP (1) tm.tenant_id
+          FROM dbo.tenant_membership tm
+          WHERE tm.member_id = p.guide_member_id
+            AND tm.status = N'active'
+            AND tm.revoked_at IS NULL
+          ORDER BY CASE WHEN tm.membership_kind = N'home' THEN 0 ELSE 1 END, tm.created_at ASC
+        ) tm
+        WHERE p.tenant_id IS NULL;
+
+        UPDATE a
+        SET a.tenant_id = COALESCE(p.tenant_id, @default_tenant_id)
+        FROM dbo.tavf_application a
+        INNER JOIN dbo.tavf_posting p ON p.posting_id = a.posting_id
+        WHERE a.tenant_id IS NULL;
+
+        UPDATE tm
+        SET tm.tenant_id = COALESCE(p.tenant_id, @default_tenant_id)
+        FROM dbo.tavf_match tm
+        INNER JOIN dbo.tavf_posting p ON p.posting_id = tm.posting_id
+        WHERE tm.tenant_id IS NULL;
+      END;
+
+      IF EXISTS (SELECT 1 FROM dbo.tavf_posting WHERE tenant_id IS NULL)
+        THROW 51000, 'Unable to backfill tavf_posting.tenant_id for all records.', 1;
+
+      IF EXISTS (SELECT 1 FROM dbo.tavf_application WHERE tenant_id IS NULL)
+        THROW 51000, 'Unable to backfill tavf_application.tenant_id for all records.', 1;
+
+      IF EXISTS (SELECT 1 FROM dbo.tavf_match WHERE tenant_id IS NULL)
+        THROW 51000, 'Unable to backfill tavf_match.tenant_id for all records.', 1;
+
+      IF EXISTS (
+        SELECT 1
+        FROM sys.columns
+        WHERE object_id = OBJECT_ID(N'dbo.tavf_posting')
+          AND name = N'tenant_id'
+          AND is_nullable = 1
+      )
+        ALTER TABLE dbo.tavf_posting ALTER COLUMN tenant_id UNIQUEIDENTIFIER NOT NULL;
+
+      IF EXISTS (
+        SELECT 1
+        FROM sys.columns
+        WHERE object_id = OBJECT_ID(N'dbo.tavf_application')
+          AND name = N'tenant_id'
+          AND is_nullable = 1
+      )
+        ALTER TABLE dbo.tavf_application ALTER COLUMN tenant_id UNIQUEIDENTIFIER NOT NULL;
+
+      IF EXISTS (
+        SELECT 1
+        FROM sys.columns
+        WHERE object_id = OBJECT_ID(N'dbo.tavf_match')
+          AND name = N'tenant_id'
+          AND is_nullable = 1
+      )
+        ALTER TABLE dbo.tavf_match ALTER COLUMN tenant_id UNIQUEIDENTIFIER NOT NULL;
+
+      IF NOT EXISTS (
+        SELECT 1 FROM sys.foreign_keys
+        WHERE name = N'FK_tavf_posting_tenant'
+          AND parent_object_id = OBJECT_ID(N'dbo.tavf_posting')
+      )
+        ALTER TABLE dbo.tavf_posting
+          ADD CONSTRAINT FK_tavf_posting_tenant FOREIGN KEY (tenant_id)
+          REFERENCES dbo.tenant(tenant_id);
+
+      IF NOT EXISTS (
+        SELECT 1 FROM sys.foreign_keys
+        WHERE name = N'FK_tavf_application_tenant'
+          AND parent_object_id = OBJECT_ID(N'dbo.tavf_application')
+      )
+        ALTER TABLE dbo.tavf_application
+          ADD CONSTRAINT FK_tavf_application_tenant FOREIGN KEY (tenant_id)
+          REFERENCES dbo.tenant(tenant_id);
+
+      IF NOT EXISTS (
+        SELECT 1 FROM sys.foreign_keys
+        WHERE name = N'FK_tavf_match_tenant'
+          AND parent_object_id = OBJECT_ID(N'dbo.tavf_match')
+      )
+        ALTER TABLE dbo.tavf_match
+          ADD CONSTRAINT FK_tavf_match_tenant FOREIGN KEY (tenant_id)
+          REFERENCES dbo.tenant(tenant_id);
+
+      IF NOT EXISTS (
+        SELECT 1 FROM sys.indexes
+        WHERE name = N'idx_tavf_posting_tenant_status_date'
+          AND object_id = OBJECT_ID(N'dbo.tavf_posting')
+      )
+        CREATE INDEX idx_tavf_posting_tenant_status_date ON dbo.tavf_posting(tenant_id, status, event_date);
+
+      IF NOT EXISTS (
+        SELECT 1 FROM sys.indexes
+        WHERE name = N'idx_tavf_application_tenant_status'
+          AND object_id = OBJECT_ID(N'dbo.tavf_application')
+      )
+        CREATE INDEX idx_tavf_application_tenant_status ON dbo.tavf_application(tenant_id, status, applied_at);
+
+      IF NOT EXISTS (
+        SELECT 1 FROM sys.indexes
+        WHERE name = N'idx_tavf_match_tenant_status'
+          AND object_id = OBJECT_ID(N'dbo.tavf_match')
+      )
+        CREATE INDEX idx_tavf_match_tenant_status ON dbo.tavf_match(tenant_id, status, matched_at);
 
           IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'tavf_notification_subscription')
           BEGIN
@@ -94,6 +232,7 @@ export type MatchStatus = 'confirmed' | 'cancelled';
 
 export interface TavfPosting {
   posting_id: string;
+  tenant_id: string;
   guide_member_id: string;
   guide_first_name?: string | null;
   guide_last_name?: string | null;
@@ -110,6 +249,7 @@ export interface TavfPosting {
 }
 
 export interface CreatePostingInput {
+  tenant_id: string;
   guide_member_id: string;
   event_date: string;   // ISO date YYYY-MM-DD
   location: string;
@@ -129,6 +269,7 @@ export interface UpdatePostingInput {
 
 export interface TavfApplication {
   application_id: string;
+  tenant_id: string;
   posting_id: string;
   vet_member_id: string;
   first_name?: string | null;
@@ -140,6 +281,7 @@ export interface TavfApplication {
 }
 
 export interface CreateApplicationInput {
+  tenant_id?: string;
   posting_id: string;
   vet_member_id: string;
   notes?: string;
@@ -147,6 +289,7 @@ export interface CreateApplicationInput {
 
 export interface TavfMatch {
   match_id: string;
+  tenant_id: string;
   posting_id: string;
   application_id: string;
   matched_by?: string | null;
@@ -156,6 +299,7 @@ export interface TavfMatch {
 }
 
 export interface CreateMatchInput {
+  tenant_id?: string;
   posting_id: string;
   application_id: string;
   matched_by?: string;
@@ -191,7 +335,7 @@ async function autoClosePastOpenPostings(): Promise<void> {
 // ---------------------------------------------------------------------------
 
 export async function listPostings(
-  filters: { status?: PostingStatus; limit?: number } = {}
+  filters: { status?: PostingStatus; limit?: number; tenantId?: string } = {}
 ): Promise<TavfPosting[]> {
   await ensureTavfSchema();
   await autoClosePastOpenPostings();
@@ -205,9 +349,17 @@ export async function listPostings(
       guide.mobile_phone AS guide_mobile_phone
     FROM tavf_posting p
     LEFT JOIN member guide ON guide.member_id = p.guide_member_id`;
+  const whereClauses: string[] = [];
   if (filters.status) {
     req.input('status', sql.NVarChar(20), filters.status);
-    query += ` WHERE p.status = @status`;
+    whereClauses.push('p.status = @status');
+  }
+  if (filters.tenantId) {
+    req.input('tenant_id', sql.UniqueIdentifier, filters.tenantId);
+    whereClauses.push('p.tenant_id = @tenant_id');
+  }
+  if (whereClauses.length > 0) {
+    query += ` WHERE ${whereClauses.join(' AND ')}`;
   }
   query += ` ORDER BY p.event_date ASC`;
   if (typeof filters.limit === 'number' && Number.isFinite(filters.limit) && filters.limit > 0) {
@@ -244,6 +396,7 @@ export async function createPosting(input: CreatePostingInput): Promise<TavfPost
   const pool = await getPool();
   const result = await pool
     .request()
+    .input('tenant_id', sql.UniqueIdentifier, input.tenant_id)
     .input('guide_member_id', sql.UniqueIdentifier, input.guide_member_id)
     .input('event_date', sql.Date, input.event_date)
     .input('location', sql.NVarChar(500), input.location)
@@ -252,10 +405,10 @@ export async function createPosting(input: CreatePostingInput): Promise<TavfPost
     .input('description', sql.NVarChar(2000), input.description ?? null)
     .query<TavfPosting>(`
       INSERT INTO tavf_posting
-        (guide_member_id, event_date, location, capacity, species, description)
+        (tenant_id, guide_member_id, event_date, location, capacity, species, description)
       OUTPUT INSERTED.*
       VALUES
-        (@guide_member_id, @event_date, @location, @capacity, @species, @description)
+        (@tenant_id, @guide_member_id, @event_date, @location, @capacity, @species, @description)
     `);
   const posting = result.recordset[0];
   await notifications.notifyNewPosting(posting.posting_id);
@@ -389,13 +542,14 @@ export async function createApplication(
 
   const result = await pool
     .request()
+    .input('tenant_id', sql.UniqueIdentifier, input.tenant_id ?? null)
     .input('posting_id', sql.UniqueIdentifier, input.posting_id)
     .input('vet_member_id', sql.UniqueIdentifier, input.vet_member_id)
     .input('notes', sql.NVarChar(1000), input.notes ?? null)
     .query<TavfApplication>(`
-      INSERT INTO tavf_application (posting_id, vet_member_id, notes)
+      INSERT INTO tavf_application (tenant_id, posting_id, vet_member_id, notes)
       OUTPUT INSERTED.*
-      VALUES (@posting_id, @vet_member_id, @notes)
+      VALUES (COALESCE(@tenant_id, (SELECT TOP 1 tenant_id FROM tavf_posting WHERE posting_id = @posting_id)), @posting_id, @vet_member_id, @notes)
     `);
   const insertedApplicationId = result.recordset[0]?.application_id;
   if (!insertedApplicationId) {
@@ -485,8 +639,8 @@ export async function createMatch(input: CreateMatchInput): Promise<TavfMatch> {
   const postingResult = await pool
     .request()
     .input('posting_id', sql.UniqueIdentifier, input.posting_id)
-    .query<{ posting_id: string; location: string; event_date: Date }>(
-      `SELECT posting_id, location, event_date
+    .query<{ posting_id: string; tenant_id: string; location: string; event_date: Date }>(
+      `SELECT posting_id, tenant_id, location, event_date
        FROM tavf_posting
        WHERE posting_id = @posting_id`
     );
@@ -498,30 +652,34 @@ export async function createMatch(input: CreateMatchInput): Promise<TavfMatch> {
   // Insert the match record
   const matchResult = await pool
     .request()
+    .input('tenant_id', sql.UniqueIdentifier, input.tenant_id ?? posting.tenant_id)
     .input('posting_id', sql.UniqueIdentifier, input.posting_id)
     .input('application_id', sql.UniqueIdentifier, input.application_id)
     .input('matched_by', sql.UniqueIdentifier, matchedByMemberId)
     .input('notes', sql.NVarChar(1000), input.notes ?? null)
     .query<TavfMatch>(`
-      INSERT INTO tavf_match (posting_id, application_id, matched_by, notes)
+      INSERT INTO tavf_match (tenant_id, posting_id, application_id, matched_by, notes)
       OUTPUT INSERTED.*
-      VALUES (@posting_id, @application_id, @matched_by, @notes)
+      VALUES (@tenant_id, @posting_id, @application_id, @matched_by, @notes)
     `);
   const match = matchResult.recordset[0];
 
   // Mark the application as matched
   await pool
     .request()
+    .input('tenant_id', sql.UniqueIdentifier, input.tenant_id ?? posting.tenant_id)
     .input('application_id', sql.UniqueIdentifier, input.application_id)
     .query(`
       UPDATE tavf_application
       SET status = 'matched', updated_at = GETDATE()
       WHERE application_id = @application_id
+        AND tenant_id = @tenant_id
     `);
 
   // If confirmed matches >= capacity, mark posting as filled
   await pool
     .request()
+    .input('tenant_id', sql.UniqueIdentifier, input.tenant_id ?? posting.tenant_id)
     .input('posting_id', sql.UniqueIdentifier, input.posting_id)
     .query(`
       UPDATE tavf_posting
@@ -534,21 +692,33 @@ export async function createMatch(input: CreateMatchInput): Promise<TavfMatch> {
           END,
           updated_at = GETDATE()
       WHERE posting_id = @posting_id
+        AND tenant_id = @tenant_id
     `);
 
   // Auto-create corresponding event for the confirmed match.
   await pool
     .request()
+    .input('tenant_id', sql.UniqueIdentifier, input.tenant_id ?? posting.tenant_id)
     .input('title', sql.NVarChar(200), `Take a Vet Fishing — ${posting.location}`)
     .input('event_date', sql.DateTime, posting.event_date)
     .input('location', sql.NVarChar(300), posting.location)
     .input('capacity', sql.Int, 2)
     .input('created_by', sql.UniqueIdentifier, null)
     .query(
-      `INSERT INTO event
-         (event_id, title, event_date, location, capacity, status, created_by, created_at, updated_at)
-       VALUES
-         (NEWID(), @title, @event_date, @location, @capacity, 'published', @created_by, GETUTCDATE(), GETUTCDATE())`
+      `IF COL_LENGTH('dbo.event', 'tenant_id') IS NOT NULL
+       BEGIN
+         INSERT INTO event
+           (event_id, tenant_id, title, event_date, location, capacity, status, created_by, created_at, updated_at)
+         VALUES
+           (NEWID(), @tenant_id, @title, @event_date, @location, @capacity, 'published', @created_by, GETUTCDATE(), GETUTCDATE())
+       END
+       ELSE
+       BEGIN
+         INSERT INTO event
+           (event_id, title, event_date, location, capacity, status, created_by, created_at, updated_at)
+         VALUES
+           (NEWID(), @title, @event_date, @location, @capacity, 'published', @created_by, GETUTCDATE(), GETUTCDATE())
+       END`
     );
 
   await notifications.notifyMatchConfirmed(match.match_id);

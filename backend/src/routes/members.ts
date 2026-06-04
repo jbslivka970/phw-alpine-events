@@ -222,7 +222,7 @@ router.get('/:id', apiLimiter, authenticate, requireAnyAuthenticatedRole, async 
 });
 router.get('/:id/groups', apiLimiter, authenticate, requireAnyAuthenticatedRole, async (req, res, next) => {
   try {
-    const groups = await getMemberGroups(req.params.id);
+    const groups = await getMemberGroups(req.params.id, { tenantId: req.tenantId });
     res.json(groups);
   } catch (error) {
     next(error);
@@ -839,7 +839,7 @@ async function getSmsRolloutStatus(memberId: string, memberEmail: string | null)
   }
 
   if (configured.groups.length > 0) {
-    const memberGroups = await getMemberGroups(memberId);
+    const memberGroups = await getMemberGroups(memberId, { tenantId: undefined });
     const matchedGroups = memberGroups
       .map((group) => group.group_name.trim().toLowerCase())
       .filter((groupName) => configured.groups.includes(groupName));

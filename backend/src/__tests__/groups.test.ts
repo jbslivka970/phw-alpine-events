@@ -73,6 +73,6 @@ describe('groups routes', () => {
     const res = await request(app).post('/api/groups/group-1/members/member-1');
 
     expect(res.status).toBe(201);
-    expect(groupService.addMemberToGroup).toHaveBeenCalledWith('member-1', 'group-1');
+    expect(groupService.addMemberToGroup).toHaveBeenCalledWith('member-1', 'group-1', { tenantId: undefined });
   });
 });

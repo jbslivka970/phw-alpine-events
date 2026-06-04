@@ -34,6 +34,7 @@ app.use('/api/tavf', tavfRouter);
 
 const POSTING: tavfService.TavfPosting = {
   posting_id: 'p-1111',
+  tenant_id: '1b6b9719-663a-4e56-8f7d-9a4bd4c10001',
   guide_member_id: '11111111-1111-4111-8111-111111111111',
   event_date: '2025-07-04',
   location: 'Rocky Mountain National Park',
@@ -47,6 +48,7 @@ const POSTING: tavfService.TavfPosting = {
 
 const APPLICATION: tavfService.TavfApplication = {
   application_id: 'a-3333',
+  tenant_id: '1b6b9719-663a-4e56-8f7d-9a4bd4c10001',
   posting_id: 'p-1111',
   vet_member_id: 'v-4444',
   notes: 'Looking forward to it',
@@ -57,6 +59,7 @@ const APPLICATION: tavfService.TavfApplication = {
 
 const MATCH: tavfService.TavfMatch = {
   match_id: 'm-5555',
+  tenant_id: '1b6b9719-663a-4e56-8f7d-9a4bd4c10001',
   posting_id: 'p-1111',
   application_id: 'a-3333',
   matched_by: 'admin-6666',

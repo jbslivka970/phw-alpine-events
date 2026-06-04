@@ -5,6 +5,7 @@ Full-stack event management system for Project Healing Waters Colorado Alpine Ch
 ## Current Release Docs
 
 - Wave 1 release lock and deploy record: `docs/wave-1-release-lock.md`
+- Production lock working-mode runbook: `docs/production-lock-working-mode.md`
 - Next-wave planning list: `docs/next-wave-task-list.md`
 - PRD implementation compare and remaining gaps: `docs/prd-v1_1-full-compare-20260320.md`
 

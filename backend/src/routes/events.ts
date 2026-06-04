@@ -727,12 +727,19 @@ router.get('/', apiLimiter, authenticate, requireAnyAuthenticatedRole, async (re
   }
 });
 
-router.get('/dashboard-summary', apiLimiter, authenticate, requireAnyAuthenticatedRole, async (_req, res) => {
+router.get('/dashboard-summary', apiLimiter, authenticate, requireAnyAuthenticatedRole, async (req, res) => {
   try {
     const pool = await getPool();
-    const summary = await withShortLivedCache('events:dashboard-summary', DASHBOARD_CACHE_TTL_MS, async () => {
-      const result = await pool
-        .request()
+    const tenantScope = await resolveEventTenantScope(req, pool);
+    const summaryCacheKey = `events:dashboard-summary:tenant=${tenantScope.apply ? tenantScope.tenantId : 'legacy'}`;
+    const summary = await withShortLivedCache(summaryCacheKey, DASHBOARD_CACHE_TTL_MS, async () => {
+      const request = pool.request();
+      const tenantClause = tenantScope.apply ? ' AND e.tenant_id = @tenant_id' : '';
+      if (tenantScope.apply) {
+        request.input('tenant_id', sql.UniqueIdentifier, tenantScope.tenantId);
+      }
+
+      const result = await request
         .query<{
           total_events_this_year: number;
           upcoming_events: number;
@@ -742,16 +749,16 @@ router.get('/dashboard-summary', apiLimiter, authenticate, requireAnyAuthenticat
               (SELECT COUNT(*)
                FROM event e
                WHERE e.status = 'published'
-                 AND YEAR(e.event_date) = YEAR(GETUTCDATE())) AS total_events_this_year,
+                 AND YEAR(e.event_date) = YEAR(GETUTCDATE())${tenantClause}) AS total_events_this_year,
               (SELECT COUNT(*)
                FROM event e
                WHERE e.status = 'published'
-                 AND e.event_date >= GETUTCDATE()) AS upcoming_events,
+                 AND e.event_date >= GETUTCDATE()${tenantClause}) AS upcoming_events,
               (SELECT COUNT(*)
                FROM event_response er
                INNER JOIN event e ON e.event_id = er.event_id
                WHERE er.response = 'yes'
-                 AND e.status = 'published') AS total_rsvps`
+                 AND e.status = 'published'${tenantClause}) AS total_rsvps`
         );
 
       const row = result.recordset[0] ?? {
@@ -1028,6 +1035,31 @@ router.post('/', writeLimiter, authenticate, requireEventCreatorOrAdmin, async (
     const pool = await getPool();
     const tenantScope = await resolveEventTenantScope(req, pool);
     const eventColumns = await getEventColumnSupport(pool);
+
+    if (tenantScope.apply && targetGroupIds.length > 0) {
+      const uniqueTargetGroupIds = Array.from(new Set(targetGroupIds));
+      const placeholders = uniqueTargetGroupIds.map((_, index) => `@target_group_id_${index}`);
+      const tenantGroupRequest = pool
+        .request()
+        .input('tenant_id', sql.UniqueIdentifier, tenantScope.tenantId);
+
+      uniqueTargetGroupIds.forEach((groupId, index) => {
+        tenantGroupRequest.input(`target_group_id_${index}`, sql.UniqueIdentifier, groupId);
+      });
+
+      const tenantGroupCount = await tenantGroupRequest
+        .query<{ total: number }>(
+          `SELECT COUNT(*) AS total
+           FROM dbo.[group] g
+           WHERE g.tenant_id = @tenant_id
+             AND g.group_id IN (${placeholders.join(', ')})`
+        );
+
+      if ((tenantGroupCount.recordset[0]?.total ?? 0) !== uniqueTargetGroupIds.length) {
+        res.status(400).json({ error: 'notification_targets must reference groups in the active tenant.' });
+        return;
+      }
+    }
 
     if (eventLeadMemberId) {
       await assertEventLeadEligibility(pool, eventLeadMemberId);
@@ -1405,6 +1437,30 @@ router.put('/:id', writeLimiter, authenticate, requireEventCreatorOrAdmin, async
       }
 
       const requestedUniqueGroupIds = Array.from(new Set(requestedGroupIds));
+      if (tenantScope.apply && requestedUniqueGroupIds.length > 0) {
+        const placeholders = requestedUniqueGroupIds.map((_, index) => `@target_group_id_${index}`);
+        const tenantGroupRequest = pool
+          .request()
+          .input('tenant_id', sql.UniqueIdentifier, tenantScope.tenantId);
+
+        requestedUniqueGroupIds.forEach((groupId, index) => {
+          tenantGroupRequest.input(`target_group_id_${index}`, sql.UniqueIdentifier, groupId);
+        });
+
+        const tenantGroupCount = await tenantGroupRequest
+          .query<{ total: number }>(
+            `SELECT COUNT(*) AS total
+             FROM dbo.[group] g
+             WHERE g.tenant_id = @tenant_id
+               AND g.group_id IN (${placeholders.join(', ')})`
+          );
+
+        if ((tenantGroupCount.recordset[0]?.total ?? 0) !== requestedUniqueGroupIds.length) {
+          res.status(400).json({ error: 'notification_targets must reference groups in the active tenant.' });
+          return;
+        }
+      }
+
       const existingTargetsResult = await pool
         .request()
         .input('event_id', sql.UniqueIdentifier, req.params.id)
@@ -1521,6 +1577,9 @@ router.post('/:id/send-update', writeLimiter, authenticate, requireEventCreatorO
     }
 
     const pool = await getPool();
+    if (!(await ensureTenantEventAccess(req, res, pool, req.params.id))) {
+      return;
+    }
     const eventColumns = await getEventColumnSupport(pool);
     const eventResult = await pool
       .request()
@@ -1608,6 +1667,9 @@ router.post('/:id/send-update', writeLimiter, authenticate, requireEventCreatorO
 router.post('/:id/send-reminder', writeLimiter, authenticate, requireEventCreatorOrAdmin, async (req, res) => {
   try {
     const pool = await getPool();
+    if (!(await ensureTenantEventAccess(req, res, pool, req.params.id))) {
+      return;
+    }
     const eventColumns = await getEventColumnSupport(pool);
     const eventResult = await pool
       .request()
@@ -1685,6 +1747,9 @@ router.put('/:id/status', writeLimiter, authenticate, requireAnyAuthenticatedRol
     }
 
     const pool = await getPool();
+    if (!(await ensureTenantEventAccess(req, res, pool, req.params.id))) {
+      return;
+    }
     const eventColumns = await getEventColumnSupport(pool);
     const existingResult = await pool
       .request()
@@ -1880,6 +1945,9 @@ router.put('/:id/status', writeLimiter, authenticate, requireAnyAuthenticatedRol
 router.post('/:id/close-at-capacity', writeLimiter, authenticate, requireEventCreatorOrAdmin, async (req, res) => {
   try {
     const pool = await getPool();
+    if (!(await ensureTenantEventAccess(req, res, pool, req.params.id))) {
+      return;
+    }
     await ensureEventGuestAssignmentTable(pool);
 
     const eventResult = await pool
@@ -1975,6 +2043,9 @@ router.post('/:id/close-at-capacity', writeLimiter, authenticate, requireEventCr
 router.get('/:id/ics', apiLimiter, authenticate, requireAnyAuthenticatedRole, async (req, res) => {
   try {
     const pool = await getPool();
+    if (!(await ensureTenantEventAccess(req, res, pool, req.params.id))) {
+      return;
+    }
     const eventResult = await pool
       .request()
       .input('event_id', sql.UniqueIdentifier, req.params.id)

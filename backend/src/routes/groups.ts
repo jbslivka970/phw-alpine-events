@@ -16,9 +16,9 @@ import { getMemberById } from '../services/memberService';
 
 const router = Router();
 
-router.get('/', apiLimiter, authenticate, requireAnyAuthenticatedRole, async (_req: Request, res: Response, next: NextFunction) => {
+router.get('/', apiLimiter, authenticate, requireAnyAuthenticatedRole, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const groups = await listGroups();
+    const groups = await listGroups({ tenantId: req.tenantId });
     res.json(groups);
   } catch (error) {
     next(error);
@@ -27,7 +27,7 @@ router.get('/', apiLimiter, authenticate, requireAnyAuthenticatedRole, async (_r
 
 router.get('/:id', apiLimiter, authenticate, requireAnyAuthenticatedRole, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const group = await getGroupById(req.params.id);
+    const group = await getGroupById(req.params.id, { tenantId: req.tenantId });
     if (!group) {
       res.status(404).json({ error: 'Group not found.' });
       return;
@@ -40,12 +40,12 @@ router.get('/:id', apiLimiter, authenticate, requireAnyAuthenticatedRole, async 
 
 router.get('/:id/members', apiLimiter, authenticate, requireAnyAuthenticatedRole, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const group = await getGroupById(req.params.id);
+    const group = await getGroupById(req.params.id, { tenantId: req.tenantId });
     if (!group) {
       res.status(404).json({ error: 'Group not found.' });
       return;
     }
-    const memberIds = await getGroupMembers(req.params.id);
+    const memberIds = await getGroupMembers(req.params.id, { tenantId: req.tenantId });
     res.json(memberIds);
   } catch (error) {
     next(error);
@@ -63,7 +63,7 @@ router.post('/', writeLimiter, authenticate, requireAdmin, async (req: Request, 
     const group = await createGroup({
       group_name: groupName,
       description: typeof req.body?.description === 'string' ? req.body.description : null,
-    });
+    }, { tenantId: req.tenantId });
 
     res.status(201).json(group);
   } catch (error) {
@@ -76,7 +76,7 @@ router.patch('/:id', writeLimiter, authenticate, requireAdmin, async (req: Reque
     const group = await updateGroup(req.params.id, {
       group_name: typeof req.body?.group_name === 'string' ? req.body.group_name : undefined,
       description: 'description' in req.body ? (typeof req.body.description === 'string' ? req.body.description : null) : undefined,
-    });
+    }, { tenantId: req.tenantId });
 
     if (!group) {
       res.status(404).json({ error: 'Group not found.' });
@@ -95,7 +95,7 @@ router.patch('/:id', writeLimiter, authenticate, requireAdmin, async (req: Reque
 
 router.delete('/:id', writeLimiter, authenticate, requireAdmin, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const deleted = await deleteGroup(req.params.id);
+    const deleted = await deleteGroup(req.params.id, { tenantId: req.tenantId });
     if (!deleted) {
       res.status(404).json({ error: 'Group not found.' });
       return;
@@ -113,19 +113,19 @@ router.delete('/:id', writeLimiter, authenticate, requireAdmin, async (req: Requ
 
 router.post('/:id/members/:memberId', writeLimiter, authenticate, requireAdmin, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const group = await getGroupById(req.params.id);
+    const group = await getGroupById(req.params.id, { tenantId: req.tenantId });
     if (!group) {
       res.status(404).json({ error: 'Group not found.' });
       return;
     }
 
-    const member = await getMemberById(req.params.memberId);
+    const member = await getMemberById(req.params.memberId, { tenantId: req.tenantId });
     if (!member) {
       res.status(404).json({ error: 'Member not found.' });
       return;
     }
 
-    await addMemberToGroup(req.params.memberId, req.params.id);
+    await addMemberToGroup(req.params.memberId, req.params.id, { tenantId: req.tenantId });
     res.status(201).json({ message: 'Member added to group.' });
   } catch (error) {
     next(error);
@@ -134,7 +134,7 @@ router.post('/:id/members/:memberId', writeLimiter, authenticate, requireAdmin, 
 
 router.delete('/:id/members/:memberId', writeLimiter, authenticate, requireAdmin, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const removed = await removeMemberFromGroup(req.params.memberId, req.params.id);
+    const removed = await removeMemberFromGroup(req.params.memberId, req.params.id, { tenantId: req.tenantId });
     if (!removed) {
       res.status(404).json({ error: 'Membership not found.' });
       return;

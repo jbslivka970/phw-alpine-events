@@ -1,5 +1,8 @@
 {
   "scripts": {
+    "release:code-snapshot": "bash scripts/release/code-snapshot.sh",
+    "release:db-backup-export": "bash scripts/release/db-backup-export.sh",
+    "release:postdeploy-smoke": "npm run test:e2e:postdeploy",
     "ci:check:compliance-pages": "node scripts/ci/check-compliance-pages.mjs",
     "ci:check:migration-safety": "node scripts/ci/check-migration-safety.mjs",
     "test:v2:local": "bash scripts/local-v2-validation.sh",

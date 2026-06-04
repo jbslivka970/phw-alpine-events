@@ -2384,8 +2384,8 @@ async function notifyNewPosting(postingId: string): Promise<void> {
   const postingResult = await pool
     .request()
     .input('posting_id', sql.UniqueIdentifier, postingId)
-    .query<{ posting_id: string; location: string; event_date: Date; capacity: number; species: string | null; description: string | null }>(
-      `SELECT posting_id, location, event_date, capacity, species, description
+    .query<{ posting_id: string; tenant_id: string; location: string; event_date: Date; capacity: number; species: string | null; description: string | null }>(
+      `SELECT posting_id, tenant_id, location, event_date, capacity, species, description
        FROM tavf_posting
        WHERE posting_id = @posting_id`
     );
@@ -2406,12 +2406,19 @@ async function notifyNewPosting(postingId: string): Promise<void> {
   }> = [];
 
   try {
+    recipients.input('tenant_id', sql.UniqueIdentifier, posting.tenant_id);
     const subscribedRecipients = await recipients.query<{ email: string; member_id: string; mobile_phone: string | null; sms_opt_in: boolean; email_opt_out: boolean }>(
       `SELECT DISTINCT m.email, m.member_id, m.mobile_phone, m.sms_opt_in, m.email_opt_out
        FROM member m
        INNER JOIN tavf_notification_subscription tns ON tns.member_id = m.member_id
+       INNER JOIN tenant_membership tm ON tm.member_id = m.member_id
        WHERE m.is_active = 1
          AND tns.is_subscribed = 1
+         AND tm.tenant_id = @tenant_id
+         AND tm.status = 'active'
+         AND tm.revoked_at IS NULL
+         AND tm.starts_at <= GETUTCDATE()
+         AND (tm.expires_at IS NULL OR tm.expires_at > GETUTCDATE())
          AND ((m.email_opt_out = 0 OR m.email_opt_out IS NULL) OR (m.sms_opt_in = 1 AND m.mobile_phone IS NOT NULL))`
     );
     recipientRows = subscribedRecipients.recordset;
@@ -2419,12 +2426,20 @@ async function notifyNewPosting(postingId: string): Promise<void> {
     console.warn('[NotificationService] tavf_notification_subscription not available, using ALL-group fallback.', subscriptionError);
     const fallbackRecipients = await pool
       .request()
+      .input('tenant_id', sql.UniqueIdentifier, posting.tenant_id)
       .query<{ email: string; member_id: string; mobile_phone: string | null; sms_opt_in: boolean; email_opt_out: boolean }>(
         `SELECT DISTINCT m.email, m.member_id, m.mobile_phone, m.sms_opt_in, m.email_opt_out
          FROM member m
          INNER JOIN member_group mg ON mg.member_id = m.member_id
          INNER JOIN [group] g ON g.group_id = mg.group_id
+         INNER JOIN tenant_membership tm ON tm.member_id = m.member_id
          WHERE g.group_name = 'ALL'
+           AND g.tenant_id = @tenant_id
+           AND tm.tenant_id = @tenant_id
+           AND tm.status = 'active'
+           AND tm.revoked_at IS NULL
+           AND tm.starts_at <= GETUTCDATE()
+           AND (tm.expires_at IS NULL OR tm.expires_at > GETUTCDATE())
            AND m.is_active = 1
            AND ((m.email_opt_out = 0 OR m.email_opt_out IS NULL) OR (m.sms_opt_in = 1 AND m.mobile_phone IS NOT NULL))`
       );
