@@ -35,10 +35,12 @@ export default function Layout() {
   const { user, logout, canCreateTavfPostings } = useAuth();
   const { activeTenant, tenants, selectTenant } = useTenantContext();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isAdminMenuOpen, setIsAdminMenuOpen] = useState(false);
   const [isRootAdmin, setIsRootAdmin] = useState(false);
 
   useEffect(() => {
     setIsMenuOpen(false);
+    setIsAdminMenuOpen(false);
   }, [location.pathname]);
 
   useEffect(() => {
@@ -93,7 +95,11 @@ export default function Layout() {
     .filter((item) => !item.role || roles.includes(item.role as typeof ROLES[keyof typeof ROLES]))
     .filter((item) => item.to !== '/tavf' || canAccessTavf);
 
-  const navItems = isRootAdmin ? [...visibleItems, { label: 'Root', to: '/root' }] : visibleItems;
+  const corePaths = new Set(['/dashboard', '/preferences', '/events', '/calendar', '/tavf']);
+  const coreItems = visibleItems.filter((item) => corePaths.has(item.to));
+  const adminItems = visibleItems.filter((item) => !corePaths.has(item.to));
+  const managementItems = isRootAdmin ? [...adminItems, { label: 'Root', to: '/root' }] : adminItems;
+  const isManagementRouteActive = managementItems.some((item) => isLinkActive(location.pathname, item.to));
 
   return (
     <div className={`phw-layout${isDemoTenant ? ' phw-layout--demo' : ''}`}>
@@ -127,7 +133,7 @@ export default function Layout() {
             id="phw-primary-navigation"
             className={`phw-layout__links${isMenuOpen ? ' phw-layout__links--open' : ''}`}
           >
-            {navItems.map((item) => (
+            {coreItems.map((item) => (
               <NavLink
                 key={item.to}
                 to={item.to}
@@ -140,6 +146,39 @@ export default function Layout() {
                 {item.label}
               </NavLink>
             ))}
+
+            {managementItems.length > 0 && (
+              <div className="phw-layout__admin-menu">
+                <button
+                  type="button"
+                  className={`phw-layout__admin-menu-toggle${isManagementRouteActive ? ' phw-layout__admin-menu-toggle--active' : ''}`}
+                  aria-expanded={isAdminMenuOpen}
+                  aria-controls="phw-management-menu"
+                  onClick={() => setIsAdminMenuOpen((current) => !current)}
+                >
+                  <span className="phw-layout__admin-menu-icon" aria-hidden="true">☰</span>
+                  <span>Admin Menu</span>
+                </button>
+                <div
+                  id="phw-management-menu"
+                  className={`phw-layout__admin-menu-panel${isAdminMenuOpen ? ' phw-layout__admin-menu-panel--open' : ''}`}
+                >
+                  {managementItems.map((item) => (
+                    <NavLink
+                      key={item.to}
+                      to={item.to}
+                      className={({ isActive }) =>
+                        isActive || isLinkActive(location.pathname, item.to)
+                          ? 'phw-layout__admin-menu-link phw-layout__admin-menu-link--active'
+                          : 'phw-layout__admin-menu-link'
+                      }
+                    >
+                      {item.label}
+                    </NavLink>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="phw-layout__user">

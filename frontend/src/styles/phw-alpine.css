@@ -513,12 +513,9 @@ textarea:focus-visible {
   display: flex;
   justify-content: center;
   align-items: center;
-  gap: 2px;
+  gap: 4px;
   flex-wrap: nowrap;
-  overflow-x: auto;
-  overflow-y: hidden;
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: thin;
+  overflow: visible;
 }
 
 .phw-layout__menu-toggle {
@@ -565,6 +562,89 @@ textarea:focus-visible {
   height: 2px;
   background: var(--phw-golden-400);
   border-radius: 1px;
+}
+
+.phw-layout__admin-menu {
+  position: relative;
+  margin-left: 4px;
+}
+
+.phw-layout__admin-menu-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 7px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: all 180ms ease;
+}
+
+.phw-layout__admin-menu-toggle:hover {
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.38);
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.phw-layout__admin-menu-toggle--active {
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.44);
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.phw-layout__admin-menu-icon {
+  font-size: 13px;
+  line-height: 1;
+}
+
+.phw-layout__admin-menu-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  min-width: 210px;
+  display: none;
+  flex-direction: column;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(12, 24, 38, 0.98);
+  box-shadow: 0 16px 30px rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(10px);
+  padding: 6px;
+  z-index: 60;
+}
+
+.phw-layout__admin-menu-panel--open {
+  display: flex;
+  animation: phw-fade-up 0.16s ease-out both;
+}
+
+.phw-layout__admin-menu-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+  border-radius: 8px;
+  text-decoration: none;
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 10px;
+  transition: all 140ms ease;
+}
+
+.phw-layout__admin-menu-link:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.phw-layout__admin-menu-link--active {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.18);
 }
 
 .phw-layout__user {
@@ -1038,6 +1118,25 @@ textarea:focus-visible {
 
   .phw-layout__links--open {
     display: flex;
+  }
+
+  .phw-layout__admin-menu {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .phw-layout__admin-menu-toggle {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .phw-layout__admin-menu-panel {
+    position: static;
+    margin-top: 6px;
+    width: 100%;
+    min-width: 0;
+    box-shadow: none;
+    border-color: rgba(255, 255, 255, 0.14);
   }
 
   .phw-layout__link {
