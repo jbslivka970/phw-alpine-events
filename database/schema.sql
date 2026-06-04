@@ -1878,39 +1878,45 @@ END
 IF OBJECT_ID(N'dbo.[group]', N'U') IS NOT NULL
    AND OBJECT_ID(N'dbo.tenant', N'U') IS NOT NULL
 BEGIN
-    DECLARE @system_group_tenant_id UNIQUEIDENTIFIER;
-
-    SELECT TOP (1) @system_group_tenant_id = t.tenant_id
+    INSERT INTO dbo.[group] (group_id, tenant_id, group_name, description, is_system)
+    SELECT NEWID(), t.tenant_id, N'ALL', N'All active members', 1
     FROM dbo.tenant t
-    WHERE t.slug = N'colorado-alpine';
+    WHERE NOT EXISTS (
+        SELECT 1
+        FROM dbo.[group] g
+        WHERE g.tenant_id = t.tenant_id
+          AND g.group_name = N'ALL'
+    );
 
-    IF @system_group_tenant_id IS NULL
-        SELECT TOP (1) @system_group_tenant_id = t.tenant_id
-        FROM dbo.tenant t
-        WHERE t.status = N'active'
-        ORDER BY t.created_at ASC;
+    INSERT INTO dbo.[group] (group_id, tenant_id, group_name, description, is_system)
+    SELECT NEWID(), t.tenant_id, N'ADMIN', N'Chapter administrators', 1
+    FROM dbo.tenant t
+    WHERE NOT EXISTS (
+        SELECT 1
+        FROM dbo.[group] g
+        WHERE g.tenant_id = t.tenant_id
+          AND g.group_name = N'ADMIN'
+    );
 
-    IF @system_group_tenant_id IS NOT NULL
-        EXEC sp_executesql
-            N'
-                IF NOT EXISTS (SELECT 1 FROM dbo.[group] WHERE tenant_id = @system_group_tenant_id AND group_name = N''ALL'')
-                    INSERT INTO dbo.[group] (group_id, tenant_id, group_name, description, is_system)
-                    VALUES (NEWID(), @system_group_tenant_id, N''ALL'', N''All active members'', 1);
+    INSERT INTO dbo.[group] (group_id, tenant_id, group_name, description, is_system)
+    SELECT NEWID(), t.tenant_id, N'VOLUNTEERS', N'Volunteers / guides', 1
+    FROM dbo.tenant t
+    WHERE NOT EXISTS (
+        SELECT 1
+        FROM dbo.[group] g
+        WHERE g.tenant_id = t.tenant_id
+          AND g.group_name = N'VOLUNTEERS'
+    );
 
-                IF NOT EXISTS (SELECT 1 FROM dbo.[group] WHERE tenant_id = @system_group_tenant_id AND group_name = N''ADMIN'')
-                    INSERT INTO dbo.[group] (group_id, tenant_id, group_name, description, is_system)
-                    VALUES (NEWID(), @system_group_tenant_id, N''ADMIN'', N''Chapter administrators'', 1);
-
-                IF NOT EXISTS (SELECT 1 FROM dbo.[group] WHERE tenant_id = @system_group_tenant_id AND group_name = N''VOLUNTEERS'')
-                    INSERT INTO dbo.[group] (group_id, tenant_id, group_name, description, is_system)
-                    VALUES (NEWID(), @system_group_tenant_id, N''VOLUNTEERS'', N''Volunteers / guides'', 1);
-
-                IF NOT EXISTS (SELECT 1 FROM dbo.[group] WHERE tenant_id = @system_group_tenant_id AND group_name = N''PARTICIPANTS'')
-                    INSERT INTO dbo.[group] (group_id, tenant_id, group_name, description, is_system)
-                    VALUES (NEWID(), @system_group_tenant_id, N''PARTICIPANTS'', N''Program participants (veterans)'', 1);
-            ',
-            N'@system_group_tenant_id UNIQUEIDENTIFIER',
-            @system_group_tenant_id = @system_group_tenant_id;
+    INSERT INTO dbo.[group] (group_id, tenant_id, group_name, description, is_system)
+    SELECT NEWID(), t.tenant_id, N'PARTICIPANTS', N'Program participants (veterans)', 1
+    FROM dbo.tenant t
+    WHERE NOT EXISTS (
+        SELECT 1
+        FROM dbo.[group] g
+        WHERE g.tenant_id = t.tenant_id
+          AND g.group_name = N'PARTICIPANTS'
+    );
 END
 
 -- ============================================================
