@@ -179,40 +179,6 @@ export default function Layout() {
                 {item.label}
               </NavLink>
             ))}
-
-            {managementItems.length > 0 && (
-              <div className="phw-layout__admin-menu" ref={adminMenuRef}>
-                <button
-                  type="button"
-                  className={`phw-layout__admin-menu-toggle${isManagementRouteActive ? ' phw-layout__admin-menu-toggle--active' : ''}`}
-                  aria-expanded={isAdminMenuOpen}
-                  aria-controls="phw-management-menu"
-                  onClick={() => setIsAdminMenuOpen((current) => !current)}
-                >
-                  <span className="phw-layout__admin-menu-icon" aria-hidden="true">☰</span>
-                  <span className="phw-layout__admin-menu-label">Admin</span>
-                  <span className={`phw-layout__admin-menu-chevron${isAdminMenuOpen ? ' phw-layout__admin-menu-chevron--open' : ''}`} aria-hidden="true">▾</span>
-                </button>
-                <div
-                  id="phw-management-menu"
-                  className={`phw-layout__admin-menu-panel${isAdminMenuOpen ? ' phw-layout__admin-menu-panel--open' : ''}`}
-                >
-                  {managementItems.map((item) => (
-                    <NavLink
-                      key={item.to}
-                      to={item.to}
-                      className={({ isActive }) =>
-                        isActive || isLinkActive(location.pathname, item.to)
-                          ? 'phw-layout__admin-menu-link phw-layout__admin-menu-link--active'
-                          : 'phw-layout__admin-menu-link'
-                      }
-                    >
-                      {item.label}
-                    </NavLink>
-                  ))}
-                </div>
-              </div>
-            )}
           </div>
 
           <div className="phw-layout__user">
@@ -222,6 +188,39 @@ export default function Layout() {
               </span>
             )}
             <div className="phw-layout__user-actions">
+              {managementItems.length > 0 && (
+                <div className="phw-layout__admin-menu" ref={adminMenuRef}>
+                  <button
+                    type="button"
+                    className={`phw-layout__admin-menu-toggle${isManagementRouteActive ? ' phw-layout__admin-menu-toggle--active' : ''}`}
+                    aria-expanded={isAdminMenuOpen}
+                    aria-controls="phw-management-menu"
+                    onClick={() => setIsAdminMenuOpen((current) => !current)}
+                  >
+                    <span className="phw-layout__admin-menu-icon" aria-hidden="true">≡</span>
+                    <span>Manage</span>
+                  </button>
+                  <div
+                    id="phw-management-menu"
+                    className={`phw-layout__admin-menu-panel${isAdminMenuOpen ? ' phw-layout__admin-menu-panel--open' : ''}`}
+                  >
+                    {managementItems.map((item) => (
+                      <NavLink
+                        key={item.to}
+                        to={item.to}
+                        className={({ isActive }) =>
+                          isActive || isLinkActive(location.pathname, item.to)
+                            ? 'phw-layout__admin-menu-link phw-layout__admin-menu-link--active'
+                            : 'phw-layout__admin-menu-link'
+                        }
+                      >
+                        {item.label}
+                      </NavLink>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {canSwitchTenant && (
                 <label className="phw-layout__tenant-switcher">
                   <span className="phw-layout__tenant-switcher-label">Operate as</span>

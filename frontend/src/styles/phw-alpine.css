@@ -566,20 +566,20 @@ textarea:focus-visible {
 
 .phw-layout__admin-menu {
   position: relative;
-  margin-left: 4px;
+  margin-left: 0;
 }
 
 .phw-layout__admin-menu-toggle {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  min-height: 32px;
-  padding: 6px 10px;
+  min-height: 30px;
+  padding: 5px 9px;
   border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.24);
-  background: rgba(255, 255, 255, 0.08);
-  color: rgba(255, 255, 255, 0.82);
-  font-size: 11.5px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.02em;
   white-space: nowrap;
@@ -589,51 +589,34 @@ textarea:focus-visible {
 
 .phw-layout__admin-menu-toggle:hover {
   color: #fff;
-  border-color: rgba(255, 255, 255, 0.38);
-  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.3);
+  background: rgba(255, 255, 255, 0.1);
 }
 
 .phw-layout__admin-menu-toggle--active {
   color: #fff;
-  border-color: rgba(255, 255, 255, 0.44);
-  background: rgba(255, 255, 255, 0.18);
+  border-color: rgba(255, 255, 255, 0.34);
+  background: rgba(255, 255, 255, 0.13);
 }
 
 .phw-layout__admin-menu-icon {
-  font-size: 13px;
+  font-size: 12px;
   line-height: 1;
-}
-
-.phw-layout__admin-menu-label {
-  line-height: 1;
-}
-
-.phw-layout__admin-menu-chevron {
-  font-size: 10px;
-  line-height: 1;
-  opacity: 0.86;
-  transform: translateY(-1px) rotate(0deg);
-  transition: transform 180ms ease, opacity 180ms ease;
-}
-
-.phw-layout__admin-menu-chevron--open {
-  opacity: 1;
-  transform: translateY(-1px) rotate(180deg);
 }
 
 .phw-layout__admin-menu-panel {
   position: absolute;
   right: 0;
-  top: calc(100% + 8px);
-  min-width: 210px;
+  top: calc(100% + 6px);
+  min-width: 185px;
   display: none;
   flex-direction: column;
-  border-radius: 12px;
+  border-radius: 10px;
   border: 1px solid rgba(255, 255, 255, 0.2);
-  background: rgba(12, 24, 38, 0.98);
-  box-shadow: 0 16px 30px rgba(0, 0, 0, 0.3);
+  background: rgba(9, 21, 34, 0.97);
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.26);
   backdrop-filter: blur(10px);
-  padding: 6px;
+  padding: 5px;
   z-index: 60;
 }
 
@@ -645,13 +628,13 @@ textarea:focus-visible {
 .phw-layout__admin-menu-link {
   display: inline-flex;
   align-items: center;
-  min-height: 34px;
-  border-radius: 8px;
+  min-height: 32px;
+  border-radius: 7px;
   text-decoration: none;
   color: rgba(255, 255, 255, 0.75);
-  font-size: 12px;
+  font-size: 11.5px;
   font-weight: 600;
-  padding: 6px 10px;
+  padding: 5px 8px;
   transition: all 140ms ease;
 }
 
