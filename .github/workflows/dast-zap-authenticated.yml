@@ -36,8 +36,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      DEFAULT_TARGET_URL: https://phwalpineeventsjb873a.azurewebsites.net/api/v1
-      TARGET_URL: ${{ inputs.target_url || vars.E2E_API_BASE_URL || 'https://phwalpineeventsjb873a.azurewebsites.net/api/v1' }}
+      DEFAULT_TARGET_URL: https://phwalpineeventsjb873a.azurewebsites.net/api/v1/health/startup
+      TARGET_URL: ${{ inputs.target_url || vars.E2E_API_BASE_URL || 'https://phwalpineeventsjb873a.azurewebsites.net/api/v1/health/startup' }}
       AUTH_ROLE: ${{ inputs.auth_role || 'member' }}
       AUTH_RUN_ID: ${{ inputs.auth_run_id || github.event.workflow_run.id }}
 
@@ -115,9 +115,9 @@ jobs:
             -m 5 \
             -j \
             -I \
-            -r /zap/wrk/reports/zap-authenticated-baseline.html \
-            -J /zap/wrk/reports/zap-authenticated-baseline.json \
-            -w /zap/wrk/reports/zap-authenticated-baseline.md \
+            -r reports/zap-authenticated-baseline.html \
+            -J reports/zap-authenticated-baseline.json \
+            -w reports/zap-authenticated-baseline.md \
             -z "-config replacer.full_list(0).description=authheader -config replacer.full_list(0).enabled=true -config replacer.full_list(0).matchtype=REQ_HEADER -config replacer.full_list(0).matchstr=Authorization -config replacer.full_list(0).regex=false -config replacer.full_list(0).replacement=Bearer\\ ${AUTH_BEARER_TOKEN}"
 
           cp -f .zap-wrk/reports/zap-authenticated-baseline.* reports/ || true
@@ -138,9 +138,9 @@ jobs:
             -m 5 \
             -j \
             -I \
-            -r /zap/wrk/reports/zap-authenticated-fallback.html \
-            -J /zap/wrk/reports/zap-authenticated-fallback.json \
-            -w /zap/wrk/reports/zap-authenticated-fallback.md
+            -r reports/zap-authenticated-fallback.html \
+            -J reports/zap-authenticated-fallback.json \
+            -w reports/zap-authenticated-fallback.md
 
           cp -f .zap-wrk/reports/zap-authenticated-fallback.* reports/ || true
 
