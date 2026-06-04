@@ -40,20 +40,24 @@ const router = Router();
 // Graph reconciliation is enabled. Cache the DB-only snapshot (reconcile:false)
 // so the admin page loads instantly; use the Reconcile button for a fresh sync.
 const IDENTITY_SUMMARY_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
-let _identitySummaryCache: { data: unknown; cachedAt: number } | null = null;
-function getCachedIdentitySummary(): unknown | null {
-  if (!_identitySummaryCache) return null;
-  if (Date.now() - _identitySummaryCache.cachedAt > IDENTITY_SUMMARY_CACHE_TTL_MS) {
-    _identitySummaryCache = null;
+const identitySummaryCache = new Map<string, { data: unknown; cachedAt: number }>();
+
+function getCachedIdentitySummary(cacheKey: string): unknown | null {
+  const entry = identitySummaryCache.get(cacheKey);
+  if (!entry) return null;
+  if (Date.now() - entry.cachedAt > IDENTITY_SUMMARY_CACHE_TTL_MS) {
+    identitySummaryCache.delete(cacheKey);
     return null;
   }
-  return _identitySummaryCache.data;
+  return entry.data;
 }
-function setCachedIdentitySummary(data: unknown) {
-  _identitySummaryCache = { data, cachedAt: Date.now() };
+
+function setCachedIdentitySummary(cacheKey: string, data: unknown) {
+  identitySummaryCache.set(cacheKey, { data, cachedAt: Date.now() });
 }
+
 function invalidateIdentitySummaryCache() {
-  _identitySummaryCache = null;
+  identitySummaryCache.clear();
 }
 const APP_DB_ROLES = ['admin', 'superadmin', 'event_creator', 'tavf_creator', 'user'] as const;
 const TENANT_ROLES = ['member', 'admin', 'event_creator', 'tavf_creator', 'support', 'root_admin'] as const;
@@ -166,7 +170,7 @@ interface AdminTenantScope {
 }
 
 interface AdminTenantSupport {
-  hasMemberTenantTable: boolean;
+  hasTenantMembershipTable: boolean;
 }
 
 let cachedAdminTenantSupport: AdminTenantSupport | null = null;
@@ -187,12 +191,12 @@ async function getAdminTenantSupport(pool: Awaited<ReturnType<typeof getPool>>):
 
   const result = await pool
     .request()
-    .query<{ has_member_tenant_table: number }>(
-      `SELECT CASE WHEN OBJECT_ID('dbo.member_tenant', 'U') IS NULL THEN 0 ELSE 1 END AS has_member_tenant_table`
+    .query<{ has_tenant_membership_table: number }>(
+      `SELECT CASE WHEN OBJECT_ID('dbo.tenant_membership', 'U') IS NULL THEN 0 ELSE 1 END AS has_tenant_membership_table`
     );
 
   cachedAdminTenantSupport = {
-    hasMemberTenantTable: result.recordset[0]?.has_member_tenant_table === 1,
+    hasTenantMembershipTable: result.recordset[0]?.has_tenant_membership_table === 1,
   };
 
   return cachedAdminTenantSupport;
@@ -207,18 +211,38 @@ async function resolveAdminTenantScope(req: Request): Promise<AdminTenantScope> 
 
   const support = await getAdminTenantSupport(pool);
   return {
-    apply: support.hasMemberTenantTable,
+    apply: support.hasTenantMembershipTable,
     tenantId,
   };
+}
+
+function tenantSummaryCacheKey(scope: AdminTenantScope): string {
+  return scope.apply ? `tenant:${scope.tenantId}` : 'global';
 }
 
 function memberTenantPredicate(alias: string): string {
   return `EXISTS (
     SELECT 1
-    FROM dbo.member_tenant mt
-    WHERE mt.member_id = ${alias}.member_id
-      AND mt.tenant_id = @tenant_id
-      AND mt.is_active = 1
+    FROM dbo.tenant_membership tm
+    WHERE tm.member_id = ${alias}.member_id
+      AND tm.tenant_id = @tenant_id
+      AND tm.status = 'active'
+      AND tm.revoked_at IS NULL
+      AND tm.starts_at <= GETUTCDATE()
+      AND (tm.expires_at IS NULL OR tm.expires_at > GETUTCDATE())
+  )`;
+}
+
+function userTenantPredicate(alias: string): string {
+  return `EXISTS (
+    SELECT 1
+    FROM dbo.tenant_membership tm
+    WHERE tm.user_id = ${alias}.user_id
+      AND tm.tenant_id = @tenant_id
+      AND tm.status = 'active'
+      AND tm.revoked_at IS NULL
+      AND tm.starts_at <= GETUTCDATE()
+      AND (tm.expires_at IS NULL OR tm.expires_at > GETUTCDATE())
   )`;
 }
 
@@ -752,6 +776,7 @@ router.patch('/tenant/memberships/:membershipId', writeLimiter, async (req, res,
 
 router.get('/users', async (req, res) => {
   try {
+    const tenantScope = await resolveAdminTenantScope(req);
     const page = parsePositiveInt(req.query.page as string | undefined, 1);
     const pageSize = Math.min(parsePositiveInt(req.query.pageSize as string | undefined, 50), 200);
     const offset = (page - 1) * pageSize;
@@ -772,6 +797,10 @@ router.get('/users', async (req, res) => {
     const whereClauses: string[] = [];
 
     const applyFilters = (request: sql.Request): sql.Request => {
+      if (tenantScope.apply) {
+        whereClauses.push(userTenantPredicate('[user]'));
+        request.input('tenant_id', sql.UniqueIdentifier, tenantScope.tenantId);
+      }
       if (search) {
         whereClauses.push('(email LIKE @search OR display_name LIKE @search)');
         request.input('search', sql.NVarChar, `%${search}%`);
@@ -939,6 +968,7 @@ router.patch('/users/:id', writeLimiter, async (req, res) => {
 
 router.delete('/users/:id', writeLimiter, async (req, res) => {
   try {
+    const tenantScope = await resolveAdminTenantScope(req);
     const userId = (req.params.id ?? '').trim();
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(userId)) {
       res.status(400).json({ error: 'user_id must be a valid UUID.' });
@@ -965,6 +995,36 @@ router.delete('/users/:id', writeLimiter, async (req, res) => {
     const targetEmail = (target.email ?? '').trim().toLowerCase();
     if (currentEmail && targetEmail && currentEmail === targetEmail) {
       res.status(400).json({ error: 'You cannot delete your own account.' });
+      return;
+    }
+
+    if (tenantScope.apply) {
+      const revokeResult = await pool
+        .request()
+        .input('tenant_id', sql.UniqueIdentifier, tenantScope.tenantId)
+        .input('user_id', sql.UniqueIdentifier, userId)
+        .query(
+          `UPDATE dbo.tenant_membership
+           SET status = 'revoked',
+               revoked_at = COALESCE(revoked_at, GETUTCDATE()),
+               expires_at = CASE
+                 WHEN expires_at IS NULL OR expires_at > GETUTCDATE() THEN GETUTCDATE()
+                 ELSE expires_at
+               END
+           WHERE tenant_id = @tenant_id
+             AND user_id = @user_id
+             AND status = 'active'
+             AND revoked_at IS NULL
+             AND starts_at <= GETUTCDATE()
+             AND (expires_at IS NULL OR expires_at > GETUTCDATE())`
+        );
+
+      if ((revokeResult.rowsAffected?.[0] ?? 0) === 0) {
+        res.status(404).json({ error: 'User access record not found for this tenant.' });
+        return;
+      }
+
+      res.status(200).json({ message: 'User access revoked for tenant.', user_id: userId });
       return;
     }
 
@@ -1490,7 +1550,8 @@ router.get('/identity/status/summary', apiLimiter, async (req, res) => {
   try {
     const tenantScope = await resolveAdminTenantScope(req);
     // Serve from cache when fresh — avoids repeated Graph API calls on every page load.
-    const cached = getCachedIdentitySummary();
+    const cacheKey = tenantSummaryCacheKey(tenantScope);
+    const cached = getCachedIdentitySummary(cacheKey);
     if (cached) {
       res.status(200).json(cached);
       return;
@@ -1558,7 +1619,7 @@ router.get('/identity/status/summary', apiLimiter, async (req, res) => {
       }
     }
 
-    setCachedIdentitySummary(summary);
+    setCachedIdentitySummary(cacheKey, summary);
     res.status(200).json(summary);
   } catch (error) {
     console.error('GET /admin/identity/status/summary failed', error);
@@ -2704,10 +2765,13 @@ async function getInviteTraceByMemberId(memberId: string, limit: number, tenantS
     tenantPredicate = `
            AND EXISTS (
              SELECT 1
-             FROM dbo.member_tenant mt
-             WHERE mt.member_id = TRY_CONVERT(uniqueidentifier, identity_invite_trace.member_id)
-               AND mt.tenant_id = @tenant_id
-               AND mt.is_active = 1
+             FROM dbo.tenant_membership tm
+             WHERE tm.member_id = TRY_CONVERT(uniqueidentifier, identity_invite_trace.member_id)
+               AND tm.tenant_id = @tenant_id
+               AND tm.status = 'active'
+               AND tm.revoked_at IS NULL
+               AND tm.starts_at <= GETUTCDATE()
+               AND (tm.expires_at IS NULL OR tm.expires_at > GETUTCDATE())
            )`;
   }
 
