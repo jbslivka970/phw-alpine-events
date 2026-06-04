@@ -932,6 +932,8 @@ END
 IF OBJECT_ID(N'dbo.tenant_messaging', N'U') IS NULL
 CREATE TABLE dbo.tenant_messaging (
     tenant_id                     UNIQUEIDENTIFIER NOT NULL,
+    email_enabled                 BIT              NOT NULL DEFAULT 1,
+    sms_enabled                   BIT              NOT NULL DEFAULT 1,
     email_from                    NVARCHAR(255)    NULL,
     email_reply_to                NVARCHAR(255)    NULL,
     email_bcc_monitor             NVARCHAR(255)    NULL,
@@ -947,6 +949,17 @@ CREATE TABLE dbo.tenant_messaging (
     CONSTRAINT FK_tenant_messaging_tenant FOREIGN KEY (tenant_id)
         REFERENCES dbo.tenant (tenant_id) ON DELETE CASCADE
 );
+
+IF OBJECT_ID(N'dbo.tenant_messaging', N'U') IS NOT NULL
+BEGIN
+    IF COL_LENGTH('dbo.tenant_messaging', 'email_enabled') IS NULL
+        ALTER TABLE dbo.tenant_messaging
+            ADD email_enabled BIT NOT NULL CONSTRAINT DF_tenant_messaging_email_enabled DEFAULT 1;
+
+    IF COL_LENGTH('dbo.tenant_messaging', 'sms_enabled') IS NULL
+        ALTER TABLE dbo.tenant_messaging
+            ADD sms_enabled BIT NOT NULL CONSTRAINT DF_tenant_messaging_sms_enabled DEFAULT 1;
+END
 
 IF OBJECT_ID(N'dbo.tenant_messaging', N'U') IS NOT NULL
    AND OBJECT_ID(N'dbo.tenant', N'U') IS NOT NULL

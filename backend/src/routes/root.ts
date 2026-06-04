@@ -452,6 +452,8 @@ router.put('/tenants/:tenantId/messaging', writeLimiter, async (req, res, next) 
 
     const messaging = await upsertTenantMessaging({
       tenantId,
+      email_enabled: req.body?.email_enabled,
+      sms_enabled: req.body?.sms_enabled,
       email_from: req.body?.email_from,
       email_reply_to: req.body?.email_reply_to,
       email_bcc_monitor: req.body?.email_bcc_monitor,

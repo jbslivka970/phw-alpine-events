@@ -205,6 +205,41 @@ describe('notifications service', () => {
     }));
   });
 
+  it('blocks email sends when tenant email channel is disabled', async () => {
+    const mockEmail = { sendEmail: jest.fn().mockResolvedValue(undefined) };
+    const mockSms = { sendSms: jest.fn().mockResolvedValue(undefined) };
+    const service = new NotificationService(mockEmail, mockSms, true, true);
+
+    jest
+      .spyOn(
+        service as unknown as {
+          getTenantChannelPolicyForRequest: (...args: unknown[]) => Promise<{ enabled: boolean; tenantId: string | null }>;
+        },
+        'getTenantChannelPolicyForRequest'
+      )
+      .mockResolvedValue({ enabled: false, tenantId: '1b6b9719-663a-4e56-8f7d-9a4bd4c10001' });
+
+    const logSpy = jest
+      .spyOn(service as unknown as { writeNotificationLog: (...args: unknown[]) => Promise<void> }, 'writeNotificationLog')
+      .mockResolvedValue(undefined);
+
+    await service.sendEmail({
+      to: 'member@example.com',
+      subject: 'Subject',
+      htmlBody: '<p>Hello</p>',
+      tenantId: '1b6b9719-663a-4e56-8f7d-9a4bd4c10001',
+      operationType: 'unit_test',
+    });
+
+    expect(mockEmail.sendEmail).not.toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith(expect.objectContaining({
+      channel: 'email',
+      status: 'skipped',
+      operationType: 'unit_test',
+      operationReason: expect.stringContaining('blocked:tenant_email_disabled'),
+    }));
+  });
+
   it('blocks test-traffic SMS for non-allowlisted phone numbers', async () => {
     const mockEmail = { sendEmail: jest.fn().mockResolvedValue(undefined) };
     const mockSms = { sendSms: jest.fn().mockResolvedValue('provider-457') };
@@ -250,6 +285,40 @@ describe('notifications service', () => {
       status: 'sent',
       operationType: 'tavf_new_posting',
       providerId: 'provider-458',
+    }));
+  });
+
+  it('blocks SMS sends when tenant SMS channel is disabled', async () => {
+    const mockEmail = { sendEmail: jest.fn().mockResolvedValue(undefined) };
+    const mockSms = { sendSms: jest.fn().mockResolvedValue('provider-999') };
+    const service = new NotificationService(mockEmail, mockSms, true, true);
+
+    jest
+      .spyOn(
+        service as unknown as {
+          getTenantChannelPolicyForRequest: (...args: unknown[]) => Promise<{ enabled: boolean; tenantId: string | null }>;
+        },
+        'getTenantChannelPolicyForRequest'
+      )
+      .mockResolvedValue({ enabled: false, tenantId: '1b6b9719-663a-4e56-8f7d-9a4bd4c10001' });
+
+    const logSpy = jest
+      .spyOn(service as unknown as { writeNotificationLog: (...args: unknown[]) => Promise<void> }, 'writeNotificationLog')
+      .mockResolvedValue(undefined);
+
+    await service.sendSms({
+      to: '+13035550007',
+      message: 'Status update',
+      tenantId: '1b6b9719-663a-4e56-8f7d-9a4bd4c10001',
+      operationType: 'unit_test',
+    });
+
+    expect(mockSms.sendSms).not.toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith(expect.objectContaining({
+      channel: 'sms',
+      status: 'skipped',
+      operationType: 'unit_test',
+      operationReason: expect.stringContaining('blocked:tenant_sms_disabled'),
     }));
   });
 

@@ -52,6 +52,8 @@ interface ProviderDeliveryStatusResult {
   provider_source: 'acs_email';
 }
 
+let cachedTenantMessagingHasChannelToggles: boolean | null = null;
+
 class NotificationConfigurationError extends Error {
   constructor(message: string) {
     super(message);
@@ -146,6 +148,7 @@ interface SendEmailOptions {
 interface SendSmsOptions {
   to: string;
   message: string;
+  tenantId?: string;
   templateId?: string;
   memberId?: string;
   eventId?: string;
@@ -455,6 +458,9 @@ class TelnyxSmsService implements ISmsService {
 }
 
 class NotificationService {
+  private readonly tenantChannelPolicyCache = new Map<string, { emailEnabled: boolean; smsEnabled: boolean; expiresAtMs: number }>();
+  private readonly tenantChannelPolicyCacheTtlMs = 60_000;
+
   constructor(
     private readonly emailService: IEmailService,
     private readonly smsService: ISmsService,
@@ -463,6 +469,21 @@ class NotificationService {
   ) {}
 
   async sendEmail(options: SendEmailOptions): Promise<void> {
+    const emailPolicy = await this.getTenantChannelPolicyForRequest('email', options.tenantId, options.eventId);
+    if (!emailPolicy.enabled) {
+      await this.writeNotificationLog({
+        channel: 'email',
+        recipient: options.to,
+        status: 'skipped',
+        eventId: options.eventId,
+        memberId: options.memberId,
+        templateId: options.templateId,
+        operationType: options.operationType,
+        operationReason: appendOperationReason(options.operationReason, 'blocked:tenant_email_disabled'),
+      });
+      return;
+    }
+
     if (isLikelyTestTraffic(options.operationType, [options.subject, options.textBody, options.htmlBody, options.operationReason])) {
       await this.writeNotificationLog({
         channel: 'email',
@@ -530,6 +551,21 @@ class NotificationService {
   }
 
   async sendSms(options: SendSmsOptions): Promise<void> {
+    const smsPolicy = await this.getTenantChannelPolicyForRequest('sms', options.tenantId, options.eventId);
+    if (!smsPolicy.enabled) {
+      await this.writeNotificationLog({
+        channel: 'sms',
+        recipient: options.to,
+        status: 'skipped',
+        eventId: options.eventId,
+        memberId: options.memberId,
+        templateId: options.templateId,
+        operationType: options.operationType,
+        operationReason: appendOperationReason(options.operationReason, 'blocked:tenant_sms_disabled'),
+      });
+      return;
+    }
+
     const normalizedMessage = truncateSms(options.message);
     if (normalizedMessage !== options.message) {
       console.warn('[NotificationService] SMS exceeded max length and was compacted before send.');
@@ -592,6 +628,113 @@ class NotificationService {
       errorDetail: errorMessage,
       providerId,
     });
+  }
+
+  private async getTenantChannelPolicyForRequest(
+    channel: NotificationChannel,
+    tenantId?: string,
+    eventId?: string
+  ): Promise<{ enabled: boolean; tenantId: string | null }> {
+    const resolvedTenantId = await this.resolveTenantIdForNotification(tenantId, eventId);
+    if (!resolvedTenantId) {
+      return { enabled: true, tenantId: null };
+    }
+
+    const policy = await this.getTenantChannelPolicy(resolvedTenantId);
+    return {
+      enabled: channel === 'email' ? policy.emailEnabled : policy.smsEnabled,
+      tenantId: resolvedTenantId,
+    };
+  }
+
+  private async resolveTenantIdForNotification(tenantId?: string, eventId?: string): Promise<string | null> {
+    const normalizedTenantId = toNullableUuid(tenantId);
+    if (normalizedTenantId) {
+      return normalizedTenantId;
+    }
+
+    const normalizedEventId = toNullableUuid(eventId);
+    if (!normalizedEventId) {
+      return null;
+    }
+
+    try {
+      const pool = await getPool();
+      const result = await pool
+        .request()
+        .input('event_id', sql.UniqueIdentifier, normalizedEventId)
+        .query<{ tenant_id: string | null }>(
+          `SELECT TOP (1) tenant_id
+           FROM dbo.event
+           WHERE event_id = @event_id`
+        );
+
+      return toNullableUuid(result.recordset[0]?.tenant_id ?? undefined);
+    } catch {
+      return null;
+    }
+  }
+
+  private async getTenantChannelPolicy(tenantId: string): Promise<{ emailEnabled: boolean; smsEnabled: boolean }> {
+    const now = Date.now();
+    const cached = this.tenantChannelPolicyCache.get(tenantId);
+    if (cached && cached.expiresAtMs > now) {
+      return {
+        emailEnabled: cached.emailEnabled,
+        smsEnabled: cached.smsEnabled,
+      };
+    }
+
+    try {
+      const pool = await getPool();
+      const hasToggles = await this.tenantMessagingHasChannelToggleColumns(pool);
+      if (!hasToggles) {
+        return { emailEnabled: true, smsEnabled: true };
+      }
+
+      const result = await pool
+        .request()
+        .input('tenant_id', sql.UniqueIdentifier, tenantId)
+        .query<{ email_enabled: boolean | number | null; sms_enabled: boolean | number | null }>(
+          `SELECT TOP (1) email_enabled, sms_enabled
+           FROM dbo.tenant_messaging
+           WHERE tenant_id = @tenant_id`
+        );
+
+      const row = result.recordset[0];
+      const policy = {
+        emailEnabled: row ? toBitBoolean(row.email_enabled, true) : true,
+        smsEnabled: row ? toBitBoolean(row.sms_enabled, true) : true,
+      };
+
+      this.tenantChannelPolicyCache.set(tenantId, {
+        ...policy,
+        expiresAtMs: now + this.tenantChannelPolicyCacheTtlMs,
+      });
+
+      return policy;
+    } catch {
+      return { emailEnabled: true, smsEnabled: true };
+    }
+  }
+
+  private async tenantMessagingHasChannelToggleColumns(pool: Awaited<ReturnType<typeof getPool>>): Promise<boolean> {
+    if (cachedTenantMessagingHasChannelToggles !== null) {
+      return cachedTenantMessagingHasChannelToggles;
+    }
+
+    const result = await pool
+      .request()
+      .query<{ has_toggle_columns: number }>(
+        `SELECT CASE
+            WHEN COL_LENGTH('dbo.tenant_messaging', 'email_enabled') IS NULL THEN 0
+            WHEN COL_LENGTH('dbo.tenant_messaging', 'sms_enabled') IS NULL THEN 0
+            ELSE 1
+          END AS has_toggle_columns`
+      );
+
+    cachedTenantMessagingHasChannelToggles = result.recordset[0]?.has_toggle_columns === 1;
+    return cachedTenantMessagingHasChannelToggles;
   }
 
   async writeNotificationAuditLog(entry: {
@@ -776,6 +919,25 @@ class NotificationService {
       console.error('[NotificationService] Failed to write notification_log', error);
     }
   }
+}
+
+function toBitBoolean(value: unknown, fallback: boolean): boolean {
+  if (typeof value === 'boolean') {
+    return value;
+  }
+  if (typeof value === 'number') {
+    return value === 1;
+  }
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (['1', 'true', 'yes', 'on'].includes(normalized)) {
+      return true;
+    }
+    if (['0', 'false', 'no', 'off'].includes(normalized)) {
+      return false;
+    }
+  }
+  return fallback;
 }
 
 function normalizeTemplateBody(value: string): string {
@@ -2518,6 +2680,7 @@ async function notifyNewPosting(postingId: string): Promise<void> {
         subject: renderedEmail.subject,
         htmlBody: renderedEmail.htmlBody,
         textBody: renderedEmail.textBody,
+        tenantId: posting.tenant_id,
         memberId: recipient.member_id,
         operationType: 'tavf_new_posting',
       });
@@ -2527,6 +2690,7 @@ async function notifyNewPosting(postingId: string): Promise<void> {
       await notificationService.sendSms({
         to: recipient.mobile_phone,
         message: renderedSms,
+        tenantId: posting.tenant_id,
         memberId: recipient.member_id,
         operationType: 'tavf_new_posting',
       });
@@ -2545,6 +2709,7 @@ async function notifyApplicationReceived(applicationId: string): Promise<void> {
     .request()
     .input('application_id', sql.UniqueIdentifier, applicationId)
     .query<{
+      tenant_id: string;
       location: string;
       event_date: Date;
       guide_first_name: string | null;
@@ -2560,6 +2725,7 @@ async function notifyApplicationReceived(applicationId: string): Promise<void> {
       vet_sms_opt_in: boolean;
     }>(
       `SELECT
+          p.tenant_id,
           p.location,
           p.event_date,
           guide.first_name AS guide_first_name,
@@ -2611,6 +2777,7 @@ async function notifyApplicationReceived(applicationId: string): Promise<void> {
     subject: renderedEmail.subject,
     htmlBody: renderedEmail.htmlBody,
     textBody: renderedEmail.textBody,
+    tenantId: row.tenant_id,
     memberId: row.guide_member_id,
     operationType: 'tavf_application_received',
   });
@@ -2619,6 +2786,7 @@ async function notifyApplicationReceived(applicationId: string): Promise<void> {
     await notificationService.sendSms({
       to: row.guide_mobile_phone,
       message: renderedSms,
+      tenantId: row.tenant_id,
       memberId: row.guide_member_id,
       operationType: 'tavf_application_received',
     });
@@ -2635,6 +2803,7 @@ async function notifyApplicationReceived(applicationId: string): Promise<void> {
     subject: applicantRenderedEmail.subject,
     htmlBody: applicantRenderedEmail.htmlBody,
     textBody: applicantRenderedEmail.textBody,
+    tenantId: row.tenant_id,
     memberId: row.vet_member_id,
     operationType: 'tavf_application_received',
   });
@@ -2647,6 +2816,7 @@ async function notifyApplicationReceived(applicationId: string): Promise<void> {
         'PHW Alpine TAVF: Interest submitted for {{location}} on {{eventDate}}. Guide contact: {{guideEmail}} {{guidePhone}}. Reply STOP to opt out.',
         variables,
       ),
+      tenantId: row.tenant_id,
       memberId: row.vet_member_id,
       operationType: 'tavf_application_received',
     });
@@ -2664,6 +2834,7 @@ async function notifyMatchConfirmed(matchId: string): Promise<void> {
     .request()
     .input('match_id', sql.UniqueIdentifier, matchId)
     .query<{
+      tenant_id: string;
       posting_id: string;
       location: string;
       event_date: Date;
@@ -2681,6 +2852,7 @@ async function notifyMatchConfirmed(matchId: string): Promise<void> {
       vet_sms_opt_in: boolean;
     }>(
       `SELECT
+          p.tenant_id,
           p.posting_id,
           p.location,
           p.event_date,
@@ -2735,6 +2907,7 @@ async function notifyMatchConfirmed(matchId: string): Promise<void> {
     subject: renderedEmail.subject,
     htmlBody: renderedEmail.htmlBody,
     textBody: renderedEmail.textBody,
+    tenantId: row.tenant_id,
     memberId: row.guide_member_id,
     operationType: 'tavf_match_confirmed',
   });
@@ -2744,6 +2917,7 @@ async function notifyMatchConfirmed(matchId: string): Promise<void> {
     subject: renderedEmail.subject,
     htmlBody: renderedEmail.htmlBody,
     textBody: renderedEmail.textBody,
+    tenantId: row.tenant_id,
     memberId: row.vet_member_id,
     operationType: 'tavf_match_confirmed',
   });
@@ -2752,6 +2926,7 @@ async function notifyMatchConfirmed(matchId: string): Promise<void> {
     await notificationService.sendSms({
       to: row.guide_mobile_phone,
       message: renderedSms,
+      tenantId: row.tenant_id,
       memberId: row.guide_member_id,
       operationType: 'tavf_match_confirmed',
     });
@@ -2761,6 +2936,7 @@ async function notifyMatchConfirmed(matchId: string): Promise<void> {
     await notificationService.sendSms({
       to: row.vet_mobile_phone,
       message: renderedSms,
+      tenantId: row.tenant_id,
       memberId: row.vet_member_id,
       operationType: 'tavf_match_confirmed',
     });
@@ -2778,6 +2954,7 @@ async function notifyMatchCancelled(matchId: string): Promise<void> {
     .request()
     .input('match_id', sql.UniqueIdentifier, matchId)
     .query<{
+      tenant_id: string;
       location: string;
       event_date: Date;
       guide_email: string;
@@ -2790,6 +2967,7 @@ async function notifyMatchCancelled(matchId: string): Promise<void> {
       vet_sms_opt_in: boolean;
     }>(
       `SELECT
+          p.tenant_id,
           p.location,
           p.event_date,
           guide.email AS guide_email,
@@ -2833,6 +3011,7 @@ async function notifyMatchCancelled(matchId: string): Promise<void> {
     subject: renderedEmail.subject,
     htmlBody: renderedEmail.htmlBody,
     textBody: renderedEmail.textBody,
+    tenantId: row.tenant_id,
     memberId: row.guide_member_id,
     operationType: 'tavf_match_cancelled',
   });
@@ -2842,6 +3021,7 @@ async function notifyMatchCancelled(matchId: string): Promise<void> {
     subject: renderedEmail.subject,
     htmlBody: renderedEmail.htmlBody,
     textBody: renderedEmail.textBody,
+    tenantId: row.tenant_id,
     memberId: row.vet_member_id,
     operationType: 'tavf_match_cancelled',
   });
@@ -2850,6 +3030,7 @@ async function notifyMatchCancelled(matchId: string): Promise<void> {
     await notificationService.sendSms({
       to: row.guide_mobile_phone,
       message: renderedSms,
+      tenantId: row.tenant_id,
       memberId: row.guide_member_id,
       operationType: 'tavf_match_cancelled',
     });
@@ -2859,6 +3040,7 @@ async function notifyMatchCancelled(matchId: string): Promise<void> {
     await notificationService.sendSms({
       to: row.vet_mobile_phone,
       message: renderedSms,
+      tenantId: row.tenant_id,
       memberId: row.vet_member_id,
       operationType: 'tavf_match_cancelled',
     });

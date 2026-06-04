@@ -4,6 +4,8 @@ type SmsProvider = 'acs' | 'twilio' | 'telnyx' | null;
 
 interface TenantMessagingRow {
   tenant_id: string;
+  email_enabled: boolean | number;
+  sms_enabled: boolean | number;
   email_from: string | null;
   email_reply_to: string | null;
   email_bcc_monitor: string | null;
@@ -18,6 +20,8 @@ interface TenantMessagingRow {
 
 interface TenantMessaging {
   tenant_id: string;
+  email_enabled: boolean;
+  sms_enabled: boolean;
   email_from: string | null;
   email_reply_to: string | null;
   email_bcc_monitor: string | null;
@@ -32,6 +36,8 @@ interface TenantMessaging {
 
 interface UpsertTenantMessagingInput {
   tenantId: string;
+  email_enabled?: boolean | null;
+  sms_enabled?: boolean | null;
   email_from?: string | null;
   email_reply_to?: string | null;
   email_bcc_monitor?: string | null;
@@ -55,6 +61,25 @@ interface GlobalSmsConfig {
 function toIso(value: Date | string): string {
   const parsed = value instanceof Date ? value : new Date(value);
   return Number.isNaN(parsed.getTime()) ? new Date().toISOString() : parsed.toISOString();
+}
+
+function asBool(value: unknown, fallback = false): boolean {
+  if (typeof value === 'boolean') {
+    return value;
+  }
+  if (typeof value === 'number') {
+    return value === 1;
+  }
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (['1', 'true', 'yes', 'on'].includes(normalized)) {
+      return true;
+    }
+    if (['0', 'false', 'no', 'off'].includes(normalized)) {
+      return false;
+    }
+  }
+  return fallback;
 }
 
 function normalizeOptional(value: unknown): string | null {
@@ -87,6 +112,8 @@ function validatePhone(value: string | null, fieldName: string): void {
 function toTenantMessaging(row: TenantMessagingRow): TenantMessaging {
   return {
     tenant_id: row.tenant_id,
+    email_enabled: asBool(row.email_enabled, true),
+    sms_enabled: asBool(row.sms_enabled, true),
     email_from: row.email_from,
     email_reply_to: row.email_reply_to,
     email_bcc_monitor: row.email_bcc_monitor,
@@ -163,6 +190,8 @@ async function getTenantMessaging(tenantId: string): Promise<TenantMessaging | n
     .query<TenantMessagingRow>(
       `SELECT
           tenant_id,
+          email_enabled,
+          sms_enabled,
           email_from,
           email_reply_to,
           email_bcc_monitor,
@@ -197,6 +226,8 @@ async function upsertTenantMessaging(input: UpsertTenantMessagingInput): Promise
   const emailFrom = normalizeOptional(input.email_from);
   const emailReplyTo = normalizeOptional(input.email_reply_to);
   const emailBccMonitor = normalizeOptional(input.email_bcc_monitor);
+  const emailEnabled = input.email_enabled == null ? true : Boolean(input.email_enabled);
+  const smsEnabled = input.sms_enabled == null ? true : Boolean(input.sms_enabled);
   const globalSms = resolveGlobalSmsConfig();
   const smsProvider = globalSms.sms_provider;
   const smsFrom = globalSms.sms_from;
@@ -214,6 +245,8 @@ async function upsertTenantMessaging(input: UpsertTenantMessagingInput): Promise
   const result = await pool
     .request()
     .input('tenant_id', sql.UniqueIdentifier, tenantId)
+    .input('email_enabled', sql.Bit, emailEnabled ? 1 : 0)
+    .input('sms_enabled', sql.Bit, smsEnabled ? 1 : 0)
     .input('email_from', sql.NVarChar(255), emailFrom)
     .input('email_reply_to', sql.NVarChar(255), emailReplyTo)
     .input('email_bcc_monitor', sql.NVarChar(255), emailBccMonitor)
@@ -229,7 +262,9 @@ async function upsertTenantMessaging(input: UpsertTenantMessagingInput): Promise
        IF EXISTS (SELECT 1 FROM dbo.tenant_messaging WHERE tenant_id = @tenant_id)
          BEGIN
            UPDATE dbo.tenant_messaging
-           SET email_from = @email_from,
+             SET email_enabled = @email_enabled,
+               sms_enabled = @sms_enabled,
+               email_from = @email_from,
                email_reply_to = @email_reply_to,
                email_bcc_monitor = @email_bcc_monitor,
                sms_provider = @sms_provider,
@@ -244,6 +279,8 @@ async function upsertTenantMessaging(input: UpsertTenantMessagingInput): Promise
          BEGIN
            INSERT INTO dbo.tenant_messaging (
              tenant_id,
+             email_enabled,
+             sms_enabled,
              email_from,
              email_reply_to,
              email_bcc_monitor,
@@ -257,6 +294,8 @@ async function upsertTenantMessaging(input: UpsertTenantMessagingInput): Promise
            )
            VALUES (
              @tenant_id,
+             @email_enabled,
+             @sms_enabled,
              @email_from,
              @email_reply_to,
              @email_bcc_monitor,
@@ -272,6 +311,8 @@ async function upsertTenantMessaging(input: UpsertTenantMessagingInput): Promise
 
        SELECT TOP (1)
          tenant_id,
+         email_enabled,
+         sms_enabled,
          email_from,
          email_reply_to,
          email_bcc_monitor,

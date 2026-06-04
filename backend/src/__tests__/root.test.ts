@@ -520,12 +520,18 @@ describe('root routes', () => {
     const res = await request(app)
       .put('/api/v1/root/tenants/1b6b9719-663a-4e56-8f7d-9a4bd4c10001/messaging')
       .send({
+        email_enabled: false,
+        sms_enabled: true,
         email_from: 'scheduler@example.org',
         sms_provider: 'telnyx',
       });
 
     expect(res.status).toBe(200);
-    expect(upsertTenantMessagingMock).toHaveBeenCalled();
+    expect(upsertTenantMessagingMock).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId: '1b6b9719-663a-4e56-8f7d-9a4bd4c10001',
+      email_enabled: false,
+      sms_enabled: true,
+    }));
   });
 
   it('POST /api/v1/root/tenants/:tenantId/demo/memberships requires expires_at', async () => {
