@@ -1412,20 +1412,45 @@ BEGIN
                 INSERT INTO dbo.member_persona (member_id, persona, granted_at, granted_by, notes)
                 VALUES (@jb_member_id, N'volunteer', GETUTCDATE(), @jb_user_id, N'Multi-tenant bootstrap coverage');
 
-            SELECT TOP (1) @admin_group_id = g.group_id
-            FROM dbo.[group] g
-                        WHERE g.group_name = N'ADMIN'
-                            AND g.tenant_id = @default_tenant_id;
+                        IF COL_LENGTH('dbo.[group]', 'tenant_id') IS NOT NULL
+                        BEGIN
+                                EXEC sp_executesql
+                                        N'
+                                                SELECT TOP (1) @admin_group_id = g.group_id
+                                                FROM dbo.[group] g
+                                                WHERE g.group_name = N''ADMIN''
+                                                    AND g.tenant_id = @tenant_id;
 
-            SELECT TOP (1) @volunteers_group_id = g.group_id
-            FROM dbo.[group] g
-                        WHERE g.group_name = N'VOLUNTEERS'
-                            AND g.tenant_id = @default_tenant_id;
+                                                SELECT TOP (1) @volunteers_group_id = g.group_id
+                                                FROM dbo.[group] g
+                                                WHERE g.group_name = N''VOLUNTEERS''
+                                                    AND g.tenant_id = @tenant_id;
 
-            SELECT TOP (1) @participants_group_id = g.group_id
-            FROM dbo.[group] g
-                        WHERE g.group_name = N'PARTICIPANTS'
-                            AND g.tenant_id = @default_tenant_id;
+                                                SELECT TOP (1) @participants_group_id = g.group_id
+                                                FROM dbo.[group] g
+                                                WHERE g.group_name = N''PARTICIPANTS''
+                                                    AND g.tenant_id = @tenant_id;
+                                        ',
+                                        N'@tenant_id UNIQUEIDENTIFIER, @admin_group_id UNIQUEIDENTIFIER OUTPUT, @volunteers_group_id UNIQUEIDENTIFIER OUTPUT, @participants_group_id UNIQUEIDENTIFIER OUTPUT',
+                                        @tenant_id = @default_tenant_id,
+                                        @admin_group_id = @admin_group_id OUTPUT,
+                                        @volunteers_group_id = @volunteers_group_id OUTPUT,
+                                        @participants_group_id = @participants_group_id OUTPUT;
+                        END
+                        ELSE
+                        BEGIN
+                                SELECT TOP (1) @admin_group_id = g.group_id
+                                FROM dbo.[group] g
+                                WHERE g.group_name = N'ADMIN';
+
+                                SELECT TOP (1) @volunteers_group_id = g.group_id
+                                FROM dbo.[group] g
+                                WHERE g.group_name = N'VOLUNTEERS';
+
+                                SELECT TOP (1) @participants_group_id = g.group_id
+                                FROM dbo.[group] g
+                                WHERE g.group_name = N'PARTICIPANTS';
+                        END
 
             IF @admin_group_id IS NOT NULL
                AND NOT EXISTS (
@@ -1789,56 +1814,61 @@ BEGIN
     IF COL_LENGTH('dbo.[group]', 'tenant_id') IS NULL
         ALTER TABLE dbo.[group] ADD tenant_id UNIQUEIDENTIFIER NULL;
 
-    IF @group_default_tenant_id IS NOT NULL
-        UPDATE dbo.[group]
-        SET tenant_id = @group_default_tenant_id
-        WHERE tenant_id IS NULL;
+    EXEC sp_executesql
+        N'
+            IF @group_default_tenant_id IS NOT NULL
+                UPDATE dbo.[group]
+                SET tenant_id = @group_default_tenant_id
+                WHERE tenant_id IS NULL;
 
-    IF EXISTS (SELECT 1 FROM dbo.[group] WHERE tenant_id IS NULL)
-        THROW 51000, 'Unable to backfill dbo.[group].tenant_id for all rows.', 1;
+            IF EXISTS (SELECT 1 FROM dbo.[group] WHERE tenant_id IS NULL)
+                THROW 51000, ''Unable to backfill dbo.[group].tenant_id for all rows.'', 1;
 
-    IF EXISTS (
-        SELECT 1
-        FROM sys.columns
-        WHERE object_id = OBJECT_ID(N'dbo.[group]')
-          AND name = N'tenant_id'
-          AND is_nullable = 1
-    )
-        ALTER TABLE dbo.[group] ALTER COLUMN tenant_id UNIQUEIDENTIFIER NOT NULL;
+            IF EXISTS (
+                SELECT 1
+                FROM sys.columns
+                WHERE object_id = OBJECT_ID(N''dbo.[group]'')
+                  AND name = N''tenant_id''
+                  AND is_nullable = 1
+            )
+                ALTER TABLE dbo.[group] ALTER COLUMN tenant_id UNIQUEIDENTIFIER NOT NULL;
 
-    IF EXISTS (
-        SELECT 1
-        FROM sys.key_constraints
-        WHERE parent_object_id = OBJECT_ID(N'dbo.[group]')
-          AND name = N'UQ_group_name'
-    )
-        ALTER TABLE dbo.[group] DROP CONSTRAINT UQ_group_name;
+            IF EXISTS (
+                SELECT 1
+                FROM sys.key_constraints
+                WHERE parent_object_id = OBJECT_ID(N''dbo.[group]'')
+                  AND name = N''UQ_group_name''
+            )
+                ALTER TABLE dbo.[group] DROP CONSTRAINT UQ_group_name;
 
-    IF NOT EXISTS (
-        SELECT 1
-        FROM sys.foreign_keys
-        WHERE parent_object_id = OBJECT_ID(N'dbo.[group]')
-          AND name = N'FK_group_tenant'
-    )
-        ALTER TABLE dbo.[group]
-        ADD CONSTRAINT FK_group_tenant FOREIGN KEY (tenant_id)
-            REFERENCES dbo.tenant (tenant_id);
+            IF NOT EXISTS (
+                SELECT 1
+                FROM sys.foreign_keys
+                WHERE parent_object_id = OBJECT_ID(N''dbo.[group]'')
+                  AND name = N''FK_group_tenant''
+            )
+                ALTER TABLE dbo.[group]
+                ADD CONSTRAINT FK_group_tenant FOREIGN KEY (tenant_id)
+                    REFERENCES dbo.tenant (tenant_id);
 
-    IF NOT EXISTS (
-        SELECT 1
-        FROM sys.indexes
-        WHERE object_id = OBJECT_ID(N'dbo.[group]')
-          AND name = N'UX_group_tenant_name'
-    )
-        CREATE UNIQUE INDEX UX_group_tenant_name ON dbo.[group] (tenant_id, group_name);
+            IF NOT EXISTS (
+                SELECT 1
+                FROM sys.indexes
+                WHERE object_id = OBJECT_ID(N''dbo.[group]'')
+                  AND name = N''UX_group_tenant_name''
+            )
+                CREATE UNIQUE INDEX UX_group_tenant_name ON dbo.[group] (tenant_id, group_name);
 
-    IF NOT EXISTS (
-        SELECT 1
-        FROM sys.indexes
-        WHERE object_id = OBJECT_ID(N'dbo.[group]')
-          AND name = N'IX_group_tenant_system_name'
-    )
-        CREATE INDEX IX_group_tenant_system_name ON dbo.[group] (tenant_id, is_system, group_name);
+            IF NOT EXISTS (
+                SELECT 1
+                FROM sys.indexes
+                WHERE object_id = OBJECT_ID(N''dbo.[group]'')
+                  AND name = N''IX_group_tenant_system_name''
+            )
+                CREATE INDEX IX_group_tenant_system_name ON dbo.[group] (tenant_id, is_system, group_name);
+        ',
+        N'@group_default_tenant_id UNIQUEIDENTIFIER',
+        @group_default_tenant_id = @group_default_tenant_id;
 END
 
 -- ==========================================================================
@@ -1861,23 +1891,26 @@ BEGIN
         ORDER BY t.created_at ASC;
 
     IF @system_group_tenant_id IS NOT NULL
-    BEGIN
-        IF NOT EXISTS (SELECT 1 FROM dbo.[group] WHERE tenant_id = @system_group_tenant_id AND group_name = 'ALL')
-            INSERT INTO dbo.[group] (group_id, tenant_id, group_name, description, is_system)
-            VALUES (NEWID(), @system_group_tenant_id, 'ALL', 'All active members', 1);
+        EXEC sp_executesql
+            N'
+                IF NOT EXISTS (SELECT 1 FROM dbo.[group] WHERE tenant_id = @system_group_tenant_id AND group_name = N''ALL'')
+                    INSERT INTO dbo.[group] (group_id, tenant_id, group_name, description, is_system)
+                    VALUES (NEWID(), @system_group_tenant_id, N''ALL'', N''All active members'', 1);
 
-        IF NOT EXISTS (SELECT 1 FROM dbo.[group] WHERE tenant_id = @system_group_tenant_id AND group_name = 'ADMIN')
-            INSERT INTO dbo.[group] (group_id, tenant_id, group_name, description, is_system)
-            VALUES (NEWID(), @system_group_tenant_id, 'ADMIN', 'Chapter administrators', 1);
+                IF NOT EXISTS (SELECT 1 FROM dbo.[group] WHERE tenant_id = @system_group_tenant_id AND group_name = N''ADMIN'')
+                    INSERT INTO dbo.[group] (group_id, tenant_id, group_name, description, is_system)
+                    VALUES (NEWID(), @system_group_tenant_id, N''ADMIN'', N''Chapter administrators'', 1);
 
-        IF NOT EXISTS (SELECT 1 FROM dbo.[group] WHERE tenant_id = @system_group_tenant_id AND group_name = 'VOLUNTEERS')
-            INSERT INTO dbo.[group] (group_id, tenant_id, group_name, description, is_system)
-            VALUES (NEWID(), @system_group_tenant_id, 'VOLUNTEERS', 'Volunteers / guides', 1);
+                IF NOT EXISTS (SELECT 1 FROM dbo.[group] WHERE tenant_id = @system_group_tenant_id AND group_name = N''VOLUNTEERS'')
+                    INSERT INTO dbo.[group] (group_id, tenant_id, group_name, description, is_system)
+                    VALUES (NEWID(), @system_group_tenant_id, N''VOLUNTEERS'', N''Volunteers / guides'', 1);
 
-        IF NOT EXISTS (SELECT 1 FROM dbo.[group] WHERE tenant_id = @system_group_tenant_id AND group_name = 'PARTICIPANTS')
-            INSERT INTO dbo.[group] (group_id, tenant_id, group_name, description, is_system)
-            VALUES (NEWID(), @system_group_tenant_id, 'PARTICIPANTS', 'Program participants (veterans)', 1);
-    END
+                IF NOT EXISTS (SELECT 1 FROM dbo.[group] WHERE tenant_id = @system_group_tenant_id AND group_name = N''PARTICIPANTS'')
+                    INSERT INTO dbo.[group] (group_id, tenant_id, group_name, description, is_system)
+                    VALUES (NEWID(), @system_group_tenant_id, N''PARTICIPANTS'', N''Program participants (veterans)'', 1);
+            ',
+            N'@system_group_tenant_id UNIQUEIDENTIFIER',
+            @system_group_tenant_id = @system_group_tenant_id;
 END
 
 -- ============================================================
@@ -1969,123 +2002,128 @@ BEGIN
         WHERE t.status = N'active'
         ORDER BY t.created_at ASC;
 
-    IF @tavf_default_tenant_id IS NOT NULL
-    BEGIN
-        UPDATE p
-        SET p.tenant_id = COALESCE(tm.tenant_id, @tavf_default_tenant_id)
-        FROM dbo.tavf_posting p
-        OUTER APPLY (
-            SELECT TOP (1) tm.tenant_id
-            FROM dbo.tenant_membership tm
-            WHERE tm.member_id = p.guide_member_id
-              AND tm.status = N'active'
-              AND tm.revoked_at IS NULL
-            ORDER BY CASE WHEN tm.membership_kind = N'home' THEN 0 ELSE 1 END, tm.created_at ASC
-        ) tm
-        WHERE p.tenant_id IS NULL;
+    EXEC sp_executesql
+        N'
+            IF @tavf_default_tenant_id IS NOT NULL
+            BEGIN
+                UPDATE p
+                SET p.tenant_id = COALESCE(tm.tenant_id, @tavf_default_tenant_id)
+                FROM dbo.tavf_posting p
+                OUTER APPLY (
+                    SELECT TOP (1) tm.tenant_id
+                    FROM dbo.tenant_membership tm
+                    WHERE tm.member_id = p.guide_member_id
+                      AND tm.status = N''active''
+                      AND tm.revoked_at IS NULL
+                    ORDER BY CASE WHEN tm.membership_kind = N''home'' THEN 0 ELSE 1 END, tm.created_at ASC
+                ) tm
+                WHERE p.tenant_id IS NULL;
 
-        UPDATE a
-        SET a.tenant_id = COALESCE(p.tenant_id, @tavf_default_tenant_id)
-        FROM dbo.tavf_application a
-        INNER JOIN dbo.tavf_posting p ON p.posting_id = a.posting_id
-        WHERE a.tenant_id IS NULL;
+                UPDATE a
+                SET a.tenant_id = COALESCE(p.tenant_id, @tavf_default_tenant_id)
+                FROM dbo.tavf_application a
+                INNER JOIN dbo.tavf_posting p ON p.posting_id = a.posting_id
+                WHERE a.tenant_id IS NULL;
 
-        UPDATE tm
-        SET tm.tenant_id = COALESCE(p.tenant_id, @tavf_default_tenant_id)
-        FROM dbo.tavf_match tm
-        INNER JOIN dbo.tavf_posting p ON p.posting_id = tm.posting_id
-        WHERE tm.tenant_id IS NULL;
-    END
+                UPDATE tm
+                SET tm.tenant_id = COALESCE(p.tenant_id, @tavf_default_tenant_id)
+                FROM dbo.tavf_match tm
+                INNER JOIN dbo.tavf_posting p ON p.posting_id = tm.posting_id
+                WHERE tm.tenant_id IS NULL;
+            END
 
-    IF EXISTS (SELECT 1 FROM dbo.tavf_posting WHERE tenant_id IS NULL)
-        THROW 51000, 'Unable to backfill dbo.tavf_posting.tenant_id for all rows.', 1;
+            IF EXISTS (SELECT 1 FROM dbo.tavf_posting WHERE tenant_id IS NULL)
+                THROW 51000, ''Unable to backfill dbo.tavf_posting.tenant_id for all rows.'', 1;
 
-    IF EXISTS (SELECT 1 FROM dbo.tavf_application WHERE tenant_id IS NULL)
-        THROW 51000, 'Unable to backfill dbo.tavf_application.tenant_id for all rows.', 1;
+            IF EXISTS (SELECT 1 FROM dbo.tavf_application WHERE tenant_id IS NULL)
+                THROW 51000, ''Unable to backfill dbo.tavf_application.tenant_id for all rows.'', 1;
 
-    IF EXISTS (SELECT 1 FROM dbo.tavf_match WHERE tenant_id IS NULL)
-        THROW 51000, 'Unable to backfill dbo.tavf_match.tenant_id for all rows.', 1;
+            IF EXISTS (SELECT 1 FROM dbo.tavf_match WHERE tenant_id IS NULL)
+                THROW 51000, ''Unable to backfill dbo.tavf_match.tenant_id for all rows.'', 1;
 
-    IF EXISTS (
-        SELECT 1
-        FROM sys.columns
-        WHERE object_id = OBJECT_ID(N'dbo.tavf_posting')
-          AND name = N'tenant_id'
-          AND is_nullable = 1
-    )
-        ALTER TABLE dbo.tavf_posting ALTER COLUMN tenant_id UNIQUEIDENTIFIER NOT NULL;
+            IF EXISTS (
+                SELECT 1
+                FROM sys.columns
+                WHERE object_id = OBJECT_ID(N''dbo.tavf_posting'')
+                  AND name = N''tenant_id''
+                  AND is_nullable = 1
+            )
+                ALTER TABLE dbo.tavf_posting ALTER COLUMN tenant_id UNIQUEIDENTIFIER NOT NULL;
 
-    IF EXISTS (
-        SELECT 1
-        FROM sys.columns
-        WHERE object_id = OBJECT_ID(N'dbo.tavf_application')
-          AND name = N'tenant_id'
-          AND is_nullable = 1
-    )
-        ALTER TABLE dbo.tavf_application ALTER COLUMN tenant_id UNIQUEIDENTIFIER NOT NULL;
+            IF EXISTS (
+                SELECT 1
+                FROM sys.columns
+                WHERE object_id = OBJECT_ID(N''dbo.tavf_application'')
+                  AND name = N''tenant_id''
+                  AND is_nullable = 1
+            )
+                ALTER TABLE dbo.tavf_application ALTER COLUMN tenant_id UNIQUEIDENTIFIER NOT NULL;
 
-    IF EXISTS (
-        SELECT 1
-        FROM sys.columns
-        WHERE object_id = OBJECT_ID(N'dbo.tavf_match')
-          AND name = N'tenant_id'
-          AND is_nullable = 1
-    )
-        ALTER TABLE dbo.tavf_match ALTER COLUMN tenant_id UNIQUEIDENTIFIER NOT NULL;
+            IF EXISTS (
+                SELECT 1
+                FROM sys.columns
+                WHERE object_id = OBJECT_ID(N''dbo.tavf_match'')
+                  AND name = N''tenant_id''
+                  AND is_nullable = 1
+            )
+                ALTER TABLE dbo.tavf_match ALTER COLUMN tenant_id UNIQUEIDENTIFIER NOT NULL;
 
-    IF NOT EXISTS (
-        SELECT 1
-        FROM sys.foreign_keys
-        WHERE parent_object_id = OBJECT_ID(N'dbo.tavf_posting')
-          AND name = N'FK_tavf_posting_tenant'
-    )
-        ALTER TABLE dbo.tavf_posting
-            ADD CONSTRAINT FK_tavf_posting_tenant FOREIGN KEY (tenant_id)
-                REFERENCES dbo.tenant (tenant_id);
+            IF NOT EXISTS (
+                SELECT 1
+                FROM sys.foreign_keys
+                WHERE parent_object_id = OBJECT_ID(N''dbo.tavf_posting'')
+                  AND name = N''FK_tavf_posting_tenant''
+            )
+                ALTER TABLE dbo.tavf_posting
+                    ADD CONSTRAINT FK_tavf_posting_tenant FOREIGN KEY (tenant_id)
+                        REFERENCES dbo.tenant (tenant_id);
 
-    IF NOT EXISTS (
-        SELECT 1
-        FROM sys.foreign_keys
-        WHERE parent_object_id = OBJECT_ID(N'dbo.tavf_application')
-          AND name = N'FK_tavf_application_tenant'
-    )
-        ALTER TABLE dbo.tavf_application
-            ADD CONSTRAINT FK_tavf_application_tenant FOREIGN KEY (tenant_id)
-                REFERENCES dbo.tenant (tenant_id);
+            IF NOT EXISTS (
+                SELECT 1
+                FROM sys.foreign_keys
+                WHERE parent_object_id = OBJECT_ID(N''dbo.tavf_application'')
+                  AND name = N''FK_tavf_application_tenant''
+            )
+                ALTER TABLE dbo.tavf_application
+                    ADD CONSTRAINT FK_tavf_application_tenant FOREIGN KEY (tenant_id)
+                        REFERENCES dbo.tenant (tenant_id);
 
-    IF NOT EXISTS (
-        SELECT 1
-        FROM sys.foreign_keys
-        WHERE parent_object_id = OBJECT_ID(N'dbo.tavf_match')
-          AND name = N'FK_tavf_match_tenant'
-    )
-        ALTER TABLE dbo.tavf_match
-            ADD CONSTRAINT FK_tavf_match_tenant FOREIGN KEY (tenant_id)
-                REFERENCES dbo.tenant (tenant_id);
+            IF NOT EXISTS (
+                SELECT 1
+                FROM sys.foreign_keys
+                WHERE parent_object_id = OBJECT_ID(N''dbo.tavf_match'')
+                  AND name = N''FK_tavf_match_tenant''
+            )
+                ALTER TABLE dbo.tavf_match
+                    ADD CONSTRAINT FK_tavf_match_tenant FOREIGN KEY (tenant_id)
+                        REFERENCES dbo.tenant (tenant_id);
 
-    IF NOT EXISTS (
-        SELECT 1
-        FROM sys.indexes
-        WHERE object_id = OBJECT_ID(N'dbo.tavf_posting')
-          AND name = N'idx_tavf_posting_tenant_status_date'
-    )
-        CREATE INDEX idx_tavf_posting_tenant_status_date ON dbo.tavf_posting (tenant_id, status, event_date);
+            IF NOT EXISTS (
+                SELECT 1
+                FROM sys.indexes
+                WHERE object_id = OBJECT_ID(N''dbo.tavf_posting'')
+                  AND name = N''idx_tavf_posting_tenant_status_date''
+            )
+                CREATE INDEX idx_tavf_posting_tenant_status_date ON dbo.tavf_posting (tenant_id, status, event_date);
 
-    IF NOT EXISTS (
-        SELECT 1
-        FROM sys.indexes
-        WHERE object_id = OBJECT_ID(N'dbo.tavf_application')
-          AND name = N'idx_tavf_application_tenant_status'
-    )
-        CREATE INDEX idx_tavf_application_tenant_status ON dbo.tavf_application (tenant_id, status, applied_at);
+            IF NOT EXISTS (
+                SELECT 1
+                FROM sys.indexes
+                WHERE object_id = OBJECT_ID(N''dbo.tavf_application'')
+                  AND name = N''idx_tavf_application_tenant_status''
+            )
+                CREATE INDEX idx_tavf_application_tenant_status ON dbo.tavf_application (tenant_id, status, applied_at);
 
-    IF NOT EXISTS (
-        SELECT 1
-        FROM sys.indexes
-        WHERE object_id = OBJECT_ID(N'dbo.tavf_match')
-          AND name = N'idx_tavf_match_tenant_status'
-    )
-        CREATE INDEX idx_tavf_match_tenant_status ON dbo.tavf_match (tenant_id, status, matched_at);
+            IF NOT EXISTS (
+                SELECT 1
+                FROM sys.indexes
+                WHERE object_id = OBJECT_ID(N''dbo.tavf_match'')
+                  AND name = N''idx_tavf_match_tenant_status''
+            )
+                CREATE INDEX idx_tavf_match_tenant_status ON dbo.tavf_match (tenant_id, status, matched_at);
+        ',
+        N'@tavf_default_tenant_id UNIQUEIDENTIFIER',
+        @tavf_default_tenant_id = @tavf_default_tenant_id;
 END;
 -- ---------------------------------------------------------------------------
 -- Wave 2 Migrations
