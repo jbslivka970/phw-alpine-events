@@ -311,7 +311,6 @@
 .rsvp-count--no       { background: #fcebeb; color: #791f1f; }
 .rsvp-count--maybe    { background: #faeeda; color: #8a5510; }
 .rsvp-count--waitlist { background: #c8e6f3; color: #1b3a5c; }
-.rsvp-count { font-size: 0.82rem; font-weight: 600; padding: 0.2rem 0.65rem; border-radius: 3px; }
 .rsvp-table {
   width: 100%;
   border-collapse: collapse;
@@ -324,8 +323,9 @@
   text-align: left;
   font-weight: 600;
 }
-.rsvp-table td { padding: 0.4rem 0.6rem; border-bottom: 1px solid var(--border); }
+.rsvp-table td { padding: 0.4rem 0.6rem; border-bottom: 1px solid var(--border); transition: background-color 140ms ease; }
 .rsvp-table tr:last-child td { border-bottom: none; }
+.rsvp-table tbody tr:hover td { background: #f1f6eb; }
 .rsvp-table__notes { color: var(--muted); font-style: italic; }
 
 /* ------------------------------------------------------------------ */
@@ -412,16 +412,17 @@
 
 .form-input,
 .form-textarea {
+  min-height: 38px;
   padding: 0.55rem 0.75rem;
   border: 1.5px solid var(--border);
   border-radius: var(--radius);
   background: #fff;
   color: var(--text);
-  transition: border-color 120ms ease;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
   width: 100%;
 }
 .form-input:focus,
-.form-textarea:focus { outline: none; border-color: var(--primary); }
+.form-textarea:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(45, 95, 77, 0.15); }
 .form-textarea { resize: vertical; }
 
 .form-error {
@@ -794,7 +795,6 @@
 
 .summary-table-wrapper { margin-bottom: 1.5rem; overflow-x: auto; }
 .summary-table-wrapper h2 { font-size: 1.1rem; color: var(--primary-strong); margin-bottom: 0.5rem; }
-.summary-table-wrapper h2 { font-size: 1.1rem; color: var(--primary-strong); margin-bottom: 0.5rem; }
 
 .summary-table {
   width: 100%;
@@ -813,10 +813,11 @@
 .summary-table td {
   padding: 0.45rem 0.75rem;
   border-bottom: 1px solid var(--border);
+  transition: background-color 140ms ease;
 }
 
-.summary-table tr:nth-child(even) td { background: #f6f9fc; }
 .summary-table tr:nth-child(even) td { background: #f2f5ec; }
+.summary-table tbody tr:hover td { background: #e8f0e0; }
 
 .delivery-trend-kpis {
   display: flex;
@@ -1620,7 +1621,6 @@
   letter-spacing: 0.01em;
 }
 
-.members-table tr:hover td { background: #f8fafc; cursor: pointer; }
 .members-table tr:hover td { background: #f3f6ed; cursor: pointer; }
 
 /* Member persona chips */
@@ -1659,6 +1659,30 @@
   font-size: 0.88rem;
   background: #fff;
   color: var(--text);
+}
+
+@media (max-width: 900px) {
+  .page-header,
+  .events-page__header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .header-actions {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .calendar-nav {
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .calendar-nav h2 {
+    min-width: 0;
+    width: 100%;
+    order: -1;
+  }
 }
 
 /* ------------------------------------------------------------------ */
