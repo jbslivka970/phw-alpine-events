@@ -517,6 +517,7 @@ textarea:focus-visible {
   flex-wrap: nowrap;
   overflow-x: auto;
   overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
   scrollbar-width: thin;
 }
 
@@ -532,6 +533,7 @@ textarea:focus-visible {
 }
 
 .phw-layout__link {
+  flex: 0 0 auto;
   color: rgba(255, 255, 255, 0.62);
   text-decoration: none;
   font-size: 13px;
@@ -569,12 +571,14 @@ textarea:focus-visible {
   display: inline-flex;
   align-items: center;
   gap: 12px;
+  min-width: 0;
 }
 
 .phw-layout__user-actions {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: nowrap;
 }
 
 .phw-layout__tenant-switcher {
@@ -584,6 +588,9 @@ textarea:focus-visible {
 }
 
 .phw-layout__tenant-switcher-label {
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
   color: rgba(255, 255, 255, 0.72);
   font-size: 11px;
   font-weight: 600;
@@ -605,6 +612,10 @@ textarea:focus-visible {
 }
 
 .phw-layout__username {
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: rgba(255, 255, 255, 0.55);
   font-size: 12px;
   font-weight: 500;
@@ -1040,6 +1051,7 @@ textarea:focus-visible {
   .phw-layout__user {
     justify-content: flex-start;
     gap: 8px;
+    flex-wrap: wrap;
   }
 
   .phw-layout__main {
@@ -1050,6 +1062,10 @@ textarea:focus-visible {
     padding: 4px 10px;
     min-height: 32px;
     font-size: 11px;
+  }
+
+  .phw-layout__username {
+    max-width: 100%;
   }
 
   .login-page {
@@ -1144,7 +1160,7 @@ textarea:focus-visible {
   }
 
   .phw-layout__tenant-switcher {
-    max-width: 66vw;
+    max-width: 72vw;
   }
 
   .phw-layout__tenant-switcher .members-input {
