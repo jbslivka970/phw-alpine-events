@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { ROLES } from '../authConfig';
 import { rootApi } from '../api/root';
@@ -37,11 +37,44 @@ export default function Layout() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isAdminMenuOpen, setIsAdminMenuOpen] = useState(false);
   const [isRootAdmin, setIsRootAdmin] = useState(false);
+  const adminMenuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     setIsMenuOpen(false);
     setIsAdminMenuOpen(false);
   }, [location.pathname]);
+
+  useEffect(() => {
+    if (!isAdminMenuOpen) {
+      return;
+    }
+
+    const handlePointerDown = (event: MouseEvent | TouchEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) {
+        return;
+      }
+      if (adminMenuRef.current?.contains(target)) {
+        return;
+      }
+      setIsAdminMenuOpen(false);
+    };
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsAdminMenuOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('touchstart', handlePointerDown);
+    document.addEventListener('keydown', handleEscape);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('touchstart', handlePointerDown);
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, [isAdminMenuOpen]);
 
   useEffect(() => {
     let active = true;
@@ -148,7 +181,7 @@ export default function Layout() {
             ))}
 
             {managementItems.length > 0 && (
-              <div className="phw-layout__admin-menu">
+              <div className="phw-layout__admin-menu" ref={adminMenuRef}>
                 <button
                   type="button"
                   className={`phw-layout__admin-menu-toggle${isManagementRouteActive ? ' phw-layout__admin-menu-toggle--active' : ''}`}
@@ -157,7 +190,8 @@ export default function Layout() {
                   onClick={() => setIsAdminMenuOpen((current) => !current)}
                 >
                   <span className="phw-layout__admin-menu-icon" aria-hidden="true">☰</span>
-                  <span>Admin Menu</span>
+                  <span className="phw-layout__admin-menu-label">Admin</span>
+                  <span className={`phw-layout__admin-menu-chevron${isAdminMenuOpen ? ' phw-layout__admin-menu-chevron--open' : ''}`} aria-hidden="true">▾</span>
                 </button>
                 <div
                   id="phw-management-menu"
