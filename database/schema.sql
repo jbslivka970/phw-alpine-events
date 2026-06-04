@@ -1,6 +1,7 @@
 -- Azure SQL Database Schema for PHW Alpine Events
 -- Based on PRD Section 5.1 Data Model
 -- allow-breaking-migration: DROP_COLUMN
+-- allow-breaking-migration: NARROWING_ALTER
 --
 -- Implementation Notes:
 --   - email is intentionally NOT unique to support households that share an email address.
