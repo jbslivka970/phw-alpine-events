@@ -60,3 +60,7 @@ tmp-rbac-*.png
 playwright-report/
 test-results/
 tests/e2e/.auth/
+
+# Local artifacts
+zap-reports/
+.tmp/

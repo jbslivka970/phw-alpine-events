@@ -57,6 +57,9 @@ class HttpError extends Error {
 
 let cachedEventColumnSupport: EventColumnSupport | null = null;
 let cachedEventTenantSupport: EventTenantSupport | null = null;
+let cachedEventTenantSupportAtMs = 0;
+
+const EVENT_TENANT_SUPPORT_TTL_MS = 60_000;
 
 const DEFAULT_TENANT_ID = (process.env['DEFAULT_TENANT_ID'] ?? '1b6b9719-663a-4e56-8f7d-9a4bd4c10001').trim().toLowerCase();
 
@@ -92,7 +95,7 @@ function isMultiTenantEnabled(): boolean {
 }
 
 async function getEventTenantSupport(pool: Awaited<ReturnType<typeof getPool>>): Promise<EventTenantSupport> {
-  if (cachedEventTenantSupport) {
+  if (cachedEventTenantSupport && (Date.now() - cachedEventTenantSupportAtMs) < EVENT_TENANT_SUPPORT_TTL_MS) {
     return cachedEventTenantSupport;
   }
 
@@ -105,6 +108,7 @@ async function getEventTenantSupport(pool: Awaited<ReturnType<typeof getPool>>):
   cachedEventTenantSupport = {
     hasTenantId: result.recordset[0]?.has_tenant_id === 1,
   };
+  cachedEventTenantSupportAtMs = Date.now();
 
   return cachedEventTenantSupport;
 }

@@ -19,6 +19,7 @@
     "test:e2e:launch-smoke": "playwright test tests/e2e/browser-launch-smoke.spec.ts",
     "test:e2e:launch-smoke:local": "E2E_LOCAL_AUTH_ENABLED=1 E2E_API_BASE_URL=http://localhost:3001 E2E_APP_URL=http://localhost:5173 playwright test tests/e2e/browser-launch-smoke.spec.ts",
     "test:e2e:tenant-denial": "playwright test tests/e2e/api-tenant-denial-matrix.spec.ts",
+    "verify:tenant:event-isolation": "node scripts/verify-tenant-event-isolation.mjs",
     "e2e:refresh-tokens": "node scripts/refresh-playwright-tokens.mjs",
     "uat:create-test-event": "node scripts/create-test-event-for-recipient.mjs",
     "cleanup:e2e:contract-events": "node scripts/cleanup-e2e-contract-events.mjs"
