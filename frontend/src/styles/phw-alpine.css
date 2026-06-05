@@ -462,7 +462,8 @@ textarea:focus-visible {
   max-width: 1280px;
   margin: 0 auto;
   padding: 0 1.25rem;
-  height: 64px;
+  min-height: 64px;
+  height: auto;
   display: grid;
   grid-template-columns: auto 1fr auto;
   align-items: center;
@@ -514,15 +515,9 @@ textarea:focus-visible {
   justify-content: center;
   align-items: center;
   gap: 4px;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   min-width: 0;
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: none;
-}
-
-.phw-layout__links::-webkit-scrollbar {
-  display: none;
+  overflow: visible;
 }
 
 .phw-layout__menu-toggle {
@@ -658,10 +653,19 @@ textarea:focus-visible {
 .phw-layout__user {
   display: inline-flex;
   align-items: center;
-  gap: 12px;
+  gap: 6px;
   min-width: 0;
   padding-left: 10px;
   border-left: 1px solid rgba(255, 255, 255, 0.14);
+  justify-self: end;
+}
+
+.phw-layout__user-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+  min-width: 0;
 }
 
 .phw-layout__user-actions {
@@ -710,6 +714,7 @@ textarea:focus-visible {
   font-size: 12px;
   font-weight: 500;
   flex: 0 1 auto;
+  display: block;
 }
 
 /* ── Main content ──────────────────────── */
@@ -1083,6 +1088,7 @@ textarea:focus-visible {
 
   .phw-layout__nav-inner {
     grid-template-columns: 1fr;
+    min-height: 0;
     height: auto;
     padding: 0.6rem 0.9rem;
     gap: 0.5rem;
@@ -1164,6 +1170,11 @@ textarea:focus-visible {
     flex-wrap: wrap;
     padding-left: 0;
     border-left: 0;
+    justify-self: start;
+  }
+
+  .phw-layout__user-meta {
+    align-items: flex-start;
   }
 
   .phw-layout__main {
@@ -1264,11 +1275,15 @@ textarea:focus-visible {
   .phw-layout__user {
     width: 100%;
     justify-content: space-between;
-    align-items: center;
+    align-items: flex-end;
   }
 
   .phw-layout__user-actions {
     justify-content: flex-end;
+  }
+
+  .phw-layout__user-meta {
+    align-items: flex-start;
   }
 
   .phw-layout__tenant-switcher {

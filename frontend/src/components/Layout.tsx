@@ -182,11 +182,13 @@ export default function Layout() {
           </div>
 
           <div className="phw-layout__user">
-            {user && (
-              <span className="phw-layout__username" title={user.email}>
-                {user.name}
-              </span>
-            )}
+            <div className="phw-layout__user-meta">
+              {user && (
+                <span className="phw-layout__username" title={user.email}>
+                  {user.name}
+                </span>
+              )}
+            </div>
             <div className="phw-layout__user-actions">
               {managementItems.length > 0 && (
                 <div className="phw-layout__admin-menu" ref={adminMenuRef}>
