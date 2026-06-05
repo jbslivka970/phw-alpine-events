@@ -515,7 +515,14 @@ textarea:focus-visible {
   align-items: center;
   gap: 4px;
   flex-wrap: nowrap;
-  overflow: visible;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+
+.phw-layout__links::-webkit-scrollbar {
+  display: none;
 }
 
 .phw-layout__menu-toggle {
@@ -653,6 +660,8 @@ textarea:focus-visible {
   align-items: center;
   gap: 12px;
   min-width: 0;
+  padding-left: 10px;
+  border-left: 1px solid rgba(255, 255, 255, 0.14);
 }
 
 .phw-layout__user-actions {
@@ -700,6 +709,7 @@ textarea:focus-visible {
   color: rgba(255, 255, 255, 0.55);
   font-size: 12px;
   font-weight: 500;
+  flex: 0 1 auto;
 }
 
 /* ── Main content ──────────────────────── */
@@ -1152,6 +1162,8 @@ textarea:focus-visible {
     justify-content: flex-start;
     gap: 8px;
     flex-wrap: wrap;
+    padding-left: 0;
+    border-left: 0;
   }
 
   .phw-layout__main {
