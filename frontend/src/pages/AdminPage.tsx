@@ -24,6 +24,7 @@ import { membersApi } from '../api/members'
 import { getApiBaseUrl } from '../api/baseUrl'
 import LoadingSkeleton from '../components/LoadingSkeleton'
 import type { EventRecord } from '../api/events'
+import { useTenantContext } from '../contexts/TenantContext'
 import { toUserErrorMessage } from '../utils/errorMessage'
 
 type HealthState = 'loading' | 'ok' | 'error' | 'unconfigured'
@@ -67,6 +68,7 @@ function formatRoleManagementError(error: unknown, fallback: string): string {
 }
 
 function AdminPage() {
+  const { activeTenant } = useTenantContext()
   const [health, setHealth] = useState<HealthStatus>({
     api: 'loading',
     db: 'loading',
@@ -267,6 +269,7 @@ function AdminPage() {
     let active = true
     setAdminUsersLoading(true)
     setAdminUsersError(null)
+    setAdminUsers([])
 
     adminApi.listAdminUsers({ page: 1, pageSize: 200 })
       .then((response) => {
@@ -282,11 +285,11 @@ function AdminPage() {
       })
 
     return () => { active = false }
-  }, [])
+  }, [activeTenant?.tenant_id])
 
   useEffect(() => {
     void refreshTenantPortal()
-  }, [])
+  }, [activeTenant?.tenant_id])
 
   useEffect(() => {
     let active = true
