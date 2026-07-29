@@ -47,10 +47,24 @@ let sharedRoleState: SharedRoleState = {
 const sharedRoleSubscribers = new Set<(state: SharedRoleState) => void>()
 
 function isLocalE2EAuthEnabled(): boolean {
+  if (typeof window !== 'undefined') {
+    const localToggle = window.localStorage.getItem(LOCAL_E2E_AUTH_TOGGLE_KEY)
+    if (localToggle === '1') {
+      return true
+    }
+  }
+
   return (import.meta.env.VITE_E2E_LOCAL_AUTH as string | undefined) === '1'
 }
 
 function isExternalE2EAuthEnabled(): boolean {
+  if (typeof window !== 'undefined') {
+    const externalToggle = window.localStorage.getItem(EXTERNAL_E2E_AUTH_TOGGLE_KEY)
+    if (externalToggle === '1') {
+      return true
+    }
+  }
+
   return (import.meta.env.VITE_E2E_EXTERNAL_AUTH as string | undefined) === '1'
 }
 

@@ -14,13 +14,9 @@ function getExternalE2EToken(): string | null {
     return null;
   }
 
-  const envEnabled = (import.meta.env.VITE_E2E_EXTERNAL_AUTH as string | undefined) === '1';
-  if (!envEnabled) {
-    return null;
-  }
-
   const toggle = (window.localStorage.getItem(EXTERNAL_E2E_AUTH_TOGGLE_KEY) ?? '').trim();
-  if (toggle !== '1') {
+  const envEnabled = (import.meta.env.VITE_E2E_EXTERNAL_AUTH as string | undefined) === '1';
+  if (toggle !== '1' && !envEnabled) {
     return null;
   }
 
@@ -38,8 +34,9 @@ function getLocalE2EToken(): string | null {
     return externalToken;
   }
 
+  const localToggle = (window.localStorage.getItem('phw_e2e_local_auth') ?? '').trim();
   const envEnabled = (import.meta.env.VITE_E2E_LOCAL_AUTH as string | undefined) === '1';
-  if (!envEnabled) {
+  if (localToggle !== '1' && !envEnabled) {
     return null;
   }
 

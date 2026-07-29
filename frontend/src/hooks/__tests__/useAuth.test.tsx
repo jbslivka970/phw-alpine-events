@@ -262,8 +262,7 @@ describe('useAuth auth flow regression coverage', () => {
     expect(requestInit?.headers?.['X-Id-Token-Email']).toBeUndefined()
   })
 
-  it('uses seeded external E2E token and email hint for browser auth state', async () => {
-    vi.stubEnv('VITE_E2E_EXTERNAL_AUTH', '1')
+  it('uses seeded external E2E token and email hint for browser auth state without build-time flags', async () => {
     window.localStorage.setItem('phw_e2e_external_auth', '1')
     window.localStorage.setItem('phw_e2e_external_token', 'external-token')
     window.localStorage.setItem('phw_e2e_external_email', 'member@example.org')
