@@ -5,18 +5,68 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
+function parseBooleanEnv(value: string | undefined, fallback: boolean): boolean {
+  if (value === undefined) {
+    return fallback;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) {
+    return true;
+  }
+  if (['0', 'false', 'no', 'off'].includes(normalized)) {
+    return false;
+  }
+  return fallback;
+}
+
+function parseBoundedNumberEnv(value: string | undefined, fallback: number, min: number, max: number): number {
+  if (!value) {
+    return fallback;
+  }
+  const parsed = Number.parseFloat(value);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+  return Math.min(max, Math.max(min, parsed));
+}
+
 // Application Insights — activate before any imports if APPINSIGHTS_KEY is set
 const aiKey = process.env['APPINSIGHTS_INSTRUMENTATIONKEY'] ?? process.env['APPLICATIONINSIGHTS_CONNECTION_STRING'];
 if (aiKey) {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const appInsights = require('applicationinsights') as {
-      setup(key: string): { setAutoCollectConsole(v: boolean, b: boolean): unknown };
-      start(): void;
-    };
-    appInsights.setup(aiKey).setAutoCollectConsole(true, true);
-    appInsights.start();
-    console.log('[startup] Application Insights activated');
+    const telemetryEnabled = parseBooleanEnv(process.env['APPINSIGHTS_ENABLED'], true);
+    if (!telemetryEnabled) {
+      console.log('[startup] Application Insights disabled via APPINSIGHTS_ENABLED=false');
+    } else {
+      const samplingPercentage = parseBoundedNumberEnv(process.env['APPINSIGHTS_SAMPLING_PERCENTAGE'], 100, 0, 100);
+      const collectConsole = parseBooleanEnv(process.env['APPINSIGHTS_COLLECT_CONSOLE'], true);
+
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const appInsights = require('applicationinsights') as {
+        setup(key: string): {
+          setAutoCollectConsole(collect: boolean, collectWarnAndError?: boolean): unknown;
+        };
+        defaultClient?: {
+          config: {
+            samplingPercentage: number;
+          };
+        };
+        start(): void;
+      };
+
+      appInsights.setup(aiKey).setAutoCollectConsole(collectConsole, collectConsole);
+      if (appInsights.defaultClient?.config) {
+        appInsights.defaultClient.config.samplingPercentage = samplingPercentage;
+      }
+      appInsights.start();
+      console.log(JSON.stringify({
+        level: 'info',
+        event: 'app_insights_activated',
+        samplingPercentage,
+        collectConsole,
+        timestamp: new Date().toISOString(),
+      }));
+    }
   } catch {
     console.warn('[startup] applicationinsights package not installed — telemetry disabled');
   }

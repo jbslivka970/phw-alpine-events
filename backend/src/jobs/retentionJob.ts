@@ -11,6 +11,7 @@ type RetentionRunOptions = {
   dryRun?: boolean;
   confirmDelete?: boolean;
   maxDeletePerTarget?: number;
+  deleteBatchSize?: number;
   notificationLogDays?: number;
   inboundSmsLogDays?: number;
   emailPreferenceLogDays?: number;
@@ -31,10 +32,16 @@ function parsePositiveInt(value: string | undefined, fallback: number): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-function resolveOptions(overrides?: RetentionRunOptions): { dryRun: boolean; maxDeletePerTarget: number; targets: RetentionTarget[] } {
+function resolveOptions(overrides?: RetentionRunOptions): {
+  dryRun: boolean;
+  maxDeletePerTarget: number;
+  deleteBatchSize: number;
+  targets: RetentionTarget[];
+} {
   const requestedDryRun = overrides?.dryRun ?? /^(1|true|yes|on)$/i.test(process.env['RETENTION_DRY_RUN'] ?? 'false');
   const confirmDelete = overrides?.confirmDelete ?? /^(1|true|yes|on)$/i.test(process.env['RETENTION_CONFIRM_DELETE'] ?? 'false');
   const maxDeletePerTarget = overrides?.maxDeletePerTarget ?? parsePositiveInt(process.env['RETENTION_MAX_DELETE_PER_TARGET'], 50000);
+  const deleteBatchSize = overrides?.deleteBatchSize ?? parsePositiveInt(process.env['RETENTION_DELETE_BATCH_SIZE'], 5000);
 
   const dryRun = requestedDryRun || !confirmDelete;
   if (!requestedDryRun && !confirmDelete) {
@@ -66,7 +73,7 @@ function resolveOptions(overrides?: RetentionRunOptions): { dryRun: boolean; max
     },
   ];
 
-  return { dryRun, maxDeletePerTarget, targets };
+  return { dryRun, maxDeletePerTarget, deleteBatchSize, targets };
 }
 
 async function countCandidates(target: RetentionTarget): Promise<number> {
@@ -83,22 +90,33 @@ async function countCandidates(target: RetentionTarget): Promise<number> {
   return result.recordset[0]?.count_to_delete ?? 0;
 }
 
-async function deleteCandidates(target: RetentionTarget): Promise<number> {
+async function deleteCandidates(target: RetentionTarget, deleteBatchSize: number): Promise<number> {
   const pool = await getPool();
-  const result = await pool
-    .request()
-    .input('retention_days', sql.Int, target.retentionDays)
-    .query<{ deleted_count: number }>(
-      `DELETE FROM ${target.tableName}
-       WHERE ${target.dateColumn} < DATEADD(day, -@retention_days, GETUTCDATE());
-       SELECT @@ROWCOUNT AS deleted_count;`
-    );
+  let totalDeleted = 0;
 
-  return result.recordset[0]?.deleted_count ?? 0;
+  while (true) {
+    const result = await pool
+      .request()
+      .input('retention_days', sql.Int, target.retentionDays)
+      .input('delete_batch_size', sql.Int, deleteBatchSize)
+      .query<{ deleted_count: number }>(
+        `DELETE TOP (@delete_batch_size) FROM ${target.tableName}
+         WHERE ${target.dateColumn} < DATEADD(day, -@retention_days, GETUTCDATE());
+         SELECT @@ROWCOUNT AS deleted_count;`
+      );
+
+    const deletedCount = result.recordset[0]?.deleted_count ?? 0;
+    totalDeleted += deletedCount;
+    if (deletedCount < deleteBatchSize) {
+      break;
+    }
+  }
+
+  return totalDeleted;
 }
 
 async function runRetentionJob(overrides?: RetentionRunOptions): Promise<RetentionResult[]> {
-  const { dryRun, maxDeletePerTarget, targets } = resolveOptions(overrides);
+  const { dryRun, maxDeletePerTarget, deleteBatchSize, targets } = resolveOptions(overrides);
   const enabledTargets = targets.filter((target) => target.retentionDays > 0);
   const results: RetentionResult[] = [];
 
@@ -116,7 +134,7 @@ async function runRetentionJob(overrides?: RetentionRunOptions): Promise<Retenti
 
       affectedRows = candidates === 0
         ? 0
-        : await deleteCandidates(target);
+        : await deleteCandidates(target, deleteBatchSize);
     }
 
     results.push({
@@ -131,6 +149,7 @@ async function runRetentionJob(overrides?: RetentionRunOptions): Promise<Retenti
     level: 'info',
     event: 'retention_job_completed',
     mode: dryRun ? 'dry-run' : 'delete',
+    deleteBatchSize,
     results,
     timestamp: new Date().toISOString(),
   }));
