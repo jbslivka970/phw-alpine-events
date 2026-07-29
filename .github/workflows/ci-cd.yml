@@ -1296,6 +1296,12 @@ jobs:
             -o "$RESPONSE_BODY" \
             -w "%{http_code}" || printf "000")
 
+          echo "zipdeploy HTTP status for attempt $attempt/24: $HTTP_CODE"
+          if [ -s "$RESPONSE_HEADERS" ]; then
+            echo "zipdeploy response headers:"
+            cat "$RESPONSE_HEADERS"
+          fi
+
           if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "202" ]; then
             STATUS_URL=$(awk 'BEGIN{IGNORECASE=1} /^Location:/ {gsub("\r", "", $2); print $2}' "$RESPONSE_HEADERS" | tail -n 1)
             if [ -z "$STATUS_URL" ]; then
