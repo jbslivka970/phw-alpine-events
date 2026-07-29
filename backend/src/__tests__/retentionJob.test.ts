@@ -81,7 +81,7 @@ describe('retention job', () => {
       affectedRows: 5,
     });
     expect(calls.some((call) => call.sql.includes('SELECT COUNT(*) AS count_to_delete'))).toBe(true);
-    expect(calls.some((call) => call.sql.includes('DELETE FROM notification_log'))).toBe(true);
+    expect(calls.some((call) => call.sql.includes('DELETE TOP (@delete_batch_size) FROM notification_log'))).toBe(true);
   });
 
   it('falls back to dry-run when delete is requested without explicit confirmation', async () => {
@@ -114,6 +114,6 @@ describe('retention job', () => {
       mode: 'dry-run',
       affectedRows: 3,
     });
-    expect(calls.some((call) => call.sql.includes('DELETE FROM notification_log'))).toBe(false);
+    expect(calls.some((call) => call.sql.includes('DELETE TOP (@delete_batch_size) FROM notification_log'))).toBe(false);
   });
 });
