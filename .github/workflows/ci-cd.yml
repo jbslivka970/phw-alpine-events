@@ -1291,6 +1291,7 @@ jobs:
 
           HTTP_CODE=$(curl -sS -u "$KUDU_USER:$KUDU_PASS" \
             -X POST "$SCM_URL/api/zipdeploy?isAsync=true" \
+            -H "Content-Type: application/octet-stream" \
             --data-binary @release.zip \
             -D "$RESPONSE_HEADERS" \
             -o "$RESPONSE_BODY" \
@@ -1757,6 +1758,7 @@ jobs:
 
           HTTP_CODE=$(curl -sS -u "$KUDU_USER:$KUDU_PASS" \
             -X POST "$SCM_URL/api/zipdeploy?isAsync=true" \
+            -H "Content-Type: application/octet-stream" \
             --data-binary @release.zip \
             -D "$RESPONSE_HEADERS" \
             -o "$RESPONSE_BODY" \
