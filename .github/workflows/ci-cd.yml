@@ -1253,7 +1253,7 @@ jobs:
           msg = str(msg).replace('\n', ' ').strip()
           normalized = 'unknown' if not data else ('none' if status is None else status)
           print(f"{normalized}\t{dep_id}\t{msg}")
-          PY
+        PY
           || printf 'unknown\t\t'
         }
 
@@ -1343,7 +1343,7 @@ jobs:
           status = data.get('status') if isinstance(data, dict) else None
           msg = (data.get('status_text') or data.get('message') or '').replace('\n', ' ').strip()
           print('{}\t{}'.format('none' if status is None else status, msg))
-          PY
+        PY
           )
 
           DEPLOY_STATE=$(printf "%s" "$STATUS_AND_MESSAGE" | cut -f1)
