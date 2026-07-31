@@ -1240,9 +1240,13 @@ jobs:
         fi
 
         echo "Deploying release.zip to $AZURE_WEBAPP_NAME staging slot via $SCM_URL"
+        AUTH_B64=$(printf '%s' "$KUDU_USER:$KUDU_PASS" | base64)
 
         get_latest_deploy_status() {
-          curl -fsS -u "$KUDU_USER:$KUDU_PASS" "$SCM_URL/api/deployments/latest" 2>/dev/null | python - <<'PY' 2>/dev/null
+          curl -fsS -k --http1.1 --max-time 600 \
+            -H "Authorization: Basic $AUTH_B64" \
+            -H "Expect: 100-continue" \
+            "$SCM_URL/api/deployments/latest" 2>/dev/null | python - <<'PY' 2>/dev/null
           import json
           import sys
 
@@ -1289,9 +1293,11 @@ jobs:
           RESPONSE_HEADERS=$(mktemp)
           RESPONSE_BODY=$(mktemp)
 
-          HTTP_CODE=$(curl -sS -u "$KUDU_USER:$KUDU_PASS" \
+          HTTP_CODE=$(curl -sS -k --http1.1 --max-time 600 --expect100-timeout 30 \
+            -H "Authorization: Basic $AUTH_B64" \
+            -H "Expect: 100-continue" \
+            -H "Content-Type: application/zip" \
             -X POST "$SCM_URL/api/zipdeploy?isAsync=true" \
-            -H "Content-Type: application/octet-stream" \
             --data-binary @release.zip \
             -D "$RESPONSE_HEADERS" \
             -o "$RESPONSE_BODY" \
@@ -1335,7 +1341,10 @@ jobs:
 
         echo "Polling deployment status from: $STATUS_URL"
         for poll in $(seq 1 90); do
-          STATUS_AND_MESSAGE=$(curl -fsS -u "$KUDU_USER:$KUDU_PASS" "$STATUS_URL" | python - <<'PY'
+          STATUS_AND_MESSAGE=$(curl -fsS -k --http1.1 --max-time 600 \
+            -H "Authorization: Basic $AUTH_B64" \
+            -H "Expect: 100-continue" \
+            "$STATUS_URL" | python - <<'PY'
           import json
           import sys
 
@@ -1718,9 +1727,13 @@ jobs:
         fi
 
         echo "Deploying release.zip to $AZURE_WEBAPP_NAME via $SCM_URL"
+        AUTH_B64=$(printf '%s' "$KUDU_USER:$KUDU_PASS" | base64)
 
         get_latest_deploy_status() {
-          curl -fsS -u "$KUDU_USER:$KUDU_PASS" "$SCM_URL/api/deployments/latest" 2>/dev/null | python -c "import json,sys; txt=sys.stdin.read().strip(); data=(json.loads(txt) if txt else {}); status=data.get('status') if isinstance(data, dict) else None; dep_id=(data.get('id') or '') if isinstance(data, dict) else ''; msg=(data.get('status_text') or data.get('message') or '') if isinstance(data, dict) else ''; msg=str(msg).replace('\\n',' ').strip(); normalized=('unknown' if not txt else ('none' if status is None else status)); print('%s\\t%s\\t%s' % (normalized, dep_id, msg))" 2>/dev/null || printf "unknown\t\t"
+          curl -fsS -k --http1.1 --max-time 600 \
+            -H "Authorization: Basic $AUTH_B64" \
+            -H "Expect: 100-continue" \
+            "$SCM_URL/api/deployments/latest" 2>/dev/null | python -c "import json,sys; txt=sys.stdin.read().strip(); data=(json.loads(txt) if txt else {}); status=data.get('status') if isinstance(data, dict) else None; dep_id=(data.get('id') or '') if isinstance(data, dict) else ''; msg=(data.get('status_text') or data.get('message') or '') if isinstance(data, dict) else ''; msg=str(msg).replace('\\n',' ').strip(); normalized=('unknown' if not txt else ('none' if status is None else status)); print('%s\\t%s\\t%s' % (normalized, dep_id, msg))" 2>/dev/null || printf "unknown\t\t"
         }
 
         wait_for_kudu_idle() {
@@ -1756,9 +1769,11 @@ jobs:
           RESPONSE_HEADERS=$(mktemp)
           RESPONSE_BODY=$(mktemp)
 
-          HTTP_CODE=$(curl -sS -u "$KUDU_USER:$KUDU_PASS" \
+          HTTP_CODE=$(curl -sS -k --http1.1 --max-time 600 --expect100-timeout 30 \
+            -H "Authorization: Basic $AUTH_B64" \
+            -H "Expect: 100-continue" \
+            -H "Content-Type: application/zip" \
             -X POST "$SCM_URL/api/zipdeploy?isAsync=true" \
-            -H "Content-Type: application/octet-stream" \
             --data-binary @release.zip \
             -D "$RESPONSE_HEADERS" \
             -o "$RESPONSE_BODY" \
@@ -1797,7 +1812,10 @@ jobs:
         echo "Polling deployment status from: $STATUS_URL"
 
         for poll in $(seq 1 90); do
-          STATUS_AND_MESSAGE=$(curl -fsS -u "$KUDU_USER:$KUDU_PASS" "$STATUS_URL" | python -c "import json,sys; data=json.load(sys.stdin); status=data.get('status'); msg=(data.get('status_text') or data.get('message') or '').replace('\\n',' ').strip(); print('{}\\t{}'.format('none' if status is None else status, msg))")
+          STATUS_AND_MESSAGE=$(curl -fsS -k --http1.1 --max-time 600 \
+            -H "Authorization: Basic $AUTH_B64" \
+            -H "Expect: 100-continue" \
+            "$STATUS_URL" | python -c "import json,sys; data=json.load(sys.stdin); status=data.get('status'); msg=(data.get('status_text') or data.get('message') or '').replace('\\n',' ').strip(); print('{}\\t{}'.format('none' if status is None else status, msg))")
 
           DEPLOY_STATE=$(printf "%s" "$STATUS_AND_MESSAGE" | cut -f1)
           DEPLOY_MSG=$(printf "%s" "$STATUS_AND_MESSAGE" | cut -f2-)
