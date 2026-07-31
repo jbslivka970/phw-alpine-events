@@ -1195,15 +1195,43 @@ jobs:
         AZURE_BACKEND_SLOT_NAME: ${{ vars.AZURE_BACKEND_SLOT_NAME }}
       run: |
         echo "Deploying backend package to staging slot with Azure CLI zipdeploy."
-        az webapp deploy \
-          --resource-group "$AZURE_BACKEND_RESOURCE_GROUP" \
-          --name "$AZURE_WEBAPP_NAME" \
-          --slot "$AZURE_BACKEND_SLOT_NAME" \
-          --src-path release.zip \
-          --type zip \
-          --restart false \
-          --clean false \
-          --output none
+
+        for attempt in $(seq 1 6); do
+          set +e
+          DEPLOY_OUTPUT=$(az webapp deploy \
+            --resource-group "$AZURE_BACKEND_RESOURCE_GROUP" \
+            --name "$AZURE_WEBAPP_NAME" \
+            --slot "$AZURE_BACKEND_SLOT_NAME" \
+            --src-path release.zip \
+            --type zip \
+            --restart false \
+            --clean false \
+            --async true \
+            --track-status false \
+            --timeout 1800000 \
+            --output none 2>&1)
+          DEPLOY_EXIT=$?
+          set -e
+
+          echo "$DEPLOY_OUTPUT"
+
+          if [ "$DEPLOY_EXIT" -eq 0 ]; then
+            echo "Backend staging-slot deployment accepted."
+            exit 0
+          fi
+
+          if printf "%s" "$DEPLOY_OUTPUT" | grep -Eqi "Another deployment is in progress|timed out|timeout|temporarily unavailable|connection|EOF|unreachable|server failed to respond"; then
+            echo "Backend staging-slot deployment transient failure (attempt $attempt/6). Retrying in 30s..."
+            sleep 30
+            continue
+          fi
+
+          echo "Backend staging-slot deployment failed with a non-retryable error."
+          exit "$DEPLOY_EXIT"
+        done
+
+        echo "Backend staging-slot deployment did not complete after retries."
+        exit 1
 
     - name: Wait for staging slot health before swap
       if: ${{ steps.stale_guard.outputs.stale_run != '1' && steps.backend_deploy_mode.outputs.use_blue_green == '1' }}
