@@ -126,6 +126,8 @@ jobs:
             exit 1
           fi
 
+          export DEPLOY_CREDS
+
           AZ_LINE=$(python -c "import json,os; creds=json.loads(os.environ['DEPLOY_CREDS']); print('\\t'.join([creds.get('clientId',''), creds.get('clientSecret',''), creds.get('tenantId',''), creds.get('subscriptionId','')]))")
 
           IFS=$'\t' read -r AZ_CLIENT_ID AZ_CLIENT_SECRET AZ_TENANT_ID AZ_SUBSCRIPTION_ID <<< "$AZ_LINE"
