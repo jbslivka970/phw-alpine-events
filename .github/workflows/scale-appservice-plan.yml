@@ -1,0 +1,162 @@
+name: Scale App Service Plan
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Scale action to perform'
+        required: true
+        default: 'scale-down'
+        type: choice
+        options:
+          - scale-down
+          - scale-up
+      resource_group:
+        description: 'Azure resource group (optional override)'
+        required: false
+        type: string
+      plan_name:
+        description: 'App Service plan name (optional override)'
+        required: false
+        type: string
+      plan_sku:
+        description: 'Target SKU for the chosen action'
+        required: false
+        type: string
+      plan_capacity:
+        description: 'Target capacity for the chosen action'
+        required: false
+        type: string
+      webapp_name:
+        description: 'Web app name for app-setting changes (optional override)'
+        required: false
+        type: string
+  schedule:
+    - cron: '0 22 * * *'
+    - cron: '0 7 * * *'
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+jobs:
+  scale:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Resolve target action
+        id: resolve
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            ACTION="${{ github.event.inputs.action }}"
+          else
+            if [[ "${{ github.event.schedule }}" == "0 22 * * *" ]]; then
+              ACTION="scale-down"
+            else
+              ACTION="scale-up"
+            fi
+          fi
+
+          if [[ "$ACTION" == "scale-down" ]]; then
+            TARGET_SKU="${{ vars.AZURE_APP_SERVICE_PLAN_SCALE_DOWN_SKU || 'B1' }}"
+            TARGET_CAPACITY="${{ vars.AZURE_APP_SERVICE_PLAN_SCALE_DOWN_CAPACITY || '1' }}"
+            JOBS_ENABLED="false"
+          else
+            TARGET_SKU="${{ vars.AZURE_APP_SERVICE_PLAN_SCALE_UP_SKU || 'S1' }}"
+            TARGET_CAPACITY="${{ vars.AZURE_APP_SERVICE_PLAN_SCALE_UP_CAPACITY || '1' }}"
+            JOBS_ENABLED="true"
+          fi
+
+          INPUT_SKU="${{ github.event.inputs.plan_sku }}"
+          if [[ -n "$INPUT_SKU" ]]; then
+            TARGET_SKU="$INPUT_SKU"
+          fi
+
+          INPUT_CAPACITY="${{ github.event.inputs.plan_capacity }}"
+          if [[ -n "$INPUT_CAPACITY" ]]; then
+            TARGET_CAPACITY="$INPUT_CAPACITY"
+          fi
+
+          RESOURCE_GROUP="${{ github.event.inputs.resource_group }}"
+          if [[ -z "$RESOURCE_GROUP" ]]; then
+            RESOURCE_GROUP="${{ vars.AZURE_BACKEND_RESOURCE_GROUP || vars.AZURE_RESOURCE_GROUP || '' }}"
+          fi
+
+          PLAN_NAME="${{ github.event.inputs.plan_name }}"
+          if [[ -z "$PLAN_NAME" ]]; then
+            PLAN_NAME="${{ vars.AZURE_APP_SERVICE_PLAN_NAME || vars.AZURE_BACKEND_APP_SERVICE_PLAN_NAME || '' }}"
+          fi
+
+          WEBAPP_NAME="${{ github.event.inputs.webapp_name }}"
+          if [[ -z "$WEBAPP_NAME" ]]; then
+            WEBAPP_NAME="${{ vars.AZURE_WEBAPP_NAME || '' }}"
+          fi
+
+          if [[ -z "$RESOURCE_GROUP" || -z "$PLAN_NAME" ]]; then
+            echo "::error::Set resource group and app service plan name via workflow inputs or repository vars."
+            exit 1
+          fi
+
+          echo "action=$ACTION" >> "$GITHUB_OUTPUT"
+          echo "resource_group=$RESOURCE_GROUP" >> "$GITHUB_OUTPUT"
+          echo "plan_name=$PLAN_NAME" >> "$GITHUB_OUTPUT"
+          echo "plan_sku=$TARGET_SKU" >> "$GITHUB_OUTPUT"
+          echo "plan_capacity=$TARGET_CAPACITY" >> "$GITHUB_OUTPUT"
+          echo "webapp_name=$WEBAPP_NAME" >> "$GITHUB_OUTPUT"
+          echo "jobs_enabled=$JOBS_ENABLED" >> "$GITHUB_OUTPUT"
+
+      - name: Azure CLI login
+        env:
+          AZURE_BACKEND_DEPLOY_CREDENTIALS: ${{ secrets.AZURE_BACKEND_DEPLOY_CREDENTIALS }}
+          AZURE_FRONTEND_DEPLOY_CREDENTIALS: ${{ secrets.AZURE_FRONTEND_DEPLOY_CREDENTIALS }}
+        shell: bash
+        run: |
+          DEPLOY_CREDS="${AZURE_BACKEND_DEPLOY_CREDENTIALS}"
+          if [[ -z "$DEPLOY_CREDS" ]]; then
+            DEPLOY_CREDS="${AZURE_FRONTEND_DEPLOY_CREDENTIALS}"
+          fi
+
+          if [[ -z "$DEPLOY_CREDS" ]]; then
+            echo "::error::AZURE_BACKEND_DEPLOY_CREDENTIALS or AZURE_FRONTEND_DEPLOY_CREDENTIALS is required"
+            exit 1
+          fi
+
+          AZ_LINE=$(python -c "import json,os; creds=json.loads(os.environ['DEPLOY_CREDS']); print('\\t'.join([creds.get('clientId',''), creds.get('clientSecret',''), creds.get('tenantId',''), creds.get('subscriptionId','')]))")
+
+          IFS=$'\t' read -r AZ_CLIENT_ID AZ_CLIENT_SECRET AZ_TENANT_ID AZ_SUBSCRIPTION_ID <<< "$AZ_LINE"
+
+          if [[ -z "$AZ_CLIENT_ID" || -z "$AZ_CLIENT_SECRET" || -z "$AZ_TENANT_ID" || -z "$AZ_SUBSCRIPTION_ID" ]]; then
+            echo "::error::Azure deploy credentials are missing required fields"
+            exit 1
+          fi
+
+          az login --service-principal \
+            --username "$AZ_CLIENT_ID" \
+            --password "$AZ_CLIENT_SECRET" \
+            --tenant "$AZ_TENANT_ID" \
+            --output none
+
+          az account set --subscription "$AZ_SUBSCRIPTION_ID"
+
+      - name: Scale App Service plan
+        shell: bash
+        run: |
+          bash scripts/scale-appservice-plan.sh \
+            --resource-group "${{ steps.resolve.outputs.resource_group }}" \
+            --plan-name "${{ steps.resolve.outputs.plan_name }}" \
+            --sku "${{ steps.resolve.outputs.plan_sku }}" \
+            --capacity "${{ steps.resolve.outputs.plan_capacity }}"
+
+      - name: Toggle scheduled jobs app setting
+        if: ${{ steps.resolve.outputs.webapp_name != '' }}
+        shell: bash
+        run: |
+          az webapp config appsettings set \
+            --resource-group "${{ steps.resolve.outputs.resource_group }}" \
+            --name "${{ steps.resolve.outputs.webapp_name }}" \
+            --settings "JOBS_ENABLED=${{ steps.resolve.outputs.jobs_enabled }}"
