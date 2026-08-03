@@ -173,6 +173,43 @@ jobs:
             echo "plan_name=$FALLBACK_PLAN_NAME" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Remove deployment slots before plan scaling
+        if: ${{ steps.resolve.outputs.webapp_name != '' }}
+        shell: bash
+        run: |
+          RESOURCE_GROUP="${{ steps.resolve.outputs.resource_group }}"
+          SLOT_NAME="${{ vars.AZURE_BACKEND_SLOT_NAME || 'staging' }}"
+          APPS=("${{ steps.resolve.outputs.webapp_name }}")
+          FRONTEND_WEBAPP_NAME="${{ vars.AZURE_FRONTEND_WEBAPP_NAME || '' }}"
+
+          if [[ -n "$FRONTEND_WEBAPP_NAME" && "$FRONTEND_WEBAPP_NAME" != "${APPS[0]}" ]]; then
+            APPS+=("$FRONTEND_WEBAPP_NAME")
+          fi
+
+          for app in "${APPS[@]}"; do
+            [[ -z "$app" ]] && continue
+            echo "Inspecting deployment slots for $app"
+            SLOTS=$(az webapp deployment slot list \
+              --resource-group "$RESOURCE_GROUP" \
+              --name "$app" \
+              --query "[?name!='production'].name" \
+              --output tsv 2>/dev/null || true)
+
+            if [[ -z "$SLOTS" ]]; then
+              echo "No non-production slots found for $app"
+              continue
+            fi
+
+            for slot in $SLOTS; do
+              echo "Deleting deployment slot $slot for $app"
+              az webapp deployment slot delete \
+                --resource-group "$RESOURCE_GROUP" \
+                --name "$app" \
+                --slot "$slot" \
+                --output none || true
+            done
+          done
+
       - name: Scale App Service plan
         shell: bash
         run: |
@@ -181,6 +218,35 @@ jobs:
             --plan-name "${{ steps.plan.outputs.plan_name }}" \
             --sku "${{ steps.resolve.outputs.plan_sku }}" \
             --capacity "${{ steps.resolve.outputs.plan_capacity }}"
+
+      - name: Recreate deployment slots after plan scaling
+        if: ${{ steps.resolve.outputs.webapp_name != '' }}
+        shell: bash
+        run: |
+          RESOURCE_GROUP="${{ steps.resolve.outputs.resource_group }}"
+          SLOT_NAME="${{ vars.AZURE_BACKEND_SLOT_NAME || 'staging' }}"
+          APPS=("${{ steps.resolve.outputs.webapp_name }}")
+          FRONTEND_WEBAPP_NAME="${{ vars.AZURE_FRONTEND_WEBAPP_NAME || '' }}"
+
+          if [[ -n "$FRONTEND_WEBAPP_NAME" && "$FRONTEND_WEBAPP_NAME" != "${APPS[0]}" ]]; then
+            APPS+=("$FRONTEND_WEBAPP_NAME")
+          fi
+
+          for app in "${APPS[@]}"; do
+            [[ -z "$app" ]] && continue
+            echo "Ensuring deployment slot $SLOT_NAME exists for $app"
+            if ! az webapp deployment slot show \
+              --resource-group "$RESOURCE_GROUP" \
+              --name "$app" \
+              --slot "$SLOT_NAME" \
+              --output none 2>/dev/null; then
+              az webapp deployment slot create \
+                --resource-group "$RESOURCE_GROUP" \
+                --name "$app" \
+                --slot "$SLOT_NAME" \
+                --output none
+            fi
+          done
 
       - name: Toggle scheduled jobs app setting
         if: ${{ steps.resolve.outputs.webapp_name != '' }}
