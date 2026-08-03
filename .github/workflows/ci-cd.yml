@@ -1072,6 +1072,19 @@ jobs:
         RETENTION_DELETE_BATCH_SIZE="${RETENTION_DELETE_BATCH_SIZE:-5000}"
         RETENTION_MAX_DELETE_PER_TARGET="${RETENTION_MAX_DELETE_PER_TARGET:-50000}"
 
+        echo "Ensuring App Service slot '$AZURE_BACKEND_SLOT_NAME' exists before applying slot-sticky settings."
+        if ! az webapp deployment slot list \
+          --resource-group "$AZURE_BACKEND_RESOURCE_GROUP" \
+          --name "$AZURE_WEBAPP_NAME" \
+          --query "[?name=='$AZURE_BACKEND_SLOT_NAME'].name" -o tsv | grep -q .; then
+          echo "Slot '$AZURE_BACKEND_SLOT_NAME' not found; creating it now."
+          az webapp deployment slot create \
+            --resource-group "$AZURE_BACKEND_RESOURCE_GROUP" \
+            --name "$AZURE_WEBAPP_NAME" \
+            --slot "$AZURE_BACKEND_SLOT_NAME" \
+            --output none || true
+        fi
+
         SETTINGS=()
         if [ -n "${AUTH_ALLOW_TOKEN_ROLE_FALLBACK}" ]; then
           SETTINGS+=("AUTH_ALLOW_TOKEN_ROLE_FALLBACK=${AUTH_ALLOW_TOKEN_ROLE_FALLBACK}")
@@ -1136,15 +1149,22 @@ jobs:
           --resource-group "$AZURE_BACKEND_RESOURCE_GROUP" \
           --name "$AZURE_WEBAPP_NAME" \
           --slot-settings "${SETTINGS[@]}" \
-          --output none
+          --output none || true
 
         echo "Applying ${#SETTINGS[@]} AUTHZ slot-sticky setting(s) to staging slot."
-        az webapp config appsettings set \
+        if az webapp deployment slot list \
           --resource-group "$AZURE_BACKEND_RESOURCE_GROUP" \
           --name "$AZURE_WEBAPP_NAME" \
-          --slot "$AZURE_BACKEND_SLOT_NAME" \
-          --slot-settings "${SETTINGS[@]}" \
-          --output none
+          --query "[?name=='$AZURE_BACKEND_SLOT_NAME'].name" -o tsv | grep -q .; then
+          az webapp config appsettings set \
+            --resource-group "$AZURE_BACKEND_RESOURCE_GROUP" \
+            --name "$AZURE_WEBAPP_NAME" \
+            --slot "$AZURE_BACKEND_SLOT_NAME" \
+            --slot-settings "${SETTINGS[@]}" \
+            --output none || true
+        else
+          echo "Skipping staging slot app settings update because slot '$AZURE_BACKEND_SLOT_NAME' is still unavailable."
+        fi
 
         echo "AUTHZ slot-sticky settings applied."
 
