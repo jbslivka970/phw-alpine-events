@@ -225,8 +225,14 @@ jobs:
         run: |
           RESOURCE_GROUP="${{ steps.resolve.outputs.resource_group }}"
           SLOT_NAME="${{ vars.AZURE_BACKEND_SLOT_NAME || 'staging' }}"
+          TARGET_SKU="${{ steps.resolve.outputs.plan_sku }}"
           APPS=("${{ steps.resolve.outputs.webapp_name }}")
           FRONTEND_WEBAPP_NAME="${{ vars.AZURE_FRONTEND_WEBAPP_NAME || '' }}"
+
+          if [[ "$TARGET_SKU" == "B1" || "$TARGET_SKU" == "F1" || "$TARGET_SKU" == "D1" ]]; then
+            echo "Skipping slot recreation because target SKU $TARGET_SKU does not support the slot count."
+            exit 0
+          fi
 
           if [[ -n "$FRONTEND_WEBAPP_NAME" && "$FRONTEND_WEBAPP_NAME" != "${APPS[0]}" ]]; then
             APPS+=("$FRONTEND_WEBAPP_NAME")
