@@ -873,6 +873,12 @@ jobs:
       env:
         GITHUB_SHA: ${{ github.sha }}
       run: |
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ] || [ "${{ github.event_name }}" = "release" ]; then
+          echo "Manual or release-triggered run detected; proceeding with deploy."
+          echo "stale_run=0" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
         LATEST_MAIN_SHA="$(git ls-remote origin refs/heads/main | awk '{print $1}')"
         if [ -z "$LATEST_MAIN_SHA" ]; then
           echo "Unable to resolve origin/main head; proceeding with deploy."
