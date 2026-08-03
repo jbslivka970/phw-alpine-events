@@ -145,12 +145,40 @@ jobs:
 
           az account set --subscription "$AZ_SUBSCRIPTION_ID"
 
+      - name: Resolve App Service plan name
+        id: plan
+        shell: bash
+        run: |
+          WEBAPP_NAME="${{ steps.resolve.outputs.webapp_name }}"
+          RESOURCE_GROUP="${{ steps.resolve.outputs.resource_group }}"
+          FALLBACK_PLAN_NAME="${{ steps.resolve.outputs.plan_name }}"
+
+          if [[ -z "$WEBAPP_NAME" ]]; then
+            echo "plan_name=$FALLBACK_PLAN_NAME" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          PLAN_ID=$(az webapp show \
+            --resource-group "$RESOURCE_GROUP" \
+            --name "$WEBAPP_NAME" \
+            --query "serverFarmId" \
+            --output tsv 2>/dev/null || true)
+
+          if [[ -n "$PLAN_ID" ]]; then
+            PLAN_NAME="$(basename "$PLAN_ID")"
+            echo "Resolved App Service plan $PLAN_NAME from web app $WEBAPP_NAME"
+            echo "plan_name=$PLAN_NAME" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::Unable to resolve App Service plan from web app $WEBAPP_NAME; using configured fallback plan name."
+            echo "plan_name=$FALLBACK_PLAN_NAME" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Scale App Service plan
         shell: bash
         run: |
           bash scripts/scale-appservice-plan.sh \
             --resource-group "${{ steps.resolve.outputs.resource_group }}" \
-            --plan-name "${{ steps.resolve.outputs.plan_name }}" \
+            --plan-name "${{ steps.plan.outputs.plan_name }}" \
             --sku "${{ steps.resolve.outputs.plan_sku }}" \
             --capacity "${{ steps.resolve.outputs.plan_capacity }}"
 
