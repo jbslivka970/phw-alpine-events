@@ -55,6 +55,37 @@ class HttpError extends Error {
   }
 }
 
+async function dispatchScaleUpWorkflow(): Promise<void> {
+  const repository = process.env['GITHUB_REPOSITORY'];
+  const token = process.env['GITHUB_WORKFLOW_DISPATCH_TOKEN'] ?? process.env['GITHUB_TOKEN'];
+  if (!repository || !token) {
+    return;
+  }
+
+  const workflowFile = process.env['GITHUB_SCALE_WORKFLOW_FILE'] ?? 'scale-appservice-plan.yml';
+  const ref = process.env['GITHUB_WORKFLOW_REF'] ?? 'main';
+
+  const response = await fetch(`https://api.github.com/repos/${repository}/actions/workflows/${workflowFile}/dispatches`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      ref,
+      inputs: {
+        action: 'scale-up',
+      },
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`GitHub workflow dispatch failed with status ${response.status}`);
+  }
+}
+
 let cachedEventColumnSupport: EventColumnSupport | null = null;
 let cachedEventTenantSupport: EventTenantSupport | null = null;
 let cachedEventTenantSupportAtMs = 0;
@@ -1175,6 +1206,10 @@ router.post('/', writeLimiter, authenticate, requireEventCreatorOrAdmin, async (
         throw targetInsertError;
       }
     }
+
+    void dispatchScaleUpWorkflow().catch((dispatchError) => {
+      console.warn('Failed to dispatch scale-up workflow for new event', dispatchError);
+    });
 
     res.status(201).json({ ...event, scheduler_email: schedulerEmail });
   } catch (error) {

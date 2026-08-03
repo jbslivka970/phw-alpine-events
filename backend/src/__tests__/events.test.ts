@@ -71,6 +71,8 @@ interface MockRequest {
   query: jest.Mock;
 }
 
+const originalFetch = global.fetch;
+
 function createRequest(handler: (query: string, params: Record<string, unknown>) => Promise<unknown>): MockRequest {
   const params: Record<string, unknown> = {};
   const req = {
@@ -94,10 +96,12 @@ describe('events routes', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     process.env = { ...originalEnv, MULTI_TENANT_ENABLED: 'false' };
+    global.fetch = jest.fn().mockResolvedValue({ ok: true, status: 204 }) as typeof fetch;
   });
 
   afterAll(() => {
     process.env = originalEnv;
+    global.fetch = originalFetch;
   });
 
   it('GET /api/events returns events and applies status filter', async () => {
@@ -927,6 +931,54 @@ describe('events routes', () => {
         event_id: 'event-1',
         updateReason: 'Parking lot changed',
         changedFields: ['location'],
+      })
+    );
+  });
+
+  it('POST /api/events triggers scale-up workflow dispatch after creating an event', async () => {
+    const dbMock = jest.requireMock('../db') as { sql: { NVarChar: unknown } };
+    const originalNVarChar = dbMock.sql.NVarChar;
+    dbMock.sql.NVarChar = ((_: unknown) => 'NVarChar') as unknown;
+
+    process.env.GITHUB_REPOSITORY = 'jbslivka970/phw-alpine-events';
+    process.env.GITHUB_WORKFLOW_DISPATCH_TOKEN = 'gh-token';
+
+    const mockRequest = createRequest(async (query) => {
+      if (query.includes('COL_LENGTH')) {
+        return { recordset: [{ has_photo_url: 1, has_invitation_stage: 1 }] };
+      }
+      if (query.includes('INSERT INTO event')) {
+        return {
+          recordset: [{
+            event_id: '33333333-3333-4333-8333-333333333333',
+            title: 'Scale Test Event',
+            event_date: '2026-06-21T12:00:00.000Z',
+          }],
+        };
+      }
+      return { recordset: [] };
+    });
+    (getPool as jest.Mock).mockResolvedValue({ request: () => mockRequest });
+
+    const res = await request(app)
+      .post('/api/events')
+      .send({
+        title: 'Scale Test Event',
+        event_date: '2026-06-21T12:00:00.000Z',
+      });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    dbMock.sql.NVarChar = originalNVarChar;
+
+    expect(res.status).toBe(201);
+    expect(global.fetch).toHaveBeenCalledWith(
+      'https://api.github.com/repos/jbslivka970/phw-alpine-events/actions/workflows/scale-appservice-plan.yml/dispatches',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer gh-token',
+        }),
       })
     );
   });
