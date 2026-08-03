@@ -57,7 +57,7 @@ class HttpError extends Error {
 
 async function dispatchScaleUpWorkflow(): Promise<void> {
   const repository = process.env['GITHUB_REPOSITORY'];
-  const token = process.env['GITHUB_WORKFLOW_DISPATCH_TOKEN'] ?? process.env['GITHUB_TOKEN'];
+  const token = process.env['GITHUB_WORKFLOW_DISPATCH_TOKEN'] ?? process.env['WORKFLOW_DISPATCH_TOKEN'] ?? process.env['GITHUB_TOKEN'];
   if (!repository || !token) {
     return;
   }
