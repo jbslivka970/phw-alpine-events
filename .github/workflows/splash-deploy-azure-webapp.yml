@@ -91,10 +91,64 @@ jobs:
           echo "Azure splash login failed after retries."
           exit 1
 
+      - name: Ensure splash web app exists
+        env:
+          AZURE_SPLASH_RESOURCE_GROUP: ${{ vars.AZURE_SPLASH_RESOURCE_GROUP }}
+          AZURE_FRONTEND_RESOURCE_GROUP: ${{ vars.AZURE_FRONTEND_RESOURCE_GROUP }}
+          AZURE_SPLASH_WEBAPP_NAME: ${{ vars.AZURE_SPLASH_WEBAPP_NAME }}
+          AZURE_SPLASH_APP_SERVICE_PLAN_NAME: ${{ vars.AZURE_SPLASH_APP_SERVICE_PLAN_NAME }}
+          AZURE_SPLASH_APP_SERVICE_PLAN_SKU: ${{ vars.AZURE_SPLASH_APP_SERVICE_PLAN_SKU }}
+          AZURE_SPLASH_OS: ${{ vars.AZURE_SPLASH_OS }}
+          AZURE_SPLASH_RUNTIME: ${{ vars.AZURE_SPLASH_RUNTIME }}
+        run: |
+          TARGET_RG="$AZURE_SPLASH_RESOURCE_GROUP"
+          if [ -z "$TARGET_RG" ]; then
+            TARGET_RG="$AZURE_FRONTEND_RESOURCE_GROUP"
+          fi
+
+          if [ -z "$TARGET_RG" ]; then
+            echo "Set AZURE_SPLASH_RESOURCE_GROUP (preferred) or AZURE_FRONTEND_RESOURCE_GROUP"
+            exit 1
+          fi
+
+          if [ -z "$AZURE_SPLASH_WEBAPP_NAME" ]; then
+            echo "Set AZURE_SPLASH_WEBAPP_NAME"
+            exit 1
+          fi
+
+          PLAN_NAME="$AZURE_SPLASH_APP_SERVICE_PLAN_NAME"
+          if [ -z "$PLAN_NAME" ]; then
+            PLAN_NAME="${AZURE_SPLASH_WEBAPP_NAME}plan"
+          fi
+
+          PLAN_SKU="$AZURE_SPLASH_APP_SERVICE_PLAN_SKU"
+          if [ -z "$PLAN_SKU" ]; then
+            PLAN_SKU="F1"
+          fi
+
+          OS_TYPE="$AZURE_SPLASH_OS"
+          if [ -z "$OS_TYPE" ]; then
+            OS_TYPE="linux"
+          fi
+
+          RUNTIME="$AZURE_SPLASH_RUNTIME"
+          if [ -z "$RUNTIME" ]; then
+            RUNTIME="NODE|20-lts"
+          fi
+
+          bash scripts/ensure-webapp.sh \
+            --resource-group "$TARGET_RG" \
+            --app-name "$AZURE_SPLASH_WEBAPP_NAME" \
+            --plan-name "$PLAN_NAME" \
+            --plan-sku "$PLAN_SKU" \
+            --os "$OS_TYPE" \
+            --runtime "$RUNTIME"
+
       - name: Deploy splash to Azure
         env:
           AZURE_SPLASH_RESOURCE_GROUP: ${{ vars.AZURE_SPLASH_RESOURCE_GROUP }}
           AZURE_FRONTEND_RESOURCE_GROUP: ${{ vars.AZURE_FRONTEND_RESOURCE_GROUP }}
+          AZURE_SPLASH_WEBAPP_NAME: ${{ vars.AZURE_SPLASH_WEBAPP_NAME }}
         run: |
           TARGET_RG="$AZURE_SPLASH_RESOURCE_GROUP"
           if [ -z "$TARGET_RG" ]; then
@@ -110,7 +164,7 @@ jobs:
             set +e
             DEPLOY_OUTPUT=$(az webapp deploy \
               --resource-group "$TARGET_RG" \
-              --name "${{ vars.AZURE_SPLASH_WEBAPP_NAME }}" \
+              --name "$AZURE_SPLASH_WEBAPP_NAME" \
               --src-path splash-release.zip \
               --type zip \
               --async true \

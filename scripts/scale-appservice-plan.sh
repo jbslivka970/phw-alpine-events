@@ -38,17 +38,9 @@ fi
 
 echo "Scaling App Service plan $PLAN_NAME in resource group $RESOURCE_GROUP to SKU $SKU / capacity $CAPACITY"
 
-if [[ "$SKU" == "B1" || "$SKU" == "F1" || "$SKU" == "D1" ]]; then
-  az appservice plan update \
-    --name "$PLAN_NAME" \
-    --resource-group "$RESOURCE_GROUP" \
-    --sku "$SKU" \
-    --output table
-else
-  az appservice plan update \
-    --name "$PLAN_NAME" \
-    --resource-group "$RESOURCE_GROUP" \
-    --sku "$SKU" \
-    --is-linux \
-    --output table
-fi
+az appservice plan update \
+  --name "$PLAN_NAME" \
+  --resource-group "$RESOURCE_GROUP" \
+  --sku "$SKU" \
+  --number-of-workers "$CAPACITY" \
+  --output table

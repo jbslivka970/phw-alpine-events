@@ -1042,6 +1042,20 @@ jobs:
         echo "Azure backend login failed after retries."
         exit 1
 
+    - name: Scale App Service plan up for blue-green deployment
+      if: ${{ steps.stale_guard.outputs.stale_run != '1' && steps.backend_deploy_mode.outputs.use_blue_green == '1' }}
+      env:
+        AZURE_BACKEND_RESOURCE_GROUP: ${{ vars.AZURE_BACKEND_RESOURCE_GROUP }}
+        AZURE_APP_SERVICE_PLAN_NAME: ${{ vars.AZURE_APP_SERVICE_PLAN_NAME }}
+        AZURE_APP_SERVICE_PLAN_SCALE_UP_SKU: ${{ vars.AZURE_APP_SERVICE_PLAN_SCALE_UP_SKU || 'S1' }}
+        AZURE_APP_SERVICE_PLAN_SCALE_UP_CAPACITY: ${{ vars.AZURE_APP_SERVICE_PLAN_SCALE_UP_CAPACITY || '1' }}
+      run: |
+        bash scripts/scale-appservice-plan.sh \
+          --resource-group "$AZURE_BACKEND_RESOURCE_GROUP" \
+          --plan-name "$AZURE_APP_SERVICE_PLAN_NAME" \
+          --sku "$AZURE_APP_SERVICE_PLAN_SCALE_UP_SKU" \
+          --capacity "$AZURE_APP_SERVICE_PLAN_SCALE_UP_CAPACITY"
+
     - name: Ensure AUTHZ app settings are slot-sticky on prod and staging
       # Authoritative AUTHZ knobs MUST be present on both slots and pinned via
       # slotConfigNames (--slot-settings) so a slot swap does NOT leak the
@@ -1545,6 +1559,20 @@ jobs:
         else
           echo "::warning::No RSVP token available; skipping live RSVP smoke."
         fi
+
+    - name: Scale App Service plan down after deployment
+      if: ${{ always() && steps.stale_guard.outputs.stale_run != '1' && steps.backend_deploy_mode.outputs.use_blue_green == '1' }}
+      env:
+        AZURE_BACKEND_RESOURCE_GROUP: ${{ vars.AZURE_BACKEND_RESOURCE_GROUP }}
+        AZURE_APP_SERVICE_PLAN_NAME: ${{ vars.AZURE_APP_SERVICE_PLAN_NAME }}
+        AZURE_APP_SERVICE_PLAN_SCALE_DOWN_SKU: ${{ vars.AZURE_APP_SERVICE_PLAN_SCALE_DOWN_SKU || 'B1' }}
+        AZURE_APP_SERVICE_PLAN_SCALE_DOWN_CAPACITY: ${{ vars.AZURE_APP_SERVICE_PLAN_SCALE_DOWN_CAPACITY || '1' }}
+      run: |
+        bash scripts/scale-appservice-plan.sh \
+          --resource-group "$AZURE_BACKEND_RESOURCE_GROUP" \
+          --plan-name "$AZURE_APP_SERVICE_PLAN_NAME" \
+          --sku "$AZURE_APP_SERVICE_PLAN_SCALE_DOWN_SKU" \
+          --capacity "$AZURE_APP_SERVICE_PLAN_SCALE_DOWN_CAPACITY"
 
     - name: Auto-rollback swap back on post-swap failure
       if: ${{ steps.stale_guard.outputs.stale_run != '1' && steps.backend_deploy_mode.outputs.use_blue_green == '1' && (steps.post_swap_health.outcome == 'failure' || steps.post_swap_smoke.outcome == 'failure') }}
