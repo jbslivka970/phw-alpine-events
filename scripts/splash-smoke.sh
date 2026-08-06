@@ -27,7 +27,8 @@ grep -q "${APP_URL}" /tmp/phw-splash-body.html || {
   exit 1
 }
 
-grep -q "PHWLogoHorizontal_Light.png" /tmp/phw-splash-body.html || {
+# Accept the canonical splash logo filename with optional version suffix.
+grep -Eqi 'logo-horizontal-light(-v[0-9]+)?\.png' /tmp/phw-splash-body.html || {
   echo "FAIL: Missing branded logo asset reference"
   exit 1
 }
