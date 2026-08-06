@@ -18,6 +18,7 @@ on:
 
 jobs:
   smoke:
+    if: ${{ github.event_name != 'schedule' || vars.ENABLE_SCHEDULED_AUTOMATION == 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read

@@ -40,6 +40,7 @@ env:
 
 jobs:
   scale:
+    if: ${{ github.event_name != 'schedule' || vars.ENABLE_SCHEDULED_AUTOMATION == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
