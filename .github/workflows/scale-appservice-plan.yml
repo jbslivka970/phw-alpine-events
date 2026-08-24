@@ -52,6 +52,8 @@ jobs:
       - name: Resolve target action
         id: resolve
         shell: bash
+        env:
+          LOW_COST_MODE: ${{ vars.LOW_COST_MODE }}
         run: |
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             ACTION="${{ github.event.inputs.action }}"
@@ -63,14 +65,23 @@ jobs:
             fi
           fi
 
+          LOW_COST_SKU="${{ vars.AZURE_APP_SERVICE_PLAN_SCALE_DOWN_SKU || 'B1' }}"
+
           if [[ "$ACTION" == "scale-down" ]]; then
-            TARGET_SKU="${{ vars.AZURE_APP_SERVICE_PLAN_SCALE_DOWN_SKU || 'B1' }}"
+            TARGET_SKU="$LOW_COST_SKU"
             TARGET_CAPACITY="${{ vars.AZURE_APP_SERVICE_PLAN_SCALE_DOWN_CAPACITY || '1' }}"
             JOBS_ENABLED="false"
           else
             TARGET_SKU="${{ vars.AZURE_APP_SERVICE_PLAN_SCALE_UP_SKU || 'S1' }}"
             TARGET_CAPACITY="${{ vars.AZURE_APP_SERVICE_PLAN_SCALE_UP_CAPACITY || '1' }}"
             JOBS_ENABLED="true"
+
+            # Keep background jobs on, but hold the plan at the low-cost SKU.
+            if [[ "${LOW_COST_MODE:-0}" == "1" ]]; then
+              echo "::notice::LOW_COST_MODE=1; holding plan at $LOW_COST_SKU instead of scaling up to $TARGET_SKU."
+              TARGET_SKU="$LOW_COST_SKU"
+              TARGET_CAPACITY="${{ vars.AZURE_APP_SERVICE_PLAN_SCALE_DOWN_CAPACITY || '1' }}"
+            fi
           fi
 
           INPUT_SKU="${{ github.event.inputs.plan_sku }}"

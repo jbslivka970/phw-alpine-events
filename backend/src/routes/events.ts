@@ -55,7 +55,49 @@ class HttpError extends Error {
   }
 }
 
+function parseBooleanEnv(value: string | undefined, fallback: boolean): boolean {
+  if (value === undefined) {
+    return fallback;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) {
+    return true;
+  }
+  if (['0', 'false', 'no', 'off'].includes(normalized)) {
+    return false;
+  }
+
+  return fallback;
+}
+
+function parsePositiveIntegerEnv(value: string | undefined, fallback: number): number {
+  if (!value) {
+    return fallback;
+  }
+
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return fallback;
+  }
+
+  return parsed;
+}
+
+let lastScaleDispatchAttemptAtMs = 0;
+
 async function dispatchScaleUpWorkflow(): Promise<void> {
+  const dispatchEnabled = parseBooleanEnv(process.env['GITHUB_SCALE_DISPATCH_ENABLED'], true);
+  if (!dispatchEnabled) {
+    return;
+  }
+
+  const cooldownMs = parsePositiveIntegerEnv(process.env['GITHUB_SCALE_DISPATCH_COOLDOWN_MS'], 900_000);
+  const now = Date.now();
+  if (cooldownMs > 0 && (now - lastScaleDispatchAttemptAtMs) < cooldownMs) {
+    return;
+  }
+
   const repository = process.env['GITHUB_REPOSITORY'];
   const token = process.env['GITHUB_WORKFLOW_DISPATCH_TOKEN'] ?? process.env['WORKFLOW_DISPATCH_TOKEN'] ?? process.env['GITHUB_TOKEN'];
   if (!repository || !token) {
@@ -64,6 +106,10 @@ async function dispatchScaleUpWorkflow(): Promise<void> {
 
   const workflowFile = process.env['GITHUB_SCALE_WORKFLOW_FILE'] ?? 'scale-appservice-plan.yml';
   const ref = process.env['GITHUB_WORKFLOW_REF'] ?? 'main';
+
+  // Set the cooldown before dispatch to prevent bursty event creation from
+  // spamming workflow-dispatch requests when upstream auth/config is unstable.
+  lastScaleDispatchAttemptAtMs = now;
 
   const response = await fetch(`https://api.github.com/repos/${repository}/actions/workflows/${workflowFile}/dispatches`, {
     method: 'POST',

@@ -19,34 +19,106 @@
       "metadata": {
         "description": "Name of the SQL database"
       }
+    },
+    "appServicePlanOs": {
+      "type": "string",
+      "defaultValue": "Linux",
+      "allowedValues": [
+        "Linux",
+        "Windows"
+      ],
+      "metadata": {
+        "description": "App Service plan OS. Linux is significantly cheaper for equivalent Node.js workloads."
+      }
+    },
+    "appServicePlanSkuName": {
+      "type": "string",
+      "defaultValue": "B1",
+      "metadata": {
+        "description": "App Service plan SKU name, for example B1, S1, P0v3."
+      }
+    },
+    "appServicePlanSkuTier": {
+      "type": "string",
+      "defaultValue": "Basic",
+      "metadata": {
+        "description": "App Service plan SKU tier matching the SKU name."
+      }
+    },
+    "appServicePlanCapacity": {
+      "type": "int",
+      "defaultValue": 1,
+      "minValue": 1,
+      "metadata": {
+        "description": "Number of workers in the App Service plan."
+      }
+    },
+    "nodeVersion": {
+      "type": "string",
+      "defaultValue": "24-lts",
+      "metadata": {
+        "description": "Node.js runtime version used for the Linux runtime stack."
+      }
     }
   },
   "variables": {
     "appServicePlanName": "[concat(parameters('appName'), 'plan')]",
+    "isLinux": "[equals(parameters('appServicePlanOs'), 'Linux')]",
     "sqlServerAdminLogin": "sqladmin",
     "sqlServerAdminPassword": "[concat('P@ssw0rd!', uniqueString(resourceGroup().id))]"
   },
   "resources": [
     {
       "type": "Microsoft.Web/serverfarms",
-      "apiVersion": "2020-06-01",
+      "apiVersion": "2022-03-01",
       "name": "[variables('appServicePlanName')]",
       "location": "[resourceGroup().location]",
+      "kind": "[if(variables('isLinux'), 'linux', 'app')]",
       "sku": {
-        "name": "F1",
-        "tier": "Free"
+        "name": "[parameters('appServicePlanSkuName')]",
+        "tier": "[parameters('appServicePlanSkuTier')]",
+        "capacity": "[parameters('appServicePlanCapacity')]"
+      },
+      "properties": {
+        "reserved": "[variables('isLinux')]"
       }
     },
     {
       "type": "Microsoft.Web/sites",
-      "apiVersion": "2020-06-01",
+      "apiVersion": "2022-03-01",
       "name": "[parameters('appName')]",
       "location": "[resourceGroup().location]",
+      "kind": "[if(variables('isLinux'), 'app,linux', 'app')]",
       "dependsOn": [
         "[resourceId('Microsoft.Web/serverfarms', variables('appServicePlanName'))]"
       ],
+      "identity": {
+        "type": "SystemAssigned"
+      },
       "properties": {
-        "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', variables('appServicePlanName'))]"
+        "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', variables('appServicePlanName'))]",
+        "httpsOnly": true,
+        "siteConfig": {
+          "alwaysOn": "[not(equals(parameters('appServicePlanSkuTier'), 'Free'))]",
+          "minTlsVersion": "1.2",
+          "ftpsState": "Disabled",
+          "linuxFxVersion": "[if(variables('isLinux'), concat('NODE|', parameters('nodeVersion')), json('null'))]",
+          "appCommandLine": "[if(variables('isLinux'), 'node server.js', json('null'))]"
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "name": "[guid(resourceGroup().id, parameters('appName'), 'Website Contributor')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Web/sites', parameters('appName'))]"
+      ],
+      "properties": {
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'de139f84-1756-47ae-9be6-808fbbe84772')]",
+        "principalId": "[reference(resourceId('Microsoft.Web/sites', parameters('appName')), '2022-03-01', 'Full').identity.principalId]",
+        "principalType": "ServicePrincipal",
+        "scope": "[resourceId('Microsoft.Web/sites', parameters('appName'))]"
       }
     },
     {
@@ -57,8 +129,9 @@
         "[resourceId('Microsoft.Web/sites', parameters('appName'))]"
       ],
       "properties": {
-        "WEBSITE_NODE_DEFAULT_VERSION": "~22",
-        "SCM_DO_BUILD_DURING_DEPLOYMENT": "false"
+        "WEBSITE_NODE_DEFAULT_VERSION": "[if(variables('isLinux'), json('null'), concat('~', first(split(parameters('nodeVersion'), '-'))))]",
+        "SCM_DO_BUILD_DURING_DEPLOYMENT": "true",
+        "ENABLE_ORYX_BUILD": "[if(variables('isLinux'), 'true', 'false')]"
       }
     },
     {

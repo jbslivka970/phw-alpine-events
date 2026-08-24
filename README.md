@@ -92,6 +92,11 @@ The pipeline lives in `.github/workflows/ci-cd.yml`.
 - `MIGRATION_DB_USER` (recommended for CI schema deploys; falls back to `DB_USER`)
 - `SMS_SMOKE_ENABLED` (optional, set to `1` to run SMS smoke in non-blocking mode)
 - `SMS_COMPLIANCE_REQUIRED` (optional, set to `1` to make SMS smoke a blocking deploy gate)
+- `REDIS_SMOKE_EXPECT_PROVIDER` (optional, set to `redis` to require Redis provider during deploy smokes)
+- `REDIS_SMOKE_REQUIRE_CONFIGURED` (optional, set to `1` to require Redis configured during deploy smokes)
+- `REDIS_SMOKE_REQUIRE_CONNECTED` (optional, set to `1` to require Redis connected during deploy smokes)
+- `LOW_COST_MODE` (optional, set to `1` to force direct deploy and hold the plan at the scale-down SKU)
+- `BACKEND_APP_SERVICE_OS` (optional, `linux` or `windows`; `linux` omits the iisnode `web.config` from the package)
 
 ### Required GitHub Secrets
 

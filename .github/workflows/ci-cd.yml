@@ -953,6 +953,7 @@ jobs:
       if: ${{ steps.stale_guard.outputs.stale_run != '1' }}
       env:
         BACKEND_DEPLOY_INCLUDE_NODE_MODULES: ${{ vars.BACKEND_DEPLOY_INCLUDE_NODE_MODULES }}
+        BACKEND_APP_SERVICE_OS: ${{ vars.BACKEND_APP_SERVICE_OS }}
       run: |
         rm -rf deploy-package
         rm -f release.zip
@@ -961,12 +962,19 @@ jobs:
         cp backend/package.json deploy-package/package.json
         cp backend/package-lock.json deploy-package/package-lock.json
         cp backend/server.js deploy-package/server.js
-        cp backend/web.config deploy-package/web.config
+
+        # web.config drives iisnode, which only exists on Windows App Service.
+        TARGET_OS="$(printf '%s' "${BACKEND_APP_SERVICE_OS:-windows}" | tr '[:upper:]' '[:lower:]')"
+        if [ "$TARGET_OS" = "linux" ]; then
+          echo "Target App Service OS is Linux; omitting web.config from package."
+        else
+          cp backend/web.config deploy-package/web.config
+        fi
 
         if [ "${BACKEND_DEPLOY_INCLUDE_NODE_MODULES:-0}" = "1" ]; then
-          echo "Using legacy backend packaging (includes node_modules)."
-          (cd backend && npm prune --omit=dev)
-          cp -R backend/node_modules deploy-package/node_modules
+          echo "Installing production dependencies into the deployment package."
+          npm ci --omit=dev --prefix deploy-package
+          npm ls --omit=dev --depth=0 --prefix deploy-package
         else
           echo "Using slim backend packaging (package-manager restore during deploy)."
           printf '%s\n' '[config]' 'SCM_DO_BUILD_DURING_DEPLOYMENT=true' 'ENABLE_ORYX_BUILD=true' 'SCM_DO_BUILD_DURING_DEPLOYMENT=true' > deploy-package/.deployment
@@ -980,11 +988,18 @@ jobs:
       if: ${{ steps.stale_guard.outputs.stale_run != '1' }}
       env:
         BACKEND_BLUE_GREEN_ENABLED: ${{ vars.BACKEND_BLUE_GREEN_ENABLED }}
+        LOW_COST_MODE: ${{ vars.LOW_COST_MODE }}
         AZURE_BACKEND_RESOURCE_GROUP: ${{ vars.AZURE_BACKEND_RESOURCE_GROUP }}
         AZURE_BACKEND_SLOT_NAME: ${{ vars.AZURE_BACKEND_SLOT_NAME }}
         AZURE_BACKEND_DEPLOY_CREDENTIALS: ${{ secrets.AZURE_BACKEND_DEPLOY_CREDENTIALS }}
       run: |
         MODE="${BACKEND_BLUE_GREEN_ENABLED:-0}"
+
+        if [ "${LOW_COST_MODE:-0}" = "1" ] && [ "$MODE" = "1" ]; then
+          echo "::notice::LOW_COST_MODE=1 overrides blue-green; using direct deploy to avoid slot-capable SKU cost."
+          MODE="0"
+        fi
+
         if [ "$MODE" = "1" ]; then
           if [ -z "${AZURE_BACKEND_RESOURCE_GROUP}" ] || [ -z "${AZURE_BACKEND_SLOT_NAME}" ] || [ -z "${AZURE_BACKEND_DEPLOY_CREDENTIALS}" ]; then
             echo "::error::BACKEND_BLUE_GREEN_ENABLED=1 requires vars.AZURE_BACKEND_RESOURCE_GROUP, vars.AZURE_BACKEND_SLOT_NAME, and secrets.AZURE_BACKEND_DEPLOY_CREDENTIALS"
@@ -1056,6 +1071,40 @@ jobs:
           --sku "$AZURE_APP_SERVICE_PLAN_SCALE_UP_SKU" \
           --capacity "$AZURE_APP_SERVICE_PLAN_SCALE_UP_CAPACITY"
 
+    - name: Ensure staging slot exists for blue-green
+      if: ${{ steps.stale_guard.outputs.stale_run != '1' && steps.backend_deploy_mode.outputs.use_blue_green == '1' }}
+      env:
+        AZURE_WEBAPP_NAME: ${{ vars.AZURE_WEBAPP_NAME }}
+        AZURE_BACKEND_RESOURCE_GROUP: ${{ vars.AZURE_BACKEND_RESOURCE_GROUP }}
+        AZURE_BACKEND_SLOT_NAME: ${{ vars.AZURE_BACKEND_SLOT_NAME || 'staging' }}
+      run: |
+        if az webapp deployment slot list \
+          --resource-group "$AZURE_BACKEND_RESOURCE_GROUP" \
+          --name "$AZURE_WEBAPP_NAME" \
+          --query "[?name=='$AZURE_BACKEND_SLOT_NAME'].name" -o tsv | grep -q .; then
+          echo "Staging slot '$AZURE_BACKEND_SLOT_NAME' is present."
+          exit 0
+        fi
+
+        echo "Staging slot '$AZURE_BACKEND_SLOT_NAME' missing. Attempting creation..."
+        az webapp deployment slot create \
+          --resource-group "$AZURE_BACKEND_RESOURCE_GROUP" \
+          --name "$AZURE_WEBAPP_NAME" \
+          --slot "$AZURE_BACKEND_SLOT_NAME" \
+          --output none || true
+
+        if az webapp deployment slot list \
+          --resource-group "$AZURE_BACKEND_RESOURCE_GROUP" \
+          --name "$AZURE_WEBAPP_NAME" \
+          --query "[?name=='$AZURE_BACKEND_SLOT_NAME'].name" -o tsv | grep -q .; then
+          echo "Staging slot '$AZURE_BACKEND_SLOT_NAME' is now present."
+          exit 0
+        fi
+
+        echo "::error::Blue-green deploy requires staging slot '$AZURE_BACKEND_SLOT_NAME', but it is unavailable."
+        echo "::error::Use an App Service SKU that supports slots (for example S1) or disable blue-green mode for this deploy."
+        exit 1
+
     - name: Ensure AUTHZ app settings are slot-sticky on prod and staging
       # Authoritative AUTHZ knobs MUST be present on both slots and pinned via
       # slotConfigNames (--slot-settings) so a slot swap does NOT leak the
@@ -1091,19 +1140,6 @@ jobs:
         RETENTION_CONFIRM_DELETE="${RETENTION_CONFIRM_DELETE:-false}"
         RETENTION_DELETE_BATCH_SIZE="${RETENTION_DELETE_BATCH_SIZE:-5000}"
         RETENTION_MAX_DELETE_PER_TARGET="${RETENTION_MAX_DELETE_PER_TARGET:-50000}"
-
-        echo "Ensuring App Service slot '$AZURE_BACKEND_SLOT_NAME' exists before applying slot-sticky settings."
-        if ! az webapp deployment slot list \
-          --resource-group "$AZURE_BACKEND_RESOURCE_GROUP" \
-          --name "$AZURE_WEBAPP_NAME" \
-          --query "[?name=='$AZURE_BACKEND_SLOT_NAME'].name" -o tsv | grep -q .; then
-          echo "Slot '$AZURE_BACKEND_SLOT_NAME' not found; creating it now."
-          az webapp deployment slot create \
-            --resource-group "$AZURE_BACKEND_RESOURCE_GROUP" \
-            --name "$AZURE_WEBAPP_NAME" \
-            --slot "$AZURE_BACKEND_SLOT_NAME" \
-            --output none || true
-        fi
 
         SETTINGS=()
         if [ -n "${AUTH_ALLOW_TOKEN_ROLE_FALLBACK}" ]; then
@@ -1218,12 +1254,19 @@ jobs:
           --output none
 
         echo "Applying deploy build settings to staging slot."
-        az webapp config appsettings set \
+        if az webapp deployment slot list \
           --resource-group "$AZURE_BACKEND_RESOURCE_GROUP" \
           --name "$AZURE_WEBAPP_NAME" \
-          --slot "$AZURE_BACKEND_SLOT_NAME" \
-          --slot-settings "${BUILD_SETTINGS[@]}" \
-          --output none
+          --query "[?name=='$AZURE_BACKEND_SLOT_NAME'].name" -o tsv | grep -q .; then
+          az webapp config appsettings set \
+            --resource-group "$AZURE_BACKEND_RESOURCE_GROUP" \
+            --name "$AZURE_WEBAPP_NAME" \
+            --slot "$AZURE_BACKEND_SLOT_NAME" \
+            --slot-settings "${BUILD_SETTINGS[@]}" \
+            --output none
+        else
+          echo "Skipping staging deploy build settings because slot '$AZURE_BACKEND_SLOT_NAME' is unavailable."
+        fi
 
         echo "Deploy build settings applied."
 
@@ -1325,9 +1368,9 @@ jobs:
         PW_ADMIN_PASS: ${{ secrets.PW_ADMIN_PASS }}
         PW_ADMIN_TOKEN: ${{ secrets.PW_ADMIN_TOKEN }}
         GUEST_ASSIGNMENTS_SMOKE_EVENT_ID: ${{ vars.GUEST_ASSIGNMENTS_SMOKE_EVENT_ID }}
-        REDIS_SMOKE_EXPECT_PROVIDER: redis
-        REDIS_SMOKE_REQUIRE_CONFIGURED: '1'
-        REDIS_SMOKE_REQUIRE_CONNECTED: '1'
+        REDIS_SMOKE_EXPECT_PROVIDER: ${{ vars.REDIS_SMOKE_EXPECT_PROVIDER }}
+        REDIS_SMOKE_REQUIRE_CONFIGURED: ${{ vars.REDIS_SMOKE_REQUIRE_CONFIGURED }}
+        REDIS_SMOKE_REQUIRE_CONNECTED: ${{ vars.REDIS_SMOKE_REQUIRE_CONNECTED }}
       run: |
         SLOT_URL="${BACKEND_SLOT_BASE_URL}"
         if [ -z "$SLOT_URL" ]; then
@@ -1642,7 +1685,7 @@ jobs:
         AUTH_B64=$(printf '%s' "$KUDU_USER:$KUDU_PASS" | base64)
 
         get_latest_deploy_status() {
-          curl -fsS -k --http1.1 --max-time 600 \
+          curl -fsS --http1.1 --max-time 600 \
             -H "Authorization: Basic $AUTH_B64" \
             -H "Expect: 100-continue" \
             "$SCM_URL/api/deployments/latest" 2>/dev/null | python -c "import json,sys; txt=sys.stdin.read().strip(); data=(json.loads(txt) if txt else {}); status=data.get('status') if isinstance(data, dict) else None; dep_id=(data.get('id') or '') if isinstance(data, dict) else ''; msg=(data.get('status_text') or data.get('message') or '') if isinstance(data, dict) else ''; msg=str(msg).replace('\\n',' ').strip(); normalized=('unknown' if not txt else ('none' if status is None else status)); print('%s\\t%s\\t%s' % (normalized, dep_id, msg))" 2>/dev/null || printf "unknown\t\t"
@@ -1681,7 +1724,7 @@ jobs:
           RESPONSE_HEADERS=$(mktemp)
           RESPONSE_BODY=$(mktemp)
 
-          HTTP_CODE=$(curl -sS -k --http1.1 --max-time 600 --expect100-timeout 30 \
+          HTTP_CODE=$(curl -sS --http1.1 --max-time 600 --expect100-timeout 30 \
             -H "Authorization: Basic $AUTH_B64" \
             -H "Expect: 100-continue" \
             -H "Content-Type: application/zip" \
@@ -1724,7 +1767,7 @@ jobs:
         echo "Polling deployment status from: $STATUS_URL"
 
         for poll in $(seq 1 90); do
-          STATUS_AND_MESSAGE=$(curl -fsS -k --http1.1 --max-time 600 \
+          STATUS_AND_MESSAGE=$(curl -fsS --http1.1 --max-time 600 \
             -H "Authorization: Basic $AUTH_B64" \
             -H "Expect: 100-continue" \
             "$STATUS_URL" | python -c "import json,sys; data=json.load(sys.stdin); status=data.get('status'); msg=(data.get('status_text') or data.get('message') or '').replace('\\n',' ').strip(); print('{}\\t{}'.format('none' if status is None else status, msg))")
@@ -1757,8 +1800,8 @@ jobs:
       contents: read
       id-token: write
     if: >-
-      github.event_name == 'push' &&
       github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
       vars.AZURE_FRONTEND_RESOURCE_GROUP != '' &&
       vars.AZURE_FRONTEND_WEBAPP_NAME != '' &&
       vars.VITE_EXTERNAL_CLIENT_ID != '' &&
@@ -1942,6 +1985,9 @@ jobs:
         PW_ADMIN_USER: ${{ secrets.PW_ADMIN_USER }}
         PW_ADMIN_PASS: ${{ secrets.PW_ADMIN_PASS }}
         PW_ADMIN_TOKEN: ${{ secrets.PW_ADMIN_TOKEN }}
+        REDIS_SMOKE_EXPECT_PROVIDER: ${{ vars.REDIS_SMOKE_EXPECT_PROVIDER }}
+        REDIS_SMOKE_REQUIRE_CONFIGURED: ${{ vars.REDIS_SMOKE_REQUIRE_CONFIGURED }}
+        REDIS_SMOKE_REQUIRE_CONNECTED: ${{ vars.REDIS_SMOKE_REQUIRE_CONNECTED }}
       run: |
         set -o pipefail
         mkdir -p ci-artifacts
