@@ -1687,7 +1687,6 @@ jobs:
         get_latest_deploy_status() {
           curl -fsS --http1.1 --max-time 600 \
             -H "Authorization: Basic $AUTH_B64" \
-            -H "Expect: 100-continue" \
             "$SCM_URL/api/deployments/latest" 2>/dev/null | python -c "import json,sys; txt=sys.stdin.read().strip(); data=(json.loads(txt) if txt else {}); status=data.get('status') if isinstance(data, dict) else None; dep_id=(data.get('id') or '') if isinstance(data, dict) else ''; msg=(data.get('status_text') or data.get('message') or '') if isinstance(data, dict) else ''; msg=str(msg).replace('\\n',' ').strip(); normalized=('unknown' if not txt else ('none' if status is None else status)); print('%s\\t%s\\t%s' % (normalized, dep_id, msg))" 2>/dev/null || printf "unknown\t\t"
         }
 
@@ -1724,11 +1723,10 @@ jobs:
           RESPONSE_HEADERS=$(mktemp)
           RESPONSE_BODY=$(mktemp)
 
-          HTTP_CODE=$(curl -sS --http1.1 --max-time 600 --expect100-timeout 30 \
+          HTTP_CODE=$(curl -sS --http1.1 --max-time 600 \
             -H "Authorization: Basic $AUTH_B64" \
-            -H "Expect: 100-continue" \
             -H "Content-Type: application/zip" \
-            -X POST "$SCM_URL/api/zipdeploy?isAsync=true" \
+            -X POST "$SCM_URL/api/publish?type=zip&isAsync=true&clean=true" \
             --data-binary @release.zip \
             -D "$RESPONSE_HEADERS" \
             -o "$RESPONSE_BODY" \
@@ -1769,7 +1767,6 @@ jobs:
         for poll in $(seq 1 90); do
           STATUS_AND_MESSAGE=$(curl -fsS --http1.1 --max-time 600 \
             -H "Authorization: Basic $AUTH_B64" \
-            -H "Expect: 100-continue" \
             "$STATUS_URL" | python -c "import json,sys; data=json.load(sys.stdin); status=data.get('status'); msg=(data.get('status_text') or data.get('message') or '').replace('\\n',' ').strip(); print('{}\\t{}'.format('none' if status is None else status, msg))")
 
           DEPLOY_STATE=$(printf "%s" "$STATUS_AND_MESSAGE" | cut -f1)
