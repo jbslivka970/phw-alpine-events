@@ -860,7 +860,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.AZURE_WEBAPP_NAME != ''
+    if: ${{ ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && github.event.inputs.run_full_e2e == 'true')) && vars.AZURE_WEBAPP_NAME != '' }}
     concurrency:
       group: azure-prod-deploy-${{ github.ref_name }}
       cancel-in-progress: false
@@ -1981,7 +1981,7 @@ jobs:
     needs: deploy
     permissions:
       contents: read
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.AZURE_WEBAPP_NAME != ''
+    if: ${{ ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && github.event.inputs.run_full_e2e == 'true')) && vars.AZURE_WEBAPP_NAME != '' }}
 
     steps:
     - uses: actions/checkout@v5
