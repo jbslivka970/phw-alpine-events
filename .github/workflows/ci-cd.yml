@@ -1732,7 +1732,7 @@ jobs:
             -H "Authorization: Basic $AUTH_B64" \
             -H "Content-Type: application/zip" \
             -H "Expect:" \
-            -X POST "$SCM_URL/api/publish?type=zip&async=true&clean=true" \
+            -X POST "$SCM_URL/api/publish?type=zip&path=/home/site/wwwroot&async=true&clean=true" \
             --data-binary @release.zip \
             -D "$RESPONSE_HEADERS" \
             -o "$RESPONSE_BODY" \
