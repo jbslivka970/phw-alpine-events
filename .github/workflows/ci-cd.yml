@@ -1726,7 +1726,8 @@ jobs:
           HTTP_CODE=$(curl -sS --http1.1 --max-time 600 \
             -H "Authorization: Basic $AUTH_B64" \
             -H "Content-Type: application/zip" \
-            -X POST "$SCM_URL/api/publish?type=zip&isAsync=true&clean=true" \
+            -H "Expect:" \
+            -X POST "$SCM_URL/api/publish?type=zip&async=true&clean=true" \
             --data-binary @release.zip \
             -D "$RESPONSE_HEADERS" \
             -o "$RESPONSE_BODY" \
