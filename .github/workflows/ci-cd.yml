@@ -596,7 +596,9 @@ jobs:
   e2e_browser_auth_flows:
     runs-on: ubuntu-latest
     timeout-minutes: 40
-    needs: e2e_refresh_auth_state
+    needs:
+      - e2e_refresh_auth_state
+      - e2e_api_role_matrix
     permissions:
       contents: read
       actions: read
@@ -684,7 +686,9 @@ jobs:
   e2e_browser_persona_matrix:
     runs-on: ubuntu-latest
     timeout-minutes: 40
-    needs: e2e_refresh_auth_state
+    needs:
+      - e2e_refresh_auth_state
+      - e2e_browser_auth_flows
     permissions:
       contents: read
       actions: read
