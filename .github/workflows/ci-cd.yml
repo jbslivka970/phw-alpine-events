@@ -1687,7 +1687,7 @@ jobs:
         fi
 
         echo "Deploying release.zip to $AZURE_WEBAPP_NAME via $SCM_URL"
-        AUTH_B64=$(printf '%s' "$KUDU_USER:$KUDU_PASS" | base64)
+        AUTH_B64=$(printf '%s' "$KUDU_USER:$KUDU_PASS" | base64 | tr -d '\r\n')
 
         get_latest_deploy_status() {
           curl -fsS --http1.1 --max-time 600 \
