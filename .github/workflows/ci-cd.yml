@@ -971,10 +971,13 @@ jobs:
           cp backend/web.config deploy-package/web.config
         fi
 
-        if [ "${BACKEND_DEPLOY_INCLUDE_NODE_MODULES:-0}" = "1" ]; then
+        if [ "${BACKEND_DEPLOY_INCLUDE_NODE_MODULES:-0}" = "1" ] && [ "$TARGET_OS" != "linux" ]; then
           echo "Installing production dependencies into the deployment package."
           npm ci --omit=dev --prefix deploy-package
           npm ls --omit=dev --depth=0 --prefix deploy-package
+        elif [ "${BACKEND_DEPLOY_INCLUDE_NODE_MODULES:-0}" = "1" ]; then
+          echo "Linux target detected; dependencies will be installed through Kudu after the slim package deploys."
+          printf '%s\n' '[config]' 'SCM_DO_BUILD_DURING_DEPLOYMENT=false' 'ENABLE_ORYX_BUILD=false' > deploy-package/.deployment
         else
           echo "Using slim backend packaging (package-manager restore during deploy)."
           printf '%s\n' '[config]' 'SCM_DO_BUILD_DURING_DEPLOYMENT=true' 'ENABLE_ORYX_BUILD=true' 'SCM_DO_BUILD_DURING_DEPLOYMENT=true' > deploy-package/.deployment
@@ -1661,11 +1664,13 @@ jobs:
         echo "::error::Blue-green deploy swapped to production but post-swap checks failed. Auto-rollback executed."
         exit 1
 
-    - name: Deploy to Azure via Kudu zipdeploy
+    - name: Deploy to Azure via Kudu OneDeploy
       if: ${{ steps.stale_guard.outputs.stale_run != '1' && steps.backend_deploy_mode.outputs.use_blue_green != '1' }}
       env:
         AZURE_WEBAPP_NAME: ${{ vars.AZURE_WEBAPP_NAME }}
         AZUREAPPSERVICE_PUBLISHPROFILE: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE }}
+        BACKEND_APP_SERVICE_OS: ${{ vars.BACKEND_APP_SERVICE_OS }}
+        BACKEND_DEPLOY_INCLUDE_NODE_MODULES: ${{ vars.BACKEND_DEPLOY_INCLUDE_NODE_MODULES }}
       run: |
         if [ -z "$AZUREAPPSERVICE_PUBLISHPROFILE" ]; then
           echo "AZUREAPPSERVICE_PUBLISHPROFILE is required"
@@ -1765,6 +1770,7 @@ jobs:
 
         echo "Polling deployment status from: $STATUS_URL"
 
+        DEPLOY_SUCCEEDED=0
         for poll in $(seq 1 90); do
           STATUS_AND_MESSAGE=$(curl -fsS --http1.1 --max-time 600 \
             -H "Authorization: Basic $AUTH_B64" \
@@ -1776,7 +1782,8 @@ jobs:
 
           if [ "$DEPLOY_STATE" = "4" ]; then
             echo "Deployment succeeded"
-            exit 0
+            DEPLOY_SUCCEEDED=1
+            break
           fi
 
           if [ "$DEPLOY_STATE" = "3" ]; then
@@ -1787,8 +1794,55 @@ jobs:
           sleep 10
         done
 
-        echo "Deployment status polling timed out"
-        exit 1
+        if [ "$DEPLOY_SUCCEEDED" != "1" ]; then
+          echo "Deployment status polling timed out"
+          exit 1
+        fi
+
+        TARGET_OS="$(printf '%s' "${BACKEND_APP_SERVICE_OS:-windows}" | tr '[:upper:]' '[:lower:]')"
+        if [ "$TARGET_OS" = "linux" ] && [ "${BACKEND_DEPLOY_INCLUDE_NODE_MODULES:-0}" = "1" ]; then
+          echo "Installing production dependencies on the Linux App Service."
+          COMMAND_BODY=$(python -c "import json; print(json.dumps({'command':'npm ci --omit=dev --no-audit --no-fund','dir':'site/wwwroot'}))")
+          COMMAND_RESPONSE=$(mktemp)
+
+          set +e
+          COMMAND_HTTP=$(curl -sS --http1.1 --max-time 900 \
+            -H "Authorization: Basic $AUTH_B64" \
+            -H "Content-Type: application/json" \
+            -d "$COMMAND_BODY" \
+            -o "$COMMAND_RESPONSE" \
+            -w "%{http_code}" \
+            "$SCM_URL/api/command")
+          COMMAND_EXIT=$?
+          set -e
+
+          if [ "$COMMAND_EXIT" -eq 0 ] && [ "$COMMAND_HTTP" = "200" ]; then
+            python -c "import json,sys; data=json.load(open(sys.argv[1])); print((data.get('Output') or '')[-2000:]); error=(data.get('Error') or '')[-1000:]; error and print(error, file=sys.stderr); raise SystemExit(0 if data.get('ExitCode') == 0 else 1)" "$COMMAND_RESPONSE"
+          else
+            echo "Kudu command request ended before npm completed (curl=$COMMAND_EXIT, HTTP=$COMMAND_HTTP); checking installed modules."
+          fi
+          rm -f "$COMMAND_RESPONSE"
+
+          for attempt in $(seq 1 30); do
+            EXPRESS_STATUS=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 30 \
+              -H "Authorization: Basic $AUTH_B64" \
+              "$SCM_URL/api/vfs/site/wwwroot/node_modules/express/package.json" || true)
+            MSSQL_STATUS=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 30 \
+              -H "Authorization: Basic $AUTH_B64" \
+              "$SCM_URL/api/vfs/site/wwwroot/node_modules/mssql/package.json" || true)
+
+            if [ "$EXPRESS_STATUS" = "200" ] && [ "$MSSQL_STATUS" = "200" ]; then
+              echo "Production dependencies verified on App Service."
+              exit 0
+            fi
+
+            echo "Dependencies not ready (attempt $attempt/30, express=$EXPRESS_STATUS, mssql=$MSSQL_STATUS)."
+            sleep 20
+          done
+
+          echo "Production dependencies were not installed within the timeout."
+          exit 1
+        fi
 
   deploy_frontend:
     runs-on: ubuntu-latest
