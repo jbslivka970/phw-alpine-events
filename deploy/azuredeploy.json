@@ -130,8 +130,8 @@
       ],
       "properties": {
         "WEBSITE_NODE_DEFAULT_VERSION": "[if(variables('isLinux'), json('null'), concat('~', first(split(parameters('nodeVersion'), '-'))))]",
-        "SCM_DO_BUILD_DURING_DEPLOYMENT": "true",
-        "ENABLE_ORYX_BUILD": "[if(variables('isLinux'), 'true', 'false')]"
+        "SCM_DO_BUILD_DURING_DEPLOYMENT": "false",
+        "ENABLE_ORYX_BUILD": "false"
       }
     },
     {

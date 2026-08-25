@@ -156,7 +156,7 @@ run az webapp update \
 run az webapp config appsettings set \
   --name "$WEBAPP_NAME" \
   --resource-group "$RESOURCE_GROUP" \
-  --settings SCM_DO_BUILD_DURING_DEPLOYMENT=true ENABLE_ORYX_BUILD=true \
+  --settings SCM_DO_BUILD_DURING_DEPLOYMENT=false ENABLE_ORYX_BUILD=false \
   --output none
 
 if [[ -n "$COPY_SETTINGS_FROM" ]]; then
