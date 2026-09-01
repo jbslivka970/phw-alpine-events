@@ -18,6 +18,18 @@ The Demo tenant requirement is only complete when it is operationally documented
 
 Preparatory schema work, bootstrap updates, and behind-flag tenant plumbing can continue on the current major release line while Colorado Alpine remains the only live production tenant. The first production release that adds a real second tenant, exposes live tenant switching beyond Colorado Alpine-only behavior, or otherwise makes true multi-tenancy part of the supported external contract must ship as a major-version increment.
 
+### External National community access guardrails
+
+The planned National Community Forum, with Gear Exchange as its first forum area, is a separate Flarum community documented in [national-gear-exchange-flarum-adr.md](national-gear-exchange-flarum-adr.md). It is National and cross-program, not another tenant-scoped data surface in this application.
+
+1. An external community may grant access only after PHW evaluates all active memberships server-side. The selected `X-Tenant-Id` header, local browser tenant selection, a social sign-in, and an email match alone are never eligibility evidence.
+2. At least one real program membership must be active, within its date window, and non-demo. Demo-only, expired, revoked, suspended, or absent memberships must deny access.
+3. Program affiliation may be synchronized as forum metadata or a group for origin and moderation routing; it must not isolate National exchange listings between otherwise eligible programs.
+4. External identity integrations must use immutable provider subjects, not `member.email`, because shared household email addresses are supported. Minimum data only: stable subject, usable verified email, display name, and approved group context.
+5. External identity, membership, configuration, or dependency failures fail closed. Never log tokens, authorization codes, raw claims, email hints, signed redirects, or external-service secrets.
+6. Forum content, attachments, flags, and private messages remain in the forum service. This application must not duplicate those records into Azure SQL unless a separately approved data-governance decision adds that integration.
+7. External service credentials use Key Vault/runtime references and must be independently rotatable. Demo tenants cannot be used as a path to production forum access.
+
 ## Execution safety guardrails (non-negotiable)
 
 1. **Do not break production**

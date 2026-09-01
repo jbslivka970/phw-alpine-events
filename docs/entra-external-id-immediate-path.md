@@ -26,6 +26,14 @@ Notes:
 - If you want strict pre-approval only, keep sign-up disabled and use app-driven invitations.
 - If sign-up is disabled, unknown users will continue seeing account-not-found errors until invited/provisioned.
 
+### National Gear Exchange Flarum guardrail
+
+The planned National Gear Exchange uses Flarum but must continue to use this Entra External ID tenant and a dedicated forum application registration. Do not reuse the Alpine Events client ID or client secret. The forum integration is not approved by adding a provider to this user flow alone: it must pass the immutable-subject, active-membership, logout, access-removal, and callback-security test matrix in [flarum-entra-integration-design.md](flarum-entra-integration-design.md).
+
+Google and Microsoft may be reused when configured in the forum user flow. Facebook requires a National-owned Meta application and its privacy policy, terms, data-deletion, and production-review prerequisites. Instagram is not a forum login provider.
+
+Forum access must be denied unless PHW verifies an active, non-expired, non-demo program membership server-side. A social account, selected tenant, `X-Tenant-Id` header, or email match alone is not sufficient.
+
 ### Focused Google OAuth setup (copy/paste runbook)
 
 Use this exact sequence and do not skip steps.

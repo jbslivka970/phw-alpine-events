@@ -11,6 +11,26 @@ Full-stack event management system for Project Healing Waters Colorado Alpine Ch
 
 Current top priorities are operational sign-off items: retention policy rollout, template governance evidence cadence, and recurring production compliance smoke evidence.
 
+## National Community Forum Planning
+
+The National Community Forum is a planned, self-hosted Flarum service for moderated collaboration across PHW programs. Gear Exchange for fly-fishing, fly-tying, rod-building, and related program gear is its first planned forum area. The forum is not deployed and does not change the current Alpine Events runtime.
+
+Implementation documentation:
+
+- [Architecture decision](docs/national-gear-exchange-flarum-adr.md)
+- [Delivery backlog](docs/flarum-build-backlog.md)
+- [Infrastructure runbook](docs/flarum-infrastructure-runbook.md)
+- [Separate deployment boundary](docs/flarum-deployment-boundary.md)
+- [Entra External ID integration design](docs/flarum-entra-integration-design.md)
+- [Identity-provider runbook](docs/flarum-entra-identity-provider-runbook.md)
+- [Extension register](docs/flarum-extension-register.md)
+- [Exchange information architecture](docs/national-gear-exchange-information-architecture.md)
+- [Moderation handbook](docs/exchange-moderation-handbook.md)
+- [Backup, recovery, and portability runbook](docs/flarum-backup-recovery-portability-runbook.md)
+- [Pilot readiness evidence template](docs/flarum-pilot-readiness-evidence-template.md)
+
+The forum will be National and cross-program, but access must be derived server-side from an active, non-demo PHW program membership. The Flarum identity integration is explicitly gated on a staging proof of concept before any production deployment.
+
 ## Overview
 
 This application supports member management, event publishing, RSVP collection, and chapter operations for the Colorado Alpine Chapter. The current repository baseline now includes:
