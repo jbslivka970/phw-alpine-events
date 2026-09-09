@@ -9,7 +9,7 @@ function TermsPage() {
         </div>
 
         <header className="legal-page__header">
-          <p className="legal-page__eyebrow">Project Healing Waters Alpine Events</p>
+          <p className="legal-page__eyebrow">The Current</p>
           <h1 className="legal-page__title">Terms and Conditions</h1>
           <p className="legal-page__subtitle">
             Effective Date: April 8, 2026
@@ -19,7 +19,7 @@ function TermsPage() {
         <section className="legal-section">
           <h2>Use of the App</h2>
           <p>
-            These Terms and Conditions govern your use of the PHW Colorado Alpine Events
+            These Terms and Conditions govern your use of The Current
             application at https://app.phwcoloradoalpine.org and the related SMS messaging
             service operated by the Colorado Alpine Program of Project Healing Waters Fly
             Fishing, Inc.
@@ -41,7 +41,7 @@ function TermsPage() {
           <p>
             By providing your mobile phone number and opting in through the App or by texting
             START to +1 (970) 771-0150, you consent to receive recurring automated SMS messages
-            from Project Healing Waters Alpine Events. These messages include event invitations,
+            from Project Healing Waters through The Current. These messages include event invitations,
             reminders, RSVP confirmations, waitlist updates, and support messages.
           </p>
           <p>

@@ -199,11 +199,12 @@ function EventAssignmentPage() {
   }, [assignments])
 
   async function refreshEventData(targetEventId: string): Promise<void> {
-    const [asns, guestAsns, eventRsvps, eventDetail] = await Promise.all([
+    const [asns, guestAsns, eventRsvps, eventDetail, participationHistory] = await Promise.all([
       assignmentsApi.list(targetEventId),
       assignmentsApi.guestList(targetEventId),
       rsvpApi.list(targetEventId),
       eventsApi.get(targetEventId),
+      assignmentsApi.participationHistory(targetEventId),
     ])
 
     setEventDetail(eventDetail)
@@ -220,29 +221,7 @@ function EventAssignmentPage() {
     })
     const relevantRsvps = eventRsvps.filter((row) => ['yes', 'maybe', 'waitlist'].includes(row.response))
     setRsvps(relevantRsvps)
-
-    const uniqueMemberIds = Array.from(new Set([
-      ...asns.map((row) => row.member_id),
-      ...relevantRsvps.map((row) => row.member_id),
-    ]))
-
-    const participationRows = await Promise.all(uniqueMemberIds.map(async (memberId) => {
-      try {
-        const row = await membersApi.participation(memberId)
-        return [memberId, {
-          events_attended: row.events_attended,
-          events_attended_prior_year: row.events_attended_prior_year,
-          mentor_attended: row.mentor_attended,
-          mentor_attended_prior_year: row.mentor_attended_prior_year,
-          participant_attended: row.participant_attended,
-          participant_attended_prior_year: row.participant_attended_prior_year,
-        }] as const
-      } catch {
-        return [memberId, EMPTY_PARTICIPATION] as const
-      }
-    }))
-
-    setParticipation(Object.fromEntries(participationRows))
+    setParticipation(Object.fromEntries(participationHistory.rows.map((row) => [row.member_id, row])))
   }
 
   useEffect(() => {
@@ -306,7 +285,7 @@ function EventAssignmentPage() {
 
     let active = true
     setRecommendationsLoading(true)
-    assignmentsApi.recommendations(eventId, priorityRole)
+    assignmentsApi.recommendations(eventId, priorityRole, 100)
       .then((result) => {
         if (!active) {
           return
@@ -778,6 +757,9 @@ function EventAssignmentPage() {
           <div style={{ flex: '1 1 420px' }}>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
               <span className={`status-pill status-pill--${eventDetail?.status ?? 'draft'}`}>{eventDetail?.status ?? 'draft'}</span>
+              <span className="assignment-role-chip assignment-role-chip--unknown">
+                {(eventDetail?.event_category ?? 'fishing_trip').replaceAll('_', ' ').replace(/\b\w/g, letter => letter.toUpperCase())}
+              </span>
               <span className="assignment-role-chip assignment-role-chip--participant">{formatDateTime(eventDetail?.event_date)}</span>
               <span className="assignment-role-chip assignment-role-chip--unknown">{eventDetail?.location ?? 'Location TBD'}</span>
             </div>
@@ -1017,7 +999,7 @@ function EventAssignmentPage() {
       <section className="card members-table-wrap">
         <h2>RSVP Pool</h2>
         <p className="page__subtitle event-assignments-note">
-          Priority sorted by lowest {priorityRole === 'MENTOR' ? 'volunteer shifts' : 'participant attendance'} first.
+          Priority is lowest score first. CY is {new Date().getFullYear()}; PY is {new Date().getFullYear() - 1}. Participant priority rewards attended volunteer service: score = role CY + (role PY × 0.6) + (total CY × 0.25) + (total PY × 0.1) − service CY − (service PY × 0.5), then −0.2 for Yes, +0 for Maybe, or +0.2 for Waitlist.
         </p>
         <div className="assignment-priority-controls">
           <button className={`btn btn--sm ${priorityRole === 'PARTICIPANT' ? '' : 'btn--outline'}`} onClick={() => setPriorityRole('PARTICIPANT')}>
@@ -1030,11 +1012,11 @@ function EventAssignmentPage() {
         {recommendationsLoading && <p className="members-loading">Refreshing equity recommendations…</p>}
         <table className="members-table">
           <thead>
-            <tr><th>Name</th><th>Response</th><th>RSVP Role</th><th>Volunteer Y/PY</th><th>Participant Y/PY</th><th>Equity</th><th>Assign</th></tr>
+            <tr><th>Name</th><th>Response</th><th>RSVP Role</th><th>Volunteer CY/PY</th><th>Participant CY/PY</th><th>Service CY/PY</th><th>Priority</th><th>Assign</th></tr>
           </thead>
           <tbody>
             {rankedRsvps.length === 0 ? (
-              <tr><td colSpan={7}>No RSVP rows to assign.</td></tr>
+              <tr><td colSpan={8}>No RSVP rows to assign.</td></tr>
             ) : rankedRsvps.map((row) => {
               const name = `${row.first_name ?? ''} ${row.last_name ?? ''}`.trim()
               const alreadyAssigned = assignedMemberIds.has(row.member_id)
@@ -1060,6 +1042,7 @@ function EventAssignmentPage() {
                   </td>
                   <td>{p.mentor_attended} / {p.mentor_attended_prior_year}</td>
                   <td>{p.participant_attended} / {p.participant_attended_prior_year}</td>
+                  <td>{recommendation ? `${recommendation.service_attended_year} / ${recommendation.service_attended_prior_year}` : '—'}</td>
                   <td>
                     {recommendation
                       ? `#${recommendation.rank} (${recommendation.equity_score})`
@@ -1093,9 +1076,12 @@ function EventAssignmentPage() {
 
       <section className="card members-table-wrap">
         <h2>Current Assignments</h2>
+        <p className="page__subtitle event-assignments-note">
+          Attendance includes completed events only. Totals count each event once; participant attendance receives half credit when the same person was also the event lead.
+        </p>
         <table className="members-table">
           <thead>
-            <tr><th>Name</th><th>Role</th><th>Role Y/PY</th><th>Total Y/PY</th><th>Attended</th><th>Action</th></tr>
+            <tr><th>Name</th><th>Role</th><th>Role CY/PY</th><th>Total CY/PY</th><th>Attended</th><th>Action</th></tr>
           </thead>
           <tbody>
             {groupedAssignments.length === 0 && guestAssignments.length === 0 ? (

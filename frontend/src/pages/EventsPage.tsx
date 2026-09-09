@@ -124,6 +124,7 @@ interface EventFormPayload {
   description: string
   location: string
   photo_url: string
+  event_category: EventRecord['event_category']
   invitation_stage: 'volunteer' | 'participant' | 'both'
   event_lead_member_id: string
   event_lead_secondary_roles: Array<'MENTOR' | 'PARTICIPANT'>
@@ -283,6 +284,7 @@ function buildDefaultEventForm(): EventFormPayload {
     description: '',
     location: '',
     photo_url: '',
+    event_category: 'fishing_trip',
     invitation_stage: 'both',
     event_lead_member_id: '',
     event_lead_secondary_roles: [],
@@ -488,6 +490,7 @@ function payloadFromRecord(e: EventRecord): EventFormPayload {
     description: e.description ?? '',
     location: e.location ?? '',
     photo_url: e.photo_url ?? '',
+    event_category: e.event_category ?? 'fishing_trip',
     invitation_stage: e.invitation_stage ?? 'both',
     event_lead_member_id: e.event_lead_member_id ?? '',
     event_lead_secondary_roles: e.event_lead_secondary_roles ?? [],
@@ -1094,6 +1097,22 @@ function EventFormModal({ initial, groups, leadMembers, onSave, onGenerateAiDesc
             </div>
 
             <div className="form-field">
+              <label className="form-label">Event Category</label>
+              <select
+                className="form-input"
+                value={form.event_category}
+                onChange={e => set('event_category', e.target.value)}
+              >
+                <option value="fishing_trip">Fishing Trip</option>
+                <option value="fundraiser">Fundraiser</option>
+                <option value="community_service">Community Service</option>
+                <option value="training">Training</option>
+                <option value="social">Social</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+
+            <div className="form-field">
               <label className="form-label">Invitation Stage</label>
               <select
                 className="form-input"
@@ -1468,6 +1487,7 @@ function EventsPage() {
         description: form.description || null,
         location: form.location || null,
         photo_url: form.photo_url.trim() || null,
+        event_category: form.event_category,
         invitation_stage: form.invitation_stage,
         event_lead_member_id: form.event_lead_member_id || null,
         event_lead_secondary_roles: form.event_lead_member_id ? form.event_lead_secondary_roles : [],
@@ -1796,6 +1816,9 @@ function EventsPage() {
               <div className="event-card__top">
                 <div className="event-card__meta">
                   <StatusBadge status={event.status} />
+                  <span className="assignment-role-chip assignment-role-chip--unknown">
+                    {(event.event_category ?? 'fishing_trip').replaceAll('_', ' ').replace(/\b\w/g, letter => letter.toUpperCase())}
+                  </span>
                   <span className="event-card__date">{formatDate(event.event_date)}</span>
                   {event.location && <span className="event-card__location">📍 {event.location}</span>}
                 </div>

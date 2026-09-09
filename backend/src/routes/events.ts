@@ -40,7 +40,10 @@ const STATUS_TRANSITIONS: Record<string, string[]> = {
 type EventColumnSupport = {
   hasPhotoUrl: boolean;
   hasInvitationStage: boolean;
+  hasEventCategory: boolean;
 };
+
+type EventCategory = 'fishing_trip' | 'fundraiser' | 'community_service' | 'training' | 'social' | 'other';
 
 type EventTenantSupport = {
   hasTenantId: boolean;
@@ -147,16 +150,18 @@ async function getEventColumnSupport(pool: Awaited<ReturnType<typeof getPool>>):
 
   const result = await pool
     .request()
-    .query<{ has_photo_url: number; has_invitation_stage: number }>(
+        .query<{ has_photo_url: number; has_invitation_stage: number; has_event_category: number }>(
       `SELECT
          CASE WHEN COL_LENGTH('dbo.event', 'photo_url') IS NULL THEN 0 ELSE 1 END AS has_photo_url,
-         CASE WHEN COL_LENGTH('dbo.event', 'invitation_stage') IS NULL THEN 0 ELSE 1 END AS has_invitation_stage`
+          CASE WHEN COL_LENGTH('dbo.event', 'invitation_stage') IS NULL THEN 0 ELSE 1 END AS has_invitation_stage,
+          CASE WHEN COL_LENGTH('dbo.event', 'event_category') IS NULL THEN 0 ELSE 1 END AS has_event_category`
     );
 
   const row = result.recordset[0];
   cachedEventColumnSupport = {
     hasPhotoUrl: row?.has_photo_url === 1,
     hasInvitationStage: row?.has_invitation_stage === 1,
+    hasEventCategory: row?.has_event_category === 1,
   };
 
   return cachedEventColumnSupport;
@@ -814,7 +819,11 @@ router.get('/dashboard-summary', apiLimiter, authenticate, requireAnyAuthenticat
     const tenantScope = await resolveEventTenantScope(req, pool);
     const summaryCacheKey = `events:dashboard-summary:tenant=${tenantScope.apply ? tenantScope.tenantId : 'legacy'}`;
     const summary = await withShortLivedCache(summaryCacheKey, DASHBOARD_CACHE_TTL_MS, async () => {
-      const request = pool.request();
+      const currentYear = new Date().getUTCFullYear();
+      const request = pool
+        .request()
+        .input('year_start', sql.DateTime, new Date(Date.UTC(currentYear, 0, 1)))
+        .input('next_year_start', sql.DateTime, new Date(Date.UTC(currentYear + 1, 0, 1)));
       const tenantClause = tenantScope.apply ? ' AND e.tenant_id = @tenant_id' : '';
       if (tenantScope.apply) {
         request.input('tenant_id', sql.UniqueIdentifier, tenantScope.tenantId);
@@ -830,7 +839,8 @@ router.get('/dashboard-summary', apiLimiter, authenticate, requireAnyAuthenticat
               (SELECT COUNT(*)
                FROM event e
                WHERE e.status = 'published'
-                 AND YEAR(e.event_date) = YEAR(GETUTCDATE())${tenantClause}) AS total_events_this_year,
+                 AND e.event_date >= @year_start
+                 AND e.event_date < @next_year_start${tenantClause}) AS total_events_this_year,
               (SELECT COUNT(*)
                FROM event e
                WHERE e.status = 'published'
@@ -984,6 +994,7 @@ router.get('/:id', apiLimiter, authenticate, requireAnyAuthenticatedRole, async 
            description,
            location,
            ${eventColumns.hasPhotoUrl ? 'photo_url' : 'CAST(NULL AS NVARCHAR(1024)) AS photo_url'},
+           ${eventColumns.hasEventCategory ? 'event_category' : "CAST('fishing_trip' AS NVARCHAR(30)) AS event_category"},
            ${eventColumns.hasInvitationStage ? 'invitation_stage' : "CAST('both' AS NVARCHAR(20)) AS invitation_stage"},
            event_lead_member_id,
            ${EVENT_LEAD_NAME_SELECT},
@@ -1048,6 +1059,7 @@ router.post('/', writeLimiter, authenticate, requireEventCreatorOrAdmin, async (
     const description = (req.body?.description as string | undefined) ?? null;
     const location = (req.body?.location as string | undefined) ?? null;
     const photoUrl = parsePhotoUrl(req.body?.photo_url);
+    const eventCategory = parseEventCategory(req.body?.event_category);
     const invitationStage = parseInvitationStage(req.body?.invitation_stage);
     const eventLeadMemberIdRaw = req.body?.event_lead_member_id;
     const eventLeadMemberId = eventLeadMemberIdRaw === null || eventLeadMemberIdRaw === undefined
@@ -1200,8 +1212,14 @@ router.post('/', writeLimiter, authenticate, requireEventCreatorOrAdmin, async (
       insertValues.splice(4, 0, '@photo_url');
       createRequest.input('photo_url', sql.NVarChar(1024), photoUrl);
     }
-    if (eventColumns.hasInvitationStage) {
+    if (eventColumns.hasEventCategory) {
       const insertIndex = eventColumns.hasPhotoUrl ? 5 : 4;
+      insertColumns.splice(insertIndex, 0, 'event_category');
+      insertValues.splice(insertIndex, 0, '@event_category');
+      createRequest.input('event_category', sql.NVarChar(30), eventCategory);
+    }
+    if (eventColumns.hasInvitationStage) {
+      const insertIndex = 4 + Number(eventColumns.hasPhotoUrl) + Number(eventColumns.hasEventCategory);
       insertColumns.splice(insertIndex, 0, 'invitation_stage');
       insertValues.splice(insertIndex, 0, '@invitation_stage');
       createRequest.input('invitation_stage', sql.NVarChar(20), invitationStage);
@@ -1288,6 +1306,7 @@ router.put('/:id', writeLimiter, authenticate, requireEventCreatorOrAdmin, async
         description: string | null;
         location: string | null;
         photo_url: string | null;
+        event_category: EventCategory;
         invitation_stage: 'volunteer' | 'participant' | 'both';
         event_lead_member_id: string | null;
         event_lead_name: string | null;
@@ -1304,6 +1323,7 @@ router.put('/:id', writeLimiter, authenticate, requireEventCreatorOrAdmin, async
            description,
            location,
            ${eventColumns.hasPhotoUrl ? 'photo_url' : 'CAST(NULL AS NVARCHAR(1024)) AS photo_url'},
+           ${eventColumns.hasEventCategory ? 'event_category' : "CAST('fishing_trip' AS NVARCHAR(30)) AS event_category"},
            ${eventColumns.hasInvitationStage ? 'invitation_stage' : "CAST('both' AS NVARCHAR(20)) AS invitation_stage"},
            event_lead_member_id,
            ${EVENT_LEAD_NAME_SELECT},
@@ -1334,6 +1354,7 @@ router.put('/:id', writeLimiter, authenticate, requireEventCreatorOrAdmin, async
     const proposedDescription = req.body?.description;
     const proposedLocation = req.body?.location;
     const proposedPhotoUrl = req.body?.photo_url;
+    const proposedEventCategory = req.body?.event_category;
     const proposedInvitationStage = req.body?.invitation_stage;
     const proposedEventLeadMemberIdRaw = req.body?.event_lead_member_id;
     const hasEventLeadSecondaryRolesInput = req.body?.event_lead_secondary_roles !== undefined;
@@ -1356,6 +1377,9 @@ router.put('/:id', writeLimiter, authenticate, requireEventCreatorOrAdmin, async
     }
     if (eventColumns.hasPhotoUrl && proposedPhotoUrl !== undefined && normalizeString(proposedPhotoUrl) !== normalizeString(existing.photo_url)) {
       changedFields.push('photo_url');
+    }
+    if (eventColumns.hasEventCategory && proposedEventCategory !== undefined && parseEventCategory(proposedEventCategory) !== existing.event_category) {
+      changedFields.push('event_category');
     }
     if (eventColumns.hasInvitationStage && proposedInvitationStage !== undefined && normalizeString(proposedInvitationStage) !== normalizeString(existing.invitation_stage)) {
       changedFields.push('invitation_stage');
@@ -1418,6 +1442,10 @@ router.put('/:id', writeLimiter, authenticate, requireEventCreatorOrAdmin, async
     if (eventColumns.hasPhotoUrl && req.body?.photo_url !== undefined) {
       updates.push('photo_url = @photo_url');
       request.input('photo_url', sql.NVarChar(1024), parsePhotoUrl(req.body.photo_url));
+    }
+    if (eventColumns.hasEventCategory && req.body?.event_category !== undefined) {
+      updates.push('event_category = @event_category');
+      request.input('event_category', sql.NVarChar(30), parseEventCategory(req.body.event_category));
     }
     if (eventColumns.hasInvitationStage && req.body?.invitation_stage !== undefined) {
       updates.push('invitation_stage = @invitation_stage');
@@ -2168,7 +2196,7 @@ router.get('/:id/ics', apiLimiter, authenticate, requireAnyAuthenticatedRole, as
     const lines = [
       'BEGIN:VCALENDAR',
       'VERSION:2.0',
-      'PRODID:-//PHW Alpine Events//EN',
+      'PRODID:-//The Current//EN',
       'CALSCALE:GREGORIAN',
       'METHOD:PUBLISH',
       'BEGIN:VEVENT',
@@ -2786,6 +2814,18 @@ function parsePhotoUrl(value: unknown): string | null {
   } catch {
     return null;
   }
+}
+
+function parseEventCategory(value: unknown): EventCategory {
+  const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  if (normalized === 'fundraiser'
+    || normalized === 'community_service'
+    || normalized === 'training'
+    || normalized === 'social'
+    || normalized === 'other') {
+    return normalized;
+  }
+  return 'fishing_trip';
 }
 
 function parseInvitationStage(value: unknown): 'volunteer' | 'participant' | 'both' {
@@ -3688,6 +3728,71 @@ router.patch('/:id/assignments/:assignmentId/attendance', writeLimiter, authenti
   }
 });
 
+router.get('/:id/participation-history', apiLimiter, authenticate, requireEventCreatorOrAdmin, async (req, res) => {
+  try {
+    const currentYear = new Date().getFullYear();
+    const priorYear = currentYear - 1;
+    const pool = await getPool();
+    if (!(await ensureTenantEventAccess(req, res, pool, req.params.id))) {
+      return;
+    }
+
+    const result = await pool
+      .request()
+      .input('event_id', sql.UniqueIdentifier, req.params.id)
+      .input('current_year', sql.Int, currentYear)
+      .input('prior_year', sql.Int, priorYear)
+      .query<{
+        member_id: string;
+        events_attended: number;
+        events_attended_prior_year: number;
+        mentor_attended: number;
+        mentor_attended_prior_year: number;
+        participant_attended: number;
+        participant_attended_prior_year: number;
+      }>(
+        `WITH associated_members AS (
+           SELECT member_id FROM event_assignment WHERE event_id = @event_id
+           UNION
+           SELECT member_id FROM event_response WHERE event_id = @event_id
+         ), attendance AS (
+           SELECT
+             ea.member_id,
+             ea.event_id,
+             e_hist.event_date,
+             MAX(CASE WHEN ea.attended = 1 THEN 1 ELSE 0 END) AS attended_any,
+             MAX(CASE WHEN ea.role = 'LEAD' AND ea.attended = 1 THEN 1 ELSE 0 END) AS lead_attended,
+             MAX(CASE WHEN ea.role = 'MENTOR' AND ea.attended = 1 THEN 1 ELSE 0 END) AS mentor_attended,
+             MAX(CASE WHEN ea.role = 'PARTICIPANT' AND ea.attended = 1 THEN 1 ELSE 0 END) AS participant_attended
+           FROM event_assignment ea
+           INNER JOIN event e_hist ON e_hist.event_id = ea.event_id
+           WHERE e_hist.status = 'completed'
+           GROUP BY ea.member_id, ea.event_id, e_hist.event_date
+         )
+         SELECT
+           members.member_id,
+           COALESCE(SUM(CASE WHEN YEAR(attendance.event_date) = @current_year AND attendance.attended_any = 1 THEN 1 ELSE 0 END), 0) AS events_attended,
+           COALESCE(SUM(CASE WHEN YEAR(attendance.event_date) = @prior_year AND attendance.attended_any = 1 THEN 1 ELSE 0 END), 0) AS events_attended_prior_year,
+           COALESCE(SUM(CASE WHEN YEAR(attendance.event_date) = @current_year AND attendance.mentor_attended = 1 THEN 1 ELSE 0 END), 0) AS mentor_attended,
+           COALESCE(SUM(CASE WHEN YEAR(attendance.event_date) = @prior_year AND attendance.mentor_attended = 1 THEN 1 ELSE 0 END), 0) AS mentor_attended_prior_year,
+           COALESCE(SUM(CASE WHEN YEAR(attendance.event_date) = @current_year AND attendance.participant_attended = 1 THEN CASE WHEN attendance.lead_attended = 1 THEN 0.5 ELSE 1 END ELSE 0 END), 0) AS participant_attended,
+           COALESCE(SUM(CASE WHEN YEAR(attendance.event_date) = @prior_year AND attendance.participant_attended = 1 THEN CASE WHEN attendance.lead_attended = 1 THEN 0.5 ELSE 1 END ELSE 0 END), 0) AS participant_attended_prior_year
+         FROM associated_members members
+         LEFT JOIN attendance ON attendance.member_id = members.member_id
+         GROUP BY members.member_id`
+      );
+
+    res.json({
+      event_id: req.params.id,
+      year: currentYear,
+      rows: result.recordset,
+    });
+  } catch (error) {
+    console.error('GET /events/:id/participation-history failed', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 router.get('/:id/assignment-recommendations', apiLimiter, authenticate, requireEventCreatorOrAdmin, async (req, res) => {
   try {
     const role = parseEventRole(req.query.role);
@@ -3716,6 +3821,8 @@ router.get('/:id/assignment-recommendations', apiLimiter, authenticate, requireE
         role_attended_prior_year: number;
         total_attended_year: number;
         total_attended_prior_year: number;
+        service_attended_year: number;
+        service_attended_prior_year: number;
       }>(
         `SELECT TOP (@limit)
             er.member_id,
@@ -3749,7 +3856,9 @@ router.get('/:id/assignment-recommendations', apiLimiter, authenticate, requireE
               END
             ) AS role_attended_prior_year,
             SUM(CASE WHEN YEAR(attendance.event_date) = @current_year AND attendance.attended_any = 1 THEN 1 ELSE 0 END) AS total_attended_year,
-            SUM(CASE WHEN YEAR(attendance.event_date) = @prior_year AND attendance.attended_any = 1 THEN 1 ELSE 0 END) AS total_attended_prior_year
+            SUM(CASE WHEN YEAR(attendance.event_date) = @prior_year AND attendance.attended_any = 1 THEN 1 ELSE 0 END) AS total_attended_prior_year,
+            SUM(CASE WHEN YEAR(attendance.event_date) = @current_year AND attendance.mentor_attended = 1 THEN 1 ELSE 0 END) AS service_attended_year,
+            SUM(CASE WHEN YEAR(attendance.event_date) = @prior_year AND attendance.mentor_attended = 1 THEN 1 ELSE 0 END) AS service_attended_prior_year
          FROM event_response er
          INNER JOIN member m ON m.member_id = er.member_id
          LEFT JOIN (
@@ -3779,7 +3888,10 @@ router.get('/:id/assignment-recommendations', apiLimiter, authenticate, requireE
         const rolePrior = row.role_attended_prior_year ?? 0;
         const totalYear = row.total_attended_year ?? 0;
         const totalPrior = row.total_attended_prior_year ?? 0;
-        const equityScore = Number((roleYear + rolePrior * 0.6 + totalYear * 0.25 + totalPrior * 0.1 + responseBias(row.response)).toFixed(2));
+        const serviceYear = row.service_attended_year ?? 0;
+        const servicePrior = row.service_attended_prior_year ?? 0;
+        const serviceAdjustment = role === 'PARTICIPANT' ? -(serviceYear + servicePrior * 0.5) : 0;
+        const equityScore = Number((roleYear + rolePrior * 0.6 + totalYear * 0.25 + totalPrior * 0.1 + serviceAdjustment + responseBias(row.response)).toFixed(2));
 
         return {
           member_id: row.member_id,
@@ -3792,7 +3904,10 @@ router.get('/:id/assignment-recommendations', apiLimiter, authenticate, requireE
           role_attended_prior_year: rolePrior,
           total_attended_year: totalYear,
           total_attended_prior_year: totalPrior,
-          reason: `${roleYear} ${role.toLowerCase()} shifts this year, ${rolePrior} last year`,
+          service_attended_year: serviceYear,
+          service_attended_prior_year: servicePrior,
+          service_adjustment: serviceAdjustment,
+          reason: `${roleYear} ${role.toLowerCase()} events this year, ${rolePrior} last year; ${serviceYear} volunteer service events this year, ${servicePrior} last year`,
         };
       })
       .sort((a, b) => a.equity_score - b.equity_score);

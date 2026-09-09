@@ -86,6 +86,8 @@ CREATE TABLE dbo.event (
     description       NVARCHAR(MAX)    NULL,
     location          NVARCHAR(300)    NULL,
     photo_url         NVARCHAR(1024)   NULL,
+    event_category    NVARCHAR(30)     NOT NULL DEFAULT 'fishing_trip'
+        CHECK (event_category IN ('fishing_trip', 'fundraiser', 'community_service', 'training', 'social', 'other')),
     event_date        DATETIME         NOT NULL,
     end_date          DATETIME         NULL,
     mentor_capacity   INT              NULL,
@@ -116,6 +118,9 @@ BEGIN
     IF COL_LENGTH('dbo.event', 'photo_url') IS NULL
         ALTER TABLE dbo.event ADD photo_url NVARCHAR(1024) NULL;
 
+    IF COL_LENGTH('dbo.event', 'event_category') IS NULL
+        ALTER TABLE dbo.event ADD event_category NVARCHAR(30) NOT NULL CONSTRAINT DF_event_event_category DEFAULT 'fishing_trip';
+
     IF COL_LENGTH('dbo.event', 'invitation_stage') IS NULL
         ALTER TABLE dbo.event ADD invitation_stage NVARCHAR(20) NOT NULL CONSTRAINT DF_event_invitation_stage DEFAULT 'both';
 
@@ -139,6 +144,16 @@ BEGIN
 
     IF COL_LENGTH('dbo.event', 'event_lead_email') IS NOT NULL
         ALTER TABLE dbo.event DROP COLUMN event_lead_email
+    IF NOT EXISTS (
+        SELECT 1
+        FROM sys.check_constraints
+        WHERE name = N'CK_event_event_category'
+          AND parent_object_id = OBJECT_ID(N'dbo.event')
+    )
+        ALTER TABLE dbo.event
+        ADD CONSTRAINT CK_event_event_category
+            CHECK (event_category IN ('fishing_trip', 'fundraiser', 'community_service', 'training', 'social', 'other'));
+
     IF NOT EXISTS (
         SELECT 1
         FROM sys.check_constraints
@@ -177,6 +192,14 @@ BEGIN
           AND name = N'IX_event_tenant_event_date'
     )
         CREATE INDEX IX_event_tenant_event_date ON dbo.event (tenant_id, event_date);
+
+        IF NOT EXISTS (
+            SELECT 1
+            FROM sys.indexes
+            WHERE object_id = OBJECT_ID(N'dbo.event')
+                AND name = N'IX_event_tenant_status_date'
+        )
+                CREATE INDEX IX_event_tenant_status_date ON dbo.event (tenant_id, status, event_date);
 END
 
 -- ---------------------------------------------------------------------------
@@ -305,6 +328,26 @@ BEGIN
 
     IF COL_LENGTH('dbo.event_assignment', 'attendance_notes') IS NULL
         ALTER TABLE dbo.event_assignment ADD attendance_notes NVARCHAR(500) NULL;
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM sys.indexes
+        WHERE object_id = OBJECT_ID(N'dbo.event_assignment')
+          AND name = N'IX_event_assignment_member_attendance'
+    )
+        CREATE INDEX IX_event_assignment_member_attendance
+            ON dbo.event_assignment (member_id, attended, event_id)
+            INCLUDE (role);
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM sys.indexes
+        WHERE object_id = OBJECT_ID(N'dbo.event_assignment')
+          AND name = N'IX_event_assignment_event_member'
+    )
+        CREATE INDEX IX_event_assignment_event_member
+            ON dbo.event_assignment (event_id, member_id)
+            INCLUDE (role, attended);
 END
 
 -- ---------------------------------------------------------------------------

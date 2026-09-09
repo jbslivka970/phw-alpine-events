@@ -81,7 +81,7 @@ function LoginPage() {
               event.currentTarget.style.display = 'none'
             }}
           />
-          <h1 className="login-card__title">Alpine Events</h1>
+          <h1 className="login-card__title">The Current</h1>
           <p className="login-card__subtitle">{loginProgramName}</p>
           <p className="login-card__desc">
             Sign in with your chapter identity provider to manage events, RSVPs, and the Take a Vet Fishing program.

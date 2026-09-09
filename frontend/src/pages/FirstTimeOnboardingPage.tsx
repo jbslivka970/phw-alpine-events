@@ -34,7 +34,7 @@ function FirstTimeOnboardingPage() {
           />
           <h1 className="login-card__title">{heading}</h1>
           <p className="login-card__desc">
-            Use these steps if this is your first time joining PHW Alpine Events from an invite link or text message.
+            Use these steps if this is your first time joining The Current from an invite link or text message.
           </p>
 
           <div className="login-card__auth-help" role="note" aria-label="First-time onboarding steps">

@@ -6,6 +6,7 @@ interface EventRecord {
   description: string | null;
   location: string | null;
   photo_url: string | null;
+  event_category: 'fishing_trip' | 'fundraiser' | 'community_service' | 'training' | 'social' | 'other';
   invitation_stage: 'volunteer' | 'participant' | 'both';
   event_lead_member_id: string | null;
   event_lead_secondary_roles?: Array<'MENTOR' | 'PARTICIPANT'>;
@@ -34,6 +35,7 @@ interface UpdateEventPayload {
   description?: string | null;
   location?: string | null;
   photo_url?: string | null;
+  event_category?: EventRecord['event_category'];
   invitation_stage?: 'volunteer' | 'participant' | 'both';
   event_lead_member_id?: string | null;
   event_lead_secondary_roles?: Array<'MENTOR' | 'PARTICIPANT'>;
@@ -147,6 +149,9 @@ interface AssignmentRecommendationRow {
   role_attended_prior_year: number;
   total_attended_year: number;
   total_attended_prior_year: number;
+  service_attended_year: number;
+  service_attended_prior_year: number;
+  service_adjustment: number;
   reason: string;
 }
 
@@ -154,6 +159,22 @@ interface AssignmentRecommendationResponse {
   event_id: string;
   role: 'MENTOR' | 'PARTICIPANT';
   rows: AssignmentRecommendationRow[];
+}
+
+interface EventParticipationHistoryRow {
+  member_id: string;
+  events_attended: number;
+  events_attended_prior_year: number;
+  mentor_attended: number;
+  mentor_attended_prior_year: number;
+  participant_attended: number;
+  participant_attended_prior_year: number;
+}
+
+interface EventParticipationHistoryResponse {
+  event_id: string;
+  year: number;
+  rows: EventParticipationHistoryRow[];
 }
 
 interface CloseAtCapacityResponse {
@@ -219,6 +240,7 @@ const eventsApi = {
     description?: string | null;
     location?: string | null;
     photo_url?: string | null;
+    event_category?: EventRecord['event_category'];
     invitation_stage?: 'volunteer' | 'participant' | 'both';
     event_lead_member_id?: string | null;
     event_lead_secondary_roles?: Array<'MENTOR' | 'PARTICIPANT'>;
@@ -301,6 +323,8 @@ const assignmentsApi = {
     apiDelete<void>(`/events/${eventId}/guest-assignments/${guestAssignmentId}`),
   setAttendance: (eventId: string, assignmentId: string, payload: { attended: boolean; attendance_notes?: string | null }) =>
     apiPatch<EventAssignmentRecord>(`/events/${eventId}/assignments/${assignmentId}/attendance`, payload),
+  participationHistory: (eventId: string) =>
+    apiGet<EventParticipationHistoryResponse>(`/events/${eventId}/participation-history`),
   recommendations: (eventId: string, role: 'MENTOR' | 'PARTICIPANT', limit = 20) =>
     apiGet<AssignmentRecommendationResponse>(`/events/${eventId}/assignment-recommendations?role=${role}&limit=${limit}`),
   closeAtCapacity: (eventId: string) =>
@@ -316,6 +340,8 @@ export type {
   CreateGuestAssignmentPayload,
   AssignmentRecommendationResponse,
   AssignmentRecommendationRow,
+  EventParticipationHistoryResponse,
+  EventParticipationHistoryRow,
   CloseAtCapacityResponse,
   PublicRsvpContext,
   UpdateEventPayload,

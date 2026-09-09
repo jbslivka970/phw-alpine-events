@@ -12,7 +12,7 @@ const eventInviteTemplate: NotificationTemplate = {
           <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="640" style="max-width:640px;width:100%;background:#ffffff;border:1px solid #d4ddd5;border-radius:18px;overflow:hidden;box-shadow:0 10px 28px rgba(25,43,34,0.08);">
             <tr>
               <td style="padding:22px 22px 20px;background:linear-gradient(132deg,#2d5f4d,#1f4a3a);color:#ffffff;">
-                <p style="margin:0 0 8px;font-size:12px;letter-spacing:0.14em;text-transform:uppercase;opacity:0.88;">Colorado Alpine Events</p>
+                <p style="margin:0 0 8px;font-size:12px;letter-spacing:0.14em;text-transform:uppercase;opacity:0.88;">The Current</p>
                 <h2 style="margin:0;font-size:34px;line-height:1.12;letter-spacing:-0.02em;">You're Invited</h2>
                 <p style="margin:10px 0 0;font-size:15px;opacity:0.95;line-height:1.4;">A meaningful day on the water with PHW Alpine.</p>
               </td>

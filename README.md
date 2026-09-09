@@ -1,6 +1,6 @@
-# PHW Alpine Events
+# The Current
 
-Full-stack event management system for Project Healing Waters Colorado Alpine Chapter.
+The event scheduling and participation application for Project Healing Waters, originally developed for the Colorado Alpine Program.
 
 ## Current Release Docs
 

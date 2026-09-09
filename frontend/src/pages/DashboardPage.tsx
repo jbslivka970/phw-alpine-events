@@ -24,7 +24,7 @@ type DashboardStats = {
   totalRsvps: number;
 };
 
-const HERO_PHOTO = '/PHW Photos/PHW-Hartsel25-1410.jpg';
+const HERO_PHOTO = '/dashboard/hero.jpg';
 
 const FALLBACK_GALLERY_PHOTOS = [
   '/PHW Photos/PHW-Hartsel25-1410.jpg',
@@ -34,10 +34,10 @@ const FALLBACK_GALLERY_PHOTOS = [
 ];
 
 const GALLERY_PHOTOS = [
-  '/PHW Photos/IMG_7247.JPG',
-  '/PHW Photos/IMG_7251.JPG',
-  '/PHW Photos/IMG_7264.JPG',
-  '/PHW Photos/PHW-Hartsel25-1247.jpg',
+  '/dashboard/gallery-1.jpg',
+  '/dashboard/gallery-2.jpg',
+  '/dashboard/gallery-3.jpg',
+  '/dashboard/gallery-4.jpg',
 ];
 
 const ONBOARDING_KEY_PREFIX = 'phw-onboarding-dismissed';
@@ -50,6 +50,7 @@ function HeroBanner({ userName }: { userName?: string }) {
         src={HERO_PHOTO}
         alt="Colorado fly fishing"
         loading="eager"
+        fetchPriority="high"
       />
       <div className="phw-hero__overlay" />
       <div className="phw-hero__content">

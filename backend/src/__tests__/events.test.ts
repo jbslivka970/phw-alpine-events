@@ -245,6 +245,83 @@ describe('events routes', () => {
     expect(capturedQuery).toContain('attendance.attended_any = 1');
   });
 
+  it('GET /api/events/:id/assignment-recommendations rewards completed volunteer service for participant priority', async () => {
+    const mockRequest = createRequest(async () => ({
+      recordset: [
+        {
+          member_id: 'service-member',
+          first_name: 'Casey',
+          last_name: 'Cook',
+          response: 'yes',
+          role_attended_year: 0,
+          role_attended_prior_year: 0,
+          total_attended_year: 3,
+          total_attended_prior_year: 0,
+          service_attended_year: 3,
+          service_attended_prior_year: 0,
+        },
+        {
+          member_id: 'rsvp-only-member',
+          first_name: 'Robin',
+          last_name: 'River',
+          response: 'yes',
+          role_attended_year: 0,
+          role_attended_prior_year: 0,
+          total_attended_year: 0,
+          total_attended_prior_year: 0,
+          service_attended_year: 0,
+          service_attended_prior_year: 0,
+        },
+      ],
+    }));
+    (getPool as jest.Mock).mockResolvedValue({ request: () => mockRequest });
+
+    const res = await request(app)
+      .get('/api/events/event-1/assignment-recommendations?role=PARTICIPANT&limit=5');
+
+    expect(res.status).toBe(200);
+    expect(res.body.rows[0]).toMatchObject({
+      member_id: 'service-member',
+      rank: 1,
+      equity_score: -2.45,
+      service_adjustment: -3,
+    });
+    expect(res.body.rows[1]).toMatchObject({
+      member_id: 'rsvp-only-member',
+      rank: 2,
+      equity_score: -0.2,
+      service_adjustment: 0,
+    });
+  });
+
+  it('GET /api/events/:id/participation-history returns bulk event-deduplicated history', async () => {
+    let capturedQuery = '';
+    const mockRequest = createRequest(async (query) => {
+      capturedQuery = query;
+      return {
+        recordset: [{
+          member_id: 'member-1',
+          events_attended: 2,
+          events_attended_prior_year: 1,
+          mentor_attended: 1,
+          mentor_attended_prior_year: 0,
+          participant_attended: 0.5,
+          participant_attended_prior_year: 1,
+        }],
+      };
+    });
+    (getPool as jest.Mock).mockResolvedValue({ request: () => mockRequest });
+
+    const res = await request(app).get('/api/events/event-1/participation-history');
+
+    expect(res.status).toBe(200);
+    expect(res.body.rows).toHaveLength(1);
+    expect(res.body.rows[0].participant_attended).toBe(0.5);
+    expect(capturedQuery).toContain('WITH associated_members AS');
+    expect(capturedQuery).toContain('GROUP BY ea.member_id, ea.event_id, e_hist.event_date');
+    expect(capturedQuery).toContain('CASE WHEN attendance.lead_attended = 1 THEN 0.5 ELSE 1 END');
+  });
+
   it('PUT /api/events/:id/status rejects invalid transition', async () => {
     const supportRequest = createRequest(async () => ({
       recordset: [{ has_event_lead_name: 1, has_event_lead_email: 1 }],

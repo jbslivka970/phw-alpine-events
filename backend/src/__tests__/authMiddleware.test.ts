@@ -209,6 +209,10 @@ describe('authenticate middleware – DB-driven role resolution', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.roles).toEqual(['USER']);
+    const queries = pool.request.mock.results
+      .map((result) => result.value.query.mock.calls.map((call: [string]) => call[0]))
+      .flat();
+    expect(queries.some((query) => query.includes('DATEADD(MINUTE, -15, GETUTCDATE())'))).toBe(true);
   });
 
   it('grants USER via email-only member match (no prior identity link)', async () => {

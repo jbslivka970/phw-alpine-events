@@ -175,6 +175,7 @@ describe('EventsPage flow pattern', () => {
         description: 'First evening outing',
         location: 'Blue Mesa',
         photo_url: null,
+        event_category: 'fishing_trip',
         invitation_stage: 'both',
         event_lead_member_id: null,
         event_lead_secondary_roles: [],

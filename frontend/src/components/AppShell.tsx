@@ -37,7 +37,7 @@ function AppShell() {
             }}
           />
           <div>
-            <span className="app-header__title">Project Healing Waters Alpine Events</span>
+            <span className="app-header__title">The Current</span>
           </div>
         </div>
 

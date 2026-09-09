@@ -408,9 +408,9 @@ async function sendIdentityAccessEmail(input: {
 
   await notificationService.sendEmail({
     to: input.to,
-    subject: 'Welcome to PHW Alpine Events - Sign-in Instructions',
+    subject: 'Welcome to The Current - Sign-in Instructions',
     htmlBody: `<p>Hi ${safeName},</p>
-<p>Welcome to PHW Alpine Events. We are very glad you are here.</p>
+<p>Welcome to The Current. We are very glad you are here.</p>
 <p><strong>Sign in here:</strong><br/>
 <a href="${safeUrl}">${safeUrl}</a></p>
 <p><strong>Where to click:</strong><br/>
@@ -445,7 +445,7 @@ Click <strong>Sign in with Google</strong>, then follow the Google prompts.</p>
 <p style="font-size:12px;color:#6b7280;">Message frequency varies. Message and data rates may apply. Reply STOP to opt out at any time. Reply HELP for help.</p>
 <p>If anything looks confusing, simply reply to this email and we will help right away.</p>
 <p>Thank you,<br/>Project Healing Waters Colorado Alpine</p>`,
-    textBody: `Hi ${safeName},\n\nWelcome to PHW Alpine Events. We are very glad you are here.\n\nSign in here:\n${safeUrl}\n\nScreenshot guide (where to click):\n${signInGuideUrl}\n\nStep-by-step:\n1) Open the sign-in link above.\n2) Choose one sign-in method.\n\nOption A: Google sign-in\n- Select Sign in with Google and continue.\n\nOption B: Email one-time code (OTP)\n1) Choose the email sign-in option and enter your email.\n2) First time only: choose Create one when prompted.\n3) Check your email for the code and enter it.\n4) After setup, use the same email sign-in option each time.\n\n---\n\nOptional: Enable SMS text notifications\n\nOnce signed in, you can receive event invitations, RSVP reminders, and updates by text message.\n\nHow to turn on SMS:\n1) Sign in at the link above.\n2) Go to Notification Preferences: ${notifPrefsUrl}\n3) Enter your mobile number and check the box to enable SMS.\n4) Save your preferences.\n\nScreenshot guide (SMS section):\n${smsConsentGuideUrl}\n\nMessage frequency varies. Message and data rates may apply. Reply STOP to opt out. Reply HELP for help.\n\nIf anything is confusing, reply to this email and we will help right away.\n\nThank you,\nProject Healing Waters Colorado Alpine`,
+    textBody: `Hi ${safeName},\n\nWelcome to The Current. We are very glad you are here.\n\nSign in here:\n${safeUrl}\n\nScreenshot guide (where to click):\n${signInGuideUrl}\n\nStep-by-step:\n1) Open the sign-in link above.\n2) Choose one sign-in method.\n\nOption A: Google sign-in\n- Select Sign in with Google and continue.\n\nOption B: Email one-time code (OTP)\n1) Choose the email sign-in option and enter your email.\n2) First time only: choose Create one when prompted.\n3) Check your email for the code and enter it.\n4) After setup, use the same email sign-in option each time.\n\n---\n\nOptional: Enable SMS text notifications\n\nOnce signed in, you can receive event invitations, RSVP reminders, and updates by text message.\n\nHow to turn on SMS:\n1) Sign in at the link above.\n2) Go to Notification Preferences: ${notifPrefsUrl}\n3) Enter your mobile number and check the box to enable SMS.\n4) Save your preferences.\n\nScreenshot guide (SMS section):\n${smsConsentGuideUrl}\n\nMessage frequency varies. Message and data rates may apply. Reply STOP to opt out. Reply HELP for help.\n\nIf anything is confusing, reply to this email and we will help right away.\n\nThank you,\nProject Healing Waters Colorado Alpine`,
     operationType: 'identity_access_invite',
   });
 }

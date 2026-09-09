@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { ROLES } from '../authConfig';
-import { rootApi } from '../api/root';
 import { useTenantContext } from '../contexts/TenantContext';
 import { useAuth } from '../hooks/useAuth';
 
@@ -36,7 +35,6 @@ export default function Layout() {
   const { activeTenant, tenants, selectTenant } = useTenantContext();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isAdminMenuOpen, setIsAdminMenuOpen] = useState(false);
-  const [isRootAdmin, setIsRootAdmin] = useState(false);
   const adminMenuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -76,37 +74,13 @@ export default function Layout() {
     };
   }, [isAdminMenuOpen]);
 
-  useEffect(() => {
-    let active = true;
-
-    if (!user) {
-      setIsRootAdmin(false);
-      return () => { active = false; };
-    }
-
-    rootApi.getSession()
-      .then((session) => {
-        if (!active) {
-          return;
-        }
-        setIsRootAdmin(Boolean(session.is_root));
-      })
-      .catch(() => {
-        if (!active) {
-          return;
-        }
-        setIsRootAdmin(false);
-      });
-
-    return () => { active = false; };
-  }, [user]);
-
   async function handleLogout() {
     await logout();
     navigate('/login', { replace: true });
   }
 
   const roles = user?.roles ?? [];
+  const isRootAdmin = tenants.some((tenant) => tenant.role === 'root_admin');
   const isDemoTenant = Boolean(activeTenant?.is_demo || activeTenant?.slug?.toLowerCase().includes('demo'));
   const canAccessTavf = canCreateTavfPostings();
   const branding = activeTenant?.branding;
@@ -147,7 +121,7 @@ export default function Layout() {
               onError={(e) => { e.currentTarget.style.display = 'none'; }}
             />
             <div className="phw-layout__brand-text">
-              <div className="phw-layout__brand-title">{isDemoTenant ? 'Alpine Events Demo' : 'Alpine Events'}</div>
+              <div className="phw-layout__brand-title">{isDemoTenant ? 'The Current Demo' : 'The Current'}</div>
               <div className="phw-layout__brand-subtitle">{tenantDisplayName}</div>
             </div>
           </Link>
@@ -276,7 +250,7 @@ export default function Layout() {
               &copy; {new Date().getFullYear()} {tenantDisplayName}
             </p>
             <p className="phw-footer__accessibility">
-              Accessibility notice: PHW Alpine Events aims to conform to WCAG 2.1 AA. If you need assistance accessing any feature, email{' '}
+              Accessibility notice: The Current aims to conform to WCAG 2.1 AA. If you need assistance accessing any feature, email{' '}
               <a href="mailto:accessibility@phwcoloradoalpine.org">accessibility@phwcoloradoalpine.org</a>.
             </p>
           </div>

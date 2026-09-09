@@ -8,3 +8,10 @@
 - [x] Create and Run Task
 - [x] Launch the Project
 - [x] Ensure Documentation is Complete
+
+<!-- mermaid-ai-skills:start -->
+## Mermaid Diagrams
+
+When the user asks to create, edit, or visualize a diagram, follow the
+instructions in `.github/instructions/mermaid.instructions.md`.
+<!-- mermaid-ai-skills:end -->

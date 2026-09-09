@@ -43,7 +43,7 @@ function ShortRsvpRedirectPage() {
     <div className="login-page public-rsvp-page">
       <div className="login-card public-rsvp-card">
         <p className="public-rsvp__eyebrow">Event RSVP</p>
-        <h1 className="login-card__title">Project Healing Waters Alpine Events</h1>
+        <h1 className="login-card__title">The Current</h1>
         {!error && <p className="login-card__desc">Opening your invite…</p>}
         {error && <p className="public-rsvp__error">{error}</p>}
       </div>

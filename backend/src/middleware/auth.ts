@@ -715,7 +715,8 @@ async function upsertMemberIdentityLink(
              identity_provider = COALESCE(@identity_provider, identity_provider),
              last_seen_email = COALESCE(@last_seen_email, last_seen_email),
              updated_at = GETUTCDATE()
-         WHERE member_id = @member_id`
+         WHERE member_id = @member_id
+           AND (last_sign_in_at IS NULL OR last_sign_in_at < DATEADD(MINUTE, -15, GETUTCDATE()))`
       );
 
     return linkedMemberId;

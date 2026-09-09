@@ -146,7 +146,7 @@ app.use(express.json({ limit: '1mb' }));
 
 // Basic route
 app.get('/', (_req, res) => {
-  res.json({ message: 'PHW Alpine Events API', apiBase: '/api/v1' });
+  res.json({ message: 'The Current API', apiBase: '/api/v1' });
 });
 
 app.use('/api/v1', apiRouter);

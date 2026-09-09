@@ -9,7 +9,7 @@ function PrivacyPolicyPage() {
         </div>
 
         <header className="legal-page__header">
-          <p className="legal-page__eyebrow">Project Healing Waters Alpine Events</p>
+          <p className="legal-page__eyebrow">The Current</p>
           <h1 className="legal-page__title">Privacy Policy</h1>
           <p className="legal-page__subtitle">
             Effective Date: April 8, 2026
@@ -56,7 +56,7 @@ function PrivacyPolicyPage() {
           <h2>SMS/Text Messaging Program</h2>
           <h3>Program Description</h3>
           <p>
-            The PHW Colorado Alpine Events SMS program sends operational text messages to
+            The Current SMS program sends operational text messages to
             opted-in members, including event invitations, event reminders, RSVP confirmations,
             waitlist updates, and member support messages.
           </p>
@@ -69,7 +69,7 @@ function PrivacyPolicyPage() {
           </ol>
           <p>
             By opting in, you consent to receive recurring automated SMS messages from Project
-            Healing Waters Alpine Events. Consent is not a condition of participation in any
+            Healing Waters through The Current. Consent is not a condition of participation in any
             PHWFF program or event.
           </p>
 
@@ -108,7 +108,7 @@ function PrivacyPolicyPage() {
         <section className="legal-section">
           <h2>How We Use Your Information</h2>
           <ul>
-            <li>To send SMS notifications related to PHW Colorado Alpine events</li>
+            <li>To send SMS notifications related to events managed in The Current</li>
             <li>To manage event RSVPs, waitlist status, and attendance</li>
             <li>To provide member support and respond to inquiries</li>
             <li>To improve the App and event coordination services</li>
