@@ -150,9 +150,11 @@ BEGIN
         WHERE name = N'CK_event_event_category'
           AND parent_object_id = OBJECT_ID(N'dbo.event')
     )
-        ALTER TABLE dbo.event
-        ADD CONSTRAINT CK_event_event_category
-            CHECK (event_category IN ('fishing_trip', 'fundraiser', 'community_service', 'training', 'social', 'other'));
+        EXEC sp_executesql N'
+            ALTER TABLE dbo.event
+            ADD CONSTRAINT CK_event_event_category
+                CHECK (event_category IN (''fishing_trip'', ''fundraiser'', ''community_service'', ''training'', ''social'', ''other''));
+        ';
 
     IF NOT EXISTS (
         SELECT 1
