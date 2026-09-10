@@ -94,6 +94,9 @@ function validateEmail(value: string | null, fieldName: string): void {
   if (!value) {
     return;
   }
+  if (value.length > 255) {
+    throw new Error(`${fieldName} must be a valid email address`);
+  }
   const normalized = value.toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) {
     throw new Error(`${fieldName} must be a valid email address`);
