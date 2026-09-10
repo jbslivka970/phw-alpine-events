@@ -127,6 +127,7 @@ interface EventFormPayload {
   event_category: EventRecord['event_category']
   invitation_stage: 'volunteer' | 'participant' | 'both'
   event_lead_member_id: string
+  event_lead_name: string
   event_lead_secondary_roles: Array<'MENTOR' | 'PARTICIPANT'>
   scheduler_email: string
   end_date: string
@@ -136,16 +137,16 @@ interface EventFormPayload {
   update_reason: string
 }
 
-type RsvpDraft = {
-  response: 'yes' | 'maybe' | 'no'
-  role: 'MENTOR' | 'PARTICIPANT'
-}
-
 type LeadDirectoryMember = {
   member_id: string
   first_name: string
   last_name: string
   email: string
+}
+
+type RsvpDraft = {
+  response: 'yes' | 'maybe' | 'no'
+  role: 'MENTOR' | 'PARTICIPANT'
 }
 
 const DEFAULT_RSVP_DRAFT: RsvpDraft = {
@@ -287,6 +288,7 @@ function buildDefaultEventForm(): EventFormPayload {
     event_category: 'fishing_trip',
     invitation_stage: 'both',
     event_lead_member_id: '',
+    event_lead_name: '',
     event_lead_secondary_roles: [],
     scheduler_email: '',
     end_date: toLocalDateTimeInputValue(end),
@@ -493,6 +495,7 @@ function payloadFromRecord(e: EventRecord): EventFormPayload {
     event_category: e.event_category ?? 'fishing_trip',
     invitation_stage: e.invitation_stage ?? 'both',
     event_lead_member_id: e.event_lead_member_id ?? '',
+    event_lead_name: e.event_lead_name ?? '',
     event_lead_secondary_roles: e.event_lead_secondary_roles ?? [],
     scheduler_email: e.scheduler_email ?? '',
     end_date: e.end_date ? toLocalDateTimeFromApi(e.end_date) : '',
@@ -588,7 +591,6 @@ function RsvpPanel({ eventId, onClose }: { eventId: string; onClose: () => void 
 interface EventFormModalProps {
   initial: EventFormPayload
   groups: GroupRecord[]
-  leadMembers: LeadDirectoryMember[]
   onSave: (data: EventFormPayload) => Promise<void>
   onGenerateAiDescriptionPreview: (
     payload: { title: string; description: string; event_date?: string; location?: string | null; event_lead_name?: string | null },
@@ -616,8 +618,10 @@ interface FormFieldErrors {
   participant_capacity?: string
 }
 
-function EventFormModal({ initial, groups, leadMembers, onSave, onGenerateAiDescriptionPreview, onGenerateAiDraftPreview, onCancel, saving, error, isEdit }: EventFormModalProps) {
+function EventFormModal({ initial, groups, onSave, onGenerateAiDescriptionPreview, onGenerateAiDraftPreview, onCancel, saving, error, isEdit }: EventFormModalProps) {
   const [form, setForm] = useState<EventFormPayload>(initial)
+  const [leadSearch, setLeadSearch] = useState(initial.event_lead_name)
+  const [leadMatches, setLeadMatches] = useState<LeadDirectoryMember[]>([])
   const [endDateManuallyEdited, setEndDateManuallyEdited] = useState<boolean>(isEdit)
   const [fieldErrors, setFieldErrors] = useState<FormFieldErrors>({})
   const [aiTone, setAiTone] = useState<'friendly' | 'professional' | 'casual' | 'exciting'>('friendly')
@@ -638,10 +642,31 @@ function EventFormModal({ initial, groups, leadMembers, onSave, onGenerateAiDesc
   const [validatingLocation, setValidatingLocation] = useState(false)
   const eventDateParts = splitDateTime(form.event_date)
   const endDateParts = splitDateTime(form.end_date)
-  const selectedLeadMember = leadMembers.find((member) => member.member_id === form.event_lead_member_id) ?? null
-  const aiLeadName = selectedLeadMember
-    ? `${selectedLeadMember.first_name} ${selectedLeadMember.last_name}`.trim()
-    : null
+  const aiLeadName = form.event_lead_name.trim() || null
+
+  useEffect(() => {
+    const query = leadSearch.trim()
+    if (form.event_lead_member_id || query.length < 2) {
+      setLeadMatches([])
+      return
+    }
+
+    let active = true
+    const timeoutId = window.setTimeout(() => {
+      membersApi.list({ page: 1, pageSize: 12, search: query, isActive: true })
+        .then((response) => {
+          if (active) setLeadMatches(response.data)
+        })
+        .catch(() => {
+          if (active) setLeadMatches([])
+        })
+    }, 200)
+
+    return () => {
+      active = false
+      window.clearTimeout(timeoutId)
+    }
+  }, [form.event_lead_member_id, leadSearch])
 
   function set(field: keyof EventFormPayload, value: string) {
     setForm(f => ({ ...f, [field]: value }))
@@ -912,10 +937,6 @@ function EventFormModal({ initial, groups, leadMembers, onSave, onGenerateAiDesc
       }
     }
 
-    if (!form.event_lead_member_id && form.event_lead_secondary_roles.length > 0) {
-      nextErrors.event_lead_member_id = 'Choose an event lead before selecting lead secondary roles.'
-    }
-
     const eventDate = toCanonicalDate(eventDateParts.date)
     const eventTime = toCanonicalTime(eventDateParts.time)
     if (!eventDate) {
@@ -964,7 +985,9 @@ function EventFormModal({ initial, groups, leadMembers, onSave, onGenerateAiDesc
     await onSave({
       ...form,
       title: form.title.trim(),
+      event_lead_member_id: form.event_lead_member_id,
       event_lead_secondary_roles: form.event_lead_member_id ? form.event_lead_secondary_roles : [],
+      event_lead_name: form.event_lead_name.trim(),
       event_date: toApiUtcDateTime(joinDateTime(eventDate!, eventTime!)),
       end_date: endHasInput ? toApiUtcDateTime(joinDateTime(canonicalEndDate!, canonicalEndTime!)) : '',
       mentor_capacity: mentorCapacity == null ? '' : String(mentorCapacity),
@@ -1127,52 +1150,58 @@ function EventFormModal({ initial, groups, leadMembers, onSave, onGenerateAiDesc
 
             <div className="form-field">
               <label className="form-label">Event Lead</label>
-              <select
+              <input
                 className="form-input"
-                value={form.event_lead_member_id}
-                onChange={(e) => {
-                  const memberId = e.target.value
+                value={leadSearch}
+                onChange={e => {
+                  const value = e.target.value
+                  setLeadSearch(value)
                   setForm((current) => ({
                     ...current,
-                    event_lead_member_id: memberId,
-                    event_lead_secondary_roles: memberId ? current.event_lead_secondary_roles : [],
+                    event_lead_member_id: '',
+                    event_lead_name: value,
+                    event_lead_secondary_roles: [],
                   }))
-                  setFieldErrors((prev) => ({ ...prev, event_lead_member_id: undefined }))
                 }}
-              >
-                <option value="">None</option>
-                {leadMembers.map((member) => (
-                  <option key={member.member_id} value={member.member_id}>
-                    {member.first_name} {member.last_name} ({member.email})
-                  </option>
-                ))}
-              </select>
-              {fieldErrors.event_lead_member_id && <p className="form-field-error">{fieldErrors.event_lead_member_id}</p>}
+                placeholder="Name of the host or event lead"
+              />
+              {form.event_lead_member_id ? (
+                <p className="form-field-hint">Linked to a member record for participation and scoring.</p>
+              ) : leadMatches.length > 0 ? (
+                <select
+                  className="form-input"
+                  value=""
+                  onChange={e => {
+                    const member = leadMatches.find((candidate) => candidate.member_id === e.target.value)
+                    if (!member) return
+                    const name = `${member.first_name} ${member.last_name}`.trim()
+                    setLeadSearch(name)
+                    setLeadMatches([])
+                    setForm((current) => ({ ...current, event_lead_member_id: member.member_id, event_lead_name: name }))
+                  }}
+                >
+                  <option value="">Link to a matching member</option>
+                  {leadMatches.map((member) => (
+                    <option key={member.member_id} value={member.member_id}>{member.first_name} {member.last_name} ({member.email})</option>
+                  ))}
+                </select>
+              ) : null}
+              <p className="form-field-hint">Select a matching member to link their participation. Otherwise, the entered name is saved as an external lead with no contact details required.</p>
             </div>
 
             <div className="form-field form-field--full">
               <label className="form-label">Event Lead Secondary Roles</label>
               <div className="group-checks">
                 <label className="group-check">
-                  <input
-                    type="checkbox"
-                    checked={form.event_lead_secondary_roles.includes('MENTOR')}
-                    onChange={() => toggleLeadSecondaryRole('MENTOR')}
-                    disabled={!form.event_lead_member_id}
-                  />
+                  <input type="checkbox" checked={form.event_lead_secondary_roles.includes('MENTOR')} onChange={() => toggleLeadSecondaryRole('MENTOR')} disabled={!form.event_lead_member_id} />
                   Lead also serves as Volunteer
                 </label>
                 <label className="group-check">
-                  <input
-                    type="checkbox"
-                    checked={form.event_lead_secondary_roles.includes('PARTICIPANT')}
-                    onChange={() => toggleLeadSecondaryRole('PARTICIPANT')}
-                    disabled={!form.event_lead_member_id}
-                  />
+                  <input type="checkbox" checked={form.event_lead_secondary_roles.includes('PARTICIPANT')} onChange={() => toggleLeadSecondaryRole('PARTICIPANT')} disabled={!form.event_lead_member_id} />
                   Lead also serves as Participant
                 </label>
               </div>
-              <p className="form-field-hint">Leave both unchecked when the lead should be LEAD-only.</p>
+              <p className="form-field-hint">Available after linking the lead to a member record.</p>
             </div>
 
             <div className="form-field form-field--full">
@@ -1375,7 +1404,6 @@ function EventsPage() {
 
   const [events, setEvents] = useState<EventRecord[]>([])
   const [groups, setGroups] = useState<GroupRecord[]>([])
-  const [leadMembers, setLeadMembers] = useState<LeadDirectoryMember[]>([])
   const [filter, setFilter] = useState<EventRecord['status'] | 'all'>('all')
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
@@ -1428,17 +1456,6 @@ function EventsPage() {
     void loadEvents()
     if (canEdit) {
       groupsApi.list().then(setGroups).catch(() => setGroups([]))
-      membersApi.list({ page: 1, pageSize: 200, isActive: true })
-        .then((response) => {
-          const rows = response.data.map((member: MemberRecord) => ({
-            member_id: member.member_id,
-            first_name: member.first_name,
-            last_name: member.last_name,
-            email: member.email,
-          }))
-          setLeadMembers(rows)
-        })
-        .catch(() => setLeadMembers([]))
     }
   }, [loadEvents, canEdit])
 
@@ -1491,6 +1508,7 @@ function EventsPage() {
         invitation_stage: form.invitation_stage,
         event_lead_member_id: form.event_lead_member_id || null,
         event_lead_secondary_roles: form.event_lead_member_id ? form.event_lead_secondary_roles : [],
+        event_lead_name: form.event_lead_name.trim() || null,
         scheduler_email: form.scheduler_email.trim().toLowerCase() || null,
         end_date: form.end_date || null,
         mentor_capacity: mentorCapacity,
@@ -2008,7 +2026,6 @@ function EventsPage() {
         <EventFormModal
           initial={editTarget ? { ...payloadFromRecord(editTarget), notification_targets: editInitialTargets } : buildDefaultEventForm()}
           groups={groups}
-          leadMembers={leadMembers}
           onSave={handleSave}
           onGenerateAiDescriptionPreview={generateAiDescriptionPreview}
           onGenerateAiDraftPreview={generateAiDraftPreview}

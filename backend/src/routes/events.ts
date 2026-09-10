@@ -233,9 +233,8 @@ async function ensureTenantEventAccess(req: Request, res: Response, pool: Awaite
   return true;
 }
 
-// Derived projections that overlay event.event_lead_member_id with member name/email.
-// Used as drop-in replacements for legacy event_lead_name/event_lead_email column reads.
-const EVENT_LEAD_NAME_SELECT = `(SELECT TOP 1 LTRIM(RTRIM(ISNULL(lm.first_name, N'') + N' ' + ISNULL(lm.last_name, N''))) FROM dbo.member lm WHERE lm.member_id = event_lead_member_id) AS event_lead_name`;
+// Freeform external leads override the name derived from a linked member record.
+const EVENT_LEAD_NAME_SELECT = `COALESCE(NULLIF(LTRIM(RTRIM(external_event_lead_name)), N''), (SELECT TOP 1 LTRIM(RTRIM(ISNULL(lm.first_name, N'') + N' ' + ISNULL(lm.last_name, N''))) FROM dbo.member lm WHERE lm.member_id = event_lead_member_id)) AS event_lead_name`;
 const EVENT_LEAD_EMAIL_SELECT = `(SELECT TOP 1 lm.email FROM dbo.member lm WHERE lm.member_id = event_lead_member_id) AS event_lead_email`;
 
 function isNotificationConfigurationError(error: unknown): error is Error {
@@ -1065,6 +1064,7 @@ router.post('/', writeLimiter, authenticate, requireEventCreatorOrAdmin, async (
     const eventLeadMemberId = eventLeadMemberIdRaw === null || eventLeadMemberIdRaw === undefined
       ? null
       : asUuidOrNull(eventLeadMemberIdRaw);
+    const eventLeadName = normalizeString(req.body?.event_lead_name);
     const eventLeadSecondaryRoles = parseEventLeadSecondaryRoles(req.body?.event_lead_secondary_roles);
     if (eventLeadMemberIdRaw !== undefined && eventLeadMemberIdRaw !== null && !eventLeadMemberId) {
       res.status(400).json({ error: 'event_lead_member_id must be a valid UUID when provided' });
@@ -1076,6 +1076,10 @@ router.post('/', writeLimiter, authenticate, requireEventCreatorOrAdmin, async (
     }
     if (!eventLeadMemberId && eventLeadSecondaryRoles.length > 0) {
       res.status(400).json({ error: 'event_lead_secondary_roles requires event_lead_member_id' });
+      return;
+    }
+    if (eventLeadName && eventLeadName.length > 200) {
+      res.status(400).json({ error: 'event_lead_name must be 200 characters or fewer' });
       return;
     }
     if (req.body?.scheduler_email !== undefined && normalizeString(req.body?.scheduler_email) && !parseOptionalEmail(req.body?.scheduler_email)) {
@@ -1231,6 +1235,11 @@ router.post('/', writeLimiter, authenticate, requireEventCreatorOrAdmin, async (
       insertValues.push('@event_lead_member_id');
       createRequest.input('event_lead_member_id', sql.UniqueIdentifier, eventLeadMemberId);
     }
+    if (!eventLeadMemberId && eventLeadName) {
+      insertColumns.push('external_event_lead_name');
+      insertValues.push('@external_event_lead_name');
+      createRequest.input('external_event_lead_name', sql.NVarChar(200), eventLeadName);
+    }
 
     const created = await createRequest.query(
       `INSERT INTO event (${insertColumns.join(', ')})
@@ -1357,6 +1366,7 @@ router.put('/:id', writeLimiter, authenticate, requireEventCreatorOrAdmin, async
     const proposedEventCategory = req.body?.event_category;
     const proposedInvitationStage = req.body?.invitation_stage;
     const proposedEventLeadMemberIdRaw = req.body?.event_lead_member_id;
+    const proposedEventLeadName = normalizeString(req.body?.event_lead_name);
     const hasEventLeadSecondaryRolesInput = req.body?.event_lead_secondary_roles !== undefined;
     const proposedEventLeadSecondaryRoles = parseEventLeadSecondaryRoles(req.body?.event_lead_secondary_roles);
     const proposedSchedulerEmail = req.body?.scheduler_email;
@@ -1393,6 +1403,10 @@ router.put('/:id', writeLimiter, authenticate, requireEventCreatorOrAdmin, async
       if ((proposedEventLeadMemberId ?? null) !== (existing.event_lead_member_id ?? null)) {
         changedFields.push('event_lead_member_id');
       }
+    }
+    if (req.body?.event_lead_name !== undefined && proposedEventLeadName && proposedEventLeadName.length > 200) {
+      res.status(400).json({ error: 'event_lead_name must be 200 characters or fewer' });
+      return;
     }
     if (hasEventLeadSecondaryRolesInput) {
       if (proposedEventLeadSecondaryRoles === null) {
@@ -1459,6 +1473,14 @@ router.put('/:id', writeLimiter, authenticate, requireEventCreatorOrAdmin, async
       }
       updates.push('event_lead_member_id = @event_lead_member_id');
       request.input('event_lead_member_id', sql.UniqueIdentifier, newLeadMemberId);
+    }
+    if (req.body?.event_lead_name !== undefined) {
+      updates.push('external_event_lead_name = @external_event_lead_name');
+      request.input(
+        'external_event_lead_name',
+        sql.NVarChar(200),
+        req.body?.event_lead_member_id ? null : proposedEventLeadName
+      );
     }
 
     const nextLeadMemberId = req.body?.event_lead_member_id !== undefined

@@ -114,15 +114,6 @@ function getFieldByLabel(labelText: string) {
   return field;
 }
 
-function getSelectByLabel(labelText: string) {
-  const label = screen.getByText(labelText);
-  const field = label.parentElement?.querySelector('select') as HTMLSelectElement | null;
-  if (!field) {
-    throw new Error(`Select not found for label: ${labelText}`);
-  }
-  return field;
-}
-
 describe('EventsPage flow pattern', () => {
   beforeEach(() => {
     mockedUseAuth.mockReturnValue({
@@ -178,6 +169,7 @@ describe('EventsPage flow pattern', () => {
         event_category: 'fishing_trip',
         invitation_stage: 'both',
         event_lead_member_id: null,
+        event_lead_name: null,
         event_lead_secondary_roles: [],
         scheduler_email: null,
         end_date: null,
@@ -189,7 +181,7 @@ describe('EventsPage flow pattern', () => {
     });
   });
 
-  it('enables lead secondary-role checkbox after lead selection and includes role in payload', async () => {
+  it('accepts an external event lead without requiring a member record or contact details', async () => {
     renderPage();
 
     await screen.findByRole('heading', { name: 'Events' });
@@ -204,27 +196,35 @@ describe('EventsPage flow pattern', () => {
     await setFieldByLabel('Volunteer Capacity', '1');
     await setFieldByLabel('Participant Capacity', '2');
 
-    await screen.findByRole('option', { name: /Lead Member \(lead\.member@example\.com\)/i });
-
-    const leadAlsoVolunteer = screen.getByLabelText('Lead also serves as Volunteer') as HTMLInputElement;
-    expect(leadAlsoVolunteer).toBeDisabled();
-
-    const leadSelect = getSelectByLabel('Event Lead');
-    await userEvent.selectOptions(leadSelect, '11111111-1111-4111-8111-111111111111');
-
-    expect(leadAlsoVolunteer).not.toBeDisabled();
-    await userEvent.click(leadAlsoVolunteer);
-    expect(leadAlsoVolunteer.checked).toBe(true);
+    await setFieldByLabel('Event Lead', 'Colorado Springs Host');
 
     await userEvent.click(screen.getByRole('button', { name: 'Create Event' }));
 
     await waitFor(() => {
       expect(mockedEventsApi.create).toHaveBeenCalledTimes(1);
       expect(mockedEventsApi.create).toHaveBeenCalledWith(expect.objectContaining({
-        event_lead_member_id: '11111111-1111-4111-8111-111111111111',
-        event_lead_secondary_roles: ['MENTOR'],
+        event_lead_member_id: null,
+        event_lead_name: 'Colorado Springs Host',
+        event_lead_secondary_roles: [],
       }));
     });
+  });
+
+  it('links a matching member so the lead can also serve as a volunteer', async () => {
+    renderPage();
+
+    await screen.findByRole('heading', { name: 'Events' });
+    await userEvent.click(screen.getByRole('button', { name: /\+ New Event/i }));
+    await setFieldByLabel('Event Lead', 'Lead');
+
+    const matchingOption = await screen.findByRole('option', { name: /Lead Member \(lead\.member@example\.com\)/i });
+    const matchingSelect = matchingOption.parentElement as HTMLSelectElement;
+    await userEvent.selectOptions(matchingSelect, '11111111-1111-4111-8111-111111111111');
+
+    const leadAlsoVolunteer = screen.getByLabelText('Lead also serves as Volunteer') as HTMLInputElement;
+    expect(leadAlsoVolunteer).not.toBeDisabled();
+    await userEvent.click(leadAlsoVolunteer);
+    expect(leadAlsoVolunteer.checked).toBe(true);
   });
 
   it('edits an event and submits update reason', async () => {

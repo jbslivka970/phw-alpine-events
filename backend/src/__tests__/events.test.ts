@@ -1134,6 +1134,38 @@ describe('events routes', () => {
     expect(executedSql).toContain("AND role = 'PARTICIPANT'");
   });
 
+  it('POST /api/events persists an external event lead without a member assignment', async () => {
+    const dbMock = jest.requireMock('../db') as { sql: { NVarChar: unknown } };
+    const originalNVarChar = dbMock.sql.NVarChar;
+    dbMock.sql.NVarChar = ((_: unknown) => 'NVarChar') as unknown;
+
+    const mockRequest = createRequest(async (query) => {
+      if (query.includes('COL_LENGTH')) {
+        return { recordset: [{ has_photo_url: 1, has_invitation_stage: 1, has_event_category: 1 }] };
+      }
+      if (query.includes('INSERT INTO event')) {
+        return { recordset: [{ event_id: '22222222-2222-4222-8222-222222222222' }] };
+      }
+      return { recordset: [] };
+    });
+    (getPool as jest.Mock).mockResolvedValue({ request: () => mockRequest });
+
+    const res = await request(app)
+      .post('/api/events')
+      .send({
+        title: 'External Lead Test',
+        event_date: '2026-06-21T12:00:00.000Z',
+        event_lead_name: 'Colorado Springs Host',
+      });
+
+    dbMock.sql.NVarChar = originalNVarChar;
+
+    expect(res.status).toBe(201);
+    const executedSql = mockRequest.query.mock.calls.map((call) => String(call[0])).join('\n');
+    expect(executedSql).toContain('external_event_lead_name');
+    expect(executedSql).not.toContain("'LEAD' AS role");
+  });
+
   it('PUT /api/events/:id rejects secondary roles when no lead member id is set', async () => {
     const mockRequest = createRequest(async (query) => {
       const q = query.toUpperCase();

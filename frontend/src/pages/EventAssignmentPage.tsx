@@ -761,7 +761,7 @@ function EventAssignmentPage() {
   const derivedLeadName = leadAssignments.length > 0
     ? leadAssignments.map((assignment) => `${assignment.first_name} ${assignment.last_name}`.trim()).join(', ')
     : (eventDetail?.event_lead_name ?? 'Not set')
-  const hasLeadConfigured = Boolean(eventDetail?.event_lead_member_id || leadAssignments.length > 0)
+  const hasLeadConfigured = Boolean(eventDetail?.event_lead_member_id || eventDetail?.event_lead_name || leadAssignments.length > 0)
 
   return (
     <div className="page event-assignments-page">
