@@ -53,6 +53,10 @@ if (webConfig) {
       fail(`web.config missing rewrite pattern: ${rulePattern}`);
     }
   }
+
+  if (/matchType="IsDirectory"\s+negate="true"/.test(webConfig)) {
+    fail('web.config must rewrite directory-like SPA routes instead of allowing EISDIR responses');
+  }
 }
 
 const smsProgram = readText('frontend/public/sms-program.html');

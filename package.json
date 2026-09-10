@@ -27,5 +27,6 @@
   "devDependencies": {
     "@playwright/test": "^1.58.2",
     "playwright": "^1.58.2"
-  }
+  },
+  "version": "6.1.2"
 }
