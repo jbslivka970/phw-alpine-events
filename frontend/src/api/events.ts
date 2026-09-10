@@ -107,6 +107,7 @@ interface EventAssignmentRecord {
   last_name: string;
   role: 'LEAD' | 'MENTOR' | 'PARTICIPANT' | string;
   assigned_at: string;
+  notes?: string | null;
   attended: boolean;
   attendance_notes?: string | null;
 }
@@ -323,6 +324,8 @@ const assignmentsApi = {
     apiDelete<void>(`/events/${eventId}/guest-assignments/${guestAssignmentId}`),
   setAttendance: (eventId: string, assignmentId: string, payload: { attended: boolean; attendance_notes?: string | null }) =>
     apiPatch<EventAssignmentRecord>(`/events/${eventId}/assignments/${assignmentId}/attendance`, payload),
+  updateDetails: (eventId: string, assignmentId: string, payload: { notes: string | null }) =>
+    apiPatch<EventAssignmentRecord>(`/events/${eventId}/assignments/${assignmentId}/details`, payload),
   participationHistory: (eventId: string) =>
     apiGet<EventParticipationHistoryResponse>(`/events/${eventId}/participation-history`),
   recommendations: (eventId: string, role: 'MENTOR' | 'PARTICIPANT', limit = 20) =>

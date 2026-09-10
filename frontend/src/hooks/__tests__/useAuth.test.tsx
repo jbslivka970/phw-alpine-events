@@ -1,6 +1,6 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { useAuth } from '../useAuth'
+import { resetSharedAuthStateForTests, useAuth } from '../useAuth'
 
 const mockSetTokenGetter = vi.fn()
 const mockSetEmailHint = vi.fn()
@@ -57,6 +57,7 @@ describe('useAuth auth flow regression coverage', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    resetSharedAuthStateForTests()
     window.localStorage.clear()
     vi.stubGlobal('fetch', mockFetch as unknown as typeof fetch)
 
@@ -290,6 +291,11 @@ describe('useAuth auth flow regression coverage', () => {
   })
 
   it('shares backend-resolved roles across separate useAuth hook instances', async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ auth_roles: ['ADMIN'] }),
+    })
     const first = renderHook(() => useAuth())
     const second = renderHook(() => useAuth())
 
@@ -297,5 +303,16 @@ describe('useAuth auth flow regression coverage', () => {
       expect(first.result.current.isAdmin()).toBe(true)
       expect(second.result.current.isAdmin()).toBe(true)
     })
+
+    const third = renderHook(() => useAuth())
+    await waitFor(() => {
+      expect(third.result.current.isAdmin()).toBe(true)
+    })
+
+    expect(mockFetch).toHaveBeenCalledTimes(1)
+    const forcedRefreshCalls = msalInstance.acquireTokenSilent.mock.calls.filter(
+      ([request]) => request?.forceRefresh === true,
+    )
+    expect(forcedRefreshCalls).toHaveLength(1)
   })
 })

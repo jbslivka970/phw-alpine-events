@@ -3271,6 +3271,7 @@ router.get('/:id/assignments', apiLimiter, authenticate, requireAnyAuthenticated
             m.last_name,
             ea.role,
             ea.assigned_at,
+            ea.notes,
             ea.attended,
             ea.attendance_notes
          FROM event_assignment ea
@@ -3724,6 +3725,51 @@ router.patch('/:id/assignments/:assignmentId/attendance', writeLimiter, authenti
     res.json(updated);
   } catch (error) {
     console.error('PATCH /events/:id/assignments/:assignmentId/attendance failed', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.patch('/:id/assignments/:assignmentId/details', writeLimiter, authenticate, requireEventCreatorOrAdmin, async (req, res) => {
+  try {
+    if (req.body?.notes !== null && req.body?.notes !== undefined && typeof req.body.notes !== 'string') {
+      res.status(400).json({ error: 'notes must be a string or null.' });
+      return;
+    }
+
+    const notes = normalizeString(req.body?.notes);
+    if (notes && notes.length > 100) {
+      res.status(400).json({ error: 'Volunteer duty or specialty must be 100 characters or less.' });
+      return;
+    }
+
+    const pool = await getPool();
+    if (!(await ensureTenantEventAccess(req, res, pool, req.params.id))) {
+      return;
+    }
+
+    const result = await pool
+      .request()
+      .input('event_id', sql.UniqueIdentifier, req.params.id)
+      .input('assignment_id', sql.UniqueIdentifier, req.params.assignmentId)
+      .input('notes', sql.NVarChar, notes)
+      .query(
+        `UPDATE event_assignment
+         SET notes = @notes
+         OUTPUT INSERTED.*
+         WHERE event_id = @event_id
+           AND assignment_id = @assignment_id
+           AND role = 'MENTOR'`
+      );
+
+    const updated = result.recordset[0];
+    if (!updated) {
+      res.status(404).json({ error: 'Volunteer assignment not found.' });
+      return;
+    }
+
+    res.json(updated);
+  } catch (error) {
+    console.error('PATCH /events/:id/assignments/:assignmentId/details failed', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

@@ -120,6 +120,17 @@ The priority score is guidance, not an automatic decision. Consider qualificatio
 
 Attendance history includes only assignments with **Attended** checked on completed events. A checked assignment on a draft or published event does not yet affect history or priority scores.
 
+### Record a volunteer duty or specialty
+
+Each Volunteer assignment can have its own event-specific duty or specialty, such as Cook, Driver, Photographer, Registration, Guide, or Equipment Support.
+
+1. Open the event management page and find **Current Assignments**.
+2. Find the assigned Volunteer.
+3. Enter the duty under **Volunteer Duty / Specialty**.
+4. Select **Save**.
+
+The specialty describes what that person is doing at this event. It does not permanently label the member, and it does not change the service-credit amount: an attended Volunteer assignment earns one service event after the event is completed.
+
 ### Reports and summaries
 
 From event management, authorized users can:

@@ -322,6 +322,26 @@ describe('events routes', () => {
     expect(capturedQuery).toContain('CASE WHEN attendance.lead_attended = 1 THEN 0.5 ELSE 1 END');
   });
 
+  it('PATCH /api/events/:id/assignments/:assignmentId/details saves a volunteer specialty', async () => {
+    let capturedQuery = '';
+    let capturedParams: Record<string, unknown> = {};
+    const mockRequest = createRequest(async (query, params) => {
+      capturedQuery = query;
+      capturedParams = params;
+      return { recordset: [{ assignment_id: 'assignment-1', role: 'MENTOR', notes: 'Cook' }] };
+    });
+    (getPool as jest.Mock).mockResolvedValue({ request: () => mockRequest });
+
+    const res = await request(app)
+      .patch('/api/events/event-1/assignments/assignment-1/details')
+      .send({ notes: 'Cook' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.notes).toBe('Cook');
+    expect(capturedParams.notes).toBe('Cook');
+    expect(capturedQuery).toContain("AND role = 'MENTOR'");
+  });
+
   it('PUT /api/events/:id/status rejects invalid transition', async () => {
     const supportRequest = createRequest(async () => ({
       recordset: [{ has_event_lead_name: 1, has_event_lead_email: 1 }],

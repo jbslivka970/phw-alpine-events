@@ -14,6 +14,8 @@ const TOKEN_EXPIRY_SAFETY_WINDOW_MS = 60_000
 const TOKEN_BUSY_RETRY_MS = 400
 const TOKEN_BUSY_RETRY_ATTEMPTS = 5
 const TOKEN_INTERACTIVE_COOLDOWN_MS = 30_000
+const ROLE_HYDRATION_TTL_MS = 60_000
+const CLAIMS_REFRESH_TTL_MS = 300_000
 
 interface CachedAccessToken {
   token: string
@@ -44,7 +46,26 @@ let sharedRoleState: SharedRoleState = {
   roles: [],
   rolesReady: true,
 }
+let sharedRoleHydratedAtMs = 0
+let sharedRoleHydrationKey: string | null = null
+let sharedRoleHydration: { key: string; promise: Promise<AppRole[]> } | null = null
+let sharedClaimsRefresh: {
+  accountKey: string
+  promise: Promise<{ claims: Record<string, unknown> | undefined; accessRoles: AppRole[] }>
+} | null = null
+let sharedClaimsRefreshAccountKey: string | null = null
+let sharedClaimsRefreshedAtMs = 0
 const sharedRoleSubscribers = new Set<(state: SharedRoleState) => void>()
+
+function resetSharedAuthStateForTests(): void {
+  sharedRoleState = { accountKey: null, roles: [], rolesReady: true }
+  sharedRoleHydratedAtMs = 0
+  sharedRoleHydrationKey = null
+  sharedRoleHydration = null
+  sharedClaimsRefresh = null
+  sharedClaimsRefreshAccountKey = null
+  sharedClaimsRefreshedAtMs = 0
+}
 
 function isLocalE2EAuthEnabled(): boolean {
   if (typeof window !== 'undefined') {
@@ -170,6 +191,9 @@ function publishSharedRoles(accountKey: string | null, roles: AppRole[], rolesRe
     roles,
     rolesReady,
   }
+  if (rolesReady) {
+    sharedRoleHydratedAtMs = Date.now()
+  }
 
   for (const subscriber of sharedRoleSubscribers) {
     subscriber(sharedRoleState)
@@ -191,6 +215,9 @@ function useAuth() {
 
   const accountClaims = account?.idTokenClaims as Record<string, unknown> | undefined
   const accountKey = getAccountKey(account?.localAccountId)
+  const roleHydrationKey = accountKey
+    ? `${accountKey}:${resolveEmailHintHeader(accountClaims, account?.username) ?? ''}`
+    : null
   const [resolvedRoles, setResolvedRoles] = useState<AppRole[]>(() => mergeWithSharedRoles(accountKey, mapRoles(accountClaims)))
   const [rolesReady, setRolesReady] = useState(() => {
     if (!account) {
@@ -459,6 +486,14 @@ function useAuth() {
       return []
     }
 
+    if (accountKey
+      && sharedRoleState.accountKey === accountKey
+      && sharedRoleState.rolesReady
+      && sharedRoleHydrationKey === roleHydrationKey
+      && (Date.now() - sharedRoleHydratedAtMs) < ROLE_HYDRATION_TTL_MS) {
+      return sharedRoleState.roles
+    }
+
     let accessToken: string | null = null
     try {
       accessToken = await acquireAccessToken()
@@ -543,6 +578,7 @@ function useAuth() {
         : []
 
       if (backendRoles.length > 0) {
+        sharedRoleHydrationKey = roleHydrationKey
         setResolvedRoles((current) => {
           const merged = mergeRoles(current, backendRoles)
           publishSharedRoles(accountKey, merged, true)
@@ -566,15 +602,32 @@ function useAuth() {
       })
       return []
     }
-  }, [account, accountClaims, acquireAccessToken, interactionBusy, localE2EAuth])
+  }, [account, accountClaims, accountKey, acquireAccessToken, interactionBusy, localE2EAuth, roleHydrationKey])
 
   useEffect(() => {
     let cancelled = false
 
     async function hydrateBackendRoles() {
-      const backendRoles = await ensureBackendRoles()
-      if (!cancelled && backendRoles.length > 0) {
-        setRolesReady(true)
+      if (!accountKey || !roleHydrationKey) {
+        return
+      }
+
+      let hydration = sharedRoleHydration
+      if (!hydration || hydration.key !== roleHydrationKey) {
+        const promise = ensureBackendRoles()
+        hydration = { key: roleHydrationKey, promise }
+        sharedRoleHydration = hydration
+      }
+
+      try {
+        const backendRoles = await hydration.promise
+        if (!cancelled && backendRoles.length > 0) {
+          setRolesReady(true)
+        }
+      } finally {
+        if (sharedRoleHydration === hydration) {
+          sharedRoleHydration = null
+        }
       }
     }
 
@@ -583,7 +636,7 @@ function useAuth() {
     return () => {
       cancelled = true
     }
-  }, [ensureBackendRoles])
+  }, [accountKey, ensureBackendRoles, roleHydrationKey])
 
   useEffect(() => {
     if (account) {
@@ -608,17 +661,37 @@ function useAuth() {
       }
 
       try {
-        const tokenResponse = await instance.acquireTokenSilent({
-          ...loginRequest,
-          account,
-          forceRefresh: true,
-        })
+        if (!accountKey) {
+          return
+        }
+
+        if (sharedClaimsRefreshAccountKey === accountKey
+          && (Date.now() - sharedClaimsRefreshedAtMs) < CLAIMS_REFRESH_TTL_MS) {
+          return
+        }
+
+        let refresh = sharedClaimsRefresh
+        if (!refresh || refresh.accountKey !== accountKey) {
+          const promise = instance.acquireTokenSilent({
+            ...loginRequest,
+            account,
+            forceRefresh: true,
+          }).then((tokenResponse) => ({
+            claims: tokenResponse.idTokenClaims as Record<string, unknown> | undefined,
+            accessRoles: mapRoles(decodeJwtPayload(tokenResponse.accessToken)),
+          }))
+          refresh = { accountKey, promise }
+          sharedClaimsRefresh = refresh
+        }
+
+        const refreshed = await refresh.promise
+        sharedClaimsRefreshAccountKey = accountKey
+        sharedClaimsRefreshedAtMs = Date.now()
 
         if (!cancelled) {
-          const refreshedClaims = tokenResponse.idTokenClaims as Record<string, unknown> | undefined
           const mergedRoles = mergeWithSharedRoles(accountKey, mergeRoles(
-            mapRoles(refreshedClaims),
-            mapRoles(decodeJwtPayload(tokenResponse.accessToken)),
+            mapRoles(refreshed.claims),
+            refreshed.accessRoles,
           ))
           setResolvedRoles(mergedRoles)
           if (accountKey && sharedRoleState.accountKey === accountKey && sharedRoleState.roles.length > 0) {
@@ -629,6 +702,9 @@ function useAuth() {
       } catch {
         // Keep previously derived roles if forced refresh is unavailable.
       } finally {
+        if (accountKey && sharedClaimsRefresh?.accountKey === accountKey) {
+          sharedClaimsRefresh = null
+        }
         if (!cancelled) {
           setRolesReady(true)
         }
@@ -640,7 +716,7 @@ function useAuth() {
     return () => {
       cancelled = true
     }
-  }, [account, instance])
+  }, [account, accountKey, instance])
 
   const subjectClaim = typeof account?.idTokenClaims?.sub === 'string'
     ? account.idTokenClaims.sub
@@ -1198,4 +1274,4 @@ function normalizeRole(value: string): AppRole | null {
   return null
 }
 
-export { useAuth }
+export { resetSharedAuthStateForTests, useAuth }

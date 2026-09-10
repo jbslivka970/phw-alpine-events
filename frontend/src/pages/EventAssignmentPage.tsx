@@ -12,6 +12,7 @@ type Assignment = {
   last_name: string
   role: string
   assigned_at: string
+  notes?: string | null
   attended: boolean
   attendance_notes?: string | null
 }
@@ -139,6 +140,8 @@ function EventAssignmentPage() {
   const [guestProgramName, setGuestProgramName] = useState('')
   const [guestSubmitting, setGuestSubmitting] = useState(false)
   const [participation, setParticipation] = useState<Record<string, ParticipationSummary>>({})
+  const [assignmentNotes, setAssignmentNotes] = useState<Record<string, string>>({})
+  const [savingAssignmentNoteId, setSavingAssignmentNoteId] = useState<string | null>(null)
   const [priorityRole, setPriorityRole] = useState<'MENTOR' | 'PARTICIPANT'>('PARTICIPANT')
   const [recommendations, setRecommendations] = useState<AssignmentRecommendationRow[]>([])
   const [recommendationsLoading, setRecommendationsLoading] = useState(false)
@@ -209,6 +212,7 @@ function EventAssignmentPage() {
 
     setEventDetail(eventDetail)
     setAssignments(asns as Assignment[])
+    setAssignmentNotes(Object.fromEntries(asns.map((assignment) => [assignment.assignment_id, assignment.notes ?? ''])))
     setGuestAssignments(guestAsns as GuestAssignment[])
     setEventCapacity(eventDetail ? {
       mentor_capacity: eventDetail.mentor_capacity,
@@ -459,6 +463,24 @@ function EventAssignmentPage() {
       await refreshEventData(eventId)
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to update attendance')
+    }
+  }
+
+  async function updateVolunteerSpecialty(assignment: Assignment) {
+    if (!eventId || assignment.role !== 'MENTOR') {
+      return
+    }
+
+    setSavingAssignmentNoteId(assignment.assignment_id)
+    setError(null)
+    try {
+      const notes = assignmentNotes[assignment.assignment_id]?.trim() || null
+      await assignmentsApi.updateDetails(eventId, assignment.assignment_id, { notes })
+      await refreshEventData(eventId)
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to save volunteer duty')
+    } finally {
+      setSavingAssignmentNoteId(null)
     }
   }
 
@@ -1081,15 +1103,16 @@ function EventAssignmentPage() {
         </p>
         <table className="members-table">
           <thead>
-            <tr><th>Name</th><th>Role</th><th>Role CY/PY</th><th>Total CY/PY</th><th>Attended</th><th>Action</th></tr>
+            <tr><th>Name</th><th>Role</th><th>Volunteer Duty / Specialty</th><th>Role CY/PY</th><th>Total CY/PY</th><th>Attended</th><th>Action</th></tr>
           </thead>
           <tbody>
             {groupedAssignments.length === 0 && guestAssignments.length === 0 ? (
-              <tr><td colSpan={6}>No assignments yet.</td></tr>
+              <tr><td colSpan={7}>No assignments yet.</td></tr>
             ) : (
               <>
                 {groupedAssignments.map((row) => {
                   const p = participationFor(row.member_id)
+                  const volunteerAssignment = row.assignments.find((assignment) => assignment.role === 'MENTOR')
                   return (
                     <tr key={row.member_id}>
                       <td>{row.first_name} {row.last_name}</td>
@@ -1104,6 +1127,30 @@ function EventAssignmentPage() {
                             </span>
                           ))}
                         </div>
+                      </td>
+                      <td>
+                        {volunteerAssignment ? (
+                          <div className="members-row-actions">
+                            <input
+                              className="members-search"
+                              aria-label={`Volunteer duty for ${row.first_name} ${row.last_name}`}
+                              value={assignmentNotes[volunteerAssignment.assignment_id] ?? ''}
+                              onChange={(event) => setAssignmentNotes((current) => ({
+                                ...current,
+                                [volunteerAssignment.assignment_id]: event.target.value,
+                              }))}
+                              placeholder="Cook, Driver, Photographer..."
+                              maxLength={100}
+                            />
+                            <button
+                              className="btn btn--sm btn--outline"
+                              disabled={savingAssignmentNoteId === volunteerAssignment.assignment_id}
+                              onClick={() => void updateVolunteerSpecialty(volunteerAssignment)}
+                            >
+                              {savingAssignmentNoteId === volunteerAssignment.assignment_id ? 'Saving…' : 'Save'}
+                            </button>
+                          </div>
+                        ) : '—'}
                       </td>
                       <td>{roleParticipationSummary(row.roles, p)}</td>
                       <td>{p.events_attended} / {p.events_attended_prior_year}</td>
@@ -1136,6 +1183,7 @@ function EventAssignmentPage() {
                         </span>
                       </div>
                     </td>
+                    <td>—</td>
                     <td>Program guest</td>
                     <td>—</td>
                     <td>—</td>

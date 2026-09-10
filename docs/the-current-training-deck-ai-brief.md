@@ -62,7 +62,7 @@ Create 14 slides in this order:
    For Event Creators and Administrators. Cover event categories, core details, lead, scheduler, capacity, audience, draft review, and publish caution. Categories are Fishing Trip, Fundraiser, Community Service, Training, Social, and Other.
 
 9. **Manage Capacity and Guests**
-   Explain Capacity Controls, Close Event At Capacity, Manual Association, and Guest Assignments.
+   Explain Capacity Controls, Close Event At Capacity, Manual Association, Guest Assignments, and event-specific Volunteer Duty / Specialty values such as Cook or Driver.
 
 10. **Use the RSVP Pool**
     Explain the two priority-role buttons, history columns, priority rank, assignment buttons, and human judgment.
