@@ -788,7 +788,7 @@ function EventAssignmentPage() {
             {eventDetail?.description && (
               <p style={{ margin: '0 0 12px', lineHeight: 1.6 }}>{eventDetail.description}</p>
             )}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16 }}>
               <div>
                 <p style={{ margin: '0 0 4px', fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.08em', opacity: 0.7 }}>Event Lead</p>
                 <p style={{ margin: 0, fontWeight: 600 }}>{derivedLeadName}</p>

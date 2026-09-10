@@ -1156,6 +1156,7 @@ describe('events routes', () => {
         title: 'External Lead Test',
         event_date: '2026-06-21T12:00:00.000Z',
         event_lead_name: 'Colorado Springs Host',
+        external_event_lead_email: 'host@cosprings.example',
       });
 
     dbMock.sql.NVarChar = originalNVarChar;
@@ -1163,6 +1164,7 @@ describe('events routes', () => {
     expect(res.status).toBe(201);
     const executedSql = mockRequest.query.mock.calls.map((call) => String(call[0])).join('\n');
     expect(executedSql).toContain('external_event_lead_name');
+    expect(executedSql).toContain('external_event_lead_email');
     expect(executedSql).not.toContain("'LEAD' AS role");
   });
 

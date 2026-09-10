@@ -39,6 +39,7 @@ interface UpdateEventPayload {
   invitation_stage?: 'volunteer' | 'participant' | 'both';
   event_lead_member_id?: string | null;
   event_lead_name?: string | null;
+  external_event_lead_email?: string | null;
   event_lead_secondary_roles?: Array<'MENTOR' | 'PARTICIPANT'>;
   scheduler_email?: string | null;
   event_date?: string;
@@ -246,6 +247,7 @@ const eventsApi = {
     invitation_stage?: 'volunteer' | 'participant' | 'both';
     event_lead_member_id?: string | null;
     event_lead_name?: string | null;
+    external_event_lead_email?: string | null;
     event_lead_secondary_roles?: Array<'MENTOR' | 'PARTICIPANT'>;
     scheduler_email?: string | null;
     end_date?: string | null;

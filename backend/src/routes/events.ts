@@ -235,7 +235,7 @@ async function ensureTenantEventAccess(req: Request, res: Response, pool: Awaite
 
 // Freeform external leads override the name derived from a linked member record.
 const EVENT_LEAD_NAME_SELECT = `COALESCE(NULLIF(LTRIM(RTRIM(external_event_lead_name)), N''), (SELECT TOP 1 LTRIM(RTRIM(ISNULL(lm.first_name, N'') + N' ' + ISNULL(lm.last_name, N''))) FROM dbo.member lm WHERE lm.member_id = event_lead_member_id)) AS event_lead_name`;
-const EVENT_LEAD_EMAIL_SELECT = `(SELECT TOP 1 lm.email FROM dbo.member lm WHERE lm.member_id = event_lead_member_id) AS event_lead_email`;
+const EVENT_LEAD_EMAIL_SELECT = `COALESCE(NULLIF(LTRIM(RTRIM(external_event_lead_email)), N''), (SELECT TOP 1 lm.email FROM dbo.member lm WHERE lm.member_id = event_lead_member_id)) AS event_lead_email`;
 
 function isNotificationConfigurationError(error: unknown): error is Error {
   return error instanceof Error && error.name === 'NotificationConfigurationError';
@@ -1065,6 +1065,7 @@ router.post('/', writeLimiter, authenticate, requireEventCreatorOrAdmin, async (
       ? null
       : asUuidOrNull(eventLeadMemberIdRaw);
     const eventLeadName = normalizeString(req.body?.event_lead_name);
+    const externalEventLeadEmail = parseOptionalEmail(req.body?.external_event_lead_email);
     const eventLeadSecondaryRoles = parseEventLeadSecondaryRoles(req.body?.event_lead_secondary_roles);
     if (eventLeadMemberIdRaw !== undefined && eventLeadMemberIdRaw !== null && !eventLeadMemberId) {
       res.status(400).json({ error: 'event_lead_member_id must be a valid UUID when provided' });
@@ -1080,6 +1081,10 @@ router.post('/', writeLimiter, authenticate, requireEventCreatorOrAdmin, async (
     }
     if (eventLeadName && eventLeadName.length > 200) {
       res.status(400).json({ error: 'event_lead_name must be 200 characters or fewer' });
+      return;
+    }
+    if (normalizeString(req.body?.external_event_lead_email) && !externalEventLeadEmail) {
+      res.status(400).json({ error: 'external_event_lead_email must be a valid email address when provided' });
       return;
     }
     if (req.body?.scheduler_email !== undefined && normalizeString(req.body?.scheduler_email) && !parseOptionalEmail(req.body?.scheduler_email)) {
@@ -1239,6 +1244,9 @@ router.post('/', writeLimiter, authenticate, requireEventCreatorOrAdmin, async (
       insertColumns.push('external_event_lead_name');
       insertValues.push('@external_event_lead_name');
       createRequest.input('external_event_lead_name', sql.NVarChar(200), eventLeadName);
+      insertColumns.push('external_event_lead_email');
+      insertValues.push('@external_event_lead_email');
+      createRequest.input('external_event_lead_email', sql.NVarChar(255), externalEventLeadEmail);
     }
 
     const created = await createRequest.query(
@@ -1367,6 +1375,7 @@ router.put('/:id', writeLimiter, authenticate, requireEventCreatorOrAdmin, async
     const proposedInvitationStage = req.body?.invitation_stage;
     const proposedEventLeadMemberIdRaw = req.body?.event_lead_member_id;
     const proposedEventLeadName = normalizeString(req.body?.event_lead_name);
+    const proposedExternalEventLeadEmail = parseOptionalEmail(req.body?.external_event_lead_email);
     const hasEventLeadSecondaryRolesInput = req.body?.event_lead_secondary_roles !== undefined;
     const proposedEventLeadSecondaryRoles = parseEventLeadSecondaryRoles(req.body?.event_lead_secondary_roles);
     const proposedSchedulerEmail = req.body?.scheduler_email;
@@ -1406,6 +1415,10 @@ router.put('/:id', writeLimiter, authenticate, requireEventCreatorOrAdmin, async
     }
     if (req.body?.event_lead_name !== undefined && proposedEventLeadName && proposedEventLeadName.length > 200) {
       res.status(400).json({ error: 'event_lead_name must be 200 characters or fewer' });
+      return;
+    }
+    if (normalizeString(req.body?.external_event_lead_email) && !proposedExternalEventLeadEmail) {
+      res.status(400).json({ error: 'external_event_lead_email must be a valid email address when provided' });
       return;
     }
     if (hasEventLeadSecondaryRolesInput) {
@@ -1480,6 +1493,14 @@ router.put('/:id', writeLimiter, authenticate, requireEventCreatorOrAdmin, async
         'external_event_lead_name',
         sql.NVarChar(200),
         req.body?.event_lead_member_id ? null : proposedEventLeadName
+      );
+    }
+    if (req.body?.external_event_lead_email !== undefined) {
+      updates.push('external_event_lead_email = @external_event_lead_email');
+      request.input(
+        'external_event_lead_email',
+        sql.NVarChar(255),
+        req.body?.event_lead_member_id ? null : proposedExternalEventLeadEmail
       );
     }
 

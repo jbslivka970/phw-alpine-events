@@ -171,6 +171,7 @@ describe('EventsPage flow pattern', () => {
         event_lead_member_id: null,
         event_lead_name: null,
         event_lead_secondary_roles: [],
+        external_event_lead_email: null,
         scheduler_email: null,
         end_date: null,
         mentor_capacity: 1,
@@ -197,6 +198,7 @@ describe('EventsPage flow pattern', () => {
     await setFieldByLabel('Participant Capacity', '2');
 
     await setFieldByLabel('Event Lead', 'Colorado Springs Host');
+    await setFieldByLabel('External Event Lead Email', 'host@cosprings.example');
 
     await userEvent.click(screen.getByRole('button', { name: 'Create Event' }));
 
@@ -205,6 +207,7 @@ describe('EventsPage flow pattern', () => {
       expect(mockedEventsApi.create).toHaveBeenCalledWith(expect.objectContaining({
         event_lead_member_id: null,
         event_lead_name: 'Colorado Springs Host',
+        external_event_lead_email: 'host@cosprings.example',
         event_lead_secondary_roles: [],
       }));
     });

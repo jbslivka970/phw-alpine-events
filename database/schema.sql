@@ -97,6 +97,7 @@ CREATE TABLE dbo.event (
         CHECK (invitation_stage IN ('volunteer', 'participant', 'both')),
     event_lead_member_id UNIQUEIDENTIFIER NULL,
     external_event_lead_name NVARCHAR(200) NULL,
+    external_event_lead_email NVARCHAR(255) NULL,
     status            NVARCHAR(20)     NOT NULL DEFAULT 'draft'
         CHECK (status IN ('draft', 'published', 'cancelled', 'completed')),
     created_by        UNIQUEIDENTIFIER NULL,  -- FK to dbo.[user] added after that table is created
@@ -130,6 +131,9 @@ BEGIN
 
     IF COL_LENGTH('dbo.event', 'external_event_lead_name') IS NULL
         ALTER TABLE dbo.event ADD external_event_lead_name NVARCHAR(200) NULL;
+
+    IF COL_LENGTH('dbo.event', 'external_event_lead_email') IS NULL
+        ALTER TABLE dbo.event ADD external_event_lead_email NVARCHAR(255) NULL;
 
     IF NOT EXISTS (
         SELECT 1

@@ -128,6 +128,7 @@ interface EventFormPayload {
   invitation_stage: 'volunteer' | 'participant' | 'both'
   event_lead_member_id: string
   event_lead_name: string
+  event_lead_email: string
   event_lead_secondary_roles: Array<'MENTOR' | 'PARTICIPANT'>
   scheduler_email: string
   end_date: string
@@ -289,6 +290,7 @@ function buildDefaultEventForm(): EventFormPayload {
     invitation_stage: 'both',
     event_lead_member_id: '',
     event_lead_name: '',
+    event_lead_email: '',
     event_lead_secondary_roles: [],
     scheduler_email: '',
     end_date: toLocalDateTimeInputValue(end),
@@ -496,6 +498,7 @@ function payloadFromRecord(e: EventRecord): EventFormPayload {
     invitation_stage: e.invitation_stage ?? 'both',
     event_lead_member_id: e.event_lead_member_id ?? '',
     event_lead_name: e.event_lead_name ?? '',
+    event_lead_email: e.event_lead_member_id ? '' : (e.event_lead_email ?? ''),
     event_lead_secondary_roles: e.event_lead_secondary_roles ?? [],
     scheduler_email: e.scheduler_email ?? '',
     end_date: e.end_date ? toLocalDateTimeFromApi(e.end_date) : '',
@@ -1160,6 +1163,7 @@ function EventFormModal({ initial, groups, onSave, onGenerateAiDescriptionPrevie
                     ...current,
                     event_lead_member_id: '',
                     event_lead_name: value,
+                    event_lead_email: '',
                     event_lead_secondary_roles: [],
                   }))
                 }}
@@ -1177,7 +1181,7 @@ function EventFormModal({ initial, groups, onSave, onGenerateAiDescriptionPrevie
                     const name = `${member.first_name} ${member.last_name}`.trim()
                     setLeadSearch(name)
                     setLeadMatches([])
-                    setForm((current) => ({ ...current, event_lead_member_id: member.member_id, event_lead_name: name }))
+                    setForm((current) => ({ ...current, event_lead_member_id: member.member_id, event_lead_name: name, event_lead_email: '' }))
                   }}
                 >
                   <option value="">Link to a matching member</option>
@@ -1188,6 +1192,20 @@ function EventFormModal({ initial, groups, onSave, onGenerateAiDescriptionPrevie
               ) : null}
               <p className="form-field-hint">Select a matching member to link their participation. Otherwise, the entered name is saved as an external lead with no contact details required.</p>
             </div>
+
+            {!form.event_lead_member_id && form.event_lead_name.trim() && (
+              <div className="form-field">
+                <label className="form-label">External Event Lead Email</label>
+                <input
+                  className="form-input"
+                  type="email"
+                  value={form.event_lead_email}
+                  onChange={e => set('event_lead_email', e.target.value)}
+                  placeholder="Optional email address"
+                />
+                <p className="form-field-hint">Saved with an unmatched external lead for event communications.</p>
+              </div>
+            )}
 
             <div className="form-field form-field--full">
               <label className="form-label">Event Lead Secondary Roles</label>
@@ -1509,6 +1527,7 @@ function EventsPage() {
         event_lead_member_id: form.event_lead_member_id || null,
         event_lead_secondary_roles: form.event_lead_member_id ? form.event_lead_secondary_roles : [],
         event_lead_name: form.event_lead_name.trim() || null,
+        external_event_lead_email: form.event_lead_member_id ? null : (form.event_lead_email.trim().toLowerCase() || null),
         scheduler_email: form.scheduler_email.trim().toLowerCase() || null,
         end_date: form.end_date || null,
         mentor_capacity: mentorCapacity,
