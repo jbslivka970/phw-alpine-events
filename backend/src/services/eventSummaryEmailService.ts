@@ -76,6 +76,8 @@ export async function loadEventSummaryReportData(eventId: string): Promise<Event
              ELSE N' event_lead_member_id AS event_lead_member_id,'
            END
          + CASE
+             WHEN COL_LENGTH('dbo.event', 'external_event_lead_name') IS NOT NULL AND COL_LENGTH('dbo.event', 'event_lead_member_id') IS NOT NULL
+               THEN N' COALESCE(NULLIF(LTRIM(RTRIM(external_event_lead_name)), N''''), (SELECT TOP 1 LTRIM(RTRIM(ISNULL(lm.first_name, N'''' ) + N'' '' + ISNULL(lm.last_name, N'''' ))) FROM dbo.member lm WHERE lm.member_id = event_lead_member_id)) AS event_lead_name,'
              WHEN COL_LENGTH('dbo.event', 'event_lead_member_id') IS NOT NULL AND COL_LENGTH('dbo.event', 'event_lead_name') IS NOT NULL
                THEN N' COALESCE((SELECT TOP 1 LTRIM(RTRIM(ISNULL(lm.first_name, N'''' ) + N'' '' + ISNULL(lm.last_name, N'''' ))) FROM dbo.member lm WHERE lm.member_id = event_lead_member_id), event_lead_name) AS event_lead_name,'
              WHEN COL_LENGTH('dbo.event', 'event_lead_member_id') IS NOT NULL
@@ -85,6 +87,8 @@ export async function loadEventSummaryReportData(eventId: string): Promise<Event
              ELSE N' CAST(NULL AS NVARCHAR(200)) AS event_lead_name,'
            END
          + CASE
+             WHEN COL_LENGTH('dbo.event', 'external_event_lead_email') IS NOT NULL AND COL_LENGTH('dbo.event', 'event_lead_member_id') IS NOT NULL
+               THEN N' COALESCE(NULLIF(LTRIM(RTRIM(external_event_lead_email)), N''''), (SELECT TOP 1 lm.email FROM dbo.member lm WHERE lm.member_id = event_lead_member_id)) AS event_lead_email,'
              WHEN COL_LENGTH('dbo.event', 'event_lead_member_id') IS NOT NULL AND COL_LENGTH('dbo.event', 'event_lead_email') IS NOT NULL
                THEN N' COALESCE((SELECT TOP 1 lm.email FROM dbo.member lm WHERE lm.member_id = event_lead_member_id), event_lead_email) AS event_lead_email,'
              WHEN COL_LENGTH('dbo.event', 'event_lead_member_id') IS NOT NULL
