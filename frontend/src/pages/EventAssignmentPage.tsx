@@ -223,7 +223,14 @@ function EventAssignmentPage() {
       participant_capacity: null,
       capacity: null,
     })
-    const relevantRsvps = eventRsvps.filter((row) => ['yes', 'maybe', 'waitlist'].includes(row.response))
+    const assignedMemberIds = new Set(
+      asns
+        .filter((assignment) => assignment.role === 'MENTOR' || assignment.role === 'PARTICIPANT')
+        .map((assignment) => assignment.member_id)
+    )
+    const relevantRsvps = eventRsvps.filter((row) =>
+      ['yes', 'maybe', 'waitlist'].includes(row.response) || assignedMemberIds.has(row.member_id)
+    )
     setRsvps(relevantRsvps)
     setParticipation(Object.fromEntries(participationHistory.rows.map((row) => [row.member_id, row])))
   }
@@ -524,6 +531,7 @@ function EventAssignmentPage() {
       await rsvpApi.upsert(eventId, {
         member_id: assignment.member_id,
         response: 'no',
+        confirm_assigned_decline: true,
       })
       await assignmentsApi.remove(eventId, assignment.assignment_id)
       await refreshEventData(eventId)
@@ -544,6 +552,7 @@ function EventAssignmentPage() {
       await rsvpApi.upsert(eventId, {
         member_id: row.member_id,
         response: 'no',
+        confirm_assigned_decline: true,
       })
       await Promise.all(row.assignments.map((assignment) => assignmentsApi.remove(eventId, assignment.assignment_id)))
       await refreshEventData(eventId)

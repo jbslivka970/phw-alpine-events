@@ -305,6 +305,25 @@ BEGIN
         ';
 END
 
+IF OBJECT_ID(N'dbo.event_response_history', N'U') IS NULL
+CREATE TABLE dbo.event_response_history (
+    response_history_id UNIQUEIDENTIFIER NOT NULL DEFAULT NEWID(),
+    event_id            UNIQUEIDENTIFIER NOT NULL,
+    member_id           UNIQUEIDENTIFIER NOT NULL,
+    previous_response   NVARCHAR(20)     NULL,
+    previous_role       NVARCHAR(20)     NULL,
+    response            NVARCHAR(20)     NOT NULL,
+    response_role       NVARCHAR(20)     NULL,
+    response_channel    NVARCHAR(30)     NULL,
+    notes               NVARCHAR(500)    NULL,
+    recorded_at         DATETIME         NOT NULL DEFAULT GETUTCDATE(),
+    CONSTRAINT PK_event_response_history PRIMARY KEY (response_history_id),
+    CONSTRAINT FK_event_response_history_event FOREIGN KEY (event_id)
+        REFERENCES dbo.event (event_id) ON DELETE CASCADE,
+    CONSTRAINT FK_event_response_history_member FOREIGN KEY (member_id)
+        REFERENCES dbo.member (member_id) ON DELETE NO ACTION
+);
+
 -- ---------------------------------------------------------------------------
 -- 7. EventAssignment  (staff / volunteer role assignments for an event)
 -- ---------------------------------------------------------------------------

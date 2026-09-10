@@ -54,6 +54,7 @@ router.get('/', apiLimiter, async (req, res) => {
         first_name: string | null;
         current_response: string | null;
         current_response_role: 'MENTOR' | 'PARTICIPANT' | null;
+        is_assigned: boolean;
       }>(
         `SELECT
             e.event_id,
@@ -68,7 +69,13 @@ router.get('/', apiLimiter, async (req, res) => {
             m.member_id,
             m.first_name,
             er.response AS current_response,
-            er.response_role AS current_response_role
+            er.response_role AS current_response_role,
+            CASE WHEN EXISTS (
+              SELECT 1 FROM event_assignment ea
+              WHERE ea.event_id = e.event_id
+                AND ea.member_id = m.member_id
+                AND ea.role IN ('MENTOR', 'PARTICIPANT')
+            ) THEN CAST(1 AS BIT) ELSE CAST(0 AS BIT) END AS is_assigned
          FROM event e
          INNER JOIN member m ON m.member_id = @member_id
          LEFT JOIN event_response er ON er.event_id = e.event_id AND er.member_id = m.member_id
@@ -112,6 +119,7 @@ router.post('/', writeLimiter, async (req, res) => {
     }
 
     const response = (req.body?.response as string | undefined)?.toLowerCase();
+    const confirmAssignedDecline = req.body?.confirm_assigned_decline === true;
     const parsedResponseRole = parseResponseRole(req.body?.response_role);
     const inferredResponseRole = parsedResponseRole
       ? undefined
@@ -144,6 +152,7 @@ router.post('/', writeLimiter, async (req, res) => {
       responseChannel: 'tokenized_link',
       groupContextId: token.groupContextId ?? null,
       responseRole,
+      confirmAssignedDecline,
     });
 
     res.json(record);

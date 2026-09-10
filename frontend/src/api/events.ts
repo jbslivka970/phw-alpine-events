@@ -94,6 +94,7 @@ interface PublicRsvpContext {
   status: 'draft' | 'published' | 'completed' | 'cancelled';
   event_lead_member_id: string | null;
   is_event_lead_member?: boolean;
+  is_assigned?: boolean;
   member_id: string;
   first_name: string | null;
   current_response: RsvpRecord['response'] | null;
@@ -303,7 +304,7 @@ const eventsApi = {
 const rsvpApi = {
   list: (eventId: string, response?: string) =>
     apiGet<RsvpRecord[]>(response ? `/events/${eventId}/rsvp?response=${encodeURIComponent(response)}` : `/events/${eventId}/rsvp`),
-  upsert: (eventId: string, payload: { member_id?: string; response: RsvpRecord['response']; response_role?: 'MENTOR' | 'PARTICIPANT'; notes?: string | null }) =>
+  upsert: (eventId: string, payload: { member_id?: string; response: RsvpRecord['response']; response_role?: 'MENTOR' | 'PARTICIPANT'; notes?: string | null; confirm_assigned_decline?: boolean }) =>
     apiPost<RsvpRecord>(`/events/${eventId}/rsvp`, payload),
   remove: (eventId: string, memberId: string) => apiDelete<void>(`/events/${eventId}/rsvp/${memberId}`),
 };
@@ -311,7 +312,7 @@ const rsvpApi = {
 const emailRsvpApi = {
   get: (token: string) => apiGet<PublicRsvpContext>(`/events/rsvp/${encodeURIComponent(token)}`),
   resolveShort: (code: string) => apiGet<{ token: string }>(`/events/rsvp/short/${encodeURIComponent(code)}`),
-  submit: (token: string, payload: { response: RsvpRecord['response']; response_role?: 'MENTOR' | 'PARTICIPANT' }) =>
+  submit: (token: string, payload: { response: RsvpRecord['response']; response_role?: 'MENTOR' | 'PARTICIPANT'; confirm_assigned_decline?: boolean }) =>
     apiPost<RsvpRecord>(`/events/rsvp/${encodeURIComponent(token)}`, payload),
 };
 

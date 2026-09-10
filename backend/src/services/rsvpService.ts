@@ -221,6 +221,7 @@ async function recordRsvpResponse(options: {
   groupContextId?: string | null;
   responseRole?: EventRole;
   allowUngroupedParticipant?: boolean;
+  confirmAssignedDecline?: boolean;
 }): Promise<RecordedRsvp> {
   const pool = await getPool();
   const notes = options.notes ?? null;
@@ -293,6 +294,22 @@ async function recordRsvpResponse(options: {
 
   const existingResponse = existingResponseResult.recordset[0];
   const existingRole = existingResponse ? normalizeResponseRole(existingResponse.response_role) : undefined;
+  if (options.response === 'no' && !options.confirmAssignedDecline) {
+    const assignmentResult = await pool
+      .request()
+      .input('event_id', sql.UniqueIdentifier, options.eventId)
+      .input('member_id', sql.UniqueIdentifier, options.memberId)
+      .query<{ assignment_id: string }>(
+        `SELECT TOP 1 assignment_id
+         FROM event_assignment
+         WHERE event_id = @event_id
+           AND member_id = @member_id
+           AND role IN ('MENTOR', 'PARTICIPANT')`
+      );
+    if (assignmentResult.recordset[0]) {
+      throw new RsvpError('You are already assigned to this event. Confirm with an event coordinator before declining.', 409);
+    }
+  }
   let finalResponse: RsvpResponse = options.response;
   let isDuplicateSubmission = Boolean(
     existingResponse &&
@@ -357,6 +374,7 @@ async function recordRsvpResponse(options: {
            reminder_sent,
            reminder_sent_at
          )
+
          VALUES (
            NEWID(),
            @event_id,
@@ -372,6 +390,25 @@ async function recordRsvpResponse(options: {
          )
        OUTPUT INSERTED.*;`
     );
+
+  if (!isDuplicateSubmission || !existingResponse) {
+    await pool
+      .request()
+      .input('event_id', sql.UniqueIdentifier, options.eventId)
+      .input('member_id', sql.UniqueIdentifier, options.memberId)
+      .input('previous_response', sql.NVarChar, existingResponse?.response ?? null)
+      .input('previous_role', sql.NVarChar, existingRole ?? null)
+      .input('response', sql.NVarChar, finalResponse)
+      .input('response_role', sql.NVarChar, responseRole ?? null)
+      .input('response_channel', sql.NVarChar, responseChannel)
+      .input('notes', sql.NVarChar, notes)
+      .query(
+        `INSERT INTO event_response_history
+           (response_history_id, event_id, member_id, previous_response, previous_role, response, response_role, response_channel, notes, recorded_at)
+         VALUES
+           (NEWID(), @event_id, @member_id, @previous_response, @previous_role, @response, @response_role, @response_channel, @notes, GETUTCDATE())`
+      );
+  }
 
   const memberResult = await pool
     .request()

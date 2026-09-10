@@ -106,6 +106,7 @@ router.post('/', writeLimiter, authenticate, async (req, res: Response) => {
     const eventId = req.params.eventId;
     const requestedMemberId = req.body?.member_id as string | undefined;
     const response = (req.body?.response as string | undefined)?.toLowerCase() as RsvpResponse | undefined;
+    const confirmAssignedDecline = req.body?.confirm_assigned_decline === true;
     const parsedResponseRole = (req.body?.response_role as string | undefined)?.toUpperCase();
     const notes = typeof req.body?.notes === 'string' ? req.body.notes : null;
     const memberId = (typeof requestedMemberId === 'string' && UUID_PATTERN.test(requestedMemberId))
@@ -146,6 +147,7 @@ router.post('/', writeLimiter, authenticate, async (req, res: Response) => {
       responseChannel: 'web',
       responseRole,
       allowUngroupedParticipant: isSelfRsvp,
+      confirmAssignedDecline,
     });
     res.status(200).json(upsert);
   } catch (error) {

@@ -140,7 +140,14 @@ function PublicRsvpPage() {
       return
     }
 
-    await submitResponse(token, response, selectedRole || undefined, setContext, setNotice, setError, setSubmitting)
+    const confirmAssignedDecline = response === 'no' && Boolean(context?.is_assigned)
+      ? window.confirm('You are already assigned to this event. Confirm that you need to decline so an event coordinator can update the roster.')
+      : false
+    if (response === 'no' && context?.is_assigned && !confirmAssignedDecline) {
+      return
+    }
+
+    await submitResponse(token, response, selectedRole || undefined, setContext, setNotice, setError, setSubmitting, confirmAssignedDecline)
   }
 
   return (
@@ -163,6 +170,9 @@ function PublicRsvpPage() {
 
             {isEventLead && (
               <p className="public-rsvp__notice">You are assigned as event lead. RSVP role/attendance for leads is managed by event coordinators.</p>
+            )}
+            {context.is_assigned && !isEventLead && (
+              <p className="public-rsvp__notice">You are assigned to this event. Contact the event coordinator if you need to decline or change your role.</p>
             )}
 
             <fieldset className="public-rsvp__role-picker">
@@ -232,12 +242,13 @@ async function submitResponse(
   setNotice: Dispatch<SetStateAction<string | null>>,
   setError: Dispatch<SetStateAction<string | null>>,
   setSubmitting: Dispatch<SetStateAction<boolean>>,
+  confirmAssignedDecline = false,
 ) {
   setSubmitting(true)
   setError(null)
 
   try {
-    const record = await emailRsvpApi.submit(token, { response, response_role: responseRole })
+    const record = await emailRsvpApi.submit(token, { response, response_role: responseRole, confirm_assigned_decline: confirmAssignedDecline })
     setContext((current) => current ? { ...current, current_response: record.response, current_response_role: record.response_role ?? current.current_response_role } : current)
     setNotice(`RSVP recorded as ${record.response}${record.response_role ? ` (${ROLE_LABELS[record.response_role] ?? record.response_role})` : ''}.`)
   } catch (requestError) {
