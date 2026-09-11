@@ -1953,8 +1953,8 @@ jobs:
             --name "${{ vars.AZURE_FRONTEND_WEBAPP_NAME }}" \
             --src-path frontend-release.zip \
             --type zip \
-            --async true \
-            --track-status false \
+            --async false \
+            --track-status true \
             --timeout 1800000 2>&1)
           DEPLOY_EXIT=$?
           set -e
@@ -1978,6 +1978,9 @@ jobs:
 
         echo "Frontend deploy did not obtain deployment lock after retries."
         exit 1
+
+    - name: Use SPA-safe frontend startup
+      run: az webapp config set --resource-group "${{ vars.AZURE_FRONTEND_RESOURCE_GROUP }}" --name "${{ vars.AZURE_FRONTEND_WEBAPP_NAME }}" --startup-file "node /home/site/wwwroot/server.cjs"
 
   deploy_backend_smoke:
     runs-on: ubuntu-latest
