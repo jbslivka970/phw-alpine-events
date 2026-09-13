@@ -334,6 +334,7 @@ jobs:
     - name: Run local browser launch smoke against current commit
       env:
         CI: '1'
+        CORS_ORIGIN: http://127.0.0.1:4173
         E2E_LOCAL_AUTH_ENABLED: '1'
         E2E_API_BASE_URL: http://127.0.0.1:3001
         E2E_APP_URL: http://127.0.0.1:4173

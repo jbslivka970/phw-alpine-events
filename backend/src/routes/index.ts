@@ -111,7 +111,8 @@ if (localE2EAuthEnabled) {
 		const method = req.method.toUpperCase();
 
 		const requiresAuth =
-			path === '/events'
+			path === '/me/tenants'
+			|| path === '/events'
 			|| /^\/events\/[0-9a-f-]+\/status$/i.test(path)
 			|| /^\/events\/[0-9a-f-]+\/ai-draft$/i.test(path)
 			|| /^\/events\/[0-9a-f-]+\/report\.(csv|pdf)$/i.test(path)
@@ -123,6 +124,23 @@ if (localE2EAuthEnabled) {
 
 		if (requiresAuth && !role) {
 			res.status(401).json({ error: 'Missing or invalid Authorization header' });
+			return;
+		}
+
+		if (method === 'GET' && path === '/me/tenants') {
+			res.status(200).json({
+				tenants: [{
+					tenant_id: '00000000-0000-4000-8000-000000000001',
+					slug: 'local-e2e',
+					display_name: 'Local E2E',
+					tenant_type: 'program',
+					is_demo: false,
+					role: role === 'ADMIN' ? 'admin' : role === 'EVENT_CREATOR' ? 'event_creator' : 'member',
+					membership_kind: 'home',
+					expires_at: null,
+					branding: null,
+				}],
+			});
 			return;
 		}
 
