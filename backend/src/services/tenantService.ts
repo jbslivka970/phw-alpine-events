@@ -1313,9 +1313,20 @@ async function getTenantUsageSummary(tenantId: string): Promise<TenantUsageSumma
            EXEC sp_executesql @sql, N'@tenant_id UNIQUEIDENTIFIER, @count BIGINT OUTPUT', @tenant_id = @tenant_id, @count = @members_total OUTPUT;
          END
          ELSE
-           SELECT @members_total = COUNT_BIG(*)
-           FROM dbo.member
-           WHERE is_active = 1;
+         BEGIN
+           SET @sql = N'SELECT @count = COUNT_BIG(*)
+                        FROM dbo.member m
+                        WHERE m.is_active = 1
+                          AND EXISTS (
+                            SELECT 1
+                            FROM dbo.tenant_membership tm
+                            WHERE tm.tenant_id = @tenant_id
+                              AND tm.member_id = m.member_id
+                              AND tm.status = ''active''
+                              AND tm.revoked_at IS NULL
+                          );';
+           EXEC sp_executesql @sql, N'@tenant_id UNIQUEIDENTIFIER, @count BIGINT OUTPUT', @tenant_id = @tenant_id, @count = @members_total OUTPUT;
+         END
        END
 
        IF OBJECT_ID(N'dbo.event', N'U') IS NOT NULL
@@ -1337,9 +1348,15 @@ async function getTenantUsageSummary(tenantId: string): Promise<TenantUsageSumma
            SET @sql = N'SELECT @count = COUNT_BIG(*) FROM dbo.event_response WHERE tenant_id = @tenant_id;';
            EXEC sp_executesql @sql, N'@tenant_id UNIQUEIDENTIFIER, @count BIGINT OUTPUT', @tenant_id = @tenant_id, @count = @event_responses_total OUTPUT;
          END
-         ELSE
-           SELECT @event_responses_total = COUNT_BIG(*)
-           FROM dbo.event_response;
+         ELSE IF OBJECT_ID(N'dbo.event', N'U') IS NOT NULL
+            AND COL_LENGTH('dbo.event', 'tenant_id') IS NOT NULL
+         BEGIN
+           SET @sql = N'SELECT @count = COUNT_BIG(*)
+                        FROM dbo.event_response er
+                        INNER JOIN dbo.event e ON e.event_id = er.event_id
+                        WHERE e.tenant_id = @tenant_id;';
+           EXEC sp_executesql @sql, N'@tenant_id UNIQUEIDENTIFIER, @count BIGINT OUTPUT', @tenant_id = @tenant_id, @count = @event_responses_total OUTPUT;
+         END
        END
 
        IF OBJECT_ID(N'dbo.notification_log', N'U') IS NOT NULL
@@ -1355,15 +1372,50 @@ async function getTenantUsageSummary(tenantId: string): Promise<TenantUsageSumma
              EXEC sp_executesql @sql, N'@tenant_id UNIQUEIDENTIFIER, @count BIGINT OUTPUT', @tenant_id = @tenant_id, @count = @notification_failures_total OUTPUT;
            END
          END
-         ELSE
+         ELSE IF OBJECT_ID(N'dbo.event', N'U') IS NOT NULL
+            AND COL_LENGTH('dbo.event', 'tenant_id') IS NOT NULL
+            AND OBJECT_ID(N'dbo.tenant_membership', N'U') IS NOT NULL
          BEGIN
-           SELECT @notifications_total = COUNT_BIG(*)
-           FROM dbo.notification_log;
+           SET @sql = N'SELECT @count = COUNT_BIG(*)
+                        FROM dbo.notification_log nl
+                        WHERE EXISTS (
+                          SELECT 1 FROM dbo.event e
+                          WHERE e.event_id = nl.event_id AND e.tenant_id = @tenant_id
+                        )
+                        OR (
+                          nl.event_id IS NULL
+                          AND EXISTS (
+                            SELECT 1 FROM dbo.tenant_membership tm
+                            WHERE tm.tenant_id = @tenant_id
+                              AND tm.member_id = nl.member_id
+                              AND tm.status = ''active''
+                              AND tm.revoked_at IS NULL
+                          )
+                        );';
+           EXEC sp_executesql @sql, N'@tenant_id UNIQUEIDENTIFIER, @count BIGINT OUTPUT', @tenant_id = @tenant_id, @count = @notifications_total OUTPUT;
 
            IF COL_LENGTH('dbo.notification_log', 'status') IS NOT NULL
            BEGIN
-             SET @sql = N'SELECT @count = COUNT_BIG(*) FROM dbo.notification_log WHERE LOWER(COALESCE(status, '''')) = ''failed'';';
-             EXEC sp_executesql @sql, N'@count BIGINT OUTPUT', @count = @notification_failures_total OUTPUT;
+             SET @sql = N'SELECT @count = COUNT_BIG(*)
+                          FROM dbo.notification_log nl
+                          WHERE LOWER(COALESCE(nl.status, '''')) = ''failed''
+                            AND (
+                              EXISTS (
+                                SELECT 1 FROM dbo.event e
+                                WHERE e.event_id = nl.event_id AND e.tenant_id = @tenant_id
+                              )
+                              OR (
+                                nl.event_id IS NULL
+                                AND EXISTS (
+                                  SELECT 1 FROM dbo.tenant_membership tm
+                                  WHERE tm.tenant_id = @tenant_id
+                                    AND tm.member_id = nl.member_id
+                                    AND tm.status = ''active''
+                                    AND tm.revoked_at IS NULL
+                                )
+                              )
+                            );';
+             EXEC sp_executesql @sql, N'@tenant_id UNIQUEIDENTIFIER, @count BIGINT OUTPUT', @tenant_id = @tenant_id, @count = @notification_failures_total OUTPUT;
            END
          END
        END
@@ -1377,15 +1429,19 @@ async function getTenantUsageSummary(tenantId: string): Promise<TenantUsageSumma
            EXEC sp_executesql @sql, N'@tenant_id UNIQUEIDENTIFIER, @count BIGINT OUTPUT', @tenant_id = @tenant_id, @count = @email_opt_out_total OUTPUT;
          END
          ELSE IF COL_LENGTH('dbo.email_preference_log', 'action') IS NOT NULL
-            AND OBJECT_ID(N'dbo.member', N'U') IS NOT NULL AND COL_LENGTH('dbo.member', 'tenant_id') IS NOT NULL
+            AND OBJECT_ID(N'dbo.tenant_membership', N'U') IS NOT NULL
          BEGIN
-           SET @sql = N'SELECT @count = COUNT_BIG(*) FROM dbo.email_preference_log epl INNER JOIN dbo.member m ON m.member_id = epl.member_id WHERE m.tenant_id = @tenant_id AND epl.action = ''opt_out'';';
+           SET @sql = N'SELECT @count = COUNT_BIG(*)
+                        FROM dbo.email_preference_log epl
+                        WHERE epl.action = ''opt_out''
+                          AND EXISTS (
+                            SELECT 1 FROM dbo.tenant_membership tm
+                            WHERE tm.tenant_id = @tenant_id
+                              AND tm.member_id = epl.member_id
+                              AND tm.status = ''active''
+                              AND tm.revoked_at IS NULL
+                          );';
            EXEC sp_executesql @sql, N'@tenant_id UNIQUEIDENTIFIER, @count BIGINT OUTPUT', @tenant_id = @tenant_id, @count = @email_opt_out_total OUTPUT;
-         END
-         ELSE IF COL_LENGTH('dbo.email_preference_log', 'action') IS NOT NULL
-         BEGIN
-           SET @sql = N'SELECT @count = COUNT_BIG(*) FROM dbo.email_preference_log WHERE action = ''opt_out'';';
-           EXEC sp_executesql @sql, N'@count BIGINT OUTPUT', @count = @email_opt_out_total OUTPUT;
          END
        END
 
@@ -1398,15 +1454,19 @@ async function getTenantUsageSummary(tenantId: string): Promise<TenantUsageSumma
            EXEC sp_executesql @sql, N'@tenant_id UNIQUEIDENTIFIER, @count BIGINT OUTPUT', @tenant_id = @tenant_id, @count = @sms_opt_out_total OUTPUT;
          END
          ELSE IF COL_LENGTH('dbo.sms_consent_log', 'action') IS NOT NULL
-            AND OBJECT_ID(N'dbo.member', N'U') IS NOT NULL AND COL_LENGTH('dbo.member', 'tenant_id') IS NOT NULL
+            AND OBJECT_ID(N'dbo.tenant_membership', N'U') IS NOT NULL
          BEGIN
-           SET @sql = N'SELECT @count = COUNT_BIG(*) FROM dbo.sms_consent_log scl INNER JOIN dbo.member m ON m.member_id = scl.member_id WHERE m.tenant_id = @tenant_id AND scl.action = ''opt_out'';';
+           SET @sql = N'SELECT @count = COUNT_BIG(*)
+                        FROM dbo.sms_consent_log scl
+                        WHERE scl.action = ''opt_out''
+                          AND EXISTS (
+                            SELECT 1 FROM dbo.tenant_membership tm
+                            WHERE tm.tenant_id = @tenant_id
+                              AND tm.member_id = scl.member_id
+                              AND tm.status = ''active''
+                              AND tm.revoked_at IS NULL
+                          );';
            EXEC sp_executesql @sql, N'@tenant_id UNIQUEIDENTIFIER, @count BIGINT OUTPUT', @tenant_id = @tenant_id, @count = @sms_opt_out_total OUTPUT;
-         END
-         ELSE IF COL_LENGTH('dbo.sms_consent_log', 'action') IS NOT NULL
-         BEGIN
-           SET @sql = N'SELECT @count = COUNT_BIG(*) FROM dbo.sms_consent_log WHERE action = ''opt_out'';';
-           EXEC sp_executesql @sql, N'@count BIGINT OUTPUT', @count = @sms_opt_out_total OUTPUT;
          END
        END
 
