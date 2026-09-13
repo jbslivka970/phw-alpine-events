@@ -5,12 +5,14 @@ import { resetSharedAuthStateForTests, useAuth } from '../useAuth'
 const mockSetTokenGetter = vi.fn()
 const mockSetEmailHint = vi.fn()
 const mockSetMemberInviteToken = vi.fn()
+const mockSetActiveTenantId = vi.fn()
 const mockFetch = vi.fn()
 
 vi.mock('../../api/client', () => ({
   setTokenGetter: (...args: unknown[]) => mockSetTokenGetter(...args),
   setEmailHint: (...args: unknown[]) => mockSetEmailHint(...args),
   setMemberInviteToken: (...args: unknown[]) => mockSetMemberInviteToken(...args),
+  setActiveTenantId: (...args: unknown[]) => mockSetActiveTenantId(...args),
 }))
 
 vi.mock('../../authConfig', () => ({
@@ -48,6 +50,7 @@ describe('useAuth auth flow regression coverage', () => {
   const msalInstance = {
     loginPopup: vi.fn(),
     logoutPopup: vi.fn(),
+    clearCache: vi.fn(),
     acquireTokenSilent: vi.fn(),
     acquireTokenPopup: vi.fn(),
     setActiveAccount: vi.fn(),
@@ -70,6 +73,7 @@ describe('useAuth auth flow regression coverage', () => {
 
     msalInstance.loginPopup.mockResolvedValue({})
     msalInstance.logoutPopup.mockResolvedValue({})
+    msalInstance.clearCache.mockResolvedValue(undefined)
     msalInstance.acquireTokenSilent.mockResolvedValue({
       accessToken: 'silent-token',
       idTokenClaims: account.idTokenClaims,
@@ -121,6 +125,8 @@ describe('useAuth auth flow regression coverage', () => {
 
     expect(msalInstance.logoutPopup).toHaveBeenCalledTimes(1)
     expect(mockSetMemberInviteToken).toHaveBeenCalledWith(null)
+    expect(mockSetActiveTenantId).toHaveBeenCalledWith(null)
+    expect(msalInstance.clearCache).toHaveBeenCalledTimes(1)
     expect(msalInstance.logoutPopup).toHaveBeenCalledWith(
       expect.objectContaining({
         account,
@@ -128,6 +134,18 @@ describe('useAuth auth flow regression coverage', () => {
         mainWindowRedirectUri: `${window.location.origin}/login`,
       }),
     )
+  })
+
+  it('clears local auth state even when provider logout fails', async () => {
+    msalInstance.logoutPopup.mockRejectedValueOnce(new Error('popup blocked'))
+    const { result } = renderHook(() => useAuth())
+
+    await expect(result.current.logout()).rejects.toThrow('popup blocked')
+
+    expect(mockSetMemberInviteToken).toHaveBeenCalledWith(null)
+    expect(mockSetActiveTenantId).toHaveBeenCalledWith(null)
+    expect(mockSetEmailHint).toHaveBeenCalledWith(null)
+    expect(msalInstance.clearCache).toHaveBeenCalledTimes(1)
   })
 
   it('registers token getter and falls back to popup token acquisition on interaction-required', async () => {

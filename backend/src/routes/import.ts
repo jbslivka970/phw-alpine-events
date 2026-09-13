@@ -37,7 +37,12 @@ router.post('/preview', writeLimiter, authenticate, requireAdmin, upload.single(
     }
 
     const sessionId = crypto.randomUUID();
-    const preview = await generatePreview(req.file.buffer, req.file.originalname, sessionId);
+    if (!req.tenantId) {
+      res.status(400).json({ error: 'An active tenant is required for member import.' });
+      return;
+    }
+
+    const preview = await generatePreview(req.file.buffer, req.file.originalname, sessionId, req.tenantId);
     storePreviewSession(preview);
 
     res.status(200).json({
@@ -69,6 +74,7 @@ router.post('/commit/:sessionId', writeLimiter, authenticate, requireAdmin, asyn
     }
 
     const result = await commitImport(preview, {
+      tenantId: req.tenantId ?? '',
       conflictResolutions: (req.body as { conflictResolutions?: Record<string, 'create' | 'skip'> } | undefined)
         ?.conflictResolutions,
       importedByUserId: req.user?.sub ?? null,
@@ -101,6 +107,7 @@ router.get('/logs', writeLimiter, authenticate, requireAdmin, async (req: Reques
     }
 
     const logs = await getImportLogs(100, {
+      tenantId: req.tenantId ?? '',
       startedFrom,
       startedTo,
       importedBy: importedBy || undefined,
@@ -113,7 +120,7 @@ router.get('/logs', writeLimiter, authenticate, requireAdmin, async (req: Reques
 
 router.get('/logs/:importId/report.csv', writeLimiter, authenticate, requireAdmin, async (req: Request, res: Response) => {
   try {
-    const report = await getImportLogReport(req.params.importId);
+    const report = await getImportLogReport(req.params.importId, req.tenantId ?? '');
     if (!report) {
       res.status(404).json({ error: 'Import log not found' });
       return;
@@ -129,7 +136,7 @@ router.get('/logs/:importId/report.csv', writeLimiter, authenticate, requireAdmi
 
 router.get('/logs/:importId/errors', writeLimiter, authenticate, requireAdmin, async (req: Request, res: Response) => {
   try {
-    const errors = await getImportLogRowErrors(req.params.importId);
+    const errors = await getImportLogRowErrors(req.params.importId, req.tenantId ?? '');
     res.status(200).json({ errors });
   } catch (error: unknown) {
     res.status(500).json({ error: error instanceof Error ? error.message : 'Failed to fetch row errors' });

@@ -15,6 +15,7 @@ jest.mock('../middleware/auth', () => ({
       roles: ['ADMIN'],
       rawClaims: {},
     };
+    req.tenantId = '11111111-1111-4111-8111-111111111111';
     next();
   },
 }));
@@ -41,6 +42,35 @@ describe('import routes', () => {
     expect(res.body.error).toContain('No file uploaded');
   });
 
+  it('POST /api/import/preview scopes the preview to the active tenant', async () => {
+    (csvImportService.generatePreview as jest.Mock).mockResolvedValue({
+      sessionId: 'session-1',
+      tenantId: '11111111-1111-4111-8111-111111111111',
+      fileName: 'members.csv',
+      totalRows: 1,
+      newRows: 1,
+      updatedRows: 0,
+      unchangedRows: 0,
+      conflictRows: 0,
+      skippedRows: 0,
+      errorRows: 0,
+      rows: [],
+      absentMembers: [],
+    });
+
+    const res = await request(app)
+      .post('/api/import/preview')
+      .attach('file', Buffer.from('First Name,Last Name,Email\nAda,Lovelace,ada@example.org\n'), 'members.csv');
+
+    expect(res.status).toBe(200);
+    expect(csvImportService.generatePreview).toHaveBeenCalledWith(
+      expect.any(Buffer),
+      'members.csv',
+      expect.any(String),
+      '11111111-1111-4111-8111-111111111111'
+    );
+  });
+
   it('POST /api/import/commit/:sessionId returns 404 for unknown session', async () => {
     (csvImportService.getPreviewSession as jest.Mock).mockReturnValue(null);
 
@@ -52,6 +82,7 @@ describe('import routes', () => {
   it('POST /api/import/commit/:sessionId forwards conflict resolutions', async () => {
     (csvImportService.getPreviewSession as jest.Mock).mockReturnValue({
       sessionId: 'session-1',
+      tenantId: '11111111-1111-4111-8111-111111111111',
       fileName: 'members.csv',
       rows: [],
     });
@@ -79,6 +110,7 @@ describe('import routes', () => {
     expect(csvImportService.commitImport).toHaveBeenCalledWith(
       expect.objectContaining({ sessionId: 'session-1' }),
       {
+        tenantId: '11111111-1111-4111-8111-111111111111',
         conflictResolutions: { '12': 'create' },
         importedByEmail: 'admin@example.com',
         importedByUserId: '00000000-0000-0000-0000-000000000001',
@@ -106,6 +138,7 @@ describe('import routes', () => {
     expect(csvImportService.getImportLogs).toHaveBeenCalledWith(
       100,
       expect.objectContaining({
+        tenantId: '11111111-1111-4111-8111-111111111111',
         importedBy: 'admin@example.com',
       })
     );
@@ -123,5 +156,9 @@ describe('import routes', () => {
     expect(res.headers['content-type']).toContain('text/csv');
     expect(res.headers['content-disposition']).toContain('members-report.csv');
     expect(res.text).toContain('summary,import_id');
+    expect(csvImportService.getImportLogReport).toHaveBeenCalledWith(
+      'import-1',
+      '11111111-1111-4111-8111-111111111111'
+    );
   });
 });

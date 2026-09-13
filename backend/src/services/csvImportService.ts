@@ -40,6 +40,7 @@ interface PreviewRow {
 
 interface ImportPreview {
   sessionId: string;
+  tenantId: string;
   fileName: string;
   totalRows: number;
   newRows: number;
@@ -105,12 +106,14 @@ interface MatchOutcome {
 }
 
 interface CommitOptions {
+  tenantId: string;
   conflictResolutions?: Record<string, ConflictResolution>;
   importedByUserId?: string | null;
   importedByEmail?: string | null;
 }
 
 interface ImportLogFilters {
+  tenantId: string;
   startedFrom?: Date;
   startedTo?: Date;
   importedBy?: string;
@@ -276,11 +279,14 @@ interface RoleGroupIds {
   participantGroupIds: string[];
 }
 
-async function resolveRoleGroupIds(tx: sql.Transaction): Promise<RoleGroupIds> {
-  const result = await new sql.Request(tx).query<{ group_id: string; group_name: string }>(
+async function resolveRoleGroupIds(tx: sql.Transaction, tenantId: string): Promise<RoleGroupIds> {
+  const result = await new sql.Request(tx)
+    .input('tenant_id', sql.UniqueIdentifier, tenantId)
+    .query<{ group_id: string; group_name: string }>(
     `SELECT group_id, group_name
      FROM [group]
-     WHERE UPPER(group_name) IN ('VOLUNTEERS', 'MENTORS', 'PARTICIPANTS')`
+     WHERE tenant_id = @tenant_id
+       AND UPPER(group_name) IN ('VOLUNTEERS', 'MENTORS', 'PARTICIPANTS')`
   );
 
   const volunteerGroupIds: string[] = [];
@@ -348,18 +354,36 @@ async function syncMemberRoleGroups(
   }
 }
 
-async function findExistingMember(row: CsvRow): Promise<MatchOutcome> {
+async function loadExistingMembersByEmail(tenantId: string): Promise<Map<string, ExistingMember[]>> {
   const pool = await getPool();
   const result = await pool
     .request()
-    .input('email', sql.NVarChar, row.email)
+    .input('tenant_id', sql.UniqueIdentifier, tenantId)
     .query<ExistingMember>(
       `SELECT member_id, last_import_hash, first_name, last_name, email
-       FROM member
-       WHERE LOWER(email) = @email`
+       FROM member m
+       WHERE EXISTS (
+           SELECT 1
+           FROM dbo.tenant_membership tm
+           WHERE tm.member_id = m.member_id
+             AND tm.tenant_id = @tenant_id
+             AND tm.status = 'active'
+             AND tm.revoked_at IS NULL
+         )`
     );
 
-  const byEmail = result.recordset;
+  const membersByEmail = new Map<string, ExistingMember[]>();
+  for (const member of result.recordset) {
+    const email = member.email.trim().toLowerCase();
+    const members = membersByEmail.get(email) ?? [];
+    members.push(member);
+    membersByEmail.set(email, members);
+  }
+  return membersByEmail;
+}
+
+function findExistingMember(row: CsvRow, membersByEmail: Map<string, ExistingMember[]>): MatchOutcome {
+  const byEmail = membersByEmail.get(row.email.trim().toLowerCase()) ?? [];
   const firstName = row.firstName.trim().toLowerCase();
   const lastName = row.lastName.trim().toLowerCase();
   const exactMatches = byEmail.filter(
@@ -388,8 +412,9 @@ async function findExistingMember(row: CsvRow): Promise<MatchOutcome> {
   return { match: null };
 }
 
-async function generatePreview(buffer: Buffer, fileName: string, sessionId: string): Promise<ImportPreview> {
+async function generatePreview(buffer: Buffer, fileName: string, sessionId: string, tenantId: string): Promise<ImportPreview> {
   const rows = parseCsv(buffer);
+  const existingMembersByEmail = await loadExistingMembersByEmail(tenantId);
   const seenRowSignatures = new Map<string, number>();
 
   const previewRows: PreviewRow[] = [];
@@ -426,7 +451,7 @@ async function generatePreview(buffer: Buffer, fileName: string, sessionId: stri
     }
     seenRowSignatures.set(signature, row.rowNumber);
 
-    const { match: existing, conflictReason, sameEmailMembers } = await findExistingMember(row);
+    const { match: existing, conflictReason, sameEmailMembers } = findExistingMember(row, existingMembersByEmail);
 
     if (conflictReason) {
       previewRows.push({
@@ -480,10 +505,19 @@ async function generatePreview(buffer: Buffer, fileName: string, sessionId: stri
     const pool = await getPool();
     const allActiveResult = await pool
       .request()
+      .input('tenant_id', sql.UniqueIdentifier, tenantId)
       .query<AbsentMember>(
         `SELECT member_id, first_name, last_name, email
          FROM dbo.member
-         WHERE is_active = 1`
+         WHERE is_active = 1
+           AND EXISTS (
+             SELECT 1
+             FROM dbo.tenant_membership tm
+             WHERE tm.member_id = dbo.member.member_id
+               AND tm.tenant_id = @tenant_id
+               AND tm.status = 'active'
+               AND tm.revoked_at IS NULL
+           )`
       );
     absentMembers = allActiveResult.recordset.filter(
       (m) => !csvEmailSet.has(m.email.toLowerCase().trim())
@@ -494,6 +528,7 @@ async function generatePreview(buffer: Buffer, fileName: string, sessionId: stri
 
   return {
     sessionId,
+    tenantId,
     fileName,
     totalRows: rows.length,
     newRows,
@@ -509,6 +544,10 @@ async function generatePreview(buffer: Buffer, fileName: string, sessionId: stri
 }
 
 async function commitImport(preview: ImportPreview, options?: CommitOptions): Promise<CommitResult> {
+  if (!options?.tenantId || preview.tenantId !== options.tenantId) {
+    throw new Error('Import preview tenant does not match the active tenant. Generate a new preview.');
+  }
+
   const pool = await getPool();
   const tx = new sql.Transaction(pool);
   const importId = crypto.randomUUID();
@@ -529,6 +568,7 @@ async function commitImport(preview: ImportPreview, options?: CommitOptions): Pr
 
     await new sql.Request(tx)
       .input('import_id', sql.UniqueIdentifier, importId)
+      .input('tenant_id', sql.UniqueIdentifier, options.tenantId)
       .input('imported_by', sql.UniqueIdentifier, importedByUserId)
       .input('file_name', sql.NVarChar, preview.fileName)
       .input('rows_processed', sql.Int, preview.totalRows)
@@ -538,12 +578,12 @@ async function commitImport(preview: ImportPreview, options?: CommitOptions): Pr
       .input('rows_errored', sql.Int, preview.errorRows)
       .query(
         `INSERT INTO import_log
-          (import_id, imported_by, file_name, rows_processed, rows_inserted, rows_updated, rows_skipped, rows_errored, status, started_at)
+          (import_id, tenant_id, imported_by, file_name, rows_processed, rows_inserted, rows_updated, rows_skipped, rows_errored, status, started_at)
          VALUES
-          (@import_id, @imported_by, @file_name, @rows_processed, @rows_inserted, @rows_updated, @rows_skipped, @rows_errored, 'running', GETUTCDATE())`
+          (@import_id, @tenant_id, @imported_by, @file_name, @rows_processed, @rows_inserted, @rows_updated, @rows_skipped, @rows_errored, 'running', GETUTCDATE())`
       );
 
-    const roleGroups = await resolveRoleGroupIds(tx);
+    const roleGroups = await resolveRoleGroupIds(tx, options.tenantId);
 
     for (const row of preview.rows) {
       if (row.action === 'error') {
@@ -593,6 +633,21 @@ async function commitImport(preview: ImportPreview, options?: CommitOptions): Pr
                 (member_id, first_name, last_name, email, mobile_phone, sms_opt_in, email_opt_out, salutation, title, account_name, source, last_import_hash, is_active, created_at, updated_at)
                VALUES
                 (@member_id, @first_name, @last_name, @email, @mobile_phone, @sms_opt_in, @email_opt_out, @salutation, @title, @account_name, 'import', @last_import_hash, 1, GETUTCDATE(), GETUTCDATE())`
+            );
+          await new sql.Request(tx)
+            .input('tenant_id', sql.UniqueIdentifier, options.tenantId)
+            .input('member_id', sql.UniqueIdentifier, memberId)
+            .query(
+              `INSERT INTO dbo.tenant_membership (
+                 tenant_membership_id, tenant_id, user_id, member_id, role,
+                 membership_kind, home_tenant_id, starts_at, expires_at,
+                 status, created_by_user_id, created_at, revoked_at
+               )
+               VALUES (
+                 NEWID(), @tenant_id, NULL, @member_id, N'member',
+                 N'home', @tenant_id, GETUTCDATE(), NULL,
+                 N'active', NULL, GETUTCDATE(), NULL
+               )`
             );
           await syncMemberRoleGroups(tx, memberId, row.data, roleGroups);
           inserted++;
@@ -685,11 +740,13 @@ async function commitImport(preview: ImportPreview, options?: CommitOptions): Pr
   };
 }
 
-async function getImportLogs(limit = 50, filters?: ImportLogFilters): Promise<ImportLogEntry[]> {
+async function getImportLogs(limit = 50, filters: ImportLogFilters): Promise<ImportLogEntry[]> {
   const pool = await getPool();
-  const request = pool.request().input('limit', sql.Int, limit);
+  const request = pool.request()
+    .input('limit', sql.Int, limit)
+    .input('tenant_id', sql.UniqueIdentifier, filters.tenantId);
 
-  const whereClauses: string[] = [];
+  const whereClauses: string[] = ['il.tenant_id = @tenant_id'];
   if (filters?.startedFrom) {
     whereClauses.push('il.started_at >= @started_from');
     request.input('started_from', sql.DateTime, filters.startedFrom);
@@ -729,11 +786,12 @@ async function getImportLogs(limit = 50, filters?: ImportLogFilters): Promise<Im
   return result.recordset;
 }
 
-async function getImportLogReport(importId: string): Promise<ImportLogReport | null> {
+async function getImportLogReport(importId: string, tenantId: string): Promise<ImportLogReport | null> {
   const pool = await getPool();
   const result = await pool
     .request()
     .input('import_id', sql.UniqueIdentifier, importId)
+    .input('tenant_id', sql.UniqueIdentifier, tenantId)
     .query<{
       importId: string;
       fileName: string | null;
@@ -763,7 +821,8 @@ async function getImportLogReport(importId: string): Promise<ImportLogReport | n
          il.error_detail AS errorDetail
        FROM import_log il
        LEFT JOIN [user] u ON u.user_id = il.imported_by
-       WHERE il.import_id = @import_id`
+       WHERE il.import_id = @import_id
+         AND il.tenant_id = @tenant_id`
     );
 
   const row = result.recordset[0];
@@ -868,12 +927,15 @@ async function resolveImportedByUserId(
   return byEmail.recordset[0]?.user_id ?? null;
 }
 
-async function getImportLogRowErrors(importId: string): Promise<Array<{ rowNumber: number; errorMessage: string }>> {
+async function getImportLogRowErrors(importId: string, tenantId: string): Promise<Array<{ rowNumber: number; errorMessage: string }>> {
   const pool = await getPool();
   const result = await pool
     .request()
     .input('import_id', sql.UniqueIdentifier, importId)
-    .query<{ error_detail: string | null }>('SELECT error_detail FROM import_log WHERE import_id = @import_id');
+    .input('tenant_id', sql.UniqueIdentifier, tenantId)
+    .query<{ error_detail: string | null }>(
+      'SELECT error_detail FROM import_log WHERE import_id = @import_id AND tenant_id = @tenant_id'
+    );
 
   const payload = result.recordset[0]?.error_detail;
   if (!payload) {

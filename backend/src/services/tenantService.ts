@@ -271,6 +271,28 @@ async function createTenant(input: CreateTenantInput): Promise<TenantSummary> {
            GETUTCDATE()
          );
 
+         INSERT INTO dbo.[group] (
+           group_id,
+           tenant_id,
+           group_name,
+           description,
+           is_system,
+           created_at
+         )
+         SELECT
+           NEWID(),
+           @new_tenant_id,
+           seed.group_name,
+           seed.description,
+           1,
+           GETUTCDATE()
+         FROM (VALUES
+           (N'ALL', N'All active members'),
+           (N'ADMIN', N'Chapter administrators'),
+           (N'VOLUNTEERS', N'Volunteers / guides'),
+           (N'PARTICIPANTS', N'Program participants (veterans)')
+         ) AS seed(group_name, description);
+
          SELECT TOP (1)
            tenant_id,
            slug,

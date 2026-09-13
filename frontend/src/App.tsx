@@ -1,4 +1,4 @@
-import { Suspense, lazy } from 'react'
+import { Suspense, lazy, useState } from 'react'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import './App.css'
 import { ROLES } from './authConfig'
@@ -6,6 +6,7 @@ import Layout from './components/Layout'
 import LoadingSkeleton from './components/LoadingSkeleton'
 import { ProtectedRoute } from './components/ProtectedRoute'
 import { TenantProvider, useTenantContext } from './contexts/TenantContext'
+import { useAuth } from './hooks/useAuth'
 
 const AdminPage = lazy(() => import('./pages/AdminPage').then((module) => ({ default: module.AdminPage })))
 const AboutPage = lazy(() => import('./pages/AboutPage').then((module) => ({ default: module.AboutPage })))
@@ -42,7 +43,11 @@ function RouteFallback() {
 }
 
 function TenantGate({ children }: { children: JSX.Element }) {
-  const { loading, noAccess, needsSelection, activeTenant } = useTenantContext()
+  const { loading, loadError, noAccess, needsSelection, activeTenant, refresh } = useTenantContext()
+
+  if (loadError) {
+    return <TenantLoadError error={loadError} retry={refresh} />
+  }
 
   if (loading) {
     return (
@@ -64,7 +69,11 @@ function TenantGate({ children }: { children: JSX.Element }) {
 }
 
 function TenantSelectionRoute() {
-  const { loading, noAccess, needsSelection, activeTenant } = useTenantContext()
+  const { loading, loadError, noAccess, needsSelection, activeTenant, refresh } = useTenantContext()
+
+  if (loadError) {
+    return <TenantLoadError error={loadError} retry={refresh} />
+  }
 
   if (loading) {
     return (
@@ -83,6 +92,39 @@ function TenantSelectionRoute() {
   }
 
   return <Navigate to="/dashboard" replace />
+}
+
+function TenantLoadError({ error, retry }: { error: 'session_expired' | 'unavailable'; retry: () => Promise<void> }) {
+  const { logout } = useAuth()
+  const [busy, setBusy] = useState(false)
+
+  async function recoverSession() {
+    setBusy(true)
+    try {
+      await logout()
+    } finally {
+      window.location.assign('/login')
+    }
+  }
+
+  return (
+    <section className="page" style={{ maxWidth: 760, margin: '0 auto', textAlign: 'center' }}>
+      <h1>{error === 'session_expired' ? 'Your session has expired' : 'We could not load your account'}</h1>
+      <p className="events-subtitle" style={{ marginTop: 12 }}>
+        {error === 'session_expired'
+          ? 'Sign in again to continue. Your tenant access has not changed.'
+          : 'Your tenant access could not be checked. Please try again.'}
+      </p>
+      <button
+        className="btn btn--primary"
+        type="button"
+        disabled={busy}
+        onClick={error === 'session_expired' ? recoverSession : () => void retry()}
+      >
+        {busy ? 'Signing out...' : error === 'session_expired' ? 'Back to sign in' : 'Try again'}
+      </button>
+    </section>
+  )
 }
 
 function App() {

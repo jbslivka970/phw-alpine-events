@@ -22,7 +22,8 @@
     "verify:tenant:event-isolation": "node scripts/verify-tenant-event-isolation.mjs",
     "e2e:refresh-tokens": "node scripts/refresh-playwright-tokens.mjs",
     "uat:create-test-event": "node scripts/create-test-event-for-recipient.mjs",
-    "cleanup:e2e:contract-events": "node scripts/cleanup-e2e-contract-events.mjs"
+    "cleanup:e2e:contract-events": "node scripts/cleanup-e2e-contract-events.mjs",
+    "ops:scale-production": "bash scripts/scale-production-capacity.sh"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",

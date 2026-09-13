@@ -4,7 +4,7 @@ import { InteractionStatus } from '@azure/msal-browser'
 import { hasAuthConfig, loginRequest, popupRedirectUri, ROLES } from '../authConfig'
 import type { AppRole } from '../authConfig'
 import { getApiBaseUrl as resolveApiBaseUrl } from '../api/baseUrl'
-import { setEmailHint, setMemberInviteToken, setTokenGetter } from '../api/client'
+import { setActiveTenantId, setEmailHint, setMemberInviteToken, setTokenGetter } from '../api/client'
 import { authDebugLog, authDebugWarn } from '../utils/authDebug'
 
 const LOGIN_POPUP_TIMEOUT_MS = 240_000
@@ -895,6 +895,13 @@ function useAuth() {
   }
 
   async function logout() {
+    setMemberInviteToken(null)
+    setActiveTenantId(null)
+    setEmailHint(null)
+    setTokenGetter(async () => null)
+    tokenCacheRef.current = null
+    publishSharedRoles(null, [], true)
+
     if (e2eModeActive) {
       if (typeof window !== 'undefined') {
         window.localStorage.removeItem(LOCAL_E2E_AUTH_ROLE_KEY)
@@ -903,7 +910,6 @@ function useAuth() {
         window.localStorage.removeItem(EXTERNAL_E2E_AUTH_EMAIL_KEY)
         window.localStorage.removeItem(EXTERNAL_E2E_AUTH_USER_ID_KEY)
       }
-      setMemberInviteToken(null)
       setLocalE2ERole(ROLES.USER)
       setExternalE2EToken(null)
       setExternalE2EEmail(null)
@@ -911,13 +917,21 @@ function useAuth() {
       return
     }
 
-    setMemberInviteToken(null)
-
-    await instance.logoutPopup({
-      account: account ?? undefined,
-      postLogoutRedirectUri: popupRedirectUri ?? null,
-      mainWindowRedirectUri: `${window.location.origin}/login`,
-    })
+    try {
+      await instance.logoutPopup({
+        account: account ?? undefined,
+        postLogoutRedirectUri: popupRedirectUri ?? null,
+        mainWindowRedirectUri: `${window.location.origin}/login`,
+      })
+    } finally {
+      try {
+        await instance.clearCache()
+      } catch (error) {
+        authDebugWarn('logout:clear-cache:error', {
+          message: error instanceof Error ? error.message : String(error),
+        })
+      }
+    }
   }
 
   useEffect(() => {

@@ -740,6 +740,7 @@ END
 IF OBJECT_ID(N'dbo.import_log', N'U') IS NULL
 CREATE TABLE dbo.import_log (
     import_id        UNIQUEIDENTIFIER NOT NULL DEFAULT NEWID(),
+    tenant_id        UNIQUEIDENTIFIER NULL,  -- made NOT NULL after tenant seed/backfill
     imported_by      UNIQUEIDENTIFIER NULL,  -- FK to dbo.[user]
     file_name        NVARCHAR(255)    NULL,
     rows_processed   INT              NOT NULL DEFAULT 0,
@@ -1124,6 +1125,49 @@ BEGIN
         CREATE UNIQUE INDEX UX_tenant_membership_member_active_kind
             ON dbo.tenant_membership (tenant_id, member_id, membership_kind)
             WHERE member_id IS NOT NULL AND status = 'active' AND revoked_at IS NULL;
+END
+
+IF OBJECT_ID(N'dbo.import_log', N'U') IS NOT NULL
+   AND OBJECT_ID(N'dbo.tenant', N'U') IS NOT NULL
+BEGIN
+    IF COL_LENGTH('dbo.import_log', 'tenant_id') IS NULL
+        ALTER TABLE dbo.import_log ADD tenant_id UNIQUEIDENTIFIER NULL;
+
+    DECLARE @import_log_default_tenant_id UNIQUEIDENTIFIER;
+    SELECT TOP (1) @import_log_default_tenant_id = tenant_id
+    FROM dbo.tenant
+    WHERE slug = N'colorado-alpine';
+
+    IF @import_log_default_tenant_id IS NOT NULL
+        UPDATE dbo.import_log
+        SET tenant_id = @import_log_default_tenant_id
+        WHERE tenant_id IS NULL;
+
+    IF NOT EXISTS (SELECT 1 FROM dbo.import_log WHERE tenant_id IS NULL)
+       AND EXISTS (
+           SELECT 1 FROM sys.columns
+           WHERE object_id = OBJECT_ID(N'dbo.import_log')
+             AND name = N'tenant_id'
+             AND is_nullable = 1
+       )
+        ALTER TABLE dbo.import_log ALTER COLUMN tenant_id UNIQUEIDENTIFIER NOT NULL;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM sys.foreign_keys
+        WHERE name = N'FK_import_log_tenant'
+          AND parent_object_id = OBJECT_ID(N'dbo.import_log')
+    )
+        ALTER TABLE dbo.import_log
+        ADD CONSTRAINT FK_import_log_tenant FOREIGN KEY (tenant_id)
+            REFERENCES dbo.tenant (tenant_id);
+
+    IF NOT EXISTS (
+        SELECT 1 FROM sys.indexes
+        WHERE object_id = OBJECT_ID(N'dbo.import_log')
+          AND name = N'IX_import_log_tenant_started_at'
+    )
+        CREATE INDEX IX_import_log_tenant_started_at
+            ON dbo.import_log (tenant_id, started_at DESC);
 END
 
 -- ---------------------------------------------------------------------------

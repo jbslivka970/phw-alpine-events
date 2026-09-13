@@ -17,11 +17,12 @@ vi.mock('../../hooks/useAuth', () => ({
 }))
 
 function TestHarness() {
-  const { loading, needsSelection, noAccess, activeTenant, tenants } = useTenantContext()
+  const { loading, loadError, needsSelection, noAccess, activeTenant, tenants } = useTenantContext()
 
   return (
     <div>
       <div data-testid="loading">{String(loading)}</div>
+      <div data-testid="loadError">{loadError ?? ''}</div>
       <div data-testid="needsSelection">{String(needsSelection)}</div>
       <div data-testid="noAccess">{String(noAccess)}</div>
       <div data-testid="activeTenant">{activeTenant?.tenant_id ?? ''}</div>
@@ -125,5 +126,47 @@ describe('TenantProvider flow', () => {
     expect(screen.getByTestId('needsSelection').textContent).toBe('true')
     expect(screen.getByTestId('activeTenant').textContent).toBe(home.tenant_id)
     expect(screen.getByTestId('tenantCount').textContent).toBe('2')
+  })
+
+  it('reports an expired session instead of no tenant access after a 401', async () => {
+    listTenantsMock.mockRejectedValue(new Error('API 401: Unauthorized'))
+
+    render(
+      <TenantProvider>
+        <TestHarness />
+      </TenantProvider>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('loadError').textContent).toBe('session_expired')
+    })
+
+    expect(screen.getByTestId('noAccess').textContent).toBe('false')
+  })
+
+  it('reports temporary tenant API failures without discarding the current tenant', async () => {
+    const home = makeTenant({})
+    listTenantsMock.mockResolvedValueOnce([home]).mockRejectedValueOnce(new Error('API 503: Unavailable'))
+
+    const { rerender } = render(
+      <TenantProvider>
+        <TestHarness />
+      </TenantProvider>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('activeTenant').textContent).toBe(home.tenant_id)
+    })
+
+    useAuthMock.mockReturnValue({ isAuthenticated: false, rolesReady: true })
+    rerender(<TenantProvider><TestHarness /></TenantProvider>)
+    useAuthMock.mockReturnValue({ isAuthenticated: true, rolesReady: true })
+    rerender(<TenantProvider><TestHarness /></TenantProvider>)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('loadError').textContent).toBe('unavailable')
+    })
+
+    expect(screen.getByTestId('noAccess').textContent).toBe('false')
   })
 })

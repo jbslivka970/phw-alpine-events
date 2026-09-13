@@ -53,6 +53,36 @@
         "description": "Number of workers in the App Service plan."
       }
     },
+    "sqlDatabaseSkuName": {
+      "type": "string",
+      "defaultValue": "Basic",
+      "metadata": {
+        "description": "Azure SQL database service objective, for example Basic, S1, or S2."
+      }
+    },
+    "sqlDatabaseSkuTier": {
+      "type": "string",
+      "defaultValue": "Basic",
+      "metadata": {
+        "description": "Azure SQL database tier matching the service objective."
+      }
+    },
+    "sqlDatabaseSkuCapacity": {
+      "type": "int",
+      "defaultValue": 5,
+      "minValue": 1,
+      "metadata": {
+        "description": "DTU capacity for the selected Azure SQL service objective."
+      }
+    },
+    "sqlDatabaseMaxSizeBytes": {
+      "type": "int",
+      "defaultValue": 2147483647,
+      "minValue": 1073741824,
+      "metadata": {
+        "description": "Maximum Azure SQL database size in bytes."
+      }
+    },
     "nodeVersion": {
       "type": "string",
       "defaultValue": "24-lts",
@@ -153,8 +183,12 @@
         "[resourceId('Microsoft.Sql/servers', parameters('sqlServerName'))]"
       ],
       "sku": {
-        "name": "Basic",
-        "tier": "Basic"
+        "name": "[parameters('sqlDatabaseSkuName')]",
+        "tier": "[parameters('sqlDatabaseSkuTier')]",
+        "capacity": "[parameters('sqlDatabaseSkuCapacity')]"
+      },
+      "properties": {
+        "maxSizeBytes": "[parameters('sqlDatabaseMaxSizeBytes')]"
       }
     }
   ],

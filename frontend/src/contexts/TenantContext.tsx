@@ -7,6 +7,7 @@ import { useAuth } from '../hooks/useAuth'
 
 type TenantContextState = {
   loading: boolean
+  loadError: 'session_expired' | 'unavailable' | null
   needsSelection: boolean
   noAccess: boolean
   tenants: UserTenantContext[]
@@ -127,11 +128,12 @@ function chooseDefaultTenant(tenants: UserTenantContext[], persistedTenantId: st
 function TenantProvider({ children }: { children: ReactNode }) {
   const { isAuthenticated, rolesReady } = useAuth()
   const [loading, setLoading] = useState(false)
+  const [loadError, setLoadError] = useState<'session_expired' | 'unavailable' | null>(null)
   const [needsSelection, setNeedsSelection] = useState(false)
   const [tenants, setTenants] = useState<UserTenantContext[]>([])
   const [activeTenantId, setActiveTenantIdState] = useState<string | null>(null)
 
-  const noAccess = !loading && isAuthenticated && rolesReady && tenants.length === 0
+  const noAccess = !loading && !loadError && isAuthenticated && rolesReady && tenants.length === 0
 
   const refresh = async () => {
     if (!isAuthenticated || !rolesReady) {
@@ -139,6 +141,7 @@ function TenantProvider({ children }: { children: ReactNode }) {
     }
 
     setLoading(true)
+    setLoadError(null)
     try {
       const response = dedupeTenantContexts(await meApi.listTenants())
       const persistedTenantId = getStoredTenantId()
@@ -150,10 +153,9 @@ function TenantProvider({ children }: { children: ReactNode }) {
       setActiveTenantId(nextActiveTenantId)
     } catch (error) {
       console.error('[tenant-context] Failed to load tenants', error)
-      setTenants([])
+      const message = error instanceof Error ? error.message : ''
+      setLoadError(/\b401\b/.test(message) ? 'session_expired' : 'unavailable')
       setNeedsSelection(false)
-      setActiveTenantIdState(null)
-      setActiveTenantId(null)
     } finally {
       setLoading(false)
     }
@@ -162,6 +164,7 @@ function TenantProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!isAuthenticated || !rolesReady) {
       setLoading(false)
+      setLoadError(null)
       setNeedsSelection(false)
       setTenants([])
       setActiveTenantIdState(null)
@@ -197,13 +200,14 @@ function TenantProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<TenantContextState>(() => ({
     loading,
+    loadError,
     needsSelection,
     noAccess,
     tenants,
     activeTenant,
     selectTenant,
     refresh,
-  }), [activeTenant, loading, needsSelection, noAccess, tenants])
+  }), [activeTenant, loadError, loading, needsSelection, noAccess, tenants])
 
   return <TenantContext.Provider value={value}>{children}</TenantContext.Provider>
 }
