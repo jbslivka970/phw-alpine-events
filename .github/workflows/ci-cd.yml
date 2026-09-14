@@ -950,6 +950,8 @@ jobs:
         TARGET_OS="$(printf '%s' "${BACKEND_APP_SERVICE_OS:-windows}" | tr '[:upper:]' '[:lower:]')"
         if [ "$TARGET_OS" = "linux" ]; then
           echo "Target App Service OS is Linux; omitting web.config from package."
+          cp -R backend/src deploy-package/src
+          cp backend/tsconfig.json deploy-package/tsconfig.json
         else
           cp backend/web.config deploy-package/web.config
         fi
