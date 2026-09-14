@@ -367,24 +367,33 @@ async function queryEventSummary(req: Request, fromDate: Date, toDate: Date): Pr
           e.location,
           e.status,
           e.capacity,
-          SUM(CASE WHEN er.response = 'yes' THEN 1 ELSE 0 END) AS yes_count,
-          SUM(CASE WHEN er.response = 'no' THEN 1 ELSE 0 END) AS no_count,
-          SUM(CASE WHEN er.response = 'maybe' THEN 1 ELSE 0 END) AS maybe_count,
-          SUM(CASE WHEN er.response = 'waitlist' THEN 1 ELSE 0 END) AS waitlist_count,
-          SUM(CASE WHEN ea.attended = 1 THEN 1 ELSE 0 END) AS attended_count
+          COALESCE(er.yes_count, 0) AS yes_count,
+          COALESCE(er.no_count, 0) AS no_count,
+          COALESCE(er.maybe_count, 0) AS maybe_count,
+          COALESCE(er.waitlist_count, 0) AS waitlist_count,
+          COALESCE(ea.attended_count, 0) AS attended_count
        FROM event e
-       LEFT JOIN event_response er ON er.event_id = e.event_id
-       LEFT JOIN event_assignment ea ON ea.event_id = e.event_id
+       OUTER APPLY (
+         SELECT
+           SUM(CASE WHEN response = 'yes' THEN 1 ELSE 0 END) AS yes_count,
+           SUM(CASE WHEN response = 'no' THEN 1 ELSE 0 END) AS no_count,
+           SUM(CASE WHEN response = 'maybe' THEN 1 ELSE 0 END) AS maybe_count,
+           SUM(CASE WHEN response = 'waitlist' THEN 1 ELSE 0 END) AS waitlist_count
+         FROM event_response
+         WHERE event_id = e.event_id
+       ) er
+       OUTER APPLY (
+         SELECT COUNT(*) AS attended_count
+         FROM (
+           SELECT DISTINCT member_id
+           FROM event_assignment
+           WHERE event_id = e.event_id
+             AND attended = 1
+         ) attended_members
+       ) ea
        WHERE e.event_date >= @fromDate
          AND e.event_date <= @toDate
          ${tenantEventFilter}
-       GROUP BY
-          e.event_id,
-          e.title,
-          e.event_date,
-          e.location,
-          e.status,
-          e.capacity
        ORDER BY e.event_date ASC`
     );
 

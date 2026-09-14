@@ -40,6 +40,12 @@ interface DeliverySummaryRow {
   count: number;
 }
 
+export function formatReportRate(numerator: number, denominator: number | null): string {
+  return denominator !== null && denominator > 0
+    ? `${Math.round((numerator / denominator) * 100)}%`
+    : '—';
+}
+
 function formatDateTime(isoDateTime: string): string {
   return new Date(isoDateTime).toLocaleString('en-GB', {
     year: 'numeric',
@@ -109,15 +115,8 @@ function SummaryRow({ row }: { row: EventSummaryRow }) {
     month: 'short', day: 'numeric', year: 'numeric',
     hour: '2-digit', minute: '2-digit', hour12: false,
   });
-  const rsvpCount = row.yes_count + row.no_count + row.maybe_count + row.waitlist_count;
-  const fillRate =
-    row.capacity !== null && row.capacity > 0
-      ? `${Math.round((row.yes_count / row.capacity) * 100)}%`
-      : '—';
-  const attendRate =
-    rsvpCount > 0
-      ? `${Math.round((row.attended_count / rsvpCount) * 100)}%`
-      : '—';
+  const fillRate = formatReportRate(row.yes_count, row.capacity);
+  const attendRate = formatReportRate(row.attended_count, row.yes_count);
 
   return (
     <tr className={`summary-row status-row--${row.status}`}>
@@ -387,10 +386,8 @@ function ReportsPage() {
   const totalLogPages = Math.max(1, Math.ceil(deliveryLogsTotal / logPageSize));
 
   const fillRatePct = `${Math.round(summary.avg_fill_rate * 100)}%`;
-  const attendRate =
-    summary.total_rsvps > 0
-      ? `${Math.round((summary.total_attended / summary.total_rsvps) * 100)}%`
-      : '—';
+  const totalConfirmed = summary.events.reduce((sum, row) => sum + row.yes_count, 0);
+  const attendRate = formatReportRate(summary.total_attended, totalConfirmed);
 
   return (
     <div className="page reports-page">
