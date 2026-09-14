@@ -1093,6 +1093,72 @@ jobs:
         echo "::error::Use an App Service SKU that supports slots (for example S1) or disable blue-green mode for this deploy."
         exit 1
 
+    - name: Synchronize production app settings to staging
+      if: ${{ steps.stale_guard.outputs.stale_run != '1' && steps.backend_deploy_mode.outputs.use_blue_green == '1' }}
+      env:
+        AZURE_WEBAPP_NAME: ${{ vars.AZURE_WEBAPP_NAME }}
+        AZURE_BACKEND_RESOURCE_GROUP: ${{ vars.AZURE_BACKEND_RESOURCE_GROUP }}
+        AZURE_BACKEND_SLOT_NAME: ${{ vars.AZURE_BACKEND_SLOT_NAME }}
+      run: |
+        PRODUCTION_SETTINGS_FILE="$RUNNER_TEMP/backend-production-settings.json"
+        STAGING_SETTINGS_FILE="$RUNNER_TEMP/backend-staging-settings.json"
+        REFERENCED_VAULTS_FILE="$RUNNER_TEMP/backend-referenced-vaults.txt"
+
+        az webapp config appsettings list \
+          --resource-group "$AZURE_BACKEND_RESOURCE_GROUP" \
+          --name "$AZURE_WEBAPP_NAME" \
+          --output json > "$PRODUCTION_SETTINGS_FILE"
+
+        python3 - "$PRODUCTION_SETTINGS_FILE" "$STAGING_SETTINGS_FILE" "$REFERENCED_VAULTS_FILE" <<'PY'
+        import json
+        import re
+        import sys
+
+        source_path, target_path, vaults_path = sys.argv[1:]
+        excluded = {'SCM_DO_BUILD_DURING_DEPLOYMENT', 'ENABLE_ORYX_BUILD'}
+        with open(source_path, encoding='utf-8') as source:
+            settings = json.load(source)
+        staging_settings = {
+            setting['name']: setting.get('value', '')
+            for setting in settings
+            if setting.get('name') and setting['name'] not in excluded
+        }
+        with open(target_path, 'w', encoding='utf-8') as target:
+            json.dump(staging_settings, target)
+        vaults = sorted({
+          match.group(1)
+          for value in staging_settings.values()
+          if (match := re.search(r'https://([^.]+)\.vault\.azure\.net/', value or ''))
+        })
+        with open(vaults_path, 'w', encoding='utf-8') as target:
+          target.write('\n'.join(vaults))
+        print(f"Prepared {len(staging_settings)} production app settings for staging.")
+        PY
+
+        az webapp config appsettings set \
+          --resource-group "$AZURE_BACKEND_RESOURCE_GROUP" \
+          --name "$AZURE_WEBAPP_NAME" \
+          --slot "$AZURE_BACKEND_SLOT_NAME" \
+          --settings "@$STAGING_SETTINGS_FILE" \
+          --output none
+
+        STAGING_PRINCIPAL_ID="$(az webapp identity assign \
+          --resource-group "$AZURE_BACKEND_RESOURCE_GROUP" \
+          --name "$AZURE_WEBAPP_NAME" \
+          --slot "$AZURE_BACKEND_SLOT_NAME" \
+          --query principalId -o tsv)"
+        while IFS= read -r VAULT_NAME; do
+          [ -z "$VAULT_NAME" ] && continue
+          az keyvault set-policy \
+            --name "$VAULT_NAME" \
+            --object-id "$STAGING_PRINCIPAL_ID" \
+            --secret-permissions get list \
+            --output none
+        done < "$REFERENCED_VAULTS_FILE"
+
+        rm -f "$PRODUCTION_SETTINGS_FILE" "$STAGING_SETTINGS_FILE" "$REFERENCED_VAULTS_FILE"
+        echo "Production app settings synchronized to staging without logging values."
+
     - name: Ensure AUTHZ app settings are slot-sticky on prod and staging
       # Authoritative AUTHZ knobs MUST be present on both slots and pinned via
       # slotConfigNames (--slot-settings) so a slot swap does NOT leak the
