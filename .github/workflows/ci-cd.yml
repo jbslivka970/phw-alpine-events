@@ -1388,7 +1388,7 @@ jobs:
           STARTUP_STATUS="$(curl -sS -o /dev/null -w "%{http_code}" "$STARTUP_HEALTH_URL" || true)"
           BASIC_STATUS="$(curl -sS -o /dev/null -w "%{http_code}" "$BASIC_HEALTH_URL" || true)"
 
-          if [ "$STARTUP_STATUS" = "200" ] || [ "$BASIC_STATUS" = "200" ]; then
+          if [ "$BASIC_STATUS" = "200" ]; then
             echo "Staging slot is ready (attempt $attempt)."
             exit 0
           fi
@@ -1554,20 +1554,22 @@ jobs:
         if [ -z "$PROD_URL" ]; then
           PROD_URL="https://${AZURE_WEBAPP_NAME}.azurewebsites.net"
         fi
+        EXPECTED_VERSION="$(node -p "require('./backend/package.json').version")"
 
         STARTUP_HEALTH_URL="$PROD_URL/api/v1/health/startup"
         BASIC_HEALTH_URL="$PROD_URL/api/v1/health"
 
         for attempt in $(seq 1 24); do
           STARTUP_STATUS="$(curl -sS -o /dev/null -w "%{http_code}" "$STARTUP_HEALTH_URL" || true)"
-          BASIC_STATUS="$(curl -sS -o /dev/null -w "%{http_code}" "$BASIC_HEALTH_URL" || true)"
+          BASIC_BODY="$(curl -sS "$BASIC_HEALTH_URL" || true)"
+          BASIC_STATUS="$(printf '%s' "$BASIC_BODY" | python -c "import json,sys;\ntry:\n data=json.load(sys.stdin); print(200 if data.get('version') == '$EXPECTED_VERSION' else 409)\nexcept Exception:\n print(0)" 2>/dev/null || true)"
 
           if [ "$STARTUP_STATUS" = "200" ] || [ "$BASIC_STATUS" = "200" ]; then
-            echo "Production health is ready (attempt $attempt)."
+            echo "Production health is ready on version $EXPECTED_VERSION (attempt $attempt)."
             exit 0
           fi
 
-          echo "Production not ready yet (attempt $attempt, startup=$STARTUP_STATUS, health=$BASIC_STATUS)."
+          echo "Production not ready on version $EXPECTED_VERSION (attempt $attempt, startup=$STARTUP_STATUS, health=$BASIC_STATUS)."
           sleep 10
         done
 
