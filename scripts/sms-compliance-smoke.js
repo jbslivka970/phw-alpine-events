@@ -15,6 +15,7 @@
  * - SMS_TEST_ENABLE_LIVE: set to 1 to run live checks against SMS_TEST_PHONE
  * - SMS_TEST_ENABLE_RSVP_PARSE: set to 1 to include RSVP parser check in live mode (default off)
  * - SMS_TEST_ENABLE_STOP: set to 1 to include STOP test (destructive)
+ * - SMS_TEST_PRODUCTION_MODE: set to 1 when checking a production endpoint
  * - SMS_ADMIN_BEARER_TOKEN: optional admin JWT to validate /api/v1/sms/inbound/logs
  */
 
@@ -24,6 +25,7 @@ const testPhone = process.env.SMS_TEST_PHONE || '';
 const liveMode = process.env.SMS_TEST_ENABLE_LIVE === '1';
 const liveRsvpParseMode = process.env.SMS_TEST_ENABLE_RSVP_PARSE === '1';
 const stopMode = process.env.SMS_TEST_ENABLE_STOP === '1';
+const productionMode = process.env.SMS_TEST_PRODUCTION_MODE === '1';
 const adminBearerToken = process.env.SMS_ADMIN_BEARER_TOKEN || '';
 
 function url(path) {
@@ -98,8 +100,13 @@ async function runContractChecks() {
   const batch = await postJson('/api/v1/sms/inbound', batchPayload);
   checks.push(['eventgrid_batch_status', batch.status]);
   checks.push(['eventgrid_batch_body', JSON.stringify(batch.body)]);
-  assert(batch.status === 200, 'Event Grid batch payload should return 200.');
-  assert(Array.isArray(batch.body.processed), 'Event Grid batch should return processed[] array.');
+  if (productionMode) {
+    assert(batch.status === 401, 'Unsigned Event Grid batch should be rejected in production.');
+    return checks;
+  } else {
+    assert(batch.status === 200, 'Event Grid batch payload should return 200.');
+    assert(Array.isArray(batch.body.processed), 'Event Grid batch should return processed[] array.');
+  }
 
   const help = await postJson('/api/v1/sms/inbound', { from: nonMemberPhone, message: 'HELP' });
   checks.push(['help_unknown_status', help.status]);
@@ -129,6 +136,9 @@ async function runContractChecks() {
 async function runLiveChecks() {
   if (!testPhone) {
     throw new Error('SMS_TEST_PHONE is required when SMS_TEST_ENABLE_LIVE=1.');
+  }
+  if (productionMode) {
+    throw new Error('Live production SMS requires an actual inbound message from the test phone; unsigned direct smoke requests are rejected by design.');
   }
 
   const checks = [];
@@ -194,6 +204,7 @@ async function runLiveChecks() {
     allChecks.push(['live_mode', liveMode]);
     allChecks.push(['live_rsvp_parse_mode', liveRsvpParseMode]);
     allChecks.push(['stop_mode', stopMode]);
+    allChecks.push(['production_mode', productionMode]);
 
     const contractChecks = await runContractChecks();
     allChecks.push(...contractChecks);

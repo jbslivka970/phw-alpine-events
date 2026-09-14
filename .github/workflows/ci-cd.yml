@@ -2169,11 +2169,13 @@ jobs:
           BACKEND_BASE_URL="https://${{ vars.AZURE_WEBAPP_NAME }}.azurewebsites.net"
         fi
         SMS_TEST_PHONE="${{ vars.SMS_TEST_PHONE }}"
-        SMS_TEST_ENABLE_LIVE="${{ vars.SMS_TEST_ENABLE_LIVE }}"
+        SMS_TEST_ENABLE_LIVE=0
+        SMS_TEST_PRODUCTION_MODE=1
         echo "Running SMS compliance smoke against $BACKEND_BASE_URL"
         export BACKEND_BASE_URL
         export SMS_TEST_PHONE
         export SMS_TEST_ENABLE_LIVE
+        export SMS_TEST_PRODUCTION_MODE
         npm --prefix backend run smoke:sms 2>&1 | tee -a ci-artifacts/deploy-backend-smoke.log
 
     - name: Upload deploy backend smoke logs
@@ -2383,9 +2385,11 @@ jobs:
           BACKEND_BASE_URL="https://${{ vars.AZURE_WEBAPP_NAME }}.azurewebsites.net"
         fi
         SMS_TEST_PHONE="${{ vars.SMS_TEST_PHONE }}"
-        SMS_TEST_ENABLE_LIVE="${{ vars.SMS_TEST_ENABLE_LIVE }}"
+        SMS_TEST_ENABLE_LIVE=0
+        SMS_TEST_PRODUCTION_MODE=1
         echo "Running release SMS compliance smoke against $BACKEND_BASE_URL"
         export BACKEND_BASE_URL
         export SMS_TEST_PHONE
         export SMS_TEST_ENABLE_LIVE
+        export SMS_TEST_PRODUCTION_MODE
         npm --prefix backend run smoke:sms
