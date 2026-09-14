@@ -276,7 +276,7 @@ function collectErrorsForAuthStatePreflight(statePathValue) {
     ...collectExternalE2EEmailsFromState(parsed),
   ];
   if (emails.length === 0) {
-    errors.push(`Auth state file ${statePath} does not contain an id_token email claim or external E2E email seed. browser-auth-email-hint will fail.`);
+    errors.push(`Auth state file ${statePath} does not contain an id_token email claim or external E2E email seed.`);
   }
 
   return errors;

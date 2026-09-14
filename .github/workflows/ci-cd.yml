@@ -196,7 +196,7 @@ jobs:
           playwright-report/**
           test-results/**
 
-  e2e_browser_auth_email_hint:
+  e2e_browser_verified_identity:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     needs:
@@ -249,18 +249,7 @@ jobs:
         name: playwright-auth-state-${{ github.run_id }}
         path: tests/e2e/.auth
 
-    - name: Probe member auth state email hint
-      id: member_email_hint_probe
-      continue-on-error: true
-      run: node scripts/ci/check-e2e-auth-preflight.mjs --mode=auth-state --state-path=tests/e2e/.auth/member.json
-
-    - name: Warn when member auth state email hint is missing
-      if: ${{ steps.member_email_hint_probe.outcome != 'success' }}
-      run: |
-        echo "::warning::Member auth state is missing id_token email claim or external E2E email seed."
-        echo "::warning::Proceeding to browser-auth-email-hint regression, which will attempt credential login fallback."
-
-    - name: Run browser auth email-hint regression
+    - name: Run browser verified-identity regression
       env:
         E2E_APP_URL: ${{ vars.E2E_APP_URL }}
         E2E_API_BASE_URL: ${{ vars.E2E_API_BASE_URL }}
@@ -272,7 +261,7 @@ jobs:
       if: ${{ failure() || cancelled() }}
       uses: actions/upload-artifact@v5
       with:
-        name: playwright-browser-auth-email-hint-artifacts-${{ github.run_id }}
+        name: playwright-browser-verified-identity-artifacts-${{ github.run_id }}
         if-no-files-found: ignore
         retention-days: 14
         path: |
@@ -512,17 +501,6 @@ jobs:
             exit 1
           fi
         done
-
-    - name: Probe member auth state email hint
-      id: member_email_hint_probe
-      continue-on-error: true
-      run: node scripts/ci/check-e2e-auth-preflight.mjs --mode=auth-state --state-path=tests/e2e/.auth/member.json
-
-    - name: Warn when member auth state email hint is missing
-      if: ${{ steps.member_email_hint_probe.outcome != 'success' }}
-      run: |
-        echo "::warning::Member auth state is missing id_token email claim or external E2E email seed."
-        echo "::warning::Auth-refresh remains green so non-email-hint suites can execute; e2e_browser_auth_email_hint will enforce this as a hard requirement."
 
     - name: Upload debug screenshots on auth failure
       if: ${{ failure() }}

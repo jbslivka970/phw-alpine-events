@@ -15,7 +15,7 @@
  *   4. Admin-only endpoint is 403 for member/event_creator roles
  *   5. TAVF admin exclusion rule is enforced (admin cannot create postings)
  *   6. Self-member access resolves by member_identity_link, not raw subject
- *   7. X-Id-Token-Email header is forwarded on API calls (browser test only)
+ *   7. Caller-controlled identity email headers are not forwarded (browser test only)
  *
  * Run modes:
  *   Live tokens:   E2E_API_BASE_URL=https://... PW_ADMIN_TOKEN=... npm run test:e2e:authz-smoke

@@ -411,22 +411,24 @@ async function readBrowserAuthEmailState(page: Page): Promise<BrowserAuthEmailSt
   });
 }
 
-test.describe('Auth Email Hint Regression', () => {
+test.describe('Verified Identity Boundary', () => {
   test.setTimeout(120_000);
   test.use({ storageState: memberStatePath });
 
   test.skip(!appBaseUrl, 'E2E_APP_URL is required.');
 
-  test('sends id token email in X-Id-Token-Email header', async ({ page }) => {
-    let capturedHeader: string | null = null;
+  test('does not send caller-controlled identity email headers', async ({ page }) => {
+    let apiRequestCount = 0;
+    const requestsWithIdentityHeader: string[] = [];
     const onRequest = (request: Request) => {
       if (!request.url().toLowerCase().includes('/api/v1/')) {
         return;
       }
 
+      apiRequestCount += 1;
       const value = request.headers()['x-id-token-email'];
       if (typeof value === 'string' && value.trim().length > 0) {
-        capturedHeader = value.trim().toLowerCase();
+        requestsWithIdentityHeader.push(request.url());
       }
     };
 
@@ -460,22 +462,14 @@ test.describe('Auth Email Hint Regression', () => {
 
       await expect(page).not.toHaveURL(/\/login(\?|$)/i, { timeout: 15_000 });
 
-      const authEmailState = await readBrowserAuthEmailState(page);
-      const externalEmailHint = normalizeEmailHintValue(authEmailState.externalEmail);
-      const expectedEmailHint = isUsableEmailHint(externalEmailHint)
-        ? externalEmailHint
-        : resolveExpectedEmailHint(authEmailState.idTokenClaims ?? {}, memberUsername);
-      expect(expectedEmailHint, 'a usable email hint should be derivable from external E2E auth state, id_token claims, or member username fallback.').toBeTruthy();
-      const expectedHeaderValue = expectedEmailHint as string;
-
       await page.goto(`${appBaseUrl}/events`, { waitUntil: 'domcontentloaded' });
       await page.waitForLoadState('networkidle').catch(() => {});
 
       await page.goto(`${appBaseUrl}/dashboard`, { waitUntil: 'domcontentloaded' }).catch(() => {});
       await sleep(2_000);
 
-      expect(capturedHeader, 'frontend should send X-Id-Token-Email on API calls').toBeTruthy();
-      expect(capturedHeader).toBe(expectedHeaderValue);
+      expect(apiRequestCount, 'authenticated navigation should issue API requests').toBeGreaterThan(0);
+      expect(requestsWithIdentityHeader, 'frontend must not send X-Id-Token-Email on API calls').toEqual([]);
     } finally {
       page.off('request', onRequest);
     }
