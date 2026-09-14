@@ -133,7 +133,7 @@ jobs:
 
           RUNTIME="$AZURE_SPLASH_RUNTIME"
           if [ -z "$RUNTIME" ]; then
-            RUNTIME="NODE|20-lts"
+            RUNTIME="NODE|24-lts"
           fi
 
           bash scripts/ensure-webapp.sh \
