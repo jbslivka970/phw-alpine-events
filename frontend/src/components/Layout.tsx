@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { ROLES } from '../authConfig';
-import { useTenantContext } from '../contexts/TenantContext';
+import { activeRoleHasAppRole, useTenantContext } from '../contexts/TenantContext';
 import { useAuth } from '../hooks/useAuth';
 
 interface NavItem {
@@ -32,7 +32,7 @@ export default function Layout() {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, logout, canCreateTavfPostings } = useAuth();
-  const { activeTenant, tenants, selectTenant } = useTenantContext();
+  const { activeTenant, activeRole, tenants, selectTenant } = useTenantContext();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isAdminMenuOpen, setIsAdminMenuOpen] = useState(false);
   const adminMenuRef = useRef<HTMLDivElement | null>(null);
@@ -84,7 +84,6 @@ export default function Layout() {
     navigate('/dashboard');
   }
 
-  const roles = user?.roles ?? [];
   const isRootAdmin = tenants.some((tenant) => tenant.role === 'root_admin');
   const isDemoTenant = Boolean(activeTenant?.is_demo || activeTenant?.slug?.toLowerCase().includes('demo'));
   const canAccessTavf = canCreateTavfPostings();
@@ -105,7 +104,7 @@ export default function Layout() {
   }), [tenants]);
   const canSwitchTenant = eligibleTenants.length > 1;
   const visibleItems = NAV_ITEMS
-    .filter((item) => !item.role || roles.includes(item.role as typeof ROLES[keyof typeof ROLES]))
+    .filter((item) => !item.role || activeRoleHasAppRole(activeRole, item.role as typeof ROLES[keyof typeof ROLES]))
     .filter((item) => item.to !== '/tavf' || canAccessTavf);
 
   const corePaths = new Set(['/dashboard', '/preferences', '/events', '/calendar', '/tavf']);

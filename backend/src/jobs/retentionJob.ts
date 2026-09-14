@@ -1,9 +1,9 @@
 import { getPool, sql } from '../db';
 
 type RetentionTarget = {
-  label: 'notification_log' | 'inbound_sms_log' | 'email_preference_log';
-  tableName: 'notification_log' | 'inbound_sms_log' | 'email_preference_log';
-  dateColumn: 'sent_at' | 'received_at' | 'recorded_at';
+  label: 'notification_log' | 'notification_outbox' | 'inbound_sms_log' | 'email_preference_log' | 'csv_import_session' | 'rate_limit_window' | 'webhook_receipt';
+  tableName: 'notification_log' | 'notification_outbox' | 'inbound_sms_log' | 'email_preference_log' | 'csv_import_session' | 'rate_limit_window' | 'webhook_receipt';
+  dateColumn: 'sent_at' | 'completed_at' | 'received_at' | 'recorded_at' | 'expires_at';
   retentionDays: number;
 };
 
@@ -13,8 +13,12 @@ type RetentionRunOptions = {
   maxDeletePerTarget?: number;
   deleteBatchSize?: number;
   notificationLogDays?: number;
+  notificationOutboxDays?: number;
   inboundSmsLogDays?: number;
   emailPreferenceLogDays?: number;
+  csvImportSessionDays?: number;
+  rateLimitWindowDays?: number;
+  webhookReceiptDays?: number;
 };
 
 type RetentionResult = {
@@ -49,8 +53,12 @@ function resolveOptions(overrides?: RetentionRunOptions): {
   }
 
   const notificationLogDays = overrides?.notificationLogDays ?? parsePositiveInt(process.env['RETENTION_NOTIFICATION_LOG_DAYS'], 180);
+  const notificationOutboxDays = overrides?.notificationOutboxDays ?? parsePositiveInt(process.env['RETENTION_NOTIFICATION_OUTBOX_DAYS'], 30);
   const inboundSmsLogDays = overrides?.inboundSmsLogDays ?? parsePositiveInt(process.env['RETENTION_INBOUND_SMS_LOG_DAYS'], 365);
   const emailPreferenceLogDays = overrides?.emailPreferenceLogDays ?? parsePositiveInt(process.env['RETENTION_EMAIL_PREFERENCE_LOG_DAYS'], 365);
+  const csvImportSessionDays = overrides?.csvImportSessionDays ?? parsePositiveInt(process.env['RETENTION_CSV_IMPORT_SESSION_DAYS'], 1);
+  const rateLimitWindowDays = overrides?.rateLimitWindowDays ?? parsePositiveInt(process.env['RETENTION_RATE_LIMIT_WINDOW_DAYS'], 1);
+  const webhookReceiptDays = overrides?.webhookReceiptDays ?? parsePositiveInt(process.env['RETENTION_WEBHOOK_RECEIPT_DAYS'], 1);
 
   const targets: RetentionTarget[] = [
     {
@@ -58,6 +66,12 @@ function resolveOptions(overrides?: RetentionRunOptions): {
       tableName: 'notification_log',
       dateColumn: 'sent_at',
       retentionDays: notificationLogDays,
+    },
+    {
+      label: 'notification_outbox',
+      tableName: 'notification_outbox',
+      dateColumn: 'completed_at',
+      retentionDays: notificationOutboxDays,
     },
     {
       label: 'inbound_sms_log',
@@ -70,6 +84,24 @@ function resolveOptions(overrides?: RetentionRunOptions): {
       tableName: 'email_preference_log',
       dateColumn: 'recorded_at',
       retentionDays: emailPreferenceLogDays,
+    },
+    {
+      label: 'csv_import_session',
+      tableName: 'csv_import_session',
+      dateColumn: 'expires_at',
+      retentionDays: csvImportSessionDays,
+    },
+    {
+      label: 'rate_limit_window',
+      tableName: 'rate_limit_window',
+      dateColumn: 'expires_at',
+      retentionDays: rateLimitWindowDays,
+    },
+    {
+      label: 'webhook_receipt',
+      tableName: 'webhook_receipt',
+      dateColumn: 'expires_at',
+      retentionDays: webhookReceiptDays,
     },
   ];
 

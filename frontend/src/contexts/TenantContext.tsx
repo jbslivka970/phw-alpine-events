@@ -1,8 +1,10 @@
-import { createContext, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { setActiveTenantId } from '../api/client'
 import { meApi } from '../api/me'
 import type { UserTenantContext } from '../api/me'
+import type { AppRole } from '../authConfig'
+import { ROLES } from '../authConfig'
 import { useAuth } from '../hooks/useAuth'
 
 type TenantContextState = {
@@ -12,6 +14,7 @@ type TenantContextState = {
   noAccess: boolean
   tenants: UserTenantContext[]
   activeTenant: UserTenantContext | null
+  activeRole: UserTenantContext['role'] | null
   selectTenant: (tenantId: string) => void
   refresh: () => Promise<void>
 }
@@ -34,6 +37,22 @@ const MEMBERSHIP_KIND_PRIORITY: Record<UserTenantContext['membership_kind'], num
 
 const TenantContext = createContext<TenantContextState | null>(null)
 
+function activeRoleHasAppRole(activeRole: UserTenantContext['role'] | null | undefined, requiredRole: AppRole): boolean {
+  if (!activeRole) {
+    return false
+  }
+  if (activeRole === 'root_admin' || activeRole === 'support' || activeRole === 'admin') {
+    return true
+  }
+  if (activeRole === 'event_creator') {
+    return requiredRole !== ROLES.ADMIN
+  }
+  if (activeRole === 'tavf_creator') {
+    return requiredRole === ROLES.TAVF_CREATOR || requiredRole === ROLES.USER
+  }
+  return requiredRole === ROLES.USER
+}
+
 function isTenantId(value: string | null | undefined): value is string {
   return Boolean(value && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value))
 }
@@ -45,11 +64,24 @@ function normalizeTenantId(value: string | null | undefined): string | null {
   return value.trim().toLowerCase()
 }
 
-function getStoredTenantId(): string | null {
+function getIdentityStorageKey(identityKey: string): string {
+  return `${ACTIVE_TENANT_STORAGE_KEY}:${encodeURIComponent(identityKey)}`
+}
+
+function getStoredTenantId(identityKey: string): string | null {
   if (typeof window === 'undefined') {
     return null
   }
-  return normalizeTenantId(window.localStorage.getItem(ACTIVE_TENANT_STORAGE_KEY))
+  window.localStorage.removeItem(ACTIVE_TENANT_STORAGE_KEY)
+  return normalizeTenantId(window.localStorage.getItem(getIdentityStorageKey(identityKey)))
+}
+
+function storeTenantId(identityKey: string, tenantId: string): void {
+  if (typeof window === 'undefined') {
+    return
+  }
+  window.localStorage.removeItem(ACTIVE_TENANT_STORAGE_KEY)
+  window.localStorage.setItem(getIdentityStorageKey(identityKey), tenantId.trim().toLowerCase())
 }
 
 function isTenantSelectionExpired(tenant: UserTenantContext): boolean {
@@ -126,25 +158,33 @@ function chooseDefaultTenant(tenants: UserTenantContext[], persistedTenantId: st
 }
 
 function TenantProvider({ children }: { children: ReactNode }) {
-  const { isAuthenticated, rolesReady } = useAuth()
+  const { isAuthenticated, rolesReady, user } = useAuth()
+  const identityKey = (user?.id || user?.email || '').trim().toLowerCase()
   const [loading, setLoading] = useState(false)
   const [loadError, setLoadError] = useState<'session_expired' | 'unavailable' | null>(null)
   const [needsSelection, setNeedsSelection] = useState(false)
   const [tenants, setTenants] = useState<UserTenantContext[]>([])
   const [activeTenantId, setActiveTenantIdState] = useState<string | null>(null)
+  const requestGenerationRef = useRef(0)
+  const requestAbortRef = useRef<AbortController | null>(null)
 
   const noAccess = !loading && !loadError && isAuthenticated && rolesReady && tenants.length === 0
 
   const refresh = async () => {
-    if (!isAuthenticated || !rolesReady) {
+    if (!isAuthenticated || !rolesReady || !identityKey) {
       return
     }
 
+    const generation = ++requestGenerationRef.current
+    requestAbortRef.current?.abort()
+    const controller = new AbortController()
+    requestAbortRef.current = controller
     setLoading(true)
     setLoadError(null)
     try {
-      const response = dedupeTenantContexts(await meApi.listTenants())
-      const persistedTenantId = getStoredTenantId()
+      const response = dedupeTenantContexts(await meApi.listTenants(controller.signal))
+      if (generation !== requestGenerationRef.current || controller.signal.aborted) return
+      const persistedTenantId = getStoredTenantId(identityKey)
       const { activeTenantId: nextActiveTenantId, needsSelection: shouldSelect } = chooseDefaultTenant(response, persistedTenantId)
 
       setTenants(response)
@@ -152,17 +192,22 @@ function TenantProvider({ children }: { children: ReactNode }) {
       setActiveTenantIdState(nextActiveTenantId)
       setActiveTenantId(nextActiveTenantId)
     } catch (error) {
+      if (generation !== requestGenerationRef.current || controller.signal.aborted) return
       console.error('[tenant-context] Failed to load tenants', error)
       const message = error instanceof Error ? error.message : ''
       setLoadError(/\b401\b/.test(message) ? 'session_expired' : 'unavailable')
       setNeedsSelection(false)
     } finally {
-      setLoading(false)
+      if (generation === requestGenerationRef.current && !controller.signal.aborted) {
+        setLoading(false)
+      }
     }
   }
 
   useEffect(() => {
-    if (!isAuthenticated || !rolesReady) {
+    if (!isAuthenticated || !rolesReady || !identityKey) {
+      requestGenerationRef.current += 1
+      requestAbortRef.current?.abort()
       setLoading(false)
       setLoadError(null)
       setNeedsSelection(false)
@@ -173,7 +218,11 @@ function TenantProvider({ children }: { children: ReactNode }) {
     }
 
     void refresh()
-  }, [isAuthenticated, rolesReady])
+    return () => {
+      requestGenerationRef.current += 1
+      requestAbortRef.current?.abort()
+    }
+  }, [identityKey, isAuthenticated, rolesReady])
 
   const selectTenant = (tenantId: string) => {
     const normalized = normalizeTenantId(tenantId)
@@ -188,6 +237,7 @@ function TenantProvider({ children }: { children: ReactNode }) {
 
     setActiveTenantIdState(selected.tenant_id)
     setNeedsSelection(false)
+    storeTenantId(identityKey, selected.tenant_id)
     setActiveTenantId(selected.tenant_id)
   }
 
@@ -205,6 +255,7 @@ function TenantProvider({ children }: { children: ReactNode }) {
     noAccess,
     tenants,
     activeTenant,
+    activeRole: activeTenant?.role ?? null,
     selectTenant,
     refresh,
   }), [activeTenant, loadError, loading, needsSelection, noAccess, tenants])
@@ -221,3 +272,4 @@ function useTenantContext(): TenantContextState {
 }
 
 export { TenantProvider, useTenantContext, chooseDefaultTenant, dedupeTenantContexts }
+export { activeRoleHasAppRole }

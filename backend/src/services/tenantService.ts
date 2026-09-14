@@ -6,6 +6,9 @@ type TenantStatus = 'active' | 'suspended' | 'archived';
 interface CreateTenantInput {
   slug: string;
   displayName: string;
+  initialAdminEmail: string;
+  initialAdminDisplayName?: string | null;
+  actorEmail?: string | null;
   tenantType?: TenantType;
   status?: TenantStatus;
   timezone?: string;
@@ -180,11 +183,17 @@ function normalizeDisplayName(value: string | null | undefined): string | null {
 async function createTenant(input: CreateTenantInput): Promise<TenantSummary> {
   const slug = normalizeSlug(input.slug);
   const displayName = input.displayName.trim();
+  const initialAdminEmail = normalizeEmail(input.initialAdminEmail);
+  const initialAdminDisplayName = normalizeDisplayName(input.initialAdminDisplayName) ?? initialAdminEmail;
+  const actorEmail = input.actorEmail ? normalizeEmail(input.actorEmail) : initialAdminEmail;
   if (!slug) {
     throw new Error('slug is required');
   }
   if (!displayName) {
     throw new Error('displayName is required');
+  }
+  if (!initialAdminEmail || !initialAdminEmail.includes('@')) {
+    throw new Error('Valid initialAdminEmail is required');
   }
 
   const tenantType: TenantType = input.tenantType ?? 'program';
@@ -206,6 +215,9 @@ async function createTenant(input: CreateTenantInput): Promise<TenantSummary> {
       .input('timezone', sql.NVarChar(64), timezone)
       .input('is_demo', sql.Bit, isDemo ? 1 : 0)
       .input('is_operational', sql.Bit, isOperational ? 1 : 0)
+      .input('initial_admin_email', sql.NVarChar(255), initialAdminEmail)
+      .input('initial_admin_display_name', sql.NVarChar(200), initialAdminDisplayName)
+      .input('actor_email', sql.NVarChar(255), actorEmail)
       .query<{
         tenant_id: string;
         slug: string;
@@ -221,6 +233,7 @@ async function createTenant(input: CreateTenantInput): Promise<TenantSummary> {
            THROW 50001, 'Tenant slug already exists', 1;
 
          DECLARE @new_tenant_id UNIQUEIDENTIFIER = NEWID();
+         DECLARE @initial_admin_ids TABLE (user_id UNIQUEIDENTIFIER NOT NULL);
 
          INSERT INTO dbo.tenant (
            tenant_id,
@@ -292,6 +305,62 @@ async function createTenant(input: CreateTenantInput): Promise<TenantSummary> {
            (N'VOLUNTEERS', N'Volunteers / guides'),
            (N'PARTICIPANTS', N'Program participants (veterans)')
          ) AS seed(group_name, description);
+
+         DECLARE @initial_admin_user_id UNIQUEIDENTIFIER;
+         DECLARE @actor_user_id UNIQUEIDENTIFIER = (
+           SELECT TOP (1) user_id
+           FROM dbo.[user]
+           WHERE LOWER(email) = @actor_email
+         );
+
+         MERGE dbo.[user] AS target
+         USING (SELECT @initial_admin_email AS email) AS source
+            ON LOWER(target.email) = source.email
+         WHEN MATCHED THEN
+           UPDATE SET
+             display_name = COALESCE(@initial_admin_display_name, target.display_name),
+             is_active = 1,
+             updated_at = GETUTCDATE()
+         WHEN NOT MATCHED THEN
+           INSERT (user_id, azure_oid, email, display_name, role, is_active, is_root, root_role, created_at, updated_at)
+           VALUES (NEWID(), NULL, @initial_admin_email, @initial_admin_display_name, 'admin', 1, 0, NULL, GETUTCDATE(), GETUTCDATE())
+         OUTPUT INSERTED.user_id INTO @initial_admin_ids;
+
+         SELECT TOP (1) @initial_admin_user_id = user_id FROM @initial_admin_ids;
+
+         IF @initial_admin_user_id IS NULL
+           THROW 50002, 'Failed to provision initial tenant admin', 1;
+
+         INSERT INTO dbo.tenant_membership (
+           tenant_membership_id,
+           tenant_id,
+           user_id,
+           member_id,
+           role,
+           membership_kind,
+           home_tenant_id,
+           starts_at,
+           expires_at,
+           status,
+           created_by_user_id,
+           created_at,
+           revoked_at
+         )
+         VALUES (
+           NEWID(),
+           @new_tenant_id,
+           @initial_admin_user_id,
+           NULL,
+           'admin',
+           'admin',
+           NULL,
+           GETUTCDATE(),
+           NULL,
+           'active',
+           @actor_user_id,
+           GETUTCDATE(),
+           NULL
+         );
 
          SELECT TOP (1)
            tenant_id,
@@ -1037,11 +1106,20 @@ async function setTenantStatus(tenantId: string, status: TenantStatus): Promise<
   };
 }
 
-async function listTenantMemberships(tenantId: string): Promise<TenantMembershipSummary[]> {
+async function listTenantMemberships(
+  tenantId: string,
+  options?: { page?: number; pageSize?: number; lookahead?: boolean }
+): Promise<TenantMembershipSummary[]> {
+  const page = Math.max(1, Math.trunc(options?.page ?? 1));
+  const pageSize = Math.min(250, Math.max(1, Math.trunc(options?.pageSize ?? 100)));
+  const querySize = pageSize + (options?.lookahead ? 1 : 0);
+  const offset = (page - 1) * pageSize;
   const pool = await getPool();
   const result = await pool
     .request()
     .input('tenant_id', sql.UniqueIdentifier, tenantId)
+    .input('offset', sql.Int, offset)
+    .input('page_size', sql.Int, querySize)
     .query<{
       tenant_membership_id: string;
       tenant_id: string;
@@ -1077,7 +1155,8 @@ async function listTenantMemberships(tenantId: string): Promise<TenantMembership
        LEFT JOIN dbo.[user] u ON u.user_id = tm.user_id
        LEFT JOIN dbo.member m ON m.member_id = tm.member_id
        WHERE tm.tenant_id = @tenant_id
-       ORDER BY tm.status ASC, tm.membership_kind ASC, COALESCE(u.email, m.email, '') ASC`
+       ORDER BY tm.status ASC, tm.membership_kind ASC, COALESCE(u.email, m.email, '') ASC, tm.tenant_membership_id ASC
+       OFFSET @offset ROWS FETCH NEXT @page_size ROWS ONLY`
     );
 
   return result.recordset.map((row) => ({

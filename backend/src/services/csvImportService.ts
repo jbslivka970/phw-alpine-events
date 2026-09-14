@@ -107,9 +107,21 @@ interface MatchOutcome {
 
 interface CommitOptions {
   tenantId: string;
+  ownerUserId: string;
+  claimToken: string;
   conflictResolutions?: Record<string, ConflictResolution>;
   importedByUserId?: string | null;
   importedByEmail?: string | null;
+}
+
+interface PreviewSessionOwner {
+  tenantId: string;
+  userId: string;
+}
+
+interface ClaimedPreviewSession {
+  preview: ImportPreview;
+  claimToken: string;
 }
 
 interface ImportLogFilters {
@@ -124,8 +136,9 @@ interface ImportLogReport {
   csv: string;
 }
 
-const sessions = new Map<string, { expiresAt: number; preview: ImportPreview }>();
 const SESSION_TTL_MS = 30 * 60 * 1000;
+const CLAIM_TTL_MS = SESSION_TTL_MS;
+const IMPORT_KIND = 'members_csv';
 
 const HEADER_MAP: Record<string, keyof Omit<CsvRow, 'rowNumber'>> = {
   firstname: 'firstName',
@@ -179,31 +192,102 @@ function normaliseHeader(raw: string): keyof Omit<CsvRow, 'rowNumber'> | null {
   return HEADER_MAP[key] ?? null;
 }
 
-function pruneSessions(): void {
-  const now = Date.now();
-  for (const [id, entry] of sessions.entries()) {
-    if (entry.expiresAt < now) {
-      sessions.delete(id);
-    }
+async function storePreviewSession(preview: ImportPreview, owner: PreviewSessionOwner): Promise<void> {
+  if (preview.tenantId !== owner.tenantId || !owner.userId) {
+    throw new Error('Import preview ownership is invalid.');
+  }
+
+  const pool = await getPool();
+  await pool
+    .request()
+    .input('session_id', sql.UniqueIdentifier, preview.sessionId)
+    .input('tenant_id', sql.UniqueIdentifier, owner.tenantId)
+    .input('owner_user_id', sql.NVarChar(255), owner.userId)
+    .input('import_kind', sql.NVarChar(40), IMPORT_KIND)
+    .input('preview_payload', sql.NVarChar(sql.MAX), JSON.stringify(preview))
+    .input('session_ttl_ms', sql.Int, SESSION_TTL_MS)
+    .query(
+      `INSERT INTO dbo.csv_import_session (
+         session_id, tenant_id, owner_user_id, import_kind, preview_payload,
+         created_at, expires_at
+       )
+       VALUES (
+         @session_id, @tenant_id, @owner_user_id, @import_kind, @preview_payload,
+         SYSUTCDATETIME(), DATEADD(millisecond, @session_ttl_ms, SYSUTCDATETIME())
+       )`
+    );
+}
+
+async function claimPreviewSession(sessionId: string, owner: PreviewSessionOwner): Promise<ClaimedPreviewSession | null> {
+  if (!owner.tenantId || !owner.userId) {
+    return null;
+  }
+
+  const pool = await getPool();
+  const result = await pool
+    .request()
+    .input('session_id', sql.UniqueIdentifier, sessionId)
+    .input('tenant_id', sql.UniqueIdentifier, owner.tenantId)
+    .input('owner_user_id', sql.NVarChar(255), owner.userId)
+    .input('import_kind', sql.NVarChar(40), IMPORT_KIND)
+    .input('claim_ttl_ms', sql.Int, CLAIM_TTL_MS)
+    .query<{ preview_payload: string; claim_token: string }>(
+      `DECLARE @now DATETIME2 = SYSUTCDATETIME();
+       DECLARE @claim_token UNIQUEIDENTIFIER = NEWID();
+
+       UPDATE dbo.csv_import_session WITH (UPDLOCK, ROWLOCK)
+          SET claim_token = @claim_token,
+              claimed_at = @now
+       OUTPUT inserted.preview_payload, inserted.claim_token
+        WHERE session_id = @session_id
+          AND tenant_id = @tenant_id
+          AND owner_user_id = @owner_user_id
+          AND import_kind = @import_kind
+          AND expires_at > @now
+          AND committed_at IS NULL
+          AND (
+            claim_token IS NULL
+            OR claimed_at < DATEADD(millisecond, -@claim_ttl_ms, @now)
+          );`
+    );
+
+  const row = result.recordset[0];
+  if (!row) {
+    return null;
+  }
+
+  try {
+    const preview = JSON.parse(row.preview_payload) as ImportPreview;
+    preview.createdAt = new Date(preview.createdAt);
+    return { preview, claimToken: row.claim_token };
+  } catch (error) {
+    await releasePreviewSessionClaim(sessionId, owner, row.claim_token);
+    throw error;
   }
 }
 
-function storePreviewSession(preview: ImportPreview): void {
-  pruneSessions();
-  sessions.set(preview.sessionId, {
-    preview,
-    expiresAt: Date.now() + SESSION_TTL_MS,
-  });
-}
-
-function getPreviewSession(sessionId: string): ImportPreview | null {
-  pruneSessions();
-  const entry = sessions.get(sessionId);
-  return entry?.preview ?? null;
-}
-
-function deletePreviewSession(sessionId: string): void {
-  sessions.delete(sessionId);
+async function releasePreviewSessionClaim(
+  sessionId: string,
+  owner: PreviewSessionOwner,
+  claimToken: string
+): Promise<void> {
+  const pool = await getPool();
+  await pool
+    .request()
+    .input('session_id', sql.UniqueIdentifier, sessionId)
+    .input('tenant_id', sql.UniqueIdentifier, owner.tenantId)
+    .input('owner_user_id', sql.NVarChar(255), owner.userId)
+    .input('claim_token', sql.UniqueIdentifier, claimToken)
+    .query(
+      `UPDATE dbo.csv_import_session
+          SET claim_token = NULL,
+              claimed_at = NULL
+        WHERE session_id = @session_id
+          AND tenant_id = @tenant_id
+          AND owner_user_id = @owner_user_id
+          AND claim_token = @claim_token
+          AND committed_at IS NULL`
+    );
 }
 
 function computeRowHash(row: CsvRow): string {
@@ -544,7 +628,7 @@ async function generatePreview(buffer: Buffer, fileName: string, sessionId: stri
 }
 
 async function commitImport(preview: ImportPreview, options?: CommitOptions): Promise<CommitResult> {
-  if (!options?.tenantId || preview.tenantId !== options.tenantId) {
+  if (!options?.tenantId || !options.ownerUserId || !options.claimToken || preview.tenantId !== options.tenantId) {
     throw new Error('Import preview tenant does not match the active tenant. Generate a new preview.');
   }
 
@@ -717,9 +801,39 @@ async function commitImport(preview: ImportPreview, options?: CommitOptions): Pr
          WHERE import_id = @import_id`
       );
 
+    const committedSession = await new sql.Request(tx)
+      .input('session_id', sql.UniqueIdentifier, preview.sessionId)
+      .input('tenant_id', sql.UniqueIdentifier, options.tenantId)
+      .input('owner_user_id', sql.NVarChar(255), options.ownerUserId)
+      .input('claim_token', sql.UniqueIdentifier, options.claimToken)
+      .query(
+        `UPDATE dbo.csv_import_session
+            SET committed_at = SYSUTCDATETIME(),
+                claim_token = NULL,
+                claimed_at = NULL
+          WHERE session_id = @session_id
+            AND tenant_id = @tenant_id
+            AND owner_user_id = @owner_user_id
+            AND claim_token = @claim_token
+            AND committed_at IS NULL`
+      );
+
+    if (committedSession.rowsAffected[0] !== 1) {
+      throw new Error('Import preview claim was lost before commit. No rows were imported.');
+    }
+
     await tx.commit();
   } catch (error) {
-    await tx.rollback();
+    await tx.rollback().catch((rollbackError) => {
+      console.error('[csvImportService] import transaction rollback failed', rollbackError);
+    });
+    await releasePreviewSessionClaim(
+      preview.sessionId,
+      { tenantId: options.tenantId, userId: options.ownerUserId },
+      options.claimToken
+    ).catch((releaseError) => {
+      console.error('[csvImportService] failed to release preview claim', releaseError);
+    });
     throw error;
   }
 
@@ -951,13 +1065,22 @@ async function getImportLogRowErrors(importId: string, tenantId: string): Promis
 }
 
 export {
+  claimPreviewSession,
   commitImport,
-  deletePreviewSession,
   generatePreview,
   getImportLogRowErrors,
   getImportLogs,
   getImportLogReport,
-  getPreviewSession,
+  releasePreviewSessionClaim,
   storePreviewSession,
 };
-export type { CommitResult, CsvRow, ImportLogEntry, ImportLogFilters, ImportPreview, PreviewRow };
+export type {
+  ClaimedPreviewSession,
+  CommitResult,
+  CsvRow,
+  ImportLogEntry,
+  ImportLogFilters,
+  ImportPreview,
+  PreviewRow,
+  PreviewSessionOwner,
+};

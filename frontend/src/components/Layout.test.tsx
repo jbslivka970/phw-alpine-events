@@ -8,6 +8,12 @@ import Layout from './Layout';
 
 vi.mock('../contexts/TenantContext', () => ({
   useTenantContext: vi.fn(),
+  activeRoleHasAppRole: (activeRole: string | null, requiredRole: string) => {
+    if (activeRole === 'admin') return true;
+    if (activeRole === 'event_creator') return requiredRole !== 'ADMIN';
+    if (activeRole === 'tavf_creator') return requiredRole === 'TAVF_CREATOR' || requiredRole === 'USER';
+    return requiredRole === 'USER';
+  },
 }));
 
 vi.mock('../hooks/useAuth', () => ({
@@ -72,6 +78,7 @@ describe('Layout tenant context', () => {
     const selectTenant = vi.fn();
     mockedUseTenantContext.mockReturnValue({
       activeTenant: coloradoAlpine,
+      activeRole: coloradoAlpine.role,
       tenants: [coloradoAlpine, coloradoSprings],
       selectTenant,
     });
@@ -84,6 +91,7 @@ describe('Layout tenant context', () => {
 
     mockedUseTenantContext.mockReturnValue({
       activeTenant: coloradoSprings,
+      activeRole: coloradoSprings.role,
       tenants: [coloradoAlpine, coloradoSprings],
       selectTenant,
     });
@@ -105,6 +113,7 @@ describe('Layout tenant context', () => {
     const selectTenant = vi.fn();
     mockedUseTenantContext.mockReturnValue({
       activeTenant: coloradoAlpine,
+      activeRole: coloradoAlpine.role,
       tenants: [coloradoAlpine, coloradoSprings],
       selectTenant,
     });
@@ -116,5 +125,18 @@ describe('Layout tenant context', () => {
 
     expect(selectTenant).toHaveBeenCalledWith(coloradoSprings.tenant_id);
     expect(screen.getByRole('heading', { name: 'Tenant page' })).toBeInTheDocument();
+  });
+
+  it('hides management controls when the active tenant role is member despite a global admin role', () => {
+    mockedUseTenantContext.mockReturnValue({
+      activeTenant: { ...coloradoAlpine, role: 'member' },
+      activeRole: 'member',
+      tenants: [{ ...coloradoAlpine, role: 'member' }],
+      selectTenant: vi.fn(),
+    });
+
+    renderLayout(vi.fn());
+
+    expect(screen.queryByRole('button', { name: 'Manage' })).not.toBeInTheDocument();
   });
 });

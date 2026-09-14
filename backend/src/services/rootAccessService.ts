@@ -215,12 +215,20 @@ async function getRootSession(input: { sub?: string; email?: string }): Promise<
   };
 }
 
-async function listTenantsForRoot(): Promise<RootTenantSummary[]> {
+async function listTenantsForRoot(options?: { page?: number; pageSize?: number; lookahead?: boolean }): Promise<RootTenantSummary[]> {
+  const page = Math.max(1, Math.trunc(options?.page ?? 1));
+  const pageSize = Math.min(250, Math.max(1, Math.trunc(options?.pageSize ?? 100)));
+  const querySize = pageSize + (options?.lookahead ? 1 : 0);
+  const offset = (page - 1) * pageSize;
   const pool = await getPool();
-  const result = await pool.request().query<TenantRow>(
+  const result = await pool.request()
+    .input('offset', sql.Int, offset)
+    .input('page_size', sql.Int, querySize)
+    .query<TenantRow>(
     `SELECT tenant_id, slug, display_name, tenant_type, is_demo, status
      FROM dbo.tenant
-     ORDER BY CASE WHEN slug = 'colorado-alpine' THEN 0 ELSE 1 END, display_name ASC`
+     ORDER BY CASE WHEN slug = 'colorado-alpine' THEN 0 ELSE 1 END, display_name ASC, tenant_id ASC
+     OFFSET @offset ROWS FETCH NEXT @page_size ROWS ONLY`
   );
 
   return result.recordset.map((row) => ({

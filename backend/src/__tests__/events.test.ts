@@ -46,6 +46,7 @@ jest.mock('../middleware/auth', () => ({
 
 jest.mock('../middleware/rateLimiter', () => ({
   apiLimiter: (_req: express.Request, _res: express.Response, next: express.NextFunction) => next(),
+  publicLimiter: (_req: express.Request, _res: express.Response, next: express.NextFunction) => next(),
   writeLimiter: (_req: express.Request, _res: express.Response, next: express.NextFunction) => next(),
 }));
 
@@ -1245,6 +1246,7 @@ describe('events routes', () => {
     const queue = [
       { recordset: [{ group_name: 'Participants' }] },
       { recordset: [{ event_id: '00000000-0000-0000-0000-000000000101', title: 'Fly Tying 101', status: 'published', mentor_capacity: null, participant_capacity: 12, capacity: 12, event_date: new Date('2026-04-01T18:00:00.000Z') }] },
+      { recordset: [{ membership_allowed: 1 }] },
       { recordset: [] },
       { recordset: [{ assigned_count: 0 }] },
       { recordset: [{ response_id: 'response-1', event_id: '00000000-0000-0000-0000-000000000101', member_id: '00000000-0000-0000-0000-000000000202', response: 'yes', responded_at: new Date('2026-03-18T12:00:00.000Z'), notes: 'Recorded from tokenized RSVP link' }] },
@@ -1283,6 +1285,7 @@ describe('events routes', () => {
     const queue = [
       { recordset: [{ group_name: 'Participants' }] },
       { recordset: [{ event_id: '00000000-0000-0000-0000-000000000101', title: 'Fly Tying 101', status: 'published', mentor_capacity: null, participant_capacity: 12, capacity: 12, event_date: new Date('2026-04-01T18:00:00.000Z') }] },
+      { recordset: [{ membership_allowed: 1 }] },
       { recordset: [] },
       { recordset: [{ assigned_count: 0 }] },
       { recordset: [{ response_id: 'response-3', event_id: '00000000-0000-0000-0000-000000000101', member_id: '00000000-0000-0000-0000-000000000202', response: 'yes', responded_at: new Date('2026-03-18T12:00:00.000Z'), notes: 'Recorded from tokenized RSVP link' }] },
@@ -1325,6 +1328,7 @@ describe('events routes', () => {
           },
         ],
       },
+      { recordset: [{ membership_allowed: 1 }] },
       { recordset: [] },
       { recordset: [{ assigned_count: 0 }] },
       {

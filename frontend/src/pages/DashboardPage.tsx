@@ -5,7 +5,8 @@ import { eventsApi, type EventRecord } from '../api/events';
 import { membersApi } from '../api/members';
 import tavfApi, { type TavfPosting } from '../api/tavf';
 import { useAuth } from '../hooks/useAuth';
-import { useTenantContext } from '../contexts/TenantContext';
+import { ROLES } from '../authConfig';
+import { activeRoleHasAppRole, useTenantContext } from '../contexts/TenantContext';
 import EmptyState from '../components/EmptyState';
 import CapacityBadge from '../components/CapacityBadge';
 import LoadingSkeleton from '../components/LoadingSkeleton';
@@ -105,12 +106,12 @@ function StatCard({ label, value, color, delay }: { label: string; value: string
 }
 
 function DashboardPage() {
-  const { user, isAdmin, canCreateEvents, canCreateTavfPostings } = useAuth();
-  const { activeTenant } = useTenantContext();
+  const { user } = useAuth();
+  const { activeTenant, activeRole } = useTenantContext();
   const navigate = useNavigate();
-  const isAdminUser = isAdmin();
-  const canManageEvents = isAdminUser || canCreateEvents();
-  const canManageTavf = canCreateTavfPostings();
+  const isAdminUser = activeRoleHasAppRole(activeRole, ROLES.ADMIN);
+  const canManageEvents = activeRoleHasAppRole(activeRole, ROLES.EVENT_CREATOR);
+  const canManageTavf = activeRoleHasAppRole(activeRole, ROLES.TAVF_CREATOR);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [eventActionError, setEventActionError] = useState<string | null>(null);

@@ -29,6 +29,6 @@ describe('meApi contract', () => {
     mockedApiGetWithoutTenant.mockResolvedValue({ tenants: [tenant] });
 
     await expect(meApi.listTenants()).resolves.toEqual([tenant]);
-    expect(mockedApiGetWithoutTenant).toHaveBeenCalledWith('/me/tenants');
+    expect(mockedApiGetWithoutTenant).toHaveBeenCalledWith('/me/tenants', { signal: undefined });
   });
 });

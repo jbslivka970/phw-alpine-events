@@ -126,12 +126,15 @@ interface EventNotificationCoverageRow {
 type ReportsTenantSupport = {
   hasEventTenantId: boolean;
   hasTenantMembershipTable: boolean;
+  hasNotificationLogTenantId: boolean;
 };
 
 type ReportsTenantScope = {
   tenantId: string;
+  multiTenantEnabled: boolean;
   applyEventScope: boolean;
   applyMembershipScope: boolean;
+  applyNotificationLogScope: boolean;
 };
 
 let cachedReportsTenantSupport: ReportsTenantSupport | null = null;
@@ -224,15 +227,17 @@ async function getReportsTenantSupport(pool: Awaited<ReturnType<typeof getPool>>
 
   const result = await pool
     .request()
-    .query<{ has_event_tenant_id: number; has_tenant_membership_table: number }>(
+    .query<{ has_event_tenant_id: number; has_tenant_membership_table: number; has_notification_log_tenant_id: number }>(
       `SELECT
           CASE WHEN COL_LENGTH('dbo.event', 'tenant_id') IS NULL THEN 0 ELSE 1 END AS has_event_tenant_id,
-          CASE WHEN OBJECT_ID('dbo.tenant_membership', 'U') IS NULL THEN 0 ELSE 1 END AS has_tenant_membership_table`
+          CASE WHEN OBJECT_ID('dbo.tenant_membership', 'U') IS NULL THEN 0 ELSE 1 END AS has_tenant_membership_table,
+          CASE WHEN COL_LENGTH('dbo.notification_log', 'tenant_id') IS NULL THEN 0 ELSE 1 END AS has_notification_log_tenant_id`
     );
 
   cachedReportsTenantSupport = {
     hasEventTenantId: result.recordset[0]?.has_event_tenant_id === 1,
     hasTenantMembershipTable: result.recordset[0]?.has_tenant_membership_table === 1,
+    hasNotificationLogTenantId: result.recordset[0]?.has_notification_log_tenant_id === 1,
   };
 
   return cachedReportsTenantSupport;
@@ -252,38 +257,10 @@ function buildTenantMembershipPredicate(memberAlias: string): string {
 }
 
 function buildNotificationLogTenantFilter(logAlias: string, scope: ReportsTenantScope): string {
-  const predicates: string[] = [];
-
-  if (scope.applyEventScope) {
-    predicates.push(`EXISTS (
-      SELECT 1
-      FROM dbo.event e_scope
-      WHERE e_scope.event_id = ${logAlias}.event_id
-        AND e_scope.tenant_id = @tenant_id
-    )`);
+  if (scope.applyNotificationLogScope) {
+    return `AND ${logAlias}.tenant_id = @tenant_id`;
   }
-
-  if (scope.applyMembershipScope) {
-    predicates.push(`EXISTS (
-      SELECT 1
-      FROM dbo.tenant_membership tm
-      WHERE tm.member_id = ${logAlias}.member_id
-        AND tm.tenant_id = @tenant_id
-        AND tm.status = 'active'
-        AND tm.revoked_at IS NULL
-        AND tm.starts_at <= GETUTCDATE()
-        AND (tm.expires_at IS NULL OR tm.expires_at > GETUTCDATE())
-    )`);
-  }
-
-  if (predicates.length === 0) {
-    return '';
-  }
-
-  return `
-           AND (
-             ${predicates.join('\n             OR ')}
-           )`;
+  return scope.multiTenantEnabled ? 'AND 1 = 0' : '';
 }
 
 async function resolveReportsTenantScope(req: Request, pool: Awaited<ReturnType<typeof getPool>>): Promise<ReportsTenantScope> {
@@ -291,16 +268,20 @@ async function resolveReportsTenantScope(req: Request, pool: Awaited<ReturnType<
   if (!isMultiTenantEnabled()) {
     return {
       tenantId,
+      multiTenantEnabled: false,
       applyEventScope: false,
       applyMembershipScope: false,
+      applyNotificationLogScope: false,
     };
   }
 
   const support = await getReportsTenantSupport(pool);
   return {
     tenantId,
+    multiTenantEnabled: true,
     applyEventScope: support.hasEventTenantId,
     applyMembershipScope: support.hasTenantMembershipTable,
+    applyNotificationLogScope: support.hasNotificationLogTenantId,
   };
 }
 
@@ -344,7 +325,7 @@ async function queryEventSummary(req: Request, fromDate: Date, toDate: Date): Pr
     .input('fromDate', sql.DateTime, fromDate)
     .input('toDate', sql.DateTime, toDate);
 
-  if (scope.applyEventScope || scope.applyMembershipScope) {
+  if (scope.applyEventScope || scope.applyMembershipScope || scope.applyNotificationLogScope) {
     queryRequest.input('tenant_id', sql.UniqueIdentifier, scope.tenantId);
   }
 
@@ -546,7 +527,7 @@ router.get('/participation', apiLimiter, authenticate, requireAdmin, async (req:
       .input('year', sql.Int, year)
       .input('priorYear', sql.Int, priorYear);
 
-    if (scope.applyEventScope || scope.applyMembershipScope) {
+    if (scope.applyEventScope || scope.applyMembershipScope || scope.applyNotificationLogScope) {
       queryRequest.input('tenant_id', sql.UniqueIdentifier, scope.tenantId);
     }
 
@@ -606,7 +587,7 @@ router.get('/delivery', apiLimiter, authenticate, requireAdmin, async (req: Requ
       .input('status', sql.NVarChar(32), status)
       .input('operationType', sql.NVarChar(64), operationType);
 
-    if (scope.applyEventScope || scope.applyMembershipScope) {
+    if (scope.applyEventScope || scope.applyMembershipScope || scope.applyNotificationLogScope) {
       queryRequest.input('tenant_id', sql.UniqueIdentifier, scope.tenantId);
     }
 
@@ -665,7 +646,7 @@ router.get('/delivery/trends', apiLimiter, authenticate, requireAdmin, async (re
       .input('status', sql.NVarChar(32), status)
       .input('operationType', sql.NVarChar(64), operationType);
 
-    if (scope.applyEventScope || scope.applyMembershipScope) {
+    if (scope.applyEventScope || scope.applyMembershipScope || scope.applyNotificationLogScope) {
       queryRequest.input('tenant_id', sql.UniqueIdentifier, scope.tenantId);
     }
 
@@ -750,7 +731,7 @@ router.get('/delivery/logs', apiLimiter, authenticate, requireAdmin, async (req:
       .input('offset', sql.Int, offset)
       .input('pageSize', sql.Int, pageSize);
 
-    if (scope.applyEventScope || scope.applyMembershipScope) {
+    if (scope.applyEventScope || scope.applyMembershipScope || scope.applyNotificationLogScope) {
       baseRequest.input('tenant_id', sql.UniqueIdentifier, scope.tenantId);
     }
 
@@ -803,7 +784,7 @@ router.get('/delivery/logs', apiLimiter, authenticate, requireAdmin, async (req:
       .input('operationType', sql.NVarChar(64), operationType)
       .input('eventId', sql.UniqueIdentifier, eventId);
 
-    if (scope.applyEventScope || scope.applyMembershipScope) {
+    if (scope.applyEventScope || scope.applyMembershipScope || scope.applyNotificationLogScope) {
       countRequest.input('tenant_id', sql.UniqueIdentifier, scope.tenantId);
     }
 
@@ -893,7 +874,7 @@ router.get('/reminders', apiLimiter, authenticate, requireAdmin, async (req: Req
       .input('fromDate', sql.DateTime, fromDate)
       .input('toDate', sql.DateTime, toDate);
 
-    if (scope.applyEventScope || scope.applyMembershipScope) {
+    if (scope.applyEventScope || scope.applyMembershipScope || scope.applyNotificationLogScope) {
       duplicatesRequest.input('tenant_id', sql.UniqueIdentifier, scope.tenantId);
     }
 
@@ -931,7 +912,7 @@ router.get('/reminders', apiLimiter, authenticate, requireAdmin, async (req: Req
       .input('fromDate', sql.DateTime, fromDate)
       .input('toDate', sql.DateTime, toDate);
 
-    if (scope.applyEventScope || scope.applyMembershipScope) {
+    if (scope.applyEventScope || scope.applyMembershipScope || scope.applyNotificationLogScope) {
       totalsRequest.input('tenant_id', sql.UniqueIdentifier, scope.tenantId);
     }
 

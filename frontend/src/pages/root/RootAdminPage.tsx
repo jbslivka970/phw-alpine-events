@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { rootApi } from '../../api/root'
 import { useTenantContext } from '../../contexts/TenantContext'
@@ -17,6 +17,8 @@ import { toUserErrorMessage } from '../../utils/errorMessage'
 type TenantCreateForm = {
   slug: string
   display_name: string
+  initial_admin_email: string
+  initial_admin_display_name: string
   tenant_type: 'program' | 'demo' | 'system'
   status: 'active' | 'suspended' | 'archived'
   timezone: string
@@ -37,10 +39,14 @@ function RootAdminPage() {
   const [tenants, setTenants] = useState<RootTenantSummary[]>([])
   const [tenantLoadBusy, setTenantLoadBusy] = useState(false)
   const [tenantLoadError, setTenantLoadError] = useState<string | null>(null)
+  const [tenantPage, setTenantPage] = useState(1)
+  const [tenantHasMore, setTenantHasMore] = useState(false)
 
   const [createForm, setCreateForm] = useState<TenantCreateForm>({
     slug: '',
     display_name: '',
+    initial_admin_email: '',
+    initial_admin_display_name: '',
     tenant_type: 'program',
     status: 'suspended',
     timezone: 'America/Denver',
@@ -71,6 +77,8 @@ function RootAdminPage() {
   const [membershipBusy, setMembershipBusy] = useState(false)
   const [membershipError, setMembershipError] = useState<string | null>(null)
   const [membershipSuccess, setMembershipSuccess] = useState<string | null>(null)
+  const [membershipPage, setMembershipPage] = useState(1)
+  const [membershipHasMore, setMembershipHasMore] = useState(false)
   const [membershipEmail, setMembershipEmail] = useState('')
   const [membershipDisplayName, setMembershipDisplayName] = useState('')
   const [membershipRole, setMembershipRole] = useState('member')
@@ -99,6 +107,36 @@ function RootAdminPage() {
   const [demoEmail, setDemoEmail] = useState('')
   const [demoDisplayName, setDemoDisplayName] = useState('')
   const [demoExpiresAt, setDemoExpiresAt] = useState('')
+  const detailGenerationRef = useRef(0)
+  const detailAbortRef = useRef<AbortController | null>(null)
+  const tenantWriteRef = useRef(false)
+  const selectedTenantIdRef = useRef(selectedTenantId)
+  selectedTenantIdRef.current = selectedTenantId
+
+  const tenantWriteBusy = brandingSaveBusy
+    || adminGrantBusy
+    || adminRevokeBusyUserId !== null
+    || membershipBusy
+    || messagingSaveBusy
+    || demoGrantBusy
+    || demoResetBusy
+    || tenantStatusBusy
+  const writeBusy = createBusy || tenantWriteBusy
+
+  function beginTenantWrite(): string | null {
+    const tenantId = selectedTenantIdRef.current
+    if (!tenantId || tenantWriteRef.current) return null
+    tenantWriteRef.current = true
+    return tenantId
+  }
+
+  function finishTenantWrite(): void {
+    tenantWriteRef.current = false
+  }
+
+  function isCurrentTenant(tenantId: string): boolean {
+    return selectedTenantIdRef.current === tenantId
+  }
 
   const selectedTenant = useMemo(
     () => tenants.find((tenant) => tenant.tenant_id === selectedTenantId) ?? null,
@@ -127,12 +165,14 @@ function RootAdminPage() {
     )
   }
 
-  async function refreshTenants(): Promise<void> {
+  async function refreshTenants(page = tenantPage): Promise<void> {
     setTenantLoadBusy(true)
     setTenantLoadError(null)
     try {
-      const response = await rootApi.listTenants()
+      const response = await rootApi.listTenants(page)
       setTenants(response.tenants)
+      setTenantPage(response.page)
+      setTenantHasMore(response.has_more)
       if (!selectedTenantId && response.tenants.length > 0) {
         setSelectedTenantId(response.tenants[0]!.tenant_id)
       }
@@ -144,6 +184,8 @@ function RootAdminPage() {
   }
 
   async function loadTenantDetails(tenantId: string): Promise<void> {
+    const generation = ++detailGenerationRef.current
+    detailAbortRef.current?.abort()
     if (!tenantId) {
       setBranding(null)
       setTenantAdmins([])
@@ -151,8 +193,11 @@ function RootAdminPage() {
       setDemoMemberships([])
       setUsage(null)
       setTenantMemberships([])
+      setMembershipHasMore(false)
       return
     }
+    const controller = new AbortController()
+    detailAbortRef.current = controller
 
     setBrandingBusy(true)
     setAdminLoadBusy(true)
@@ -167,13 +212,15 @@ function RootAdminPage() {
     setMembershipError(null)
 
     const [brandingResult, adminsResult, messagingResult, demoResult, usageResult, membershipsResult] = await Promise.allSettled([
-      rootApi.getTenantBranding(tenantId),
-      rootApi.listTenantAdmins(tenantId),
-      rootApi.getTenantMessaging(tenantId),
-      rootApi.listDemoMemberships(tenantId),
-      rootApi.getTenantUsage(tenantId),
-      rootApi.listTenantMemberships(tenantId),
+      rootApi.getTenantBranding(tenantId, controller.signal),
+      rootApi.listTenantAdmins(tenantId, controller.signal),
+      rootApi.getTenantMessaging(tenantId, controller.signal),
+      rootApi.listDemoMemberships(tenantId, controller.signal),
+      rootApi.getTenantUsage(tenantId, controller.signal),
+      rootApi.listTenantMemberships(tenantId, membershipPage, 100, controller.signal),
     ])
+
+    if (generation !== detailGenerationRef.current || controller.signal.aborted) return
 
     if (brandingResult.status === 'fulfilled') {
       setBranding(brandingResult.value)
@@ -212,8 +259,10 @@ function RootAdminPage() {
 
     if (membershipsResult.status === 'fulfilled') {
       setTenantMemberships(membershipsResult.value.memberships)
+      setMembershipHasMore(membershipsResult.value.has_more)
     } else {
       setTenantMemberships([])
+      setMembershipHasMore(false)
       setMembershipError(toUserErrorMessage(membershipsResult.reason, 'Failed to load tenant memberships.'))
     }
 
@@ -236,6 +285,7 @@ function RootAdminPage() {
     setDemoSuccess(null)
     setMessagingSuccess(null)
     setTenantStatusMessage(null)
+    setMembershipPage(1)
   }, [selectedTenantId])
 
   useEffect(() => {
@@ -276,21 +326,34 @@ function RootAdminPage() {
       return
     }
     void loadTenantDetails(selectedTenantId)
-  }, [sessionReady, isRoot, selectedTenantId])
+    return () => {
+      detailGenerationRef.current += 1
+      detailAbortRef.current?.abort()
+    }
+  }, [membershipPage, sessionReady, isRoot, selectedTenantId])
 
   async function handleCreateTenant(): Promise<void> {
+    if (tenantWriteRef.current) return
+    tenantWriteRef.current = true
     setCreateBusy(true)
     setCreateError(null)
     setCreateSuccess(null)
     try {
       const created = await rootApi.createTenant(createForm)
       setCreateSuccess(`Created tenant ${created.display_name} (${created.slug}).`)
-      setCreateForm((current) => ({ ...current, slug: '', display_name: '' }))
-      await refreshTenants()
+      setCreateForm((current) => ({
+        ...current,
+        slug: '',
+        display_name: '',
+        initial_admin_email: '',
+        initial_admin_display_name: '',
+      }))
+      await refreshTenants(1)
       setSelectedTenantId(created.tenant_id)
     } catch (error) {
       setCreateError(toUserErrorMessage(error, 'Failed to create tenant.'))
     } finally {
+      finishTenantWrite()
       setCreateBusy(false)
     }
   }
@@ -304,14 +367,14 @@ function RootAdminPage() {
   }
 
   async function handleSaveBranding(): Promise<void> {
-    if (!selectedTenantId || !branding) {
-      return
-    }
+    if (!branding) return
+    const tenantId = beginTenantWrite()
+    if (!tenantId) return
     setBrandingSaveBusy(true)
     setBrandingError(null)
     setBrandingSuccess(null)
     try {
-      const saved = await rootApi.upsertTenantBranding(selectedTenantId, {
+      const saved = await rootApi.upsertTenantBranding(tenantId, {
         org_long_name: branding.org_long_name,
         org_short_name: branding.org_short_name,
         support_email: branding.support_email,
@@ -326,23 +389,28 @@ function RootAdminPage() {
         portal_login_url: branding.portal_login_url,
         mission_blurb: branding.mission_blurb,
       })
+      if (!isCurrentTenant(tenantId)) return
       setBranding(saved)
       setBrandingSuccess(`Saved branding for ${selectedTenant?.display_name ?? 'tenant'}.`)
     } catch (error) {
-      setBrandingError(toUserErrorMessage(error, 'Failed to save branding.'))
+      if (isCurrentTenant(tenantId)) setBrandingError(toUserErrorMessage(error, 'Failed to save branding.'))
     } finally {
+      finishTenantWrite()
       setBrandingSaveBusy(false)
     }
   }
 
   async function handleRetryUsage(): Promise<void> {
-    if (!selectedTenantId) return
+    const tenantId = selectedTenantIdRef.current
+    if (!tenantId) return
     setUsageBusy(true)
     setUsageError(null)
     try {
-      const usageResponse = await rootApi.getTenantUsage(selectedTenantId)
+      const usageResponse = await rootApi.getTenantUsage(tenantId)
+      if (!isCurrentTenant(tenantId)) return
       setUsage(usageResponse)
     } catch (error) {
+      if (!isCurrentTenant(tenantId)) return
       setUsage(null)
       setUsageError(toUserErrorMessage(error, 'Failed to load tenant usage summary.'))
     } finally {
@@ -351,13 +419,16 @@ function RootAdminPage() {
   }
 
   async function handleRetryBranding(): Promise<void> {
-    if (!selectedTenantId) return
+    const tenantId = selectedTenantIdRef.current
+    if (!tenantId) return
     setBrandingBusy(true)
     setBrandingError(null)
     try {
-      const brandingResponse = await rootApi.getTenantBranding(selectedTenantId)
+      const brandingResponse = await rootApi.getTenantBranding(tenantId)
+      if (!isCurrentTenant(tenantId)) return
       setBranding(brandingResponse)
     } catch (error) {
+      if (!isCurrentTenant(tenantId)) return
       setBranding(null)
       setBrandingError(toUserErrorMessage(error, 'Failed to load tenant branding.'))
     } finally {
@@ -366,13 +437,16 @@ function RootAdminPage() {
   }
 
   async function handleRetryAdmins(): Promise<void> {
-    if (!selectedTenantId) return
+    const tenantId = selectedTenantIdRef.current
+    if (!tenantId) return
     setAdminLoadBusy(true)
     setAdminGrantError(null)
     try {
-      const adminsResponse = await rootApi.listTenantAdmins(selectedTenantId)
+      const adminsResponse = await rootApi.listTenantAdmins(tenantId)
+      if (!isCurrentTenant(tenantId)) return
       setTenantAdmins(adminsResponse.admins)
     } catch (error) {
+      if (!isCurrentTenant(tenantId)) return
       setTenantAdmins([])
       setAdminGrantError(toUserErrorMessage(error, 'Failed to load tenant admin assignments.'))
     } finally {
@@ -381,13 +455,17 @@ function RootAdminPage() {
   }
 
   async function handleRetryMemberships(): Promise<void> {
-    if (!selectedTenantId) return
+    const tenantId = selectedTenantIdRef.current
+    if (!tenantId) return
     setMembershipLoadBusy(true)
     setMembershipError(null)
     try {
-      const membershipsResponse = await rootApi.listTenantMemberships(selectedTenantId)
+      const membershipsResponse = await rootApi.listTenantMemberships(tenantId, membershipPage)
+      if (!isCurrentTenant(tenantId)) return
       setTenantMemberships(membershipsResponse.memberships)
+      setMembershipHasMore(membershipsResponse.has_more)
     } catch (error) {
+      if (!isCurrentTenant(tenantId)) return
       setTenantMemberships([])
       setMembershipError(toUserErrorMessage(error, 'Failed to load tenant memberships.'))
     } finally {
@@ -396,13 +474,16 @@ function RootAdminPage() {
   }
 
   async function handleRetryMessaging(): Promise<void> {
-    if (!selectedTenantId) return
+    const tenantId = selectedTenantIdRef.current
+    if (!tenantId) return
     setMessagingBusy(true)
     setMessagingError(null)
     try {
-      const messagingResponse = await rootApi.getTenantMessaging(selectedTenantId)
+      const messagingResponse = await rootApi.getTenantMessaging(tenantId)
+      if (!isCurrentTenant(tenantId)) return
       setMessaging(messagingResponse)
     } catch (error) {
+      if (!isCurrentTenant(tenantId)) return
       setMessaging(null)
       setMessagingError(toUserErrorMessage(error, 'Failed to load tenant messaging configuration.'))
     } finally {
@@ -411,16 +492,16 @@ function RootAdminPage() {
   }
 
   async function handleBlobUpload(file: File, assetKind: TenantBrandingAssetKind): Promise<void> {
-    if (!selectedTenantId || !branding) {
-      return
-    }
+    if (!branding) return
+    const tenantId = beginTenantWrite()
+    if (!tenantId) return
 
     setBrandingSaveBusy(true)
     setBrandingError(null)
     setBrandingSuccess(null)
 
     try {
-      const upload = await rootApi.createBrandingAssetUploadUrl(selectedTenantId, {
+      const upload = await rootApi.createBrandingAssetUploadUrl(tenantId, {
         file_name: file.name,
         content_type: file.type || 'application/octet-stream',
         asset_kind: assetKind,
@@ -436,142 +517,151 @@ function RootAdminPage() {
         throw new Error(`Blob upload failed with status ${uploadResponse.status}`)
       }
 
-      const committed = await rootApi.commitBrandingAsset(selectedTenantId, {
+      const committed = await rootApi.commitBrandingAsset(tenantId, {
         asset_kind: assetKind,
         asset_url: upload.blob_url,
       })
 
+      if (!isCurrentTenant(tenantId)) return
       setBranding(committed)
       setBrandingSuccess(`Uploaded and linked ${assetKind.replace('_', ' ')} image.`)
     } catch (error) {
-      setBrandingError(toUserErrorMessage(error, 'Failed to upload branding asset.'))
+      if (isCurrentTenant(tenantId)) setBrandingError(toUserErrorMessage(error, 'Failed to upload branding asset.'))
     } finally {
+      finishTenantWrite()
       setBrandingSaveBusy(false)
     }
   }
 
   async function handleGrantAdmin(): Promise<void> {
-    if (!selectedTenantId) {
-      return
-    }
+    const tenantId = beginTenantWrite()
+    if (!tenantId) return
 
     setAdminGrantBusy(true)
     setAdminGrantError(null)
     setAdminGrantSuccess(null)
     try {
-      const result = await rootApi.grantTenantAdmin(selectedTenantId, {
+      const result = await rootApi.grantTenantAdmin(tenantId, {
         email: adminEmail.trim(),
         display_name: adminDisplayName.trim() || null,
         expires_at: adminExpiresAt ? new Date(adminExpiresAt).toISOString() : null,
       })
+      if (!isCurrentTenant(tenantId)) return
       setTenantAdmins(result.admins)
       setAdminGrantSuccess(`Granted admin access to ${adminEmail.trim()}.`)
       setAdminEmail('')
       setAdminDisplayName('')
       setAdminExpiresAt('')
     } catch (error) {
-      setAdminGrantError(toUserErrorMessage(error, 'Failed to grant tenant admin access.'))
+      if (isCurrentTenant(tenantId)) setAdminGrantError(toUserErrorMessage(error, 'Failed to grant tenant admin access.'))
     } finally {
+      finishTenantWrite()
       setAdminGrantBusy(false)
     }
   }
 
   async function handleRevokeAdmin(userId: string, adminEmailValue: string): Promise<void> {
-    if (!selectedTenantId) {
-      return
-    }
+    const tenantId = beginTenantWrite()
+    if (!tenantId) return
 
     setAdminRevokeBusyUserId(userId)
     setAdminGrantError(null)
     setAdminGrantSuccess(null)
     try {
-      const result = await rootApi.revokeTenantAdmin(selectedTenantId, userId)
+      const result = await rootApi.revokeTenantAdmin(tenantId, userId)
+      if (!isCurrentTenant(tenantId)) return
       setTenantAdmins(result.admins)
       setAdminGrantSuccess(`Revoked admin access for ${adminEmailValue}.`)
     } catch (error) {
-      setAdminGrantError(toUserErrorMessage(error, 'Failed to revoke tenant admin access.'))
+      if (isCurrentTenant(tenantId)) setAdminGrantError(toUserErrorMessage(error, 'Failed to revoke tenant admin access.'))
     } finally {
+      finishTenantWrite()
       setAdminRevokeBusyUserId(null)
     }
   }
 
   async function handleSetTenantSuspended(action: 'suspend' | 'reactivate'): Promise<void> {
-    if (!selectedTenantId) {
-      return
-    }
+    const tenantId = beginTenantWrite()
+    if (!tenantId) return
 
     setTenantStatusBusy(true)
     setTenantStatusMessage(null)
     setTenantLoadError(null)
     try {
-      await rootApi.setTenantSuspended(selectedTenantId, { action })
+      await rootApi.setTenantSuspended(tenantId, { action })
+      if (!isCurrentTenant(tenantId)) return
       await refreshTenants()
+      if (!isCurrentTenant(tenantId)) return
       setTenantStatusMessage(action === 'suspend' ? 'Tenant suspended.' : 'Tenant reactivated.')
     } catch (error) {
-      setTenantLoadError(toUserErrorMessage(error, 'Failed to update tenant status.'))
+      if (isCurrentTenant(tenantId)) setTenantLoadError(toUserErrorMessage(error, 'Failed to update tenant status.'))
     } finally {
+      finishTenantWrite()
       setTenantStatusBusy(false)
     }
   }
 
   async function handleGrantTenantMembership(): Promise<void> {
-    if (!selectedTenantId || !membershipEmail.trim()) {
-      return
-    }
+    if (!membershipEmail.trim()) return
+    const tenantId = beginTenantWrite()
+    if (!tenantId) return
 
     setMembershipBusy(true)
     setMembershipError(null)
     setMembershipSuccess(null)
     try {
-      const response = await rootApi.grantTenantMembership(selectedTenantId, {
+      const response = await rootApi.grantTenantMembership(tenantId, {
         email: membershipEmail.trim(),
         display_name: membershipDisplayName.trim() || null,
         role: membershipRole,
         membership_kind: membershipKind,
         expires_at: membershipExpiresAt ? new Date(membershipExpiresAt).toISOString() : null,
       })
+      if (!isCurrentTenant(tenantId)) return
       setTenantMemberships(response.memberships)
       setMembershipSuccess(`Granted ${membershipRole} ${membershipKind} membership to ${membershipEmail.trim()}.`)
       setMembershipEmail('')
       setMembershipDisplayName('')
       setMembershipExpiresAt('')
     } catch (error) {
-      setMembershipError(toUserErrorMessage(error, 'Failed to grant tenant membership.'))
+      if (isCurrentTenant(tenantId)) setMembershipError(toUserErrorMessage(error, 'Failed to grant tenant membership.'))
     } finally {
+      finishTenantWrite()
       setMembershipBusy(false)
     }
   }
 
   async function handleRevokeTenantMembership(membershipId: string): Promise<void> {
-    if (!selectedTenantId) {
-      return
-    }
+    const tenantId = beginTenantWrite()
+    if (!tenantId) return
 
     setMembershipBusy(true)
     setMembershipError(null)
     setMembershipSuccess(null)
     try {
-      const response = await rootApi.updateTenantMembership(selectedTenantId, membershipId, { status: 'revoked' })
+      const response = await rootApi.updateTenantMembership(tenantId, membershipId, { status: 'revoked' })
+      if (!isCurrentTenant(tenantId)) return
       setTenantMemberships(response.memberships)
       setMembershipSuccess('Membership revoked.')
     } catch (error) {
-      setMembershipError(toUserErrorMessage(error, 'Failed to revoke tenant membership.'))
+      if (isCurrentTenant(tenantId)) setMembershipError(toUserErrorMessage(error, 'Failed to revoke tenant membership.'))
     } finally {
+      finishTenantWrite()
       setMembershipBusy(false)
     }
   }
 
   async function handleSaveMessaging(): Promise<void> {
-    if (!selectedTenantId || !messaging) {
-      return
-    }
+    if (!messaging) return
+    const tenantId = beginTenantWrite()
+    if (!tenantId) return
 
     setMessagingSaveBusy(true)
     setMessagingError(null)
     setMessagingSuccess(null)
 
     try {
-      const saved = await rootApi.upsertTenantMessaging(selectedTenantId, {
+      const saved = await rootApi.upsertTenantMessaging(tenantId, {
         email_from: messaging.email_from,
         email_reply_to: messaging.email_reply_to,
         email_bcc_monitor: messaging.email_bcc_monitor,
@@ -581,68 +671,78 @@ function RootAdminPage() {
         telnyx_messaging_profile_id: messaging.telnyx_messaging_profile_id,
         telnyx_from_number: messaging.telnyx_from_number,
       })
+      if (!isCurrentTenant(tenantId)) return
       setMessaging(saved)
       setMessagingSuccess(`Saved tenant messaging for ${selectedTenant?.display_name ?? 'tenant'}.`)
     } catch (error) {
-      setMessagingError(toUserErrorMessage(error, 'Failed to save tenant messaging.'))
+      if (isCurrentTenant(tenantId)) setMessagingError(toUserErrorMessage(error, 'Failed to save tenant messaging.'))
     } finally {
+      finishTenantWrite()
       setMessagingSaveBusy(false)
     }
   }
 
   async function handleGrantDemoAccess(): Promise<void> {
-    if (!selectedTenantId || !demoExpiresAt || !demoEmail.trim()) {
+    if (!demoExpiresAt || !demoEmail.trim()) {
       return
     }
+    const tenantId = beginTenantWrite()
+    if (!tenantId) return
 
     setDemoGrantBusy(true)
     setDemoError(null)
     setDemoSuccess(null)
 
     try {
-      const result = await rootApi.grantDemoMembership(selectedTenantId, {
+      const result = await rootApi.grantDemoMembership(tenantId, {
         email: demoEmail.trim(),
         display_name: demoDisplayName.trim() || null,
         expires_at: new Date(demoExpiresAt).toISOString(),
       })
+      if (!isCurrentTenant(tenantId)) return
       setDemoMemberships(result.memberships)
       setDemoSuccess(`Granted temporary demo access to ${demoEmail.trim()}.`)
       setDemoEmail('')
       setDemoDisplayName('')
       setDemoExpiresAt('')
     } catch (error) {
-      setDemoError(toUserErrorMessage(error, 'Failed to grant demo access.'))
+      if (isCurrentTenant(tenantId)) setDemoError(toUserErrorMessage(error, 'Failed to grant demo access.'))
     } finally {
+      finishTenantWrite()
       setDemoGrantBusy(false)
     }
   }
 
   async function handleRevokeDemoAccess(membershipId: string): Promise<void> {
-    if (!selectedTenantId) {
-      return
-    }
+    const tenantId = beginTenantWrite()
+    if (!tenantId) return
 
+    setDemoGrantBusy(true)
     setDemoError(null)
     setDemoSuccess(null)
     try {
-      const result = await rootApi.revokeDemoMembership(selectedTenantId, membershipId)
+      const result = await rootApi.revokeDemoMembership(tenantId, membershipId)
+      if (!isCurrentTenant(tenantId)) return
       setDemoMemberships(result.memberships)
       setDemoSuccess('Revoked demo access membership.')
     } catch (error) {
-      setDemoError(toUserErrorMessage(error, 'Failed to revoke demo access.'))
+      if (isCurrentTenant(tenantId)) setDemoError(toUserErrorMessage(error, 'Failed to revoke demo access.'))
+    } finally {
+      finishTenantWrite()
+      setDemoGrantBusy(false)
     }
   }
 
   async function handleResetDemoAccess(): Promise<void> {
-    if (!selectedTenantId) {
-      return
-    }
+    const tenantId = beginTenantWrite()
+    if (!tenantId) return
 
     setDemoResetBusy(true)
     setDemoError(null)
     setDemoSuccess(null)
     try {
-      const result = await rootApi.resetDemoMemberships(selectedTenantId)
+      const result = await rootApi.resetDemoMemberships(tenantId)
+      if (!isCurrentTenant(tenantId)) return
       setDemoMemberships(result.memberships)
       const reseedSummary = result.reseed.reseeded
         ? ` Reseeded ${result.reseed.members_seeded} members, ${result.reseed.events_seeded} events, and ${result.reseed.responses_seeded} responses.`
@@ -651,8 +751,9 @@ function RootAdminPage() {
           : ''
       setDemoSuccess(`Revoked ${result.revoked_count} active demo memberships.${reseedSummary}`)
     } catch (error) {
-      setDemoError(toUserErrorMessage(error, 'Failed to reset demo memberships.'))
+      if (isCurrentTenant(tenantId)) setDemoError(toUserErrorMessage(error, 'Failed to reset demo memberships.'))
     } finally {
+      finishTenantWrite()
       setDemoResetBusy(false)
     }
   }
@@ -683,6 +784,8 @@ function RootAdminPage() {
         <div className="admin-grid admin-grid--3" style={{ marginBottom: '0.75rem' }}>
           <input className="members-input" placeholder="slug (e.g. montrose)" value={createForm.slug} onChange={(e) => setCreateForm((c) => ({ ...c, slug: e.target.value }))} />
           <input className="members-input" placeholder="display name" value={createForm.display_name} onChange={(e) => setCreateForm((c) => ({ ...c, display_name: e.target.value }))} />
+          <input className="members-input" type="email" placeholder="initial admin email" value={createForm.initial_admin_email} onChange={(e) => setCreateForm((c) => ({ ...c, initial_admin_email: e.target.value }))} />
+          <input className="members-input" placeholder="initial admin display name (optional)" value={createForm.initial_admin_display_name} onChange={(e) => setCreateForm((c) => ({ ...c, initial_admin_display_name: e.target.value }))} />
           <input className="members-input" placeholder="timezone" value={createForm.timezone} onChange={(e) => setCreateForm((c) => ({ ...c, timezone: e.target.value }))} />
           <select className="members-input" value={createForm.tenant_type} onChange={(e) => setCreateForm((c) => ({ ...c, tenant_type: e.target.value as TenantCreateForm['tenant_type'] }))}>
             <option value="program">program</option>
@@ -694,7 +797,7 @@ function RootAdminPage() {
             <option value="suspended">suspended</option>
             <option value="archived">archived</option>
           </select>
-          <button className="btn btn--primary btn--sm" disabled={createBusy || !createForm.slug.trim() || !createForm.display_name.trim()} onClick={() => void handleCreateTenant()}>
+          <button className="btn btn--primary btn--sm" disabled={writeBusy || !createForm.slug.trim() || !createForm.display_name.trim() || !createForm.initial_admin_email.includes('@')} onClick={() => void handleCreateTenant()}>
             {createBusy ? 'Creating…' : 'Create Tenant'}
           </button>
         </div>
@@ -713,6 +816,7 @@ function RootAdminPage() {
               <button
                 key={tenant.tenant_id}
                 className={tenant.tenant_id === selectedTenantId ? 'btn btn--primary btn--sm' : 'btn btn--outline btn--sm'}
+                disabled={writeBusy}
                 onClick={() => setSelectedTenantId(tenant.tenant_id)}
               >
                 {tenant.display_name} ({tenant.slug})
@@ -720,6 +824,11 @@ function RootAdminPage() {
             ))}
           </div>
         )}
+        <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem' }}>
+          <button className="btn btn--outline btn--sm" disabled={tenantLoadBusy || writeBusy || tenantPage <= 1} onClick={() => void refreshTenants(tenantPage - 1)}>Previous</button>
+          <span className="admin-note">Page {tenantPage}</span>
+          <button className="btn btn--outline btn--sm" disabled={tenantLoadBusy || writeBusy || !tenantHasMore} onClick={() => void refreshTenants(tenantPage + 1)}>Next</button>
+        </div>
       </section>
 
       <section className="admin-card" style={{ marginBottom: '1rem' }}>
@@ -730,6 +839,11 @@ function RootAdminPage() {
         <button className="btn btn--primary btn--sm" disabled={!selectedTenantId} onClick={openSelectedTenantAdmin}>
           Open selected tenant in Admin
         </button>
+        <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem', alignItems: 'center' }}>
+          <button className="btn btn--outline btn--sm" disabled={membershipLoadBusy || writeBusy || membershipPage <= 1} onClick={() => setMembershipPage((page) => page - 1)}>Previous memberships</button>
+          <span className="admin-note">Membership page {membershipPage} ({tenantMemberships.length} loaded)</span>
+          <button className="btn btn--outline btn--sm" disabled={membershipLoadBusy || writeBusy || !membershipHasMore} onClick={() => setMembershipPage((page) => page + 1)}>Next memberships</button>
+        </div>
       </section>
 
       <section className="admin-card" style={{ marginBottom: '1rem' }}>
@@ -748,10 +862,10 @@ function RootAdminPage() {
               <input className="members-input" type="datetime-local" value={demoExpiresAt} onChange={(e) => setDemoExpiresAt(e.target.value)} />
             </div>
             <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.75rem', flexWrap: 'wrap' }}>
-              <button className="btn btn--primary btn--sm" disabled={demoGrantBusy || !demoEmail.trim() || !demoExpiresAt} onClick={() => void handleGrantDemoAccess()}>
+              <button className="btn btn--primary btn--sm" disabled={writeBusy || !demoEmail.trim() || !demoExpiresAt} onClick={() => void handleGrantDemoAccess()}>
                 {demoGrantBusy ? 'Granting…' : 'Grant Demo Access'}
               </button>
-              <button className="btn btn--secondary btn--sm" disabled={demoResetBusy} onClick={() => void handleResetDemoAccess()}>
+              <button className="btn btn--secondary btn--sm" disabled={writeBusy} onClick={() => void handleResetDemoAccess()}>
                 {demoResetBusy ? 'Resetting…' : 'Reset All Demo Access'}
               </button>
             </div>
@@ -768,7 +882,7 @@ function RootAdminPage() {
                     {membership.display_name ? ` (${membership.display_name})` : ''}
                     {membership.expires_at ? ` • expires ${new Date(membership.expires_at).toLocaleString()}` : ''}
                     {' '}
-                    <button className="btn btn--outline btn--sm" onClick={() => void handleRevokeDemoAccess(membership.tenant_membership_id)}>
+                    <button className="btn btn--outline btn--sm" disabled={writeBusy} onClick={() => void handleRevokeDemoAccess(membership.tenant_membership_id)}>
                       Revoke
                     </button>
                   </li>
@@ -786,21 +900,21 @@ function RootAdminPage() {
         {tenantLoadError && <p className="ui-notice ui-notice--error">{tenantLoadError}</p>}
         {tenantStatusMessage && <p className="ui-notice ui-notice--success">{tenantStatusMessage}</p>}
         <div className="admin-grid admin-grid--2">
-          <select className="members-input" value={selectedTenantId} onChange={(e) => setSelectedTenantId(e.target.value)} disabled={tenantLoadBusy || tenants.length === 0}>
+          <select className="members-input" value={selectedTenantId} onChange={(e) => setSelectedTenantId(e.target.value)} disabled={tenantLoadBusy || writeBusy || tenants.length === 0}>
             {tenants.map((tenant) => (
               <option key={tenant.tenant_id} value={tenant.tenant_id}>{tenant.display_name} ({tenant.slug})</option>
             ))}
           </select>
           <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-            <button className="btn btn--secondary btn--sm" disabled={tenantLoadBusy} onClick={() => void refreshTenants()}>
+            <button className="btn btn--secondary btn--sm" disabled={tenantLoadBusy || writeBusy} onClick={() => void refreshTenants()}>
               {tenantLoadBusy ? 'Refreshing…' : 'Refresh Tenants'}
             </button>
             {selectedTenant?.status === 'suspended' ? (
-              <button className="btn btn--primary btn--sm" disabled={tenantStatusBusy} onClick={() => void handleSetTenantSuspended('reactivate')}>
+              <button className="btn btn--primary btn--sm" disabled={writeBusy} onClick={() => void handleSetTenantSuspended('reactivate')}>
                 {tenantStatusBusy ? 'Applying…' : 'Reactivate Tenant'}
               </button>
             ) : (
-              <button className="btn btn--outline btn--sm" disabled={tenantStatusBusy || !selectedTenantId} onClick={() => void handleSetTenantSuspended('suspend')}>
+              <button className="btn btn--outline btn--sm" disabled={writeBusy || !selectedTenantId} onClick={() => void handleSetTenantSuspended('suspend')}>
                 {tenantStatusBusy ? 'Applying…' : 'Suspend Tenant'}
               </button>
             )}

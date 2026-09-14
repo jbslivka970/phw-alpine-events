@@ -34,8 +34,8 @@ function unwrapTenantList(response: TenantListResponse): UserTenantContext[] {
 }
 
 const meApi = {
-  listTenants: async (): Promise<UserTenantContext[]> => {
-    const response = await apiGetWithoutTenant<TenantListResponse>('/me/tenants');
+  listTenants: async (signal?: AbortSignal): Promise<UserTenantContext[]> => {
+    const response = await apiGetWithoutTenant<TenantListResponse>('/me/tenants', { signal });
     return unwrapTenantList(response);
   },
 };

@@ -1,12 +1,13 @@
 import { Router } from 'express';
-import { timingSafeEqual } from 'node:crypto';
+import { createHmac, timingSafeEqual } from 'node:crypto';
 import { getPool, sql } from '../db';
 import authenticate from '../middleware/auth';
-import { apiLimiter, writeLimiter } from '../middleware/rateLimiter';
+import { apiLimiter, publicLimiter, writeLimiter } from '../middleware/rateLimiter';
 import { requireAdmin } from '../middleware/rbac';
 import { notificationService } from '../services/notifications';
 
 const router = Router();
+const MAILGUN_SIGNATURE_MAX_AGE_SECONDS = 5 * 60;
 
 interface RelayConfigRow {
   support_inbox_email: string;
@@ -39,6 +40,67 @@ function webhookTokensMatch(expected: string, provided: string): boolean {
   const expectedBuffer = Buffer.from(expected);
   const providedBuffer = Buffer.from(provided);
   return expectedBuffer.length === providedBuffer.length && timingSafeEqual(expectedBuffer, providedBuffer);
+}
+
+function extractMailgunSignature(body: unknown): { timestamp: string; token: string; signature: string } {
+  const payload = body && typeof body === 'object' ? body as Record<string, unknown> : {};
+  const nested = payload['signature'] && typeof payload['signature'] === 'object'
+    ? payload['signature'] as Record<string, unknown>
+    : null;
+  const timestamp = nested?.['timestamp'] ?? payload['timestamp'];
+  const token = nested?.['token'] ?? payload['token'];
+  const signature = nested?.['signature'] ?? payload['signature'];
+
+  return {
+    timestamp: typeof timestamp === 'string' || typeof timestamp === 'number' ? String(timestamp).trim() : '',
+    token: typeof token === 'string' ? token.trim() : '',
+    signature: typeof signature === 'string' ? signature.trim().toLowerCase() : '',
+  };
+}
+
+function verifyMailgunWebhook(body: unknown, signingKey: string): { valid: boolean; token: string } {
+  const fields = extractMailgunSignature(body);
+  const timestampSeconds = Number.parseInt(fields.timestamp, 10);
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  if (
+    !fields.timestamp
+    || !fields.token
+    || !/^[a-f0-9]{64}$/.test(fields.signature)
+    || !Number.isFinite(timestampSeconds)
+    || Math.abs(nowSeconds - timestampSeconds) > MAILGUN_SIGNATURE_MAX_AGE_SECONDS
+  ) {
+    return { valid: false, token: fields.token };
+  }
+
+  const expected = createHmac('sha256', signingKey)
+    .update(`${fields.timestamp}${fields.token}`)
+    .digest();
+  const provided = Buffer.from(fields.signature, 'hex');
+  return {
+    valid: expected.length === provided.length && timingSafeEqual(expected, provided),
+    token: fields.token,
+  };
+}
+
+async function claimWebhookReceipt(provider: string, eventId: string): Promise<boolean> {
+  try {
+    const pool = await getPool();
+    await pool
+      .request()
+      .input('provider', sql.NVarChar(40), provider)
+      .input('event_id', sql.NVarChar(255), eventId)
+      .query(
+        `INSERT INTO dbo.webhook_receipt (webhook_receipt_id, provider, event_id, received_at, expires_at)
+         VALUES (NEWID(), @provider, @event_id, SYSUTCDATETIME(), DATEADD(day, 7, SYSUTCDATETIME()))`
+      );
+    return true;
+  } catch (error) {
+    const number = (error as { number?: number }).number;
+    if (number === 2601 || number === 2627) {
+      return false;
+    }
+    throw error;
+  }
 }
 
 function parseRecipientsCsv(csv: string | null | undefined): string[] {
@@ -291,27 +353,35 @@ router.put('/relay-config', writeLimiter, authenticate, requireAdmin, async (req
   }
 });
 
-router.post('/inbound', writeLimiter, async (req, res) => {
+router.post('/inbound', publicLimiter, async (req, res) => {
   const inboundToken = getInboundWebhookToken();
   const providedToken = typeof req.headers['x-support-inbound-token'] === 'string'
     ? req.headers['x-support-inbound-token'].trim()
     : '';
+  const mailgunSigningKey = process.env['MAILGUN_WEBHOOK_SIGNING_KEY']?.trim() ?? '';
+  const mailgunAuth = mailgunSigningKey
+    ? verifyMailgunWebhook(req.body, mailgunSigningKey)
+    : { valid: false, token: extractMailgunSignature(req.body).token };
 
-  if (!inboundToken && process.env['NODE_ENV'] === 'production') {
+  if (!mailgunSigningKey && process.env['NODE_ENV'] === 'production') {
     res.status(503).json({ error: 'Inbound email webhook is not configured.' });
     return;
   }
 
-  if (inboundToken && !webhookTokensMatch(inboundToken, providedToken)) {
+  const legacyTokenValid = Boolean(inboundToken && webhookTokensMatch(inboundToken, providedToken));
+  const authenticated = process.env['NODE_ENV'] === 'production'
+    ? mailgunAuth.valid
+    : mailgunAuth.valid || legacyTokenValid || (!inboundToken && !mailgunSigningKey);
+  if (!authenticated) {
     await writeInboundEmailLog({
-      source: 'webhook',
+      source: 'mailgun',
       fromEmail: '',
       toEmail: '',
       subject: '',
       processingStatus: 'auth_failed',
-      errorDetail: 'invalid x-support-inbound-token',
+      errorDetail: 'invalid Mailgun webhook signature',
     });
-    res.status(401).json({ error: 'Unauthorized inbound email webhook token.' });
+    res.status(401).json({ error: 'Unauthorized inbound email webhook signature.' });
     return;
   }
 
@@ -329,6 +399,19 @@ router.post('/inbound', writeLimiter, async (req, res) => {
       });
       res.status(400).json({ error: 'Inbound payload must include from and to addresses.' });
       return;
+    }
+
+    if (mailgunAuth.valid) {
+      const receiptId = mailgunAuth.token || payload.providerMessageId;
+      if (!receiptId) {
+        res.status(400).json({ error: 'Mailgun token or provider message id is required.' });
+        return;
+      }
+      const claimed = await claimWebhookReceipt('mailgun', receiptId);
+      if (!claimed) {
+        res.status(200).json({ status: 'duplicate' });
+        return;
+      }
     }
 
     const relayConfig = await getRelayConfig();

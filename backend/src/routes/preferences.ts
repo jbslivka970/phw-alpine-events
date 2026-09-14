@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { getPool, sql } from '../db';
 import authenticate from '../middleware/auth';
 import { DEFAULT_TENANT_ID } from '../middleware/resolveTenantContext';
-import { apiLimiter, writeLimiter } from '../middleware/rateLimiter';
+import { apiLimiter, publicLimiter, writeLimiter } from '../middleware/rateLimiter';
 import { requireAdmin } from '../middleware/rbac';
 import { verifyEmailUnsubscribeToken } from '../services/emailPreferenceLinkService';
 import { notificationService } from '../services/notifications';
@@ -217,7 +217,7 @@ async function processUnsubscribeToken(tokenString: string): Promise<Unsubscribe
   };
 }
 
-router.get('/email/unsubscribe/:token', apiLimiter, async (req, res) => {
+router.get('/email/unsubscribe/:token', publicLimiter, async (req, res) => {
   try {
     const result = await processUnsubscribeToken(req.params.token);
     res.status(result.statusCode).set('Content-Type', 'text/html; charset=utf-8').send(renderUnsubscribeHtml(result));

@@ -2,8 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { calendarApi } from '../api/calendar';
 import { eventsApi } from '../api/events';
-import { useAuth } from '../hooks/useAuth';
-import { useTenantContext } from '../contexts/TenantContext';
+import { ROLES } from '../authConfig';
+import { activeRoleHasAppRole, useTenantContext } from '../contexts/TenantContext';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -334,9 +334,8 @@ function ListView({
 
 function CalendarPage() {
   const navigate = useNavigate();
-  const { isAdmin, canCreateEvents } = useAuth();
-  const { activeTenant } = useTenantContext();
-  const canManage = isAdmin() || canCreateEvents();
+  const { activeTenant, activeRole } = useTenantContext();
+  const canManage = activeRoleHasAppRole(activeRole, ROLES.EVENT_CREATOR);
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth());

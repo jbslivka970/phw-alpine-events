@@ -19,6 +19,8 @@ interface RootTenantSummary {
   tenant_id: string
   slug: string
   display_name: string
+  initial_admin_email: string
+  initial_admin_display_name?: string | null
   tenant_type: string
   is_demo: boolean
   status: string | null
@@ -199,17 +201,19 @@ interface RootDemoResetSummary {
 
 const rootApi = {
   getSession: () => apiGet<RootSession>('/root/session'),
-  listTenants: () => apiGet<{ tenants: RootTenantSummary[] }>('/root/tenants'),
+  listTenants: (page = 1, pageSize = 100) =>
+    apiGet<{ tenants: RootTenantSummary[]; page: number; page_size: number; has_more: boolean }>(`/root/tenants?page=${page}&page_size=${pageSize}`),
   createTenant: (payload: RootCreateTenantPayload) => apiPost<RootTenantSummary>('/root/tenants', payload),
-  listTenantAdmins: (tenantId: string) => apiGet<{ admins: RootTenantAdminSummary[] }>(`/root/tenants/${encodeURIComponent(tenantId)}/admins`),
+  listTenantAdmins: (tenantId: string, signal?: AbortSignal) => apiGet<{ admins: RootTenantAdminSummary[] }>(`/root/tenants/${encodeURIComponent(tenantId)}/admins`, { signal }),
   grantTenantAdmin: (tenantId: string, payload: { email: string; display_name?: string | null; expires_at?: string | null }) =>
     apiPost<{ admins: RootTenantAdminSummary[] }>(`/root/tenants/${encodeURIComponent(tenantId)}/admins`, payload),
   revokeTenantAdmin: (tenantId: string, userId: string) =>
     apiDelete<{ admins: RootTenantAdminSummary[] }>(`/root/tenants/${encodeURIComponent(tenantId)}/admins/${encodeURIComponent(userId)}`),
   setTenantSuspended: (tenantId: string, payload: { action: 'suspend' | 'reactivate' }) =>
     apiPost<{ tenant: RootTenantSummary; action: 'suspend' | 'reactivate' }>(`/root/tenants/${encodeURIComponent(tenantId)}/suspend`, payload),
-  getTenantUsage: (tenantId: string) => apiGet<RootTenantUsageSummary>(`/root/tenants/${encodeURIComponent(tenantId)}/usage`),
-  listTenantMemberships: (tenantId: string) => apiGet<{ memberships: RootTenantMembershipSummary[] }>(`/root/tenants/${encodeURIComponent(tenantId)}/memberships`),
+  getTenantUsage: (tenantId: string, signal?: AbortSignal) => apiGet<RootTenantUsageSummary>(`/root/tenants/${encodeURIComponent(tenantId)}/usage`, { signal }),
+  listTenantMemberships: (tenantId: string, page = 1, pageSize = 100, signal?: AbortSignal) =>
+    apiGet<{ memberships: RootTenantMembershipSummary[]; page: number; page_size: number; has_more: boolean }>(`/root/tenants/${encodeURIComponent(tenantId)}/memberships?page=${page}&page_size=${pageSize}`, { signal }),
   grantTenantMembership: (
     tenantId: string,
     payload: { email: string; display_name?: string | null; role: string; membership_kind: string; expires_at?: string | null }
@@ -219,11 +223,11 @@ const rootApi = {
     membershipId: string,
     payload: { role?: string; membership_kind?: string; status?: string; expires_at?: string | null }
   ) => apiPatch<{ memberships: RootTenantMembershipSummary[] }>(`/root/tenants/${encodeURIComponent(tenantId)}/memberships/${encodeURIComponent(membershipId)}`, payload),
-  getTenantMessaging: (tenantId: string) => apiGet<RootTenantMessaging>(`/root/tenants/${encodeURIComponent(tenantId)}/messaging`),
+  getTenantMessaging: (tenantId: string, signal?: AbortSignal) => apiGet<RootTenantMessaging>(`/root/tenants/${encodeURIComponent(tenantId)}/messaging`, { signal }),
   upsertTenantMessaging: (tenantId: string, payload: Partial<RootTenantMessaging>) =>
     apiPut<RootTenantMessaging>(`/root/tenants/${encodeURIComponent(tenantId)}/messaging`, payload),
-  listDemoMemberships: (tenantId: string) =>
-    apiGet<{ memberships: RootDemoMembershipSummary[] }>(`/root/tenants/${encodeURIComponent(tenantId)}/demo/memberships`),
+  listDemoMemberships: (tenantId: string, signal?: AbortSignal) =>
+    apiGet<{ memberships: RootDemoMembershipSummary[] }>(`/root/tenants/${encodeURIComponent(tenantId)}/demo/memberships`, { signal }),
   grantDemoMembership: (tenantId: string, payload: { email: string; display_name?: string | null; expires_at: string }) =>
     apiPost<{ memberships: RootDemoMembershipSummary[] }>(`/root/tenants/${encodeURIComponent(tenantId)}/demo/memberships`, payload),
   revokeDemoMembership: (tenantId: string, membershipId: string) =>
@@ -232,7 +236,7 @@ const rootApi = {
     apiPost<RootDemoResetSummary>(`/root/tenants/${encodeURIComponent(tenantId)}/demo/reset`, payload ?? {}),
   getAccessProfile: (email: string) => apiGet<RootAccessProfile>(`/root/access?email=${encodeURIComponent(email)}`),
   upsertAccessProfile: (payload: RootAccessUpsertPayload) => apiPut<RootAccessProfile>('/root/access', payload),
-  getTenantBranding: (tenantId: string) => apiGet<RootTenantBranding>(`/root/tenants/${encodeURIComponent(tenantId)}/branding`),
+  getTenantBranding: (tenantId: string, signal?: AbortSignal) => apiGet<RootTenantBranding>(`/root/tenants/${encodeURIComponent(tenantId)}/branding`, { signal }),
   upsertTenantBranding: (tenantId: string, payload: Partial<RootTenantBranding>) =>
     apiPut<RootTenantBranding>(`/root/tenants/${encodeURIComponent(tenantId)}/branding`, payload),
   createBrandingAssetUploadUrl: (tenantId: string, payload: { file_name: string; content_type: string; asset_kind: TenantBrandingAssetKind }) =>

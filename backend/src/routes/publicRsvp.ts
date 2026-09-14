@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { getPool, sql } from '../db';
-import { apiLimiter, writeLimiter } from '../middleware/rateLimiter';
+import { publicLimiter, writeLimiter } from '../middleware/rateLimiter';
 import { inferResponseRoleForMember, recordRsvpResponse, RsvpError, VALID_RESPONSES, type RsvpResponse } from '../services/rsvpService';
 import { verifyRsvpToken } from '../services/rsvpLinkService';
 
@@ -32,7 +32,7 @@ function requiresExplicitRole(response: RsvpResponse): boolean {
   return response === 'yes' || response === 'maybe' || response === 'waitlist';
 }
 
-router.get('/', apiLimiter, async (req, res) => {
+router.get('/', publicLimiter, async (req, res) => {
   try {
     const token = verifyRsvpToken(getToken(req.query));
     const pool = await getPool();

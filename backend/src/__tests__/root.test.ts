@@ -317,6 +317,17 @@ describe('root routes', () => {
     expect(res.body.error).toContain('slug');
   });
 
+  it('POST /api/v1/root/tenants requires an initial admin email', async () => {
+    const res = await request(app).post('/api/v1/root/tenants').send({
+      slug: 'montrose',
+      display_name: 'Montrose',
+    });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain('initial_admin_email');
+    expect(createTenantMock).not.toHaveBeenCalled();
+  });
+
   it('POST /api/v1/root/tenants creates tenant', async () => {
     createTenantMock.mockResolvedValue({
       tenant_id: '22222222-2222-4222-8222-222222222222',
@@ -335,10 +346,16 @@ describe('root routes', () => {
       display_name: 'Montrose',
       tenant_type: 'program',
       status: 'active',
+      initial_admin_email: ' Admin@Example.org ',
+      initial_admin_display_name: 'Program Admin',
     });
 
     expect(res.status).toBe(201);
-    expect(createTenantMock).toHaveBeenCalled();
+    expect(createTenantMock).toHaveBeenCalledWith(expect.objectContaining({
+      initialAdminEmail: 'Admin@Example.org',
+      initialAdminDisplayName: 'Program Admin',
+      actorEmail: 'root@example.com',
+    }));
   });
 
   it('GET /api/v1/root/tenants/:tenantId/admins validates tenant id', async () => {
@@ -441,7 +458,23 @@ describe('root routes', () => {
 
     expect(res.status).toBe(200);
     expect(Array.isArray(res.body.memberships)).toBe(true);
-    expect(listTenantMembershipsMock).toHaveBeenCalledWith('1b6b9719-663a-4e56-8f7d-9a4bd4c10001');
+    expect(listTenantMembershipsMock).toHaveBeenCalledWith(
+      '1b6b9719-663a-4e56-8f7d-9a4bd4c10001',
+      { page: 1, pageSize: 100, lookahead: true }
+    );
+  });
+
+  it('GET /api/v1/root/tenants caps page size and reports another page', async () => {
+    listTenantsForRootMock.mockResolvedValue(Array.from({ length: 251 }, (_, index) => ({
+      tenant_id: `tenant-${index}`,
+    })));
+
+    const res = await request(app).get('/api/v1/root/tenants?page=2&page_size=9999');
+
+    expect(res.status).toBe(200);
+    expect(res.body.tenants).toHaveLength(250);
+    expect(res.body).toMatchObject({ page: 2, page_size: 250, has_more: true });
+    expect(listTenantsForRootMock).toHaveBeenCalledWith({ page: 2, pageSize: 250, lookahead: true });
   });
 
   it('POST /api/v1/root/tenants/:tenantId/memberships validates role', async () => {

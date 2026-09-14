@@ -5,11 +5,13 @@ import { eventReminderTemplate } from '../templates/eventReminder';
 import { randomUUID } from 'crypto';
 import { formatInProgramTimeZone } from '../utils/dateTime';
 import { stripHtmlToText } from '../utils/htmlText';
+import { createNotificationDedupeKey } from '../services/notificationOutboxService';
 
 const REMINDER_CLAIM_TIMEOUT_MINUTES = 30;
 
 interface UpcomingEventRow {
   event_id: string;
+  tenant_id: string | null;
   title: string;
   event_date: Date;
   location: string | null;
@@ -98,7 +100,8 @@ async function runReminderJob(lookAheadHours = 48): Promise<void> {
     .request()
     .input('claimToken', claimToken)
     .query<UpcomingEventRow>(
-      `SELECT e.event_id,
+            `SELECT e.event_id,
+              e.tenant_id,
               e.title,
               e.event_date,
               e.location,
@@ -145,7 +148,7 @@ async function runReminderJob(lookAheadHours = 48): Promise<void> {
           const emailSubjectSource = emailTemplateOverride?.subject?.trim()
             ? emailTemplateOverride.subject
             : eventReminderTemplate.subjectTemplate ?? '';
-          await notificationService.sendEmail({
+          await notificationService.enqueueEmail({
             to: row.email,
             subject: renderTemplate(emailSubjectSource, variables),
             htmlBody: emailHtmlBody,
@@ -155,9 +158,10 @@ async function runReminderJob(lookAheadHours = 48): Promise<void> {
             templateId: eventReminderTemplate.templateId,
             memberId: row.member_id,
             eventId: row.event_id,
+            tenantId: row.tenant_id ?? undefined,
             operationType: 'event_reminder',
             operationReason: `lookahead_${lookAheadHours}h`,
-          });
+          }, createNotificationDedupeKey('event_reminder', row.response_id, 'email'));
           delivered = true;
         } catch (error) {
           console.error('[reminderJob] email send failed', {
@@ -171,15 +175,16 @@ async function runReminderJob(lookAheadHours = 48): Promise<void> {
 
       if (row.sms_opt_in && row.mobile_phone) {
         try {
-          await notificationService.sendSms({
+          await notificationService.enqueueSms({
             to: row.mobile_phone,
             message: renderTemplate(smsTemplateOverride?.body ?? eventReminderTemplate.smsBodyTemplate ?? '', variables),
             templateId: eventReminderTemplate.templateId,
             memberId: row.member_id,
             eventId: row.event_id,
+            tenantId: row.tenant_id ?? undefined,
             operationType: 'event_reminder',
             operationReason: `lookahead_${lookAheadHours}h`,
-          });
+          }, createNotificationDedupeKey('event_reminder', row.response_id, 'sms'));
           delivered = true;
         } catch (error) {
           console.error('[reminderJob] sms send failed', {

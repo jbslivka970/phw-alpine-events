@@ -56,6 +56,7 @@ function getLocalE2EToken(): string | null {
 const BASE_URL = getApiBaseUrl();
 const MEMBER_INVITE_TOKEN_STORAGE_KEY = 'phw_member_invite_token';
 const ACTIVE_TENANT_STORAGE_KEY = 'phw_active_tenant_id';
+let activeTenantId: string | null = null;
 
 let getToken: TokenGetter = async () => getLocalE2EToken();
 const AUTH_RETRY_DELAY_MS = 250;
@@ -107,26 +108,15 @@ function isTenantId(value: string): boolean {
 }
 
 function getStoredActiveTenantId(): string | null {
-  if (typeof window === 'undefined') {
-    return null;
-  }
-
-  const value = window.localStorage.getItem(ACTIVE_TENANT_STORAGE_KEY)?.trim().toLowerCase() ?? '';
-  return isTenantId(value) ? value : null;
+  return activeTenantId;
 }
 
 function setActiveTenantId(tenantId: string | null): void {
-  if (typeof window === 'undefined') {
-    return;
-  }
-
   const normalized = tenantId?.trim().toLowerCase() ?? '';
-  if (!normalized || !isTenantId(normalized)) {
+  activeTenantId = normalized && isTenantId(normalized) ? normalized : null;
+  if (typeof window !== 'undefined') {
     window.localStorage.removeItem(ACTIVE_TENANT_STORAGE_KEY);
-    return;
   }
-
-  window.localStorage.setItem(ACTIVE_TENANT_STORAGE_KEY, normalized);
 }
 
 async function getCachedToken(): Promise<string | null> {

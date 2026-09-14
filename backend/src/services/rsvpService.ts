@@ -186,11 +186,12 @@ function normalizeResponseRole(value: unknown): EventRole {
   return 'PARTICIPANT';
 }
 
-async function listPendingEventsForMember(memberId: string): Promise<PendingEvent[]> {
+async function listPendingEventsForMember(memberId: string, tenantId?: string): Promise<PendingEvent[]> {
   const pool = await getPool();
   const result = await pool
     .request()
     .input('member_id', sql.UniqueIdentifier, memberId)
+    .input('tenant_id', sql.UniqueIdentifier, tenantId ?? null)
     .query<PendingEvent>(
       `SELECT DISTINCT
           e.event_id,
@@ -203,6 +204,7 @@ async function listPendingEventsForMember(memberId: string): Promise<PendingEven
        INNER JOIN member m ON m.member_id = COALESCE(ent.member_id, mg.member_id)
        LEFT JOIN event_response er ON er.event_id = e.event_id AND er.member_id = m.member_id
        WHERE m.member_id = @member_id
+         AND (@tenant_id IS NULL OR e.tenant_id = @tenant_id)
          AND e.status = 'published'
          AND e.event_date >= GETUTCDATE()
          AND er.response_id IS NULL
@@ -247,9 +249,10 @@ async function recordRsvpResponse(options: {
     .request()
     .input('event_id', sql.UniqueIdentifier, options.eventId)
     .input('tenant_id', sql.UniqueIdentifier, options.tenantId ?? null)
-      .query<{ event_id: string; title: string; status: string; capacity: number | null; mentor_capacity: number | null; participant_capacity: number | null; event_date: Date; event_lead_member_id: string | null; event_lead_email: string | null }>(
+       .query<{ event_id: string; tenant_id: string | null; title: string; status: string; capacity: number | null; mentor_capacity: number | null; participant_capacity: number | null; event_date: Date; event_lead_member_id: string | null; event_lead_email: string | null }>(
         `SELECT
            event_id,
+         tenant_id,
            title,
            status,
            capacity,
@@ -269,6 +272,34 @@ async function recordRsvpResponse(options: {
   }
   if (!event) {
     throw new RsvpError('Event not found', 404);
+  }
+
+  const membershipResult = await pool
+    .request()
+    .input('member_id', sql.UniqueIdentifier, options.memberId)
+    .input('event_tenant_id', sql.UniqueIdentifier, event.tenant_id)
+    .query<{ membership_allowed: number }>(
+      `IF OBJECT_ID('dbo.tenant_membership', 'U') IS NULL OR COL_LENGTH('dbo.event', 'tenant_id') IS NULL
+         SELECT 1 AS membership_allowed;
+       ELSE
+         EXEC sp_executesql
+           N'SELECT CASE WHEN EXISTS (
+               SELECT 1
+               FROM dbo.tenant_membership
+               WHERE member_id = @member_id
+                 AND tenant_id = @event_tenant_id
+                 AND status = ''active''
+                 AND revoked_at IS NULL
+                 AND starts_at <= GETUTCDATE()
+                 AND (expires_at IS NULL OR expires_at > GETUTCDATE())
+             ) THEN 1 ELSE 0 END AS membership_allowed',
+           N'@member_id UNIQUEIDENTIFIER, @event_tenant_id UNIQUEIDENTIFIER',
+           @member_id = @member_id,
+           @event_tenant_id = @event_tenant_id;`
+    );
+
+  if (membershipResult.recordset[0]?.membership_allowed !== 1) {
+    throw new RsvpError('Member does not have active access to this event tenant.', 403);
   }
 
   if ((event.status ?? 'published') !== 'published') {

@@ -73,7 +73,7 @@ describe('reports routes', () => {
 
   it('GET /api/reports/delivery/logs denies cross-tenant event filters', async () => {
     mockPoolWithResults([
-      { recordset: [{ has_event_tenant_id: 1, has_tenant_membership_table: 1 }] },
+      { recordset: [{ has_event_tenant_id: 1, has_tenant_membership_table: 1, has_notification_log_tenant_id: 1 }] },
       { recordset: [] },
     ]);
 
@@ -98,9 +98,11 @@ describe('reports routes', () => {
   });
 
   it('GET /api/reports/delivery/logs returns rows for an in-tenant event filter', async () => {
+    const queries: string[] = [];
     mockPoolWithQueryResolver((sqlText) => {
+      queries.push(sqlText);
       if (sqlText.includes("COL_LENGTH('dbo.event', 'tenant_id')")) {
-        return { recordset: [{ has_event_tenant_id: 1, has_tenant_membership_table: 1 }] };
+        return { recordset: [{ has_event_tenant_id: 1, has_tenant_membership_table: 1, has_notification_log_tenant_id: 1 }] };
       }
 
       if (sqlText.includes('SELECT TOP 1 event_id') && sqlText.includes('FROM event')) {
@@ -143,6 +145,11 @@ describe('reports routes', () => {
       recipient: 'member@example.com',
       operation_type: 'event_published',
     }));
+    const logQueries = queries.filter((sqlText) => sqlText.includes('FROM notification_log nl'));
+    expect(logQueries).toHaveLength(2);
+    expect(logQueries.every((sqlText) => sqlText.includes('nl.tenant_id = @tenant_id'))).toBe(true);
+    expect(logQueries.every((sqlText) => !sqlText.includes('dbo.tenant_membership'))).toBe(true);
+    expect(logQueries.every((sqlText) => !sqlText.includes('e_scope'))).toBe(true);
   });
 
   it('GET /api/reports/summary aggregates responses and attendees without multiplying rows', async () => {
@@ -161,6 +168,11 @@ describe('reports routes', () => {
     expect(summaryQuery).toContain('COUNT(*) AS assigned_count');
     expect(summaryQuery).not.toContain('LEFT JOIN event_response');
     expect(summaryQuery).not.toContain('LEFT JOIN event_assignment');
+  });
+
+  it('keeps notification reports fail-closed until direct tenant scope is available', () => {
+    const source = require('node:fs').readFileSync(require.resolve('../routes/reports'), 'utf8');
+    expect(source).toContain("return scope.multiTenantEnabled ? 'AND 1 = 0' : '';");
   });
 
   it('GET /api/reports/participation counts distinct attended events', async () => {

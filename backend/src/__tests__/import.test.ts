@@ -69,10 +69,17 @@ describe('import routes', () => {
       expect.any(String),
       '11111111-1111-4111-8111-111111111111'
     );
+    expect(csvImportService.storePreviewSession).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: 'session-1' }),
+      {
+        tenantId: '11111111-1111-4111-8111-111111111111',
+        userId: '00000000-0000-0000-0000-000000000001',
+      }
+    );
   });
 
   it('POST /api/import/commit/:sessionId returns 404 for unknown session', async () => {
-    (csvImportService.getPreviewSession as jest.Mock).mockReturnValue(null);
+    (csvImportService.claimPreviewSession as jest.Mock).mockResolvedValue(null);
 
     const res = await request(app).post('/api/import/commit/session-1').send({});
 
@@ -80,11 +87,14 @@ describe('import routes', () => {
   });
 
   it('POST /api/import/commit/:sessionId forwards conflict resolutions', async () => {
-    (csvImportService.getPreviewSession as jest.Mock).mockReturnValue({
-      sessionId: 'session-1',
-      tenantId: '11111111-1111-4111-8111-111111111111',
-      fileName: 'members.csv',
-      rows: [],
+    (csvImportService.claimPreviewSession as jest.Mock).mockResolvedValue({
+      claimToken: '22222222-2222-4222-8222-222222222222',
+      preview: {
+        sessionId: 'session-1',
+        tenantId: '11111111-1111-4111-8111-111111111111',
+        fileName: 'members.csv',
+        rows: [],
+      },
     });
     (csvImportService.commitImport as jest.Mock).mockResolvedValue({
       importId: 'import-1',
@@ -110,12 +120,18 @@ describe('import routes', () => {
     expect(csvImportService.commitImport).toHaveBeenCalledWith(
       expect.objectContaining({ sessionId: 'session-1' }),
       {
+        claimToken: '22222222-2222-4222-8222-222222222222',
         tenantId: '11111111-1111-4111-8111-111111111111',
+        ownerUserId: '00000000-0000-0000-0000-000000000001',
         conflictResolutions: { '12': 'create' },
         importedByEmail: 'admin@example.com',
         importedByUserId: '00000000-0000-0000-0000-000000000001',
       }
     );
+    expect(csvImportService.claimPreviewSession).toHaveBeenCalledWith('session-1', {
+      tenantId: '11111111-1111-4111-8111-111111111111',
+      userId: '00000000-0000-0000-0000-000000000001',
+    });
   });
 
   it('GET /api/import/logs returns logs', async () => {

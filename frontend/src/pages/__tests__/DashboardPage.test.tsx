@@ -36,6 +36,12 @@ vi.mock('../../hooks/useAuth', () => ({
 
 vi.mock('../../contexts/TenantContext', () => ({
   useTenantContext: vi.fn(),
+  activeRoleHasAppRole: (activeRole: string | null, requiredRole: string) => {
+    if (activeRole === 'admin') return true;
+    if (activeRole === 'event_creator') return requiredRole !== 'ADMIN';
+    if (activeRole === 'tavf_creator') return requiredRole === 'TAVF_CREATOR' || requiredRole === 'USER';
+    return requiredRole === 'USER';
+  },
 }));
 
 const mockedEventsApi = eventsApi as unknown as {
@@ -68,6 +74,7 @@ function renderPage() {
 describe('DashboardPage regression coverage', () => {
   beforeEach(() => {
     mockedUseTenantContext.mockReturnValue({
+      activeRole: 'member',
       activeTenant: {
         tenant_id: '527d755c-6818-40a0-bd7f-137a91b9e54e',
         slug: 'colorado-springs',

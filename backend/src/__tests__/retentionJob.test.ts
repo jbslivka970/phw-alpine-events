@@ -37,8 +37,12 @@ describe('retention job', () => {
     const results = await runRetentionJob({
       dryRun: true,
       notificationLogDays: 30,
+      notificationOutboxDays: 0,
       inboundSmsLogDays: 60,
       emailPreferenceLogDays: 90,
+      csvImportSessionDays: 0,
+      rateLimitWindowDays: 0,
+      webhookReceiptDays: 0,
     });
 
     expect(results).toHaveLength(3);
@@ -70,8 +74,12 @@ describe('retention job', () => {
       dryRun: false,
       confirmDelete: true,
       notificationLogDays: 30,
+      notificationOutboxDays: 0,
       inboundSmsLogDays: 0,
       emailPreferenceLogDays: 0,
+      csvImportSessionDays: 0,
+      rateLimitWindowDays: 0,
+      webhookReceiptDays: 0,
     });
 
     expect(results).toHaveLength(1);
@@ -104,8 +112,12 @@ describe('retention job', () => {
       dryRun: false,
       confirmDelete: false,
       notificationLogDays: 30,
+      notificationOutboxDays: 0,
       inboundSmsLogDays: 0,
       emailPreferenceLogDays: 0,
+      csvImportSessionDays: 0,
+      rateLimitWindowDays: 0,
+      webhookReceiptDays: 0,
     });
 
     expect(results).toHaveLength(1);

@@ -427,6 +427,15 @@ Optional backend settings:
 - `RETENTION_NOTIFICATION_LOG_DAYS` (default `180`)
 - `RETENTION_INBOUND_SMS_LOG_DAYS` (default `365`)
 - `RETENTION_EMAIL_PREFERENCE_LOG_DAYS` (default `365`)
+- `RETENTION_WEBHOOK_RECEIPT_DAYS` (default `1`; applies after each receipt's seven-day replay window expires)
+- `RETENTION_NOTIFICATION_OUTBOX_DAYS` (default `30`; completed notification deliveries only)
+- `RETENTION_CSV_IMPORT_SESSION_DAYS` (default `1`; expired or completed preview sessions)
+- `RETENTION_RATE_LIMIT_WINDOW_DAYS` (default `1`; expired shared throttle windows)
+- `RATE_LIMIT_HASH_SECRET` (required in production; secret used to hash shared rate-limit identities)
+- `SQL_RATE_LIMIT_REQUIRED` (optional nonproduction override; production write/public limits always require SQL)
+- `TELNYX_WEBHOOK_PUBLIC_KEY` (production Telnyx Ed25519 public key, PEM or base64 raw key)
+- `MAILGUN_WEBHOOK_SIGNING_KEY` (production Mailgun webhook HMAC signing key)
+- `SUPPORT_INBOUND_WEBHOOK_TOKEN` (nonproduction compatibility only; never substitutes for Mailgun HMAC in production)
 
 Optional CI/CD secret:
 

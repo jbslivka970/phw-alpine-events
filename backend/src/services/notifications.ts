@@ -17,6 +17,10 @@ import { buildMemberEmailUnsubscribeUrl } from './emailPreferenceLinkService';
 import { buildMemberRsvpUrls, createShortRsvpUrlFromLandingUrl, type ResponseRole } from './rsvpLinkService';
 import { formatInProgramTimeZone } from '../utils/dateTime';
 import { stripHtmlToText } from '../utils/htmlText';
+import {
+  enqueueNotification,
+  type OutboxPayload,
+} from './notificationOutboxService';
 
 interface RsvpNotificationPayload {
   eventId: string;
@@ -82,6 +86,7 @@ interface EventUpdateNotificationPayload extends EventNotificationPayload {
 }
 
 let cachedEmailPreferenceLogHasTenantId: boolean | null = null;
+let cachedNotificationLogHasTenantId: boolean | null = null;
 
 async function emailPreferenceLogHasTenantIdColumn(pool: Awaited<ReturnType<typeof getPool>>): Promise<boolean> {
   if (cachedEmailPreferenceLogHasTenantId !== null) {
@@ -96,6 +101,21 @@ async function emailPreferenceLogHasTenantIdColumn(pool: Awaited<ReturnType<type
 
   cachedEmailPreferenceLogHasTenantId = result.recordset[0]?.has_tenant_id === 1;
   return cachedEmailPreferenceLogHasTenantId;
+}
+
+async function notificationLogHasTenantIdColumn(pool: Awaited<ReturnType<typeof getPool>>): Promise<boolean> {
+  if (cachedNotificationLogHasTenantId !== null) {
+    return cachedNotificationLogHasTenantId;
+  }
+
+  const result = await pool
+    .request()
+    .query<{ has_tenant_id: number }>(
+      `SELECT CASE WHEN COL_LENGTH('dbo.notification_log', 'tenant_id') IS NULL THEN 0 ELSE 1 END AS has_tenant_id`
+    );
+
+  cachedNotificationLogHasTenantId = result.recordset[0]?.has_tenant_id === 1;
+  return cachedNotificationLogHasTenantId;
 }
 
 const EVENT_PUBLISH_COOLDOWN_MINUTES = 30;
@@ -469,12 +489,30 @@ class NotificationService {
   ) {}
 
   async sendEmail(options: SendEmailOptions): Promise<void> {
+    await this.sendEmailWithOutcome(options, false);
+  }
+
+  async enqueueEmail(options: SendEmailOptions, dedupeKey?: string): Promise<string> {
+    return enqueueNotification({
+      tenantId: options.tenantId,
+      channel: 'email',
+      payload: options as unknown as OutboxPayload,
+      dedupeKey,
+    });
+  }
+
+  async deliverOutboxEmail(payload: OutboxPayload): Promise<string | undefined> {
+    return this.sendEmailWithOutcome(payload as unknown as SendEmailOptions, true);
+  }
+
+  private async sendEmailWithOutcome(options: SendEmailOptions, throwOnProviderFailure: boolean): Promise<string | undefined> {
     const emailPolicy = await this.getTenantChannelPolicyForRequest('email', options.tenantId, options.eventId);
     if (!emailPolicy.enabled) {
       await this.writeNotificationLog({
         channel: 'email',
         recipient: options.to,
         status: 'skipped',
+        tenantId: emailPolicy.tenantId ?? undefined,
         eventId: options.eventId,
         memberId: options.memberId,
         templateId: options.templateId,
@@ -489,6 +527,7 @@ class NotificationService {
         channel: 'email',
         recipient: options.to,
         status: 'skipped',
+        tenantId: emailPolicy.tenantId ?? undefined,
         eventId: options.eventId,
         memberId: options.memberId,
         templateId: options.templateId,
@@ -517,6 +556,7 @@ class NotificationService {
       channel: 'email',
       recipient: options.to,
       status,
+      tenantId: emailPolicy.tenantId ?? undefined,
       eventId: options.eventId,
       memberId: options.memberId,
       templateId: options.templateId,
@@ -525,6 +565,11 @@ class NotificationService {
       errorDetail: errorMessage,
       providerId,
     });
+
+    if (errorMessage && throwOnProviderFailure) {
+      throw new Error(errorMessage);
+    }
+    return providerId;
   }
 
   private appendEmailPreferenceFooter(options: SendEmailOptions): SendEmailOptions {
@@ -551,12 +596,30 @@ class NotificationService {
   }
 
   async sendSms(options: SendSmsOptions): Promise<void> {
+    await this.sendSmsWithOutcome(options, false);
+  }
+
+  async enqueueSms(options: SendSmsOptions, dedupeKey?: string): Promise<string> {
+    return enqueueNotification({
+      tenantId: options.tenantId,
+      channel: 'sms',
+      payload: options as unknown as OutboxPayload,
+      dedupeKey,
+    });
+  }
+
+  async deliverOutboxSms(payload: OutboxPayload): Promise<string | undefined> {
+    return this.sendSmsWithOutcome(payload as unknown as SendSmsOptions, true);
+  }
+
+  private async sendSmsWithOutcome(options: SendSmsOptions, throwOnProviderFailure: boolean): Promise<string | undefined> {
     const smsPolicy = await this.getTenantChannelPolicyForRequest('sms', options.tenantId, options.eventId);
     if (!smsPolicy.enabled) {
       await this.writeNotificationLog({
         channel: 'sms',
         recipient: options.to,
         status: 'skipped',
+        tenantId: smsPolicy.tenantId ?? undefined,
         eventId: options.eventId,
         memberId: options.memberId,
         templateId: options.templateId,
@@ -576,6 +639,7 @@ class NotificationService {
         channel: 'sms',
         recipient: options.to,
         status: 'skipped',
+        tenantId: smsPolicy.tenantId ?? undefined,
         eventId: options.eventId,
         memberId: options.memberId,
         templateId: options.templateId,
@@ -592,6 +656,7 @@ class NotificationService {
           channel: 'sms',
           recipient: options.to,
           status: 'skipped',
+          tenantId: smsPolicy.tenantId ?? undefined,
           eventId: options.eventId,
           memberId: options.memberId,
           templateId: options.templateId,
@@ -620,6 +685,7 @@ class NotificationService {
       channel: 'sms',
       recipient: options.to,
       status,
+      tenantId: smsPolicy.tenantId ?? undefined,
       eventId: options.eventId,
       memberId: options.memberId,
       templateId: options.templateId,
@@ -628,6 +694,11 @@ class NotificationService {
       errorDetail: errorMessage,
       providerId,
     });
+
+    if (errorMessage && throwOnProviderFailure) {
+      throw new Error(errorMessage);
+    }
+    return providerId;
   }
 
   private async getTenantChannelPolicyForRequest(
@@ -637,7 +708,7 @@ class NotificationService {
   ): Promise<{ enabled: boolean; tenantId: string | null }> {
     const resolvedTenantId = await this.resolveTenantIdForNotification(tenantId, eventId);
     if (!resolvedTenantId) {
-      return { enabled: true, tenantId: null };
+      return { enabled: !isMultiTenantEnabled(), tenantId: null };
     }
 
     const policy = await this.getTenantChannelPolicy(resolvedTenantId);
@@ -689,7 +760,7 @@ class NotificationService {
       const pool = await getPool();
       const hasToggles = await this.tenantMessagingHasChannelToggleColumns(pool);
       if (!hasToggles) {
-        return { emailEnabled: true, smsEnabled: true };
+        return tenantPolicyFallback();
       }
 
       const result = await pool
@@ -703,8 +774,8 @@ class NotificationService {
 
       const row = result.recordset[0];
       const policy = {
-        emailEnabled: row ? toBitBoolean(row.email_enabled, true) : true,
-        smsEnabled: row ? toBitBoolean(row.sms_enabled, true) : true,
+        emailEnabled: row ? toBitBoolean(row.email_enabled, false) : tenantPolicyFallback().emailEnabled,
+        smsEnabled: row ? toBitBoolean(row.sms_enabled, false) : tenantPolicyFallback().smsEnabled,
       };
 
       this.tenantChannelPolicyCache.set(tenantId, {
@@ -714,7 +785,7 @@ class NotificationService {
 
       return policy;
     } catch {
-      return { emailEnabled: true, smsEnabled: true };
+      return tenantPolicyFallback();
     }
   }
 
@@ -740,6 +811,7 @@ class NotificationService {
   async writeNotificationAuditLog(entry: {
     channel: NotificationChannel;
     recipient: string;
+    tenantId?: string;
     eventId?: string;
     memberId?: string;
     templateId?: string;
@@ -752,6 +824,7 @@ class NotificationService {
       channel: entry.channel,
       recipient: entry.recipient,
       status: entry.status ?? 'skipped',
+      tenantId: entry.tenantId,
       eventId: entry.eventId,
       memberId: entry.memberId,
       templateId: entry.templateId,
@@ -781,7 +854,8 @@ class NotificationService {
     memberId: string,
     action: 'opt_in' | 'opt_out',
     source: 'import' | 'manual' | 'reply' | 'api' | 'system',
-    notes?: string
+    notes?: string,
+    tenantId?: string
   ): Promise<void> {
     const normalizedSource = source === 'reply' || source === 'import' || source === 'manual' ? source : 'manual';
     try {
@@ -792,9 +866,10 @@ class NotificationService {
         .input('action', sql.NVarChar(10), action)
         .input('source', sql.NVarChar(20), normalizedSource)
         .input('notes', sql.NVarChar(500), notes ?? null)
+        .input('tenant_id', sql.UniqueIdentifier, tenantId ?? null)
         .query(
-          `INSERT INTO sms_consent_log (consent_log_id, member_id, action, source, recorded_at, notes)
-           VALUES (NEWID(), @member_id, @action, @source, GETUTCDATE(), @notes)`
+          `INSERT INTO sms_consent_log (consent_log_id, member_id, action, source, recorded_at, notes, tenant_id)
+           VALUES (NEWID(), @member_id, @action, @source, GETUTCDATE(), @notes, @tenant_id)`
         );
     } catch (error) {
       console.error('[NotificationService] Failed to write sms_consent_log', error);
@@ -887,6 +962,7 @@ class NotificationService {
     channel: NotificationChannel;
     recipient: string;
     status: NotificationStatus;
+    tenantId?: string;
     eventId?: string;
     memberId?: string;
     templateId?: string;
@@ -897,7 +973,11 @@ class NotificationService {
   }): Promise<void> {
     try {
       const pool = await getPool();
-      await pool
+      const hasTenantIdColumn = await notificationLogHasTenantIdColumn(pool);
+      const tenantId = hasTenantIdColumn
+        ? await this.resolveTenantIdForNotification(entry.tenantId, entry.eventId)
+        : null;
+      const request = pool
         .request()
         .input('event_id', sql.UniqueIdentifier, toNullableUuid(entry.eventId))
         .input('member_id', sql.UniqueIdentifier, toNullableUuid(entry.memberId))
@@ -908,17 +988,36 @@ class NotificationService {
         .input('operation_type', sql.NVarChar(50), entry.operationType ?? null)
         .input('operation_reason', sql.NVarChar(500), entry.operationReason ?? null)
         .input('provider_id', sql.NVarChar(255), entry.providerId ?? null)
-        .input('error_detail', sql.NVarChar(sql.MAX), entry.errorDetail ?? null)
-        .query(
-          `INSERT INTO notification_log
+        .input('error_detail', sql.NVarChar(sql.MAX), entry.errorDetail ?? null);
+
+      if (hasTenantIdColumn) {
+        request.input('tenant_id', sql.UniqueIdentifier, tenantId);
+      }
+
+      await request.query(
+        hasTenantIdColumn
+          ? `INSERT INTO notification_log
+            (log_id, tenant_id, event_id, member_id, template_id, channel, recipient, status, operation_type, operation_reason, provider_id, error_detail, sent_at)
+           VALUES
+            (NEWID(), @tenant_id, @event_id, @member_id, @template_id, @channel, @recipient, @status, @operation_type, @operation_reason, @provider_id, @error_detail, GETUTCDATE())`
+          : `INSERT INTO notification_log
             (log_id, event_id, member_id, template_id, channel, recipient, status, operation_type, operation_reason, provider_id, error_detail, sent_at)
            VALUES
             (NEWID(), @event_id, @member_id, @template_id, @channel, @recipient, @status, @operation_type, @operation_reason, @provider_id, @error_detail, GETUTCDATE())`
-        );
+      );
     } catch (error) {
       console.error('[NotificationService] Failed to write notification_log', error);
     }
   }
+}
+
+function isMultiTenantEnabled(): boolean {
+  return /^(1|true|yes|on)$/i.test(process.env['MULTI_TENANT_ENABLED']?.trim() ?? '');
+}
+
+function tenantPolicyFallback(): { emailEnabled: boolean; smsEnabled: boolean } {
+  const enabled = !isMultiTenantEnabled();
+  return { emailEnabled: enabled, smsEnabled: enabled };
 }
 
 function toBitBoolean(value: unknown, fallback: boolean): boolean {
@@ -1455,6 +1554,7 @@ async function sendEventPublishedNotification(
     await notificationService.writeNotificationAuditLog({
       channel,
       recipient: recipientValue,
+      tenantId: payload.tenantId,
       eventId: payload.event_id,
       memberId: recipient.member_id,
       templateId: eventInviteTemplate.templateId,

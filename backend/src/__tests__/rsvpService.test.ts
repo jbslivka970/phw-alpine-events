@@ -28,6 +28,7 @@ describe('rsvpService waitlist auto-promotion', () => {
     const queue: Array<{ recordset?: unknown[]; rowsAffected?: number[] }> = [
       { recordset: [{ group_name: 'PARTICIPANTS' }] },
       { recordset: [{ event_id: 'event-1', title: 'River Day', status: 'published', mentor_capacity: null, participant_capacity: 2, capacity: 2, event_date: new Date('2026-06-01T18:00:00Z') }] },
+      { recordset: [{ membership_allowed: 1 }] },
       { recordset: [] },
       { recordset: [] },
       { recordset: [{ response_id: 'r1', event_id: 'event-1', member_id: 'member-yes', response: 'no', responded_at: new Date('2026-05-01T00:00:00Z'), notes: null }] },
@@ -71,6 +72,7 @@ describe('rsvpService waitlist auto-promotion', () => {
     const queue: Array<{ recordset?: unknown[]; rowsAffected?: number[] }> = [
       { recordset: [{ group_name: 'PARTICIPANTS' }] },
       { recordset: [{ event_id: 'event-2', title: 'Casting Clinic', status: 'published', mentor_capacity: null, participant_capacity: 3, capacity: 3, event_date: new Date('2026-06-02T18:00:00Z') }] },
+      { recordset: [{ membership_allowed: 1 }] },
       { recordset: [{ response: 'no', response_role: 'PARTICIPANT' }] },
       { recordset: [{ assigned_count: 2 }] },
       { recordset: [{ response_id: 'r2', event_id: 'event-2', member_id: 'member-offered', response: 'yes', responded_at: new Date('2026-05-01T00:00:00Z'), notes: null }] },
@@ -106,6 +108,7 @@ describe('rsvpService waitlist auto-promotion', () => {
     const queue: Array<{ recordset?: unknown[]; rowsAffected?: number[] }> = [
       { recordset: [{ group_name: 'PARTICIPANTS' }] },
       { recordset: [{ event_id: 'event-3', title: 'River Day', status: 'published', mentor_capacity: null, participant_capacity: 5, capacity: 5, event_date: new Date('2026-06-03T18:00:00Z') }] },
+      { recordset: [{ membership_allowed: 1 }] },
       { recordset: [{ response: 'yes', response_role: 'PARTICIPANT' }] },
       { recordset: [{ response_id: 'r3', event_id: 'event-3', member_id: 'member-repeat', response: 'yes', responded_at: new Date('2026-05-01T00:00:00Z'), notes: null }] },
       { recordset: [{ first_name: 'Repeat', email: 'repeat@example.com', mobile_phone: null, sms_opt_in: false }] },
@@ -139,6 +142,7 @@ describe('rsvpService waitlist auto-promotion', () => {
     const queue: Array<{ recordset?: unknown[]; rowsAffected?: number[] }> = [
       { recordset: [{ group_name: 'PARTICIPANTS' }] },
       { recordset: [{ event_id: 'event-cap', title: 'Capacity Event', status: 'published', mentor_capacity: null, participant_capacity: 1, capacity: 1, event_date: new Date('2026-06-04T18:00:00Z') }] },
+      { recordset: [{ membership_allowed: 1 }] },
       { recordset: [] },
       { recordset: [{ assigned_count: 1 }] },
       { recordset: [{ response_id: 'r-cap', event_id: 'event-cap', member_id: 'member-overflow', response: 'waitlist', responded_at: new Date('2026-05-01T00:00:00Z'), notes: null }] },
@@ -206,6 +210,7 @@ describe('rsvpService waitlist auto-promotion', () => {
     const queue: Array<{ recordset?: unknown[] }> = [
       { recordset: [{ group_name: 'VOLUNTEERS' }] },
       { recordset: [{ event_id: 'event-assigned', title: 'Assigned Event', status: 'published', mentor_capacity: 2, participant_capacity: 2, capacity: 4, event_date: new Date('2026-06-04T18:00:00Z') }] },
+      { recordset: [{ membership_allowed: 1 }] },
       { recordset: [{ response: 'yes', response_role: 'MENTOR' }] },
       { recordset: [{ assignment_id: 'assignment-1' }] },
     ];
@@ -229,6 +234,7 @@ describe('rsvpService waitlist auto-promotion', () => {
       { recordset: [] },
       { recordset: [{ target_id: 'target-1' }] },
       { recordset: [{ event_id: 'event-5', title: 'Direct Invite Event', status: 'published', mentor_capacity: null, participant_capacity: null, capacity: null, event_date: new Date('2026-06-05T18:00:00Z') }] },
+      { recordset: [{ membership_allowed: 1 }] },
       { recordset: [] },
       { recordset: [{ response_id: 'r5', event_id: 'event-5', member_id: 'member-direct', response: 'yes', responded_at: new Date('2026-05-01T00:00:00Z'), notes: null }] },
       { recordset: [] },
@@ -268,6 +274,7 @@ describe('rsvpService waitlist auto-promotion', () => {
       { recordset: [] },
       { recordset: [{ target_id: 'target-group-1' }] },
       { recordset: [{ event_id: 'event-6', title: 'Group Invite Event', status: 'published', mentor_capacity: null, participant_capacity: null, capacity: null, event_date: new Date('2026-06-06T18:00:00Z') }] },
+      { recordset: [{ membership_allowed: 1 }] },
       { recordset: [] },
       { recordset: [{ response_id: 'r6', event_id: 'event-6', member_id: 'member-group-targeted', response: 'yes', responded_at: new Date('2026-05-01T00:00:00Z'), notes: null }] },
       { recordset: [] },
@@ -308,6 +315,7 @@ describe('rsvpService waitlist auto-promotion', () => {
     const queue: Array<{ recordset?: unknown[]; rowsAffected?: number[] }> = [
       { recordset: [] },
       { recordset: [{ event_id: 'event-7', title: 'Open RSVP Event', status: 'published', mentor_capacity: null, participant_capacity: null, capacity: null, event_date: new Date('2026-06-07T18:00:00Z') }] },
+      { recordset: [{ membership_allowed: 1 }] },
       { recordset: [] },
       { recordset: [{ response_id: 'r7', event_id: 'event-7', member_id: 'member-ungrouped', response: 'yes', responded_at: new Date('2026-05-01T00:00:00Z'), notes: null }] },
       { recordset: [] },
@@ -340,5 +348,33 @@ describe('rsvpService waitlist auto-promotion', () => {
       member_id: 'member-ungrouped',
       response: 'yes',
     });
+  });
+
+  it('rejects RSVP when the member lacks active membership in the event tenant', async () => {
+    const queryCalls: string[] = [];
+    const queue: Array<{ recordset?: unknown[] }> = [
+      { recordset: [{ group_name: 'PARTICIPANTS' }] },
+      { recordset: [{ event_id: 'event-tenant', tenant_id: '11111111-1111-4111-8111-111111111111', title: 'Tenant Event', status: 'published', mentor_capacity: null, participant_capacity: null, capacity: null, event_date: new Date('2026-06-08T18:00:00Z') }] },
+      { recordset: [{ membership_allowed: 0 }] },
+    ];
+    const mockRequest = {
+      input: jest.fn().mockReturnThis(),
+      query: jest.fn().mockImplementation(async (query: string) => {
+        queryCalls.push(query);
+        return queue.shift() ?? { recordset: [] };
+      }),
+    };
+    (getPool as jest.Mock).mockResolvedValue({ request: () => mockRequest });
+
+    await expect(recordRsvpResponse({
+      eventId: 'event-tenant',
+      memberId: '22222222-2222-4222-8222-222222222222',
+      response: 'yes',
+      responseChannel: 'sms',
+    })).rejects.toMatchObject({ statusCode: 403 });
+
+    expect(queryCalls.some((query) => query.includes('dbo.tenant_membership'))).toBe(true);
+    expect(queryCalls.some((query) => query.includes('MERGE event_response'))).toBe(false);
+    expect(sendRsvpConfirmation).not.toHaveBeenCalled();
   });
 });

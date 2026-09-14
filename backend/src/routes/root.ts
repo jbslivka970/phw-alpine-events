@@ -52,9 +52,20 @@ const PERSONAS: MemberPersona[] = ['participant', 'volunteer', 'mentor', 'guide'
 const BRANDING_ASSET_KINDS: TenantBrandingAssetKind[] = ['logo', 'logo_dark', 'hero'];
 const SMS_PROVIDERS: Array<Exclude<SmsProvider, null>> = ['acs', 'twilio', 'telnyx'];
 const TENANT_STATUSES = ['active', 'suspended'] as const;
+const DEFAULT_PAGE_SIZE = 100;
+const MAX_PAGE_SIZE = 250;
 
 function isValidGuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value.trim());
+}
+
+function parsePagination(query: Record<string, unknown>): { page: number; pageSize: number } {
+  const parsedPage = Number.parseInt(String(query['page'] ?? '1'), 10);
+  const parsedPageSize = Number.parseInt(String(query['page_size'] ?? DEFAULT_PAGE_SIZE), 10);
+  return {
+    page: Number.isFinite(parsedPage) ? Math.max(1, parsedPage) : 1,
+    pageSize: Number.isFinite(parsedPageSize) ? Math.min(MAX_PAGE_SIZE, Math.max(1, parsedPageSize)) : DEFAULT_PAGE_SIZE,
+  };
 }
 
 function sendBrandingServiceError(res: Response, error: unknown): boolean {
@@ -94,10 +105,11 @@ router.get('/session', async (req, res, next) => {
   }
 });
 
-router.get('/tenants', async (_req, res, next) => {
+router.get('/tenants', async (req, res, next) => {
   try {
-    const tenants = await listTenantsForRoot();
-    res.json({ tenants });
+    const { page, pageSize } = parsePagination(req.query);
+    const rows = await listTenantsForRoot({ page, pageSize, lookahead: true });
+    res.json({ tenants: rows.slice(0, pageSize), page, page_size: pageSize, has_more: rows.length > pageSize });
   } catch (error) {
     if (sendBrandingServiceError(res, error)) {
       return;
@@ -115,6 +127,10 @@ router.post('/tenants', writeLimiter, async (req, res, next) => {
     const timezone = typeof req.body?.timezone === 'string' ? req.body.timezone.trim() : undefined;
     const isDemo = req.body?.is_demo == null ? undefined : Boolean(req.body.is_demo);
     const isOperational = req.body?.is_operational == null ? undefined : Boolean(req.body.is_operational);
+    const initialAdminEmail = typeof req.body?.initial_admin_email === 'string' ? req.body.initial_admin_email.trim() : '';
+    const initialAdminDisplayName = typeof req.body?.initial_admin_display_name === 'string'
+      ? req.body.initial_admin_display_name.trim()
+      : null;
 
     if (!slug) {
       res.status(400).json({ error: 'slug is required' });
@@ -124,10 +140,17 @@ router.post('/tenants', writeLimiter, async (req, res, next) => {
       res.status(400).json({ error: 'display_name is required' });
       return;
     }
+    if (!initialAdminEmail || !initialAdminEmail.includes('@')) {
+      res.status(400).json({ error: 'Valid initial_admin_email is required' });
+      return;
+    }
 
     const tenant = await createTenant({
       slug,
       displayName,
+      initialAdminEmail,
+      initialAdminDisplayName,
+      actorEmail: req.user?.email ?? null,
       tenantType: tenantType as 'program' | 'demo' | 'system' | undefined,
       status: status as 'active' | 'suspended' | 'archived' | undefined,
       timezone,
@@ -284,8 +307,9 @@ router.get('/tenants/:tenantId/memberships', async (req, res, next) => {
       return;
     }
 
-    const memberships = await listTenantMemberships(tenantId);
-    res.json({ memberships });
+    const { page, pageSize } = parsePagination(req.query);
+    const rows = await listTenantMemberships(tenantId, { page, pageSize, lookahead: true });
+    res.json({ memberships: rows.slice(0, pageSize), page, page_size: pageSize, has_more: rows.length > pageSize });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to load tenant memberships';
     if (message.includes('Tenant not found')) {

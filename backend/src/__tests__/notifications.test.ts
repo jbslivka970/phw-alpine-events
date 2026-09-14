@@ -1,10 +1,22 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { getPool } from '../db';
 import {
   NotificationService,
   notificationService,
   sendRsvpConfirmation,
 } from '../services/notifications';
+
+jest.mock('../db', () => ({
+  getPool: jest.fn(),
+  sql: {
+    MAX: 'MAX',
+    UniqueIdentifier: 'UniqueIdentifier',
+    DateTime: 'DateTime',
+    Int: 'Int',
+    NVarChar: jest.fn((length?: unknown) => length ? `NVarChar(${String(length)})` : 'NVarChar'),
+  },
+}));
 
 describe('notifications service', () => {
   beforeEach(() => {
@@ -322,6 +334,74 @@ describe('notifications service', () => {
     }));
   });
 
+  it('fails closed when multi-tenant mode cannot resolve a tenant policy', async () => {
+    const previousMultiTenant = process.env['MULTI_TENANT_ENABLED'];
+    process.env['MULTI_TENANT_ENABLED'] = 'true';
+    const mockEmail = { sendEmail: jest.fn().mockResolvedValue('provider-tenant') };
+    const service = new NotificationService(mockEmail, { sendSms: jest.fn() }, true, true);
+    const logSpy = jest
+      .spyOn(service as unknown as { writeNotificationLog: (...args: unknown[]) => Promise<void> }, 'writeNotificationLog')
+      .mockResolvedValue(undefined);
+
+    try {
+      await service.sendEmail({
+        to: 'member@example.com',
+        subject: 'Tenant message',
+        htmlBody: '<p>Tenant message</p>',
+        operationType: 'unit_test',
+      });
+    } finally {
+      process.env['MULTI_TENANT_ENABLED'] = previousMultiTenant;
+    }
+
+    expect(mockEmail.sendEmail).not.toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith(expect.objectContaining({
+      channel: 'email',
+      status: 'skipped',
+      operationReason: expect.stringContaining('blocked:tenant_email_disabled'),
+    }));
+  });
+
+  it('fails closed when a tenant messaging policy row is missing', async () => {
+    const previousMultiTenant = process.env['MULTI_TENANT_ENABLED'];
+    process.env['MULTI_TENANT_ENABLED'] = 'true';
+    const tenantId = '11111111-1111-4111-8111-111111111111';
+    const mockRequest: { input: jest.Mock; query: jest.Mock } = {
+      input: jest.fn().mockReturnThis(),
+      query: jest.fn(async (sqlText: string) => {
+        if (sqlText.includes("COL_LENGTH('dbo.tenant_messaging', 'email_enabled')")) {
+          return { recordset: [{ has_toggle_columns: 1 }] };
+        }
+        return { recordset: [] };
+      }),
+    };
+    (getPool as jest.Mock).mockResolvedValue({ request: () => mockRequest });
+    const mockSms = { sendSms: jest.fn().mockResolvedValue('provider-tenant') };
+    const service = new NotificationService({ sendEmail: jest.fn() }, mockSms, true, true);
+    const logSpy = jest
+      .spyOn(service as unknown as { writeNotificationLog: (...args: unknown[]) => Promise<void> }, 'writeNotificationLog')
+      .mockResolvedValue(undefined);
+
+    try {
+      await service.sendSms({
+        to: '+13035550007',
+        message: 'Tenant message',
+        tenantId,
+        operationType: 'unit_test',
+      });
+    } finally {
+      process.env['MULTI_TENANT_ENABLED'] = previousMultiTenant;
+    }
+
+    expect(mockSms.sendSms).not.toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith(expect.objectContaining({
+      channel: 'sms',
+      tenantId,
+      status: 'skipped',
+      operationReason: expect.stringContaining('blocked:tenant_sms_disabled'),
+    }));
+  });
+
   it('sendEmail logs failed when provider send throws', async () => {
     const mockEmail = { sendEmail: jest.fn().mockRejectedValue(new Error('smtp down')) };
     const mockSms = { sendSms: jest.fn().mockResolvedValue(undefined) };
@@ -369,6 +449,76 @@ describe('notifications service', () => {
       operationType: 'unit_test',
       errorDetail: 'carrier down',
     }));
+  });
+
+  it('writes explicit tenant_id when the notification log column is available', async () => {
+    const inputs: Array<[string, unknown]> = [];
+    const queries: string[] = [];
+    const mockRequest: { input: jest.Mock; query: jest.Mock } = {
+      input: jest.fn((name: string, _type: unknown, value: unknown) => {
+        inputs.push([name, value]);
+        return mockRequest;
+      }),
+      query: jest.fn(async (sqlText: string) => {
+        queries.push(sqlText);
+        if (sqlText.includes("COL_LENGTH('dbo.notification_log', 'tenant_id')")) {
+          return { recordset: [{ has_tenant_id: 1 }] };
+        }
+        return { recordset: [] };
+      }),
+    };
+    (getPool as jest.Mock).mockResolvedValue({ request: () => mockRequest });
+    const service = new NotificationService(
+      { sendEmail: jest.fn() },
+      { sendSms: jest.fn() },
+      false,
+      false
+    );
+
+    await service.writeNotificationAuditLog({
+      channel: 'email',
+      recipient: 'member@example.com',
+      tenantId: '11111111-1111-4111-8111-111111111111',
+      status: 'skipped',
+    });
+
+    expect(inputs).toContainEqual(['tenant_id', '11111111-1111-4111-8111-111111111111']);
+    expect(queries.some((sqlText) => sqlText.includes('(log_id, tenant_id, event_id'))).toBe(true);
+  });
+
+  it('derives notification tenant_id from the event when no explicit tenant is supplied', async () => {
+    const inputs: Array<[string, unknown]> = [];
+    const queries: string[] = [];
+    const mockRequest: { input: jest.Mock; query: jest.Mock } = {
+      input: jest.fn((name: string, _type: unknown, value: unknown) => {
+        inputs.push([name, value]);
+        return mockRequest;
+      }),
+      query: jest.fn(async (sqlText: string) => {
+        queries.push(sqlText);
+        if (sqlText.includes('SELECT TOP (1) tenant_id')) {
+          return { recordset: [{ tenant_id: '22222222-2222-4222-8222-222222222222' }] };
+        }
+        return { recordset: [] };
+      }),
+    };
+    (getPool as jest.Mock).mockResolvedValue({ request: () => mockRequest });
+    const service = new NotificationService(
+      { sendEmail: jest.fn() },
+      { sendSms: jest.fn() },
+      false,
+      false
+    );
+
+    await service.writeNotificationAuditLog({
+      channel: 'sms',
+      recipient: '+13035550100',
+      eventId: '33333333-3333-4333-8333-333333333333',
+      status: 'skipped',
+    });
+
+    expect(queries.some((sqlText) => sqlText.includes('FROM dbo.event'))).toBe(true);
+    expect(inputs).toContainEqual(['tenant_id', '22222222-2222-4222-8222-222222222222']);
   });
 
   it('keeps event lead exclusion in publish and reminder recipient SQL', () => {

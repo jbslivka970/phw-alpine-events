@@ -574,6 +574,22 @@ CREATE TABLE dbo.sms_consent_log (
         REFERENCES dbo.member (member_id) ON DELETE CASCADE
 );
 
+IF OBJECT_ID(N'dbo.sms_consent_log', N'U') IS NOT NULL
+BEGIN
+    IF COL_LENGTH('dbo.sms_consent_log', 'tenant_id') IS NULL
+        ALTER TABLE dbo.sms_consent_log ADD tenant_id UNIQUEIDENTIFIER NULL;
+
+    IF OBJECT_ID(N'dbo.tenant', N'U') IS NOT NULL
+       AND NOT EXISTS (
+           SELECT 1 FROM sys.foreign_keys
+           WHERE parent_object_id = OBJECT_ID(N'dbo.sms_consent_log')
+             AND name = N'FK_sms_consent_log_tenant'
+       )
+        ALTER TABLE dbo.sms_consent_log
+            ADD CONSTRAINT FK_sms_consent_log_tenant FOREIGN KEY (tenant_id)
+            REFERENCES dbo.tenant (tenant_id);
+END
+
 -- ---------------------------------------------------------------------------
 -- 11. ImportLog  (tracks each CSV import run)
 -- ---------------------------------------------------------------------------
@@ -600,6 +616,25 @@ CREATE TABLE dbo.inbound_sms_log (
 
 IF OBJECT_ID(N'dbo.inbound_sms_log', N'U') IS NOT NULL
 BEGIN
+    IF COL_LENGTH('dbo.inbound_sms_log', 'tenant_id') IS NULL
+        ALTER TABLE dbo.inbound_sms_log ADD tenant_id UNIQUEIDENTIFIER NULL;
+
+    IF COL_LENGTH('dbo.inbound_sms_log', 'destination') IS NULL
+        ALTER TABLE dbo.inbound_sms_log ADD destination NVARCHAR(30) NULL;
+
+    IF COL_LENGTH('dbo.inbound_sms_log', 'provider_event_id') IS NULL
+        ALTER TABLE dbo.inbound_sms_log ADD provider_event_id NVARCHAR(255) NULL;
+
+    IF OBJECT_ID(N'dbo.tenant', N'U') IS NOT NULL
+       AND NOT EXISTS (
+           SELECT 1 FROM sys.foreign_keys
+           WHERE parent_object_id = OBJECT_ID(N'dbo.inbound_sms_log')
+             AND name = N'FK_inbound_sms_log_tenant'
+       )
+        ALTER TABLE dbo.inbound_sms_log
+            ADD CONSTRAINT FK_inbound_sms_log_tenant FOREIGN KEY (tenant_id)
+            REFERENCES dbo.tenant (tenant_id);
+
     IF NOT EXISTS (
         SELECT 1
         FROM sys.indexes
@@ -607,7 +642,35 @@ BEGIN
           AND name = N'IX_inbound_sms_log_received_at'
     )
         CREATE INDEX IX_inbound_sms_log_received_at ON dbo.inbound_sms_log (received_at DESC);
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM sys.indexes
+        WHERE object_id = OBJECT_ID(N'dbo.inbound_sms_log')
+          AND name = N'IX_inbound_sms_log_tenant_received_at'
+    )
+        CREATE INDEX IX_inbound_sms_log_tenant_received_at
+            ON dbo.inbound_sms_log (tenant_id, received_at DESC);
 END
+
+IF OBJECT_ID(N'dbo.webhook_receipt', N'U') IS NULL
+CREATE TABLE dbo.webhook_receipt (
+    webhook_receipt_id UNIQUEIDENTIFIER NOT NULL DEFAULT NEWID(),
+    provider           NVARCHAR(40)     NOT NULL,
+    event_id           NVARCHAR(255)    NOT NULL,
+    received_at        DATETIME2(3)     NOT NULL DEFAULT SYSUTCDATETIME(),
+    expires_at         DATETIME2(3)     NOT NULL,
+    CONSTRAINT PK_webhook_receipt PRIMARY KEY (webhook_receipt_id),
+    CONSTRAINT UQ_webhook_receipt_provider_event UNIQUE (provider, event_id)
+);
+
+IF OBJECT_ID(N'dbo.webhook_receipt', N'U') IS NOT NULL
+AND NOT EXISTS (
+    SELECT 1 FROM sys.indexes
+    WHERE object_id = OBJECT_ID(N'dbo.webhook_receipt')
+      AND name = N'IX_webhook_receipt_expires_at'
+)
+    CREATE INDEX IX_webhook_receipt_expires_at ON dbo.webhook_receipt (expires_at);
 
 IF OBJECT_ID(N'dbo.rsvp_short_link', N'U') IS NULL
 CREATE TABLE dbo.rsvp_short_link (
@@ -755,6 +818,59 @@ CREATE TABLE dbo.import_log (
     completed_at     DATETIME         NULL,
     CONSTRAINT PK_import_log PRIMARY KEY (import_id)
 );
+
+IF OBJECT_ID(N'dbo.csv_import_session', N'U') IS NULL
+CREATE TABLE dbo.csv_import_session (
+    session_id       UNIQUEIDENTIFIER NOT NULL,
+    tenant_id        UNIQUEIDENTIFIER NOT NULL,
+    owner_user_id    NVARCHAR(255)    NOT NULL,
+    import_kind      NVARCHAR(40)     NOT NULL,
+    preview_payload  NVARCHAR(MAX)    NOT NULL,
+    created_at       DATETIME2        NOT NULL DEFAULT SYSUTCDATETIME(),
+    expires_at       DATETIME2        NOT NULL,
+    claim_token      UNIQUEIDENTIFIER NULL,
+    claimed_at       DATETIME2        NULL,
+    committed_at     DATETIME2        NULL,
+    CONSTRAINT PK_csv_import_session PRIMARY KEY (session_id)
+);
+
+IF OBJECT_ID(N'dbo.csv_import_session', N'U') IS NOT NULL
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM sys.indexes
+        WHERE object_id = OBJECT_ID(N'dbo.csv_import_session')
+          AND name = N'IX_csv_import_session_owner_expiry'
+    )
+        CREATE INDEX IX_csv_import_session_owner_expiry
+            ON dbo.csv_import_session (tenant_id, owner_user_id, expires_at)
+            INCLUDE (import_kind, claim_token, claimed_at, committed_at);
+
+    IF NOT EXISTS (
+        SELECT 1 FROM sys.indexes
+        WHERE object_id = OBJECT_ID(N'dbo.csv_import_session')
+          AND name = N'IX_csv_import_session_expiry'
+    )
+        CREATE INDEX IX_csv_import_session_expiry ON dbo.csv_import_session (expires_at);
+END
+
+IF OBJECT_ID(N'dbo.rate_limit_window', N'U') IS NULL
+CREATE TABLE dbo.rate_limit_window (
+    key_hash       VARBINARY(32) NOT NULL,
+    scope          NVARCHAR(50)  NOT NULL,
+    window_start   DATETIME2     NOT NULL,
+    request_count  INT           NOT NULL,
+    expires_at     DATETIME2     NOT NULL,
+    CONSTRAINT PK_rate_limit_window PRIMARY KEY (key_hash, window_start),
+    CONSTRAINT CK_rate_limit_window_count CHECK (request_count > 0)
+);
+
+IF OBJECT_ID(N'dbo.rate_limit_window', N'U') IS NOT NULL
+AND NOT EXISTS (
+    SELECT 1 FROM sys.indexes
+    WHERE object_id = OBJECT_ID(N'dbo.rate_limit_window')
+      AND name = N'IX_rate_limit_window_expiry'
+)
+    CREATE INDEX IX_rate_limit_window_expiry ON dbo.rate_limit_window (expires_at);
 
 -- ---------------------------------------------------------------------------
 -- 13. [user]  (application admin / staff accounts; distinct from member)
@@ -1127,6 +1243,93 @@ BEGIN
             WHERE member_id IS NOT NULL AND status = 'active' AND revoked_at IS NULL;
 END
 
+IF OBJECT_ID(N'dbo.tenant', N'U') IS NOT NULL
+   AND OBJECT_ID(N'dbo.sms_consent_log', N'U') IS NOT NULL
+   AND COL_LENGTH('dbo.sms_consent_log', 'tenant_id') IS NOT NULL
+   AND NOT EXISTS (
+       SELECT 1 FROM sys.foreign_keys
+       WHERE parent_object_id = OBJECT_ID(N'dbo.sms_consent_log')
+         AND name = N'FK_sms_consent_log_tenant'
+   )
+    ALTER TABLE dbo.sms_consent_log
+        ADD CONSTRAINT FK_sms_consent_log_tenant FOREIGN KEY (tenant_id)
+        REFERENCES dbo.tenant (tenant_id);
+
+IF OBJECT_ID(N'dbo.tenant', N'U') IS NOT NULL
+   AND OBJECT_ID(N'dbo.inbound_sms_log', N'U') IS NOT NULL
+   AND COL_LENGTH('dbo.inbound_sms_log', 'tenant_id') IS NOT NULL
+   AND NOT EXISTS (
+       SELECT 1 FROM sys.foreign_keys
+       WHERE parent_object_id = OBJECT_ID(N'dbo.inbound_sms_log')
+         AND name = N'FK_inbound_sms_log_tenant'
+   )
+    ALTER TABLE dbo.inbound_sms_log
+        ADD CONSTRAINT FK_inbound_sms_log_tenant FOREIGN KEY (tenant_id)
+        REFERENCES dbo.tenant (tenant_id);
+
+-- Add direct tenant ownership to notification audit rows. Keep nullable for
+-- mixed-version rollout and records whose tenant cannot be determined safely.
+IF OBJECT_ID(N'dbo.notification_log', N'U') IS NOT NULL
+   AND COL_LENGTH('dbo.notification_log', 'tenant_id') IS NULL
+    ALTER TABLE dbo.notification_log ADD tenant_id UNIQUEIDENTIFIER NULL;
+
+IF COL_LENGTH('dbo.notification_log', 'tenant_id') IS NOT NULL
+BEGIN
+    EXEC sp_executesql N'
+        UPDATE nl
+        SET tenant_id = e.tenant_id
+        FROM dbo.notification_log nl
+        INNER JOIN dbo.event e ON e.event_id = nl.event_id
+        WHERE nl.tenant_id IS NULL
+          AND e.tenant_id IS NOT NULL;
+
+        ;WITH unambiguous_membership AS (
+            SELECT
+                member_id,
+                CASE
+                    WHEN COUNT(DISTINCT CASE WHEN membership_kind = ''home'' THEN tenant_id END) = 1
+                        THEN CONVERT(UNIQUEIDENTIFIER, MIN(CASE
+                            WHEN membership_kind = ''home'' THEN CONVERT(NVARCHAR(36), tenant_id)
+                            ELSE NULL
+                        END))
+                    WHEN COUNT(DISTINCT tenant_id) = 1
+                        THEN CONVERT(UNIQUEIDENTIFIER, MIN(CONVERT(NVARCHAR(36), tenant_id)))
+                    ELSE NULL
+                END AS tenant_id
+            FROM dbo.tenant_membership
+            WHERE member_id IS NOT NULL
+              AND status = ''active''
+              AND revoked_at IS NULL
+              AND starts_at <= GETUTCDATE()
+              AND (expires_at IS NULL OR expires_at > GETUTCDATE())
+            GROUP BY member_id
+        )
+        UPDATE nl
+        SET tenant_id = um.tenant_id
+        FROM dbo.notification_log nl
+        INNER JOIN unambiguous_membership um ON um.member_id = nl.member_id
+        WHERE nl.tenant_id IS NULL
+          AND nl.event_id IS NULL
+          AND um.tenant_id IS NOT NULL;';
+
+    IF NOT EXISTS (
+        SELECT 1 FROM sys.foreign_keys
+        WHERE parent_object_id = OBJECT_ID(N'dbo.notification_log')
+          AND name = N'FK_notification_log_tenant'
+    )
+        ALTER TABLE dbo.notification_log
+            ADD CONSTRAINT FK_notification_log_tenant FOREIGN KEY (tenant_id)
+            REFERENCES dbo.tenant (tenant_id);
+
+    IF NOT EXISTS (
+        SELECT 1 FROM sys.indexes
+        WHERE object_id = OBJECT_ID(N'dbo.notification_log')
+          AND name = N'idx_notification_log_tenant_sent'
+    )
+        CREATE INDEX idx_notification_log_tenant_sent
+            ON dbo.notification_log (tenant_id, sent_at DESC);
+END
+
 IF OBJECT_ID(N'dbo.import_log', N'U') IS NOT NULL
    AND OBJECT_ID(N'dbo.tenant', N'U') IS NOT NULL
 BEGIN
@@ -1172,6 +1375,17 @@ BEGIN
         N'@default_tenant_id UNIQUEIDENTIFIER',
         @default_tenant_id = @import_log_default_tenant_id;
 END
+
+IF OBJECT_ID(N'dbo.csv_import_session', N'U') IS NOT NULL
+     AND OBJECT_ID(N'dbo.tenant', N'U') IS NOT NULL
+     AND NOT EXISTS (
+             SELECT 1 FROM sys.foreign_keys
+             WHERE parent_object_id = OBJECT_ID(N'dbo.csv_import_session')
+                 AND name = N'FK_csv_import_session_tenant'
+     )
+        ALTER TABLE dbo.csv_import_session
+                ADD CONSTRAINT FK_csv_import_session_tenant FOREIGN KEY (tenant_id)
+                REFERENCES dbo.tenant (tenant_id);
 
 -- ---------------------------------------------------------------------------
 -- 13e. TenantMembership backfill (slice 2)
@@ -2303,3 +2517,48 @@ CREATE TABLE dbo.job_lease (
     CONSTRAINT PK_job_lease PRIMARY KEY (job_name),
     CONSTRAINT CHK_job_lease_status CHECK (last_status IS NULL OR last_status IN ('running', 'completed', 'failed'))
 );
+
+-- ---------------------------------------------------------------------------
+-- Durable notification delivery outbox
+-- ---------------------------------------------------------------------------
+IF OBJECT_ID(N'dbo.notification_outbox', N'U') IS NULL
+CREATE TABLE dbo.notification_outbox (
+    outbox_id          UNIQUEIDENTIFIER NOT NULL DEFAULT NEWID(),
+    tenant_id          UNIQUEIDENTIFIER NULL,
+    channel            NVARCHAR(10)     NOT NULL,
+    payload            NVARCHAR(MAX)    NOT NULL,
+    dedupe_key         NVARCHAR(128)    NULL,
+    state              NVARCHAR(20)     NOT NULL DEFAULT 'queued',
+    attempt_count      INT              NOT NULL DEFAULT 0,
+    available_at       DATETIME2(3)     NOT NULL DEFAULT SYSUTCDATETIME(),
+    lease_token        UNIQUEIDENTIFIER NULL,
+    lease_expires_at   DATETIME2(3)     NULL,
+    provider_id        NVARCHAR(255)    NULL,
+    provider_error     NVARCHAR(4000)   NULL,
+    last_attempt_at    DATETIME2(3)     NULL,
+    sent_at            DATETIME2(3)     NULL,
+    dead_lettered_at   DATETIME2(3)     NULL,
+    completed_at       DATETIME2(3)     NULL,
+    created_at         DATETIME2(3)     NOT NULL DEFAULT SYSUTCDATETIME(),
+    updated_at         DATETIME2(3)     NOT NULL DEFAULT SYSUTCDATETIME(),
+    CONSTRAINT PK_notification_outbox PRIMARY KEY (outbox_id),
+    CONSTRAINT FK_notification_outbox_tenant FOREIGN KEY (tenant_id) REFERENCES dbo.tenant (tenant_id),
+    CONSTRAINT CHK_notification_outbox_channel CHECK (channel IN ('email', 'sms')),
+    CONSTRAINT CHK_notification_outbox_state CHECK (state IN ('queued', 'processing', 'sent', 'dead_letter')),
+    CONSTRAINT CHK_notification_outbox_attempt_count CHECK (attempt_count >= 0)
+);
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'dbo.notification_outbox') AND name = N'UX_notification_outbox_dedupe')
+CREATE UNIQUE INDEX UX_notification_outbox_dedupe
+    ON dbo.notification_outbox (tenant_id, channel, dedupe_key)
+    WHERE dedupe_key IS NOT NULL;
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'dbo.notification_outbox') AND name = N'IX_notification_outbox_claim')
+CREATE INDEX IX_notification_outbox_claim
+    ON dbo.notification_outbox (state, available_at, lease_expires_at)
+    INCLUDE (created_at, channel, attempt_count);
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'dbo.notification_outbox') AND name = N'IX_notification_outbox_retention')
+CREATE INDEX IX_notification_outbox_retention
+    ON dbo.notification_outbox (completed_at)
+    WHERE completed_at IS NOT NULL;

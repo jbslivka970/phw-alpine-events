@@ -82,6 +82,8 @@ import { runRetentionJob } from './jobs/retentionJob';
 import { ensureBootstrapAdmins } from './services/adminBootstrapService';
 import { initializeShortLivedCache } from './services/shortLivedCache';
 import { runWithJobLease } from './services/jobLeaseService';
+import { runNotificationOutboxWorker } from './services/notificationOutboxService';
+import { notificationService } from './services/notifications';
 import apiRouter from './routes';
 
 const app = express();
@@ -143,7 +145,12 @@ if (allowedOrigins.length === 0) {
 // Middleware
 app.use(helmet());
 app.use(cors(corsOptions));
-app.use(express.json({ limit: '1mb' }));
+app.use(express.json({
+  limit: '1mb',
+  verify: (req, _res, buffer) => {
+    (req as express.Request).rawBody = Buffer.from(buffer);
+  },
+}));
 
 // Basic route
 app.get('/', (_req, res) => {
@@ -161,6 +168,7 @@ let preEventLeadSummaryTimer: NodeJS.Timeout | undefined;
 let tavfExpiryTimer: NodeJS.Timeout | undefined;
 let waitlistLifecycleTimer: NodeJS.Timeout | undefined;
 let retentionTimer: NodeJS.Timeout | undefined;
+let notificationOutboxTimer: NodeJS.Timeout | undefined;
 
 function parseMs(value: string | undefined, fallback: number): number {
   if (!value) {
@@ -199,6 +207,7 @@ function scheduleJobs(): void {
   const waitlistLifecycleIntervalMs = parseMs(process.env['WAITLIST_JOB_INTERVAL_MS'], 15 * 60 * 1000);
   const retentionEnabled = parseBool(process.env['RETENTION_JOB_ENABLED'], false);
   const retentionIntervalMs = parseMs(process.env['RETENTION_JOB_INTERVAL_MS'], 24 * 60 * 60 * 1000);
+  const notificationOutboxIntervalMs = parseMs(process.env['NOTIFICATION_OUTBOX_INTERVAL_MS'], 10 * 1000);
 
   const runReminder = async (): Promise<void> => {
     try {
@@ -240,10 +249,19 @@ function scheduleJobs(): void {
     }
   };
 
+  const runNotificationOutbox = async (): Promise<void> => {
+    try {
+      await runWithJobLease('notification-outbox', () => runNotificationOutboxWorker(notificationService), 2 * 60 * 1000);
+    } catch (error) {
+      console.error('[scheduler] notification outbox worker failed', error);
+    }
+  };
+
   void runReminder();
   void runPreEventLeadSummary();
   void runTavfExpiry();
   void runWaitlistLifecycle();
+  void runNotificationOutbox();
   if (retentionEnabled) {
     void runRetention();
   }
@@ -260,6 +278,9 @@ function scheduleJobs(): void {
   waitlistLifecycleTimer = setInterval(() => {
     void runWaitlistLifecycle();
   }, waitlistLifecycleIntervalMs);
+  notificationOutboxTimer = setInterval(() => {
+    void runNotificationOutbox();
+  }, notificationOutboxIntervalMs);
   if (retentionEnabled) {
     retentionTimer = setInterval(() => {
       void runRetention();
@@ -275,6 +296,7 @@ function scheduleJobs(): void {
     preEventLeadSummaryLookAheadHours,
     tavfExpiryIntervalMs,
     waitlistLifecycleIntervalMs,
+    notificationOutboxIntervalMs,
     retentionEnabled,
     retentionIntervalMs,
     timestamp: new Date().toISOString(),
@@ -306,6 +328,10 @@ function clearSchedulers(): void {
   if (retentionTimer) {
     clearInterval(retentionTimer);
     retentionTimer = undefined;
+  }
+  if (notificationOutboxTimer) {
+    clearInterval(notificationOutboxTimer);
+    notificationOutboxTimer = undefined;
   }
 }
 

@@ -1,8 +1,9 @@
-import { Router } from 'express';
+import { Router, type Request } from 'express';
+import { createPublicKey, verify as verifySignature } from 'node:crypto';
 import { getPool, sql } from '../db';
 import authenticate from '../middleware/auth';
 import { DEFAULT_TENANT_ID } from '../middleware/resolveTenantContext';
-import { apiLimiter, writeLimiter } from '../middleware/rateLimiter';
+import { apiLimiter, publicLimiter } from '../middleware/rateLimiter';
 import { requireAdmin } from '../middleware/rbac';
 import { notificationService } from '../services/notifications';
 import {
@@ -19,6 +20,62 @@ import { toE164 } from '../utils/phone';
 
 const router = Router();
 
+declare global {
+  namespace Express {
+    interface Request {
+      rawBody?: Buffer;
+    }
+  }
+}
+
+const TELNYX_SIGNATURE_MAX_AGE_SECONDS = 5 * 60;
+
+function telnyxPublicKey(): ReturnType<typeof createPublicKey> | null {
+  const configured = process.env['TELNYX_WEBHOOK_PUBLIC_KEY']?.trim();
+  if (!configured) {
+    return null;
+  }
+  if (configured.includes('BEGIN PUBLIC KEY')) {
+    return createPublicKey(configured.replace(/\\n/g, '\n'));
+  }
+  const rawKey = Buffer.from(configured, 'base64');
+  if (rawKey.length !== 32) {
+    throw new Error('TELNYX_WEBHOOK_PUBLIC_KEY must be a PEM or base64 Ed25519 public key.');
+  }
+  const spkiPrefix = Buffer.from('302a300506032b6570032100', 'hex');
+  return createPublicKey({ key: Buffer.concat([spkiPrefix, rawKey]), format: 'der', type: 'spki' });
+}
+
+function verifyTelnyxWebhook(req: Request): boolean {
+  const signature = typeof req.headers['telnyx-signature-ed25519'] === 'string'
+    ? req.headers['telnyx-signature-ed25519'].trim()
+    : '';
+  const timestamp = typeof req.headers['telnyx-timestamp'] === 'string'
+    ? req.headers['telnyx-timestamp'].trim()
+    : '';
+  const timestampSeconds = Number.parseInt(timestamp, 10);
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  if (!signature || !Number.isFinite(timestampSeconds) || Math.abs(nowSeconds - timestampSeconds) > TELNYX_SIGNATURE_MAX_AGE_SECONDS) {
+    return false;
+  }
+  const publicKey = telnyxPublicKey();
+  if (!publicKey || !req.rawBody) {
+    return false;
+  }
+  const signedPayload = Buffer.concat([Buffer.from(`${timestamp}|`), req.rawBody]);
+  try {
+    return verifySignature(null, signedPayload, publicKey, Buffer.from(signature, 'base64'));
+  } catch {
+    return false;
+  }
+}
+
+function isTelnyxPayload(body: unknown): boolean {
+  const record = body && typeof body === 'object' ? body as Record<string, unknown> : null;
+  const data = record?.['data'];
+  return Boolean(data && typeof data === 'object' && (data as Record<string, unknown>)['payload']);
+}
+
 const RESPONSE_MAP: Record<string, RsvpResponse> = {
   y: 'yes',
   yes: 'yes',
@@ -31,6 +88,12 @@ const RESPONSE_MAP: Record<string, RsvpResponse> = {
 };
 
 type InboundSource = 'direct' | 'event_grid' | 'tokenized';
+
+type InboundProviderContext = {
+  tenantId: string;
+  destination: string;
+  providerEventId: string;
+};
 
 type SmsTenantSupport = {
   hasMemberTenantTable: boolean;
@@ -163,7 +226,7 @@ router.get('/inbound/logs', apiLimiter, authenticate, requireAdmin, async (req, 
   }
 });
 
-router.post('/inbound', writeLimiter, async (req, res) => {
+router.post('/inbound', publicLimiter, async (req, res) => {
   try {
     if (isTokenizedRsvpPayload(req.body)) {
       const tokenPayload = req.body as { token: string; response?: string; response_role?: string };
@@ -274,6 +337,16 @@ router.post('/inbound', writeLimiter, async (req, res) => {
       return;
     }
 
+    const eventTypeHeader = getHeaderValue(req.headers as Record<string, unknown>, 'aeg-event-type');
+    const isEventGridValidation = eventTypeHeader === 'SubscriptionValidation'
+      || (Array.isArray(req.body) && (req.body[0] as Record<string, unknown> | undefined)?.eventType === 'Microsoft.EventGrid.SubscriptionValidationEvent');
+    if (process.env['NODE_ENV'] === 'production' && !isEventGridValidation) {
+      if (!isTelnyxPayload(req.body) || !verifyTelnyxWebhook(req)) {
+        res.status(401).json({ error: 'Invalid inbound SMS webhook signature.' });
+        return;
+      }
+    }
+
     const payload = extractInboundPayload(req.body, req.headers as Record<string, unknown>);
 
     if (payload.kind === 'validation') {
@@ -290,7 +363,35 @@ router.post('/inbound', writeLimiter, async (req, res) => {
       return;
     }
 
-    const result = await processInboundMessage(payload.from, payload.message, 'direct');
+    let providerContext: InboundProviderContext | undefined;
+    if (payload.provider === 'telnyx') {
+      if (!payload.destination || !payload.providerEventId) {
+        if (process.env['NODE_ENV'] === 'production') {
+          res.status(400).json({ error: 'Telnyx event id and destination are required.' });
+          return;
+        }
+      } else {
+        const tenantId = await resolveSmsTenant(payload.destination);
+        if (!tenantId) {
+          res.status(400).json({ error: 'Inbound SMS destination does not resolve to exactly one active tenant.' });
+          return;
+        }
+
+        const claimed = await claimWebhookReceipt('telnyx', payload.providerEventId);
+        if (!claimed) {
+          res.status(200).json({ status: 'duplicate', provider_event_id: payload.providerEventId });
+          return;
+        }
+
+        providerContext = {
+          tenantId,
+          destination: payload.destination,
+          providerEventId: payload.providerEventId,
+        };
+      }
+    }
+
+    const result = await processInboundMessage(payload.from, payload.message, 'direct', providerContext);
     res.json(result);
   } catch (error) {
     console.error('POST /sms/inbound failed', error);
@@ -298,7 +399,12 @@ router.post('/inbound', writeLimiter, async (req, res) => {
   }
 });
 
-async function processInboundMessage(from: string, rawMessage: string, source: InboundSource): Promise<Record<string, unknown>> {
+async function processInboundMessage(
+  from: string,
+  rawMessage: string,
+  source: InboundSource,
+  providerContext?: InboundProviderContext
+): Promise<Record<string, unknown>> {
   const normalizedFrom = toE164(from) ?? from;
 
   const logAndReturn = async (
@@ -321,11 +427,14 @@ async function processInboundMessage(from: string, rawMessage: string, source: I
       processingStatus: String(result['status'] ?? 'unknown'),
       responseMessage: typeof result['reply'] === 'string' ? result['reply'] : undefined,
       errorDetail: options.errorDetail,
+      tenantId: providerContext?.tenantId,
+      destination: providerContext?.destination,
+      providerEventId: providerContext?.providerEventId,
     });
     return result;
   };
 
-  const member = await findMemberByPhone(from);
+  const member = await findMemberByPhone(from, providerContext?.tenantId);
   if (!member) {
     return logAndReturn({
       status: 'ignored',
@@ -344,6 +453,7 @@ async function processInboundMessage(from: string, rawMessage: string, source: I
     await notificationService.sendSms({
       to: member.mobile_phone,
       message: reply,
+      tenantId: providerContext?.tenantId,
       memberId: member.member_id,
       bypassOptInCheck: true,
     });
@@ -354,11 +464,12 @@ async function processInboundMessage(from: string, rawMessage: string, source: I
   }
 
   if (normalized === 'stop') {
-    await optOutMember(member.member_id);
+    await optOutMember(member.member_id, providerContext?.tenantId);
     const reply = 'PHW Alpine: You have been unsubscribed from text notifications. Use the preferences page in the app to opt back in later.';
     await notificationService.sendSms({
       to: member.mobile_phone,
       message: reply,
+      tenantId: providerContext?.tenantId,
       memberId: member.member_id,
       bypassOptInCheck: true,
     });
@@ -373,6 +484,7 @@ async function processInboundMessage(from: string, rawMessage: string, source: I
     await notificationService.sendSms({
       to: member.mobile_phone,
       message: reply,
+      tenantId: providerContext?.tenantId,
       memberId: member.member_id,
       bypassOptInCheck: true,
     });
@@ -382,7 +494,7 @@ async function processInboundMessage(from: string, rawMessage: string, source: I
     );
   }
 
-  const pendingEvents = await listPendingEventsForMember(member.member_id);
+  const pendingEvents = await listPendingEventsForMember(member.member_id, providerContext?.tenantId);
   const parsed = parseRsvpKeyword(normalized);
   if (!parsed) {
     const reply = pendingEvents.length > 1
@@ -391,6 +503,7 @@ async function processInboundMessage(from: string, rawMessage: string, source: I
     await notificationService.sendSms({
       to: member.mobile_phone,
       message: reply,
+      tenantId: providerContext?.tenantId,
       memberId: member.member_id,
       bypassOptInCheck: true,
     });
@@ -405,6 +518,7 @@ async function processInboundMessage(from: string, rawMessage: string, source: I
     await notificationService.sendSms({
       to: member.mobile_phone,
       message: reply,
+      tenantId: providerContext?.tenantId,
       memberId: member.member_id,
       bypassOptInCheck: true,
     });
@@ -420,6 +534,7 @@ async function processInboundMessage(from: string, rawMessage: string, source: I
     await notificationService.sendSms({
       to: member.mobile_phone,
       message: reply,
+      tenantId: providerContext?.tenantId,
       memberId: member.member_id,
       bypassOptInCheck: true,
     });
@@ -441,6 +556,7 @@ async function processInboundMessage(from: string, rawMessage: string, source: I
       await notificationService.sendSms({
         to: member.mobile_phone,
         message: reply,
+        tenantId: providerContext?.tenantId,
         memberId: member.member_id,
         bypassOptInCheck: true,
       });
@@ -457,6 +573,7 @@ async function processInboundMessage(from: string, rawMessage: string, source: I
       notes: `SMS reply received: ${message}`,
       responseChannel: 'sms',
       responseRole: inferredResponseRole,
+      tenantId: providerContext?.tenantId,
     });
 
     return logAndReturn(
@@ -478,6 +595,7 @@ async function processInboundMessage(from: string, rawMessage: string, source: I
       await notificationService.sendSms({
         to: member.mobile_phone,
         message: reply,
+        tenantId: providerContext?.tenantId,
         memberId: member.member_id,
         bypassOptInCheck: true,
       });
@@ -502,6 +620,9 @@ async function writeInboundSmsLog(entry: {
   processingStatus: string;
   responseMessage?: string;
   errorDetail?: string;
+  tenantId?: string;
+  destination?: string;
+  providerEventId?: string;
 }): Promise<void> {
   try {
     const pool = await getPool();
@@ -517,11 +638,14 @@ async function writeInboundSmsLog(entry: {
       .input('processing_status', sql.NVarChar, entry.processingStatus)
       .input('response_message', sql.NVarChar, entry.responseMessage ?? null)
       .input('error_detail', sql.NVarChar, entry.errorDetail ?? null)
+      .input('tenant_id', sql.UniqueIdentifier, entry.tenantId ?? null)
+      .input('destination', sql.NVarChar, entry.destination ?? null)
+      .input('provider_event_id', sql.NVarChar, entry.providerEventId ?? null)
       .query(
         `INSERT INTO dbo.inbound_sms_log
-          (inbound_log_id, source, from_phone, normalized_phone, member_id, event_id, inbound_message, parsed_response, processing_status, response_message, error_detail, received_at)
+          (inbound_log_id, source, from_phone, normalized_phone, member_id, event_id, inbound_message, parsed_response, processing_status, response_message, error_detail, tenant_id, destination, provider_event_id, received_at)
          VALUES
-          (NEWID(), @source, @from_phone, @normalized_phone, @member_id, @event_id, @inbound_message, @parsed_response, @processing_status, @response_message, @error_detail, GETUTCDATE())`
+          (NEWID(), @source, @from_phone, @normalized_phone, @member_id, @event_id, @inbound_message, @parsed_response, @processing_status, @response_message, @error_detail, @tenant_id, @destination, @provider_event_id, GETUTCDATE())`
       );
   } catch (error) {
     // Non-blocking: inbound processing should continue even if audit logging fails.
@@ -529,7 +653,7 @@ async function writeInboundSmsLog(entry: {
   }
 }
 
-async function findMemberByPhone(from: string): Promise<{ member_id: string; mobile_phone: string } | null> {
+async function findMemberByPhone(from: string, tenantId?: string): Promise<{ member_id: string; mobile_phone: string } | null> {
   const normalizedPhone = toE164(from);
   if (!normalizedPhone) {
     return null;
@@ -539,30 +663,95 @@ async function findMemberByPhone(from: string): Promise<{ member_id: string; mob
   const result = await pool
     .request()
     .input('mobile_phone', sql.NVarChar, normalizedPhone)
+    .input('tenant_id', sql.UniqueIdentifier, tenantId ?? null)
     .query<{ member_id: string; mobile_phone: string }>(
       `SELECT TOP 1 member_id, mobile_phone
-       FROM member
-       WHERE mobile_phone = @mobile_phone
-         AND is_active = 1`
+       FROM member m
+       WHERE m.mobile_phone = @mobile_phone
+         AND m.is_active = 1
+         AND (@tenant_id IS NULL OR EXISTS (
+           SELECT 1
+           FROM dbo.tenant_membership tm
+           WHERE tm.member_id = m.member_id
+             AND tm.tenant_id = @tenant_id
+             AND tm.status = 'active'
+             AND tm.revoked_at IS NULL
+             AND tm.starts_at <= GETUTCDATE()
+             AND (tm.expires_at IS NULL OR tm.expires_at > GETUTCDATE())
+         ))`
     );
 
   return result.recordset[0] ?? null;
 }
 
-async function optOutMember(memberId: string): Promise<void> {
+async function optOutMember(memberId: string, tenantId?: string): Promise<void> {
   const pool = await getPool();
   await pool
     .request()
     .input('member_id', sql.UniqueIdentifier, memberId)
+    .input('tenant_id', sql.UniqueIdentifier, tenantId ?? null)
     .query(
       `UPDATE member
        SET sms_opt_in = 0,
            sms_opt_out_date = GETUTCDATE(),
            updated_at = GETUTCDATE()
-       WHERE member_id = @member_id`
+       WHERE member_id = @member_id
+         AND (@tenant_id IS NULL OR EXISTS (
+           SELECT 1 FROM dbo.tenant_membership tm
+           WHERE tm.member_id = member.member_id
+             AND tm.tenant_id = @tenant_id
+             AND tm.status = 'active'
+             AND tm.revoked_at IS NULL
+             AND tm.starts_at <= GETUTCDATE()
+             AND (tm.expires_at IS NULL OR tm.expires_at > GETUTCDATE())
+         ))`
     );
 
-  await notificationService.writeSmsConsentLog(memberId, 'opt_out', 'reply', 'Inbound STOP message');
+  await notificationService.writeSmsConsentLog(memberId, 'opt_out', 'reply', 'Inbound STOP message', tenantId);
+}
+
+async function resolveSmsTenant(destination: string): Promise<string | null> {
+  const normalizedDestination = toE164(destination);
+  if (!normalizedDestination) {
+    return null;
+  }
+
+  const pool = await getPool();
+  const result = await pool.request().query<{ tenant_id: string; telnyx_from_number: string | null; sms_from: string | null }>(
+    `SELECT tm.tenant_id, tm.telnyx_from_number, tm.sms_from
+     FROM dbo.tenant_messaging tm
+     INNER JOIN dbo.tenant t ON t.tenant_id = tm.tenant_id
+     WHERE t.status = 'active'
+       AND tm.sms_enabled = 1
+       AND (tm.telnyx_from_number IS NOT NULL OR tm.sms_from IS NOT NULL)`
+  );
+
+  const matches = result.recordset.filter((row) =>
+    toE164(row.telnyx_from_number ?? '') === normalizedDestination
+    || toE164(row.sms_from ?? '') === normalizedDestination
+  );
+  return matches.length === 1 ? matches[0].tenant_id : null;
+}
+
+async function claimWebhookReceipt(provider: string, eventId: string): Promise<boolean> {
+  try {
+    const pool = await getPool();
+    await pool
+      .request()
+      .input('provider', sql.NVarChar, provider)
+      .input('event_id', sql.NVarChar, eventId)
+      .query(
+        `INSERT INTO dbo.webhook_receipt (webhook_receipt_id, provider, event_id, received_at, expires_at)
+         VALUES (NEWID(), @provider, @event_id, SYSUTCDATETIME(), DATEADD(day, 7, SYSUTCDATETIME()))`
+      );
+    return true;
+  } catch (error) {
+    const number = (error as { number?: number }).number;
+    if (number === 2601 || number === 2627) {
+      return false;
+    }
+    throw error;
+  }
 }
 
 function parseRsvpKeyword(message: string): { response: RsvpResponse; responseRole?: 'MENTOR' | 'PARTICIPANT'; eventIndex?: number } | null {
@@ -751,7 +940,7 @@ function getToken(query: Record<string, unknown>): string {
 }
 
 function extractInboundPayload(body: unknown, headers: Record<string, unknown> = {}):
-  | { kind: 'single'; from: string; message: string }
+  | { kind: 'single'; from: string; message: string; provider?: 'telnyx'; destination?: string; providerEventId?: string }
   | { kind: 'batch'; messages: Array<{ from: string; message: string }> }
   | { kind: 'validation'; validationCode: string } {
   const eventTypeHeader = getHeaderValue(headers, 'aeg-event-type');
@@ -793,7 +982,7 @@ function extractInboundPayload(body: unknown, headers: Record<string, unknown> =
 
   const telnyxMessage = extractTelnyxMessage(record);
   if (telnyxMessage) {
-    return { kind: 'single', from: telnyxMessage.from, message: telnyxMessage.message };
+    return { kind: 'single', provider: 'telnyx', ...telnyxMessage };
   }
 
   if (eventTypeHeader === 'Notification' && (record['eventType'] || record['data'])) {
@@ -813,8 +1002,14 @@ function extractInboundPayload(body: unknown, headers: Record<string, unknown> =
   return { kind: 'single', from, message };
 }
 
-function extractTelnyxMessage(record: Record<string, unknown>): { from: string; message: string } | null {
-  const payload = (record['data'] as Record<string, unknown> | undefined)?.['payload'] as Record<string, unknown> | undefined;
+function extractTelnyxMessage(record: Record<string, unknown>): {
+  from: string;
+  message: string;
+  destination?: string;
+  providerEventId?: string;
+} | null {
+  const data = record['data'] as Record<string, unknown> | undefined;
+  const payload = data?.['payload'] as Record<string, unknown> | undefined;
   if (!payload) {
     return null;
   }
@@ -825,6 +1020,8 @@ function extractTelnyxMessage(record: Record<string, unknown>): { from: string; 
   const message = readString(payload, 'text')
     ?? readString(payload, 'body')
     ?? '';
+  const destination = readNestedString(payload, ['to', 'phone_number'])?.trim();
+  const providerEventId = readString(data, 'id')?.trim();
 
   const normalizedFrom = from.trim();
   const normalizedMessage = message.trim();
@@ -835,6 +1032,8 @@ function extractTelnyxMessage(record: Record<string, unknown>): { from: string; 
   return {
     from: normalizedFrom,
     message: normalizedMessage,
+    destination: destination || undefined,
+    providerEventId: providerEventId || undefined,
   };
 }
 

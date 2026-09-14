@@ -8,8 +8,8 @@ jest.mock('../db', () => ({
 
 jest.mock('../services/notifications', () => ({
   notificationService: {
-    sendEmail: jest.fn(),
-    sendSms: jest.fn(),
+    enqueueEmail: jest.fn(),
+    enqueueSms: jest.fn(),
   },
 }));
 
@@ -57,17 +57,17 @@ describe('runReminderJob', () => {
     };
 
     (getPool as jest.Mock).mockResolvedValue(pool);
-    (notificationService.sendEmail as jest.Mock).mockResolvedValue(undefined);
-    (notificationService.sendSms as jest.Mock).mockResolvedValue(undefined);
+    (notificationService.enqueueEmail as jest.Mock).mockResolvedValue('outbox-email-1');
+    (notificationService.enqueueSms as jest.Mock).mockResolvedValue('outbox-sms-1');
 
     await runReminderJob(24);
 
-    expect(notificationService.sendEmail).toHaveBeenCalledTimes(1);
-    expect(notificationService.sendSms).not.toHaveBeenCalled();
-    expect(notificationService.sendEmail).toHaveBeenCalledWith(expect.objectContaining({
+    expect(notificationService.enqueueEmail).toHaveBeenCalledTimes(1);
+    expect(notificationService.enqueueSms).not.toHaveBeenCalled();
+    expect(notificationService.enqueueEmail).toHaveBeenCalledWith(expect.objectContaining({
       operationType: 'event_reminder',
       operationReason: 'lookahead_24h',
-    }));
+    }), expect.any(String));
 
     const claimCall = requestCalls.find((call) => call.query.includes('SET er.reminder_claimed_at = GETUTCDATE()'));
     expect(claimCall?.params['lookAheadHours']).toBe(24);
@@ -133,17 +133,17 @@ describe('runReminderJob', () => {
     };
 
     (getPool as jest.Mock).mockResolvedValue(pool);
-    (notificationService.sendEmail as jest.Mock).mockResolvedValue(undefined);
-    (notificationService.sendSms as jest.Mock).mockResolvedValue(undefined);
+    (notificationService.enqueueEmail as jest.Mock).mockResolvedValue('outbox-email-2');
+    (notificationService.enqueueSms as jest.Mock).mockResolvedValue('outbox-sms-2');
 
     await runReminderJob(24);
 
-    expect(notificationService.sendEmail).toHaveBeenCalledTimes(1);
-    expect(notificationService.sendEmail).toHaveBeenCalledWith(expect.objectContaining({
+    expect(notificationService.enqueueEmail).toHaveBeenCalledTimes(1);
+    expect(notificationService.enqueueEmail).toHaveBeenCalledWith(expect.objectContaining({
       subject: 'Runtime Reminder: Climb Night',
       htmlBody: expect.stringContaining('Runtime reminder for Climb Night'),
       textBody: expect.stringContaining('Runtime reminder for Climb Night'),
-    }));
+    }), expect.any(String));
   });
 
   it('does not mark reminder as sent when no channel is deliverable', async () => {
@@ -185,13 +185,13 @@ describe('runReminderJob', () => {
     };
 
     (getPool as jest.Mock).mockResolvedValue(pool);
-    (notificationService.sendEmail as jest.Mock).mockResolvedValue(undefined);
-    (notificationService.sendSms as jest.Mock).mockResolvedValue(undefined);
+    (notificationService.enqueueEmail as jest.Mock).mockResolvedValue('outbox-email-3');
+    (notificationService.enqueueSms as jest.Mock).mockResolvedValue('outbox-sms-3');
 
     await runReminderJob(24);
 
-    expect(notificationService.sendEmail).not.toHaveBeenCalled();
-    expect(notificationService.sendSms).not.toHaveBeenCalled();
+    expect(notificationService.enqueueEmail).not.toHaveBeenCalled();
+    expect(notificationService.enqueueSms).not.toHaveBeenCalled();
 
     const markSentCall = requestCalls.find((call) => call.query.includes('SET reminder_sent = 1'));
     expect(markSentCall).toBeUndefined();
@@ -240,17 +240,17 @@ describe('runReminderJob', () => {
     };
 
     (getPool as jest.Mock).mockResolvedValue(pool);
-    (notificationService.sendEmail as jest.Mock).mockRejectedValue(new Error('Email transport failed'));
-    (notificationService.sendSms as jest.Mock).mockResolvedValue(undefined);
+    (notificationService.enqueueEmail as jest.Mock).mockRejectedValue(new Error('Outbox unavailable'));
+    (notificationService.enqueueSms as jest.Mock).mockResolvedValue('outbox-sms-4');
 
     await runReminderJob(24);
 
-    expect(notificationService.sendEmail).toHaveBeenCalledTimes(1);
-    expect(notificationService.sendSms).toHaveBeenCalledTimes(1);
-    expect(notificationService.sendSms).toHaveBeenCalledWith(expect.objectContaining({
+    expect(notificationService.enqueueEmail).toHaveBeenCalledTimes(1);
+    expect(notificationService.enqueueSms).toHaveBeenCalledTimes(1);
+    expect(notificationService.enqueueSms).toHaveBeenCalledWith(expect.objectContaining({
       operationType: 'event_reminder',
       operationReason: 'lookahead_24h',
-    }));
+    }), expect.any(String));
 
     const updateCall = requestCalls.find((call) => call.query.includes('SET reminder_sent = 1'));
     expect(updateCall).toBeDefined();
@@ -309,14 +309,14 @@ describe('runReminderJob', () => {
     };
 
     (getPool as jest.Mock).mockResolvedValue(pool);
-    (notificationService.sendEmail as jest.Mock)
+    (notificationService.enqueueEmail as jest.Mock)
       .mockRejectedValueOnce(new Error('first row failed'))
-      .mockResolvedValueOnce(undefined);
-    (notificationService.sendSms as jest.Mock).mockResolvedValue(undefined);
+      .mockResolvedValueOnce('outbox-email-5');
+    (notificationService.enqueueSms as jest.Mock).mockResolvedValue('outbox-sms-5');
 
     await runReminderJob(24);
 
-    expect(notificationService.sendEmail).toHaveBeenCalledTimes(2);
+    expect(notificationService.enqueueEmail).toHaveBeenCalledTimes(2);
 
     const updateCalls = requestCalls.filter((call) => call.query.includes('SET reminder_sent = 1'));
     expect(updateCalls).toHaveLength(1);

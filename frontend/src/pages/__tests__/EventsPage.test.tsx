@@ -6,6 +6,7 @@ import { eventsApi, rsvpApi } from '../../api/events';
 import { groupsApi } from '../../api/groups';
 import { membersApi } from '../../api/members';
 import { useAuth } from '../../hooks/useAuth';
+import { useTenantContext } from '../../contexts/TenantContext';
 import { EventsPage } from '../EventsPage';
 
 vi.mock('../../api/events', () => ({
@@ -38,6 +39,15 @@ vi.mock('../../hooks/useAuth', () => ({
   useAuth: vi.fn(),
 }));
 
+vi.mock('../../contexts/TenantContext', () => ({
+  useTenantContext: vi.fn(),
+  activeRoleHasAppRole: (activeRole: string | null, requiredRole: string) => {
+    if (activeRole === 'admin') return true;
+    if (activeRole === 'event_creator') return requiredRole !== 'ADMIN';
+    return requiredRole === 'USER';
+  },
+}));
+
 const mockedEventsApi = eventsApi as unknown as {
   list: ReturnType<typeof vi.fn>;
   get: ReturnType<typeof vi.fn>;
@@ -60,6 +70,7 @@ const mockedMembersApi = membersApi as unknown as {
 };
 
 const mockedUseAuth = useAuth as unknown as ReturnType<typeof vi.fn>;
+const mockedUseTenantContext = useTenantContext as unknown as ReturnType<typeof vi.fn>;
 
 const eventRecord = {
   event_id: 'e-1111',
@@ -121,6 +132,7 @@ describe('EventsPage flow pattern', () => {
       canCreateEvents: () => true,
       user: { id: 'u-1' },
     });
+    mockedUseTenantContext.mockReturnValue({ activeRole: 'event_creator' });
     mockedEventsApi.list.mockResolvedValue([eventRecord]);
     mockedEventsApi.get.mockResolvedValue({ ...eventRecord, notification_targets: [] });
     mockedEventsApi.create.mockResolvedValue({ ...eventRecord, event_id: 'e-2222' });

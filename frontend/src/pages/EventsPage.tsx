@@ -5,6 +5,8 @@ import type { EventAiDescriptionResponse, EventAiDraftResponse, EventRecord, Rsv
 import { groupsApi } from '../api/groups'
 import type { GroupRecord } from '../api/groups'
 import { useAuth } from '../hooks/useAuth'
+import { ROLES } from '../authConfig'
+import { activeRoleHasAppRole, useTenantContext } from '../contexts/TenantContext'
 import { membersApi } from '../api/members'
 import type { MemberRecord } from '../api/members'
 import LoadingSkeleton from '../components/LoadingSkeleton'
@@ -1417,8 +1419,10 @@ function EventFormModal({ initial, groups, onSave, onGenerateAiDescriptionPrevie
 
 function EventsPage() {
   const navigate = useNavigate()
-  const { isAdmin, canCreateEvents, user } = useAuth()
-  const canEdit = isAdmin() || canCreateEvents()
+  const { user } = useAuth()
+  const { activeRole } = useTenantContext()
+  const canEdit = activeRoleHasAppRole(activeRole, ROLES.EVENT_CREATOR)
+  const canAdminister = activeRoleHasAppRole(activeRole, ROLES.ADMIN)
 
   const [events, setEvents] = useState<EventRecord[]>([])
   const [groups, setGroups] = useState<GroupRecord[]>([])
@@ -1975,7 +1979,7 @@ function EventsPage() {
                     </button>
                   )}
 
-                  {isAdmin() && (
+                  {canAdminister && (
                     <button className="btn btn--outline btn--sm" onClick={() => navigate(`/events/${event.event_id}/manage`)}>
                       Manage
                     </button>

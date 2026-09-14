@@ -5,13 +5,12 @@ import authenticate from '../middleware/auth';
 import { writeLimiter } from '../middleware/rateLimiter';
 import { requireAdmin } from '../middleware/rbac';
 import {
+  claimPreviewSession,
   commitImport,
-  deletePreviewSession,
   generatePreview,
   getImportLogRowErrors,
   getImportLogs,
   getImportLogReport,
-  getPreviewSession,
   storePreviewSession,
 } from '../services/csvImportService';
 
@@ -42,8 +41,14 @@ router.post('/preview', writeLimiter, authenticate, requireAdmin, upload.single(
       return;
     }
 
+    const ownerUserId = req.user?.sub;
+    if (!ownerUserId) {
+      res.status(400).json({ error: 'An authenticated user is required for member import.' });
+      return;
+    }
+
     const preview = await generatePreview(req.file.buffer, req.file.originalname, sessionId, req.tenantId);
-    storePreviewSession(preview);
+    await storePreviewSession(preview, { tenantId: req.tenantId, userId: ownerUserId });
 
     res.status(200).json({
       sessionId: preview.sessionId,
@@ -67,20 +72,22 @@ router.post('/preview', writeLimiter, authenticate, requireAdmin, upload.single(
 
 router.post('/commit/:sessionId', writeLimiter, authenticate, requireAdmin, async (req: Request, res: Response) => {
   try {
-    const preview = getPreviewSession(req.params.sessionId);
-    if (!preview) {
-      res.status(404).json({ error: 'Session not found or expired.' });
+    const owner = { tenantId: req.tenantId ?? '', userId: req.user?.sub ?? '' };
+    const claimed = await claimPreviewSession(req.params.sessionId, owner);
+    if (!claimed) {
+      res.status(404).json({ error: 'Session not found, expired, committed, or already in progress.' });
       return;
     }
 
-    const result = await commitImport(preview, {
-      tenantId: req.tenantId ?? '',
+    const result = await commitImport(claimed.preview, {
+      tenantId: owner.tenantId,
+      ownerUserId: owner.userId,
+      claimToken: claimed.claimToken,
       conflictResolutions: (req.body as { conflictResolutions?: Record<string, 'create' | 'skip'> } | undefined)
         ?.conflictResolutions,
       importedByUserId: req.user?.sub ?? null,
       importedByEmail: req.user?.email ?? null,
     });
-    deletePreviewSession(req.params.sessionId);
 
     res.status(200).json(result);
   } catch (error: unknown) {

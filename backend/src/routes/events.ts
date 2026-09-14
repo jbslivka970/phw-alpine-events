@@ -3,7 +3,7 @@ import crypto from 'crypto';
 import PDFDocument from 'pdfkit';
 import { getPool, sql } from '../db';
 import authenticate from '../middleware/auth';
-import { apiLimiter, writeLimiter } from '../middleware/rateLimiter';
+import { apiLimiter, publicLimiter, writeLimiter } from '../middleware/rateLimiter';
 import { requireAdmin, requireAnyAuthenticatedRole, requireEventCreatorOrAdmin } from '../middleware/rbac';
 import rsvpRouter from './rsvp';
 import {
@@ -559,7 +559,7 @@ router.post('/rsvp/smoke-token', writeLimiter, authenticate, requireAdmin, async
   }
 });
 
-router.get('/rsvp/:token/respond', apiLimiter, async (req, res) => {
+router.get('/rsvp/:token/respond', publicLimiter, async (req, res) => {
   try {
     const response = (req.query.response as string | undefined)?.toLowerCase();
     if (!response || !VALID_RESPONSES.includes(response as RsvpResponse)) {
@@ -608,7 +608,7 @@ router.get('/rsvp/:token/respond', apiLimiter, async (req, res) => {
   }
 });
 
-router.get('/rsvp', apiLimiter, async (req, res) => {
+router.get('/rsvp', publicLimiter, async (req, res) => {
   try {
     const row = await getPublicRsvpContext(getRsvpToken(req));
     if (!row) {
@@ -666,7 +666,7 @@ router.post('/rsvp', writeLimiter, async (req, res) => {
   }
 });
 
-router.get('/rsvp/short/:code', apiLimiter, async (req, res) => {
+router.get('/rsvp/short/:code', publicLimiter, async (req, res) => {
   try {
     const token = await resolveShortRsvpToken(req.params.code);
     if (!token) {
@@ -681,7 +681,7 @@ router.get('/rsvp/short/:code', apiLimiter, async (req, res) => {
   }
 });
 
-router.get('/rsvp/:token', apiLimiter, async (req, res) => {
+router.get('/rsvp/:token', publicLimiter, async (req, res) => {
   try {
     const row = await getPublicRsvpContext(req.params.token);
     if (!row) {
