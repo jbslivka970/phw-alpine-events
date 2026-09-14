@@ -23,6 +23,7 @@ interface EventSummaryRow {
   no_count: number;
   maybe_count: number;
   waitlist_count: number;
+  assigned_count: number;
   attended_count: number;
 }
 
@@ -31,6 +32,7 @@ interface SummaryPayload {
   to: string;
   total_events: number;
   total_rsvps: number;
+  total_assigned: number;
   total_attended: number;
   avg_fill_rate: number;
   events: EventSummaryRow[];
@@ -358,6 +360,7 @@ async function queryEventSummary(req: Request, fromDate: Date, toDate: Date): Pr
       no_count: number;
       maybe_count: number;
       waitlist_count: number;
+      assigned_count: number;
       attended_count: number;
     }>(
       `SELECT
@@ -371,6 +374,7 @@ async function queryEventSummary(req: Request, fromDate: Date, toDate: Date): Pr
           COALESCE(er.no_count, 0) AS no_count,
           COALESCE(er.maybe_count, 0) AS maybe_count,
           COALESCE(er.waitlist_count, 0) AS waitlist_count,
+          COALESCE(ea.assigned_count, 0) AS assigned_count,
           COALESCE(ea.attended_count, 0) AS attended_count
        FROM event e
        OUTER APPLY (
@@ -383,12 +387,16 @@ async function queryEventSummary(req: Request, fromDate: Date, toDate: Date): Pr
          WHERE event_id = e.event_id
        ) er
        OUTER APPLY (
-         SELECT COUNT(*) AS attended_count
+         SELECT
+           COUNT(*) AS assigned_count,
+           COALESCE(SUM(attended), 0) AS attended_count
          FROM (
-           SELECT DISTINCT member_id
+           SELECT
+             member_id,
+             MAX(CASE WHEN attended = 1 THEN 1 ELSE 0 END) AS attended
            FROM event_assignment
            WHERE event_id = e.event_id
-             AND attended = 1
+           GROUP BY member_id
          ) attended_members
        ) ea
        WHERE e.event_date >= @fromDate
@@ -408,6 +416,7 @@ async function queryEventSummary(req: Request, fromDate: Date, toDate: Date): Pr
     no_count: row.no_count,
     maybe_count: row.maybe_count,
     waitlist_count: row.waitlist_count,
+    assigned_count: row.assigned_count,
     attended_count: row.attended_count,
   }));
 }
@@ -434,6 +443,7 @@ router.get('/summary', apiLimiter, authenticate, requireAdmin, async (req: Reque
     const events = await queryEventSummary(req, fromDate, toDate);
     const totalEvents = events.length;
     const totalRsvps = events.reduce((sum, row) => sum + row.yes_count + row.no_count + row.maybe_count + row.waitlist_count, 0);
+    const totalAssigned = events.reduce((sum, row) => sum + row.assigned_count, 0);
     const totalAttended = events.reduce((sum, row) => sum + row.attended_count, 0);
 
     const fillRates = events
@@ -448,6 +458,7 @@ router.get('/summary', apiLimiter, authenticate, requireAdmin, async (req: Reque
       to: formatIsoDate(toDate),
       total_events: totalEvents,
       total_rsvps: totalRsvps,
+      total_assigned: totalAssigned,
       total_attended: totalAttended,
       avg_fill_rate: avgFillRate,
       events,
@@ -493,6 +504,8 @@ router.get('/export', apiLimiter, authenticate, requireAdmin, async (req: Reques
       'no_count',
       'maybe_count',
       'waitlist_count',
+      'assigned_count',
+      'attended_count',
     ].join(',');
 
     const rows = events.map((row) => ([
@@ -506,6 +519,8 @@ router.get('/export', apiLimiter, authenticate, requireAdmin, async (req: Reques
       row.no_count,
       row.maybe_count,
       row.waitlist_count,
+      row.assigned_count,
+      row.attended_count,
     ].join(',')));
 
     res.send(`${header}\n${rows.join('\n')}\n`);

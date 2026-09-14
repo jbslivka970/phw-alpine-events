@@ -11,6 +11,7 @@ interface EventSummaryRow {
   no_count: number;
   maybe_count: number;
   waitlist_count: number;
+  assigned_count: number;
   attended_count: number;
 }
 
@@ -19,6 +20,7 @@ interface ReportSummaryResponse {
   to: string;
   total_events: number;
   total_rsvps: number;
+  total_assigned: number;
   total_attended: number;
   avg_fill_rate: number;
   events: EventSummaryRow[];

@@ -157,7 +157,8 @@ describe('reports routes', () => {
     expect(res.status).toBe(200);
     const summaryQuery = queries.find((sqlText) => sqlText.includes('FROM event e')) ?? '';
     expect(summaryQuery).toContain('OUTER APPLY');
-    expect(summaryQuery).toContain('SELECT DISTINCT member_id');
+    expect(summaryQuery).toContain('GROUP BY member_id');
+    expect(summaryQuery).toContain('COUNT(*) AS assigned_count');
     expect(summaryQuery).not.toContain('LEFT JOIN event_response');
     expect(summaryQuery).not.toContain('LEFT JOIN event_assignment');
   });

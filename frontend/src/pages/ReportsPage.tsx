@@ -22,12 +22,14 @@ export interface EventSummaryRow {
   no_count: number;
   maybe_count: number;
   waitlist_count: number;
+  assigned_count: number;
   attended_count: number;
 }
 
 export interface ReportSummary {
   total_events: number;
   total_rsvps: number;
+  total_assigned: number;
   total_attended: number;
   avg_fill_rate: number; // 0–1
   events: EventSummaryRow[];
@@ -44,6 +46,13 @@ export function formatReportRate(numerator: number, denominator: number | null):
   return denominator !== null && denominator > 0
     ? `${Math.round((numerator / denominator) * 100)}%`
     : '—';
+}
+
+export function getEventReportRates(row: EventSummaryRow): { fillRate: string; attendRate: string } {
+  return {
+    fillRate: formatReportRate(row.yes_count, row.capacity),
+    attendRate: formatReportRate(row.attended_count, row.assigned_count),
+  };
 }
 
 function formatDateTime(isoDateTime: string): string {
@@ -115,8 +124,7 @@ function SummaryRow({ row }: { row: EventSummaryRow }) {
     month: 'short', day: 'numeric', year: 'numeric',
     hour: '2-digit', minute: '2-digit', hour12: false,
   });
-  const fillRate = formatReportRate(row.yes_count, row.capacity);
-  const attendRate = formatReportRate(row.attended_count, row.yes_count);
+  const { fillRate, attendRate } = getEventReportRates(row);
 
   return (
     <tr className={`summary-row status-row--${row.status}`}>
@@ -131,6 +139,7 @@ function SummaryRow({ row }: { row: EventSummaryRow }) {
       <td>{row.no_count}</td>
       <td>{row.maybe_count}</td>
       <td>{row.waitlist_count}</td>
+      <td>{row.assigned_count}</td>
       <td>{row.attended_count}</td>
       <td>{fillRate}</td>
       <td>{attendRate}</td>
@@ -187,6 +196,7 @@ function ReportsPage() {
   const [summary, setSummary] = useState<ReportSummary>({
     total_events: 0,
     total_rsvps: 0,
+    total_assigned: 0,
     total_attended: 0,
     avg_fill_rate: 0,
     events: [],
@@ -223,6 +233,7 @@ function ReportsPage() {
         setSummary({
           total_events: data.total_events,
           total_rsvps: data.total_rsvps,
+          total_assigned: data.total_assigned,
           total_attended: data.total_attended,
           avg_fill_rate: data.avg_fill_rate,
           events: data.events as EventSummaryRow[],
@@ -386,8 +397,7 @@ function ReportsPage() {
   const totalLogPages = Math.max(1, Math.ceil(deliveryLogsTotal / logPageSize));
 
   const fillRatePct = `${Math.round(summary.avg_fill_rate * 100)}%`;
-  const totalConfirmed = summary.events.reduce((sum, row) => sum + row.yes_count, 0);
-  const attendRate = formatReportRate(summary.total_attended, totalConfirmed);
+  const attendRate = formatReportRate(summary.total_attended, summary.total_assigned);
 
   return (
     <div className="page reports-page">
@@ -485,6 +495,7 @@ function ReportsPage() {
               <th>No</th>
               <th>Maybe</th>
               <th>Waitlist</th>
+              <th>Assigned</th>
               <th>Attended</th>
               <th>Fill %</th>
               <th>Attend %</th>
@@ -493,7 +504,7 @@ function ReportsPage() {
           <tbody>
             {summary.events.length === 0 ? (
               <tr>
-                <td colSpan={12} className="empty-state">No events in this range.</td>
+                <td colSpan={13} className="empty-state">No events in this range.</td>
               </tr>
             ) : (
               summary.events.map((row) => <SummaryRow key={row.event_id} row={row} />)
