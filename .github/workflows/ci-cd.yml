@@ -1357,7 +1357,7 @@ jobs:
             exit 0
           fi
 
-          if printf "%s" "$DEPLOY_OUTPUT" | grep -Eqi "Another deployment is in progress|timed out|timeout|temporarily unavailable|connection|EOF|unreachable|server failed to respond"; then
+          if printf "%s" "$DEPLOY_OUTPUT" | grep -Eqi "Another deployment is in progress|UnknownDeploymentError|Zip deployment failed|timed out|timeout|temporarily unavailable|connection|EOF|unreachable|server failed to respond"; then
             echo "Backend staging-slot deployment transient failure (attempt $attempt/6). Retrying in 30s..."
             sleep 30
             continue
