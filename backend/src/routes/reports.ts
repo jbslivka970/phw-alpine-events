@@ -547,8 +547,8 @@ router.get('/participation', apiLimiter, authenticate, requireAdmin, async (req:
             m.member_id,
             m.first_name,
             m.last_name,
-            SUM(CASE WHEN YEAR(e.event_date) = @year AND ea.attended = 1 THEN 1 ELSE 0 END) AS events_attended,
-            SUM(CASE WHEN YEAR(e.event_date) = @priorYear AND ea.attended = 1 THEN 1 ELSE 0 END) AS events_attended_prior_year
+            COUNT(DISTINCT CASE WHEN YEAR(e.event_date) = @year AND ea.attended = 1 THEN e.event_id END) AS events_attended,
+            COUNT(DISTINCT CASE WHEN YEAR(e.event_date) = @priorYear AND ea.attended = 1 THEN e.event_id END) AS events_attended_prior_year
          FROM member m
          LEFT JOIN event_assignment ea ON ea.member_id = m.member_id
         LEFT JOIN event e ON e.event_id = ea.event_id AND e.status = 'completed'${eventJoinTenantFilter}

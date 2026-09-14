@@ -161,4 +161,23 @@ describe('reports routes', () => {
     expect(summaryQuery).not.toContain('LEFT JOIN event_response');
     expect(summaryQuery).not.toContain('LEFT JOIN event_assignment');
   });
+
+  it('GET /api/reports/participation counts distinct attended events', async () => {
+    const queries: string[] = [];
+    mockPoolWithQueryResolver((sqlText) => {
+      queries.push(sqlText);
+      return { recordset: [] };
+    });
+
+    const res = await request(app).get('/api/reports/participation?year=2026');
+
+    expect(res.status).toBe(200);
+    const participationQuery = queries.find((sqlText) => sqlText.includes('FROM member m')) ?? '';
+    expect(participationQuery).toContain(
+      'COUNT(DISTINCT CASE WHEN YEAR(e.event_date) = @year AND ea.attended = 1 THEN e.event_id END)'
+    );
+    expect(participationQuery).toContain(
+      'COUNT(DISTINCT CASE WHEN YEAR(e.event_date) = @priorYear AND ea.attended = 1 THEN e.event_id END)'
+    );
+  });
 });
