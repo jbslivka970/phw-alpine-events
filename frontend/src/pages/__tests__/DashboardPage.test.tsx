@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { eventsApi } from '../../api/events';
 import { membersApi } from '../../api/members';
 import tavfApi from '../../api/tavf';
+import { useTenantContext } from '../../contexts/TenantContext';
 import { useAuth } from '../../hooks/useAuth';
 import DashboardPage from '../DashboardPage';
 
@@ -33,6 +34,10 @@ vi.mock('../../hooks/useAuth', () => ({
   useAuth: vi.fn(),
 }));
 
+vi.mock('../../contexts/TenantContext', () => ({
+  useTenantContext: vi.fn(),
+}));
+
 const mockedEventsApi = eventsApi as unknown as {
   list: ReturnType<typeof vi.fn>;
   dashboardSummary: ReturnType<typeof vi.fn>;
@@ -50,6 +55,7 @@ const mockedTavfApi = tavfApi as unknown as {
 };
 
 const mockedUseAuth = useAuth as unknown as ReturnType<typeof vi.fn>;
+const mockedUseTenantContext = useTenantContext as unknown as ReturnType<typeof vi.fn>;
 
 function renderPage() {
   return render(
@@ -61,6 +67,13 @@ function renderPage() {
 
 describe('DashboardPage regression coverage', () => {
   beforeEach(() => {
+    mockedUseTenantContext.mockReturnValue({
+      activeTenant: {
+        tenant_id: '527d755c-6818-40a0-bd7f-137a91b9e54e',
+        slug: 'colorado-springs',
+        display_name: 'Colorado Springs',
+      },
+    });
     mockedUseAuth.mockReturnValue({
       isAdmin: () => false,
       canCreateEvents: () => false,
@@ -135,5 +148,12 @@ describe('DashboardPage regression coverage', () => {
       expect(mockedMembersApi.me).toHaveBeenCalled();
       expect(mockedMembersApi.myRsvps).toHaveBeenCalledWith(4);
     });
+  });
+
+  it('uses the active program name in the dashboard hero', async () => {
+    renderPage();
+
+    expect(await screen.findByText('Colorado Springs')).toBeInTheDocument();
+    expect(screen.queryByText('Colorado Alpine Program')).not.toBeInTheDocument();
   });
 });

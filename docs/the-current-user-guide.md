@@ -1,7 +1,8 @@
 # The Current User Guide
 
 **Project Healing Waters event scheduling and participation**
-Version: September 9, 2026
+
+Version: September 13, 2026
 
 ## Purpose
 
@@ -18,6 +19,8 @@ The Current is the shared application for viewing events, responding to invitati
 
 Some users belong to more than one program. If prompted after sign-in, select the program you want to work in. Data and permissions follow the selected program.
 
+Only active programs appear in the program picker. A program that is still being prepared may be temporarily unavailable even when an administrator has already created your membership.
+
 ## Sign in for the first time
 
 1. Open the invitation or sign-in link provided by your program.
@@ -27,7 +30,15 @@ Some users belong to more than one program. If prompted after sign-in, select th
 5. Enter the code sent to your email and continue.
 6. Select a program if The Current presents the program picker.
 
-If sign-in fails, confirm that the email address matches your member record. Contact your program administrator if you see **No Tenant Access** or do not see expected menu items.
+If sign-in fails, confirm that the email address matches your member record. Contact your program administrator if you see **No Tenant Access** or do not see expected menu items. **No Tenant Access** means that the signed-in account has no active program membership; it is different from a temporary account-loading error.
+
+## Switch programs, recover a session, and sign out
+
+If you have access to more than one active program, use **Current program** in the header to switch programs. Always confirm the program name in the scope bar before changing members, events, groups, imports, templates, or reports. The page reloads its program data when you switch.
+
+If The Current displays **Your session has expired**, select **Back to sign in** and authenticate again. If it displays **We could not load your account**, select **Try again**. A temporary loading error does not mean that your program access was removed.
+
+Use **Sign out** in the header when you finish, especially on a shared computer. The Current clears its local sign-in and program-selection state during sign-out. If the identity provider cannot finish its sign-out window, close the browser tab before another person signs in.
 
 ## Dashboard
 
@@ -217,6 +228,17 @@ Administrators have additional navigation under the management menu:
 
 Administrative actions can affect access or send messages to many people. Preview changes and recipient lists before confirming them.
 
+### Large member imports
+
+Use **Import** to preview a supported CSV before committing it.
+
+1. Confirm that the correct program is shown in the header.
+2. Preview the file and review invalid rows, shared-email households, and identity conflicts.
+3. Commit only after the preview totals match the source file.
+4. Download and retain the import report from **Import History**.
+
+For large rollouts, use files of 500-1,000 rows and complete each preview and commit before starting another import. Preview sessions expire after 30 minutes and are lost if the backend is restarted or redeployed.
+
 ## Getting help
 
 Use the support or accessibility email shown in The Current footer. When reporting a problem, include:
@@ -227,3 +249,5 @@ Use the support or accessibility email shown in The Current footer. When reporti
 - the approximate time;
 - the affected member’s name, but no passwords or one-time codes; and
 - a screenshot with sensitive information removed.
+
+Never include passwords, one-time codes, sign-in links, access tokens, full phone numbers, or unmasked member lists in a help request or training screenshot.

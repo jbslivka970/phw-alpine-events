@@ -112,6 +112,7 @@ describe('tenantContextService', () => {
       },
     ]);
     expect(dbRequest.query).toHaveBeenCalledTimes(2);
+    expect(dbRequest.query.mock.calls[1][0]).toContain("t.status = 'active'");
   });
 
   it('falls back to the default home tenant when multi-tenant mode is enabled and no memberships exist', async () => {

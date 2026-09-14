@@ -1,8 +1,40 @@
 # Colorado Springs Tenant Onboarding and Capacity Runbook
 
-Status: prepared, not yet approved for production execution.
+Status: tenant provisioned and production capacity applied; tenant remains suspended pending the activation gates below.
 
-## Known Baseline (September 13, 2026)
+## Current Rollout State (September 13, 2026)
+
+- Tenant: `Colorado Springs` (`colorado-springs`)
+- Tenant ID: `527D755C-6818-40A0-BD7F-137A91B9E54E`
+- Configuration: program tenant, non-demo, operational, `America/Denver`
+- Status: suspended; suspended tenants are excluded from normal tenant discovery and selection
+- Initial administrators: `sarnitro@gmail.com` and `cos.program.lead@projecthealingwaters.org` (Matthew Green), both active, permanent administrators
+- Seeded system groups: `ALL`, `ADMIN`, `VOLUNTEERS`, and `PARTICIPANTS`
+- Current tenant usage: zero members, events, responses, notifications, failures, and opt-outs
+- Capacity: App Service `P0v3` x 1; Azure SQL `S2`, 50 DTUs, 20 GB
+- Deployment baseline: commit `7221a0d`; CI/CD run `34766536629` and CodeQL run `34766536605` passed
+- Production health at verification: frontend, `/api/v1/health`, and `/api/v1/health/startup` returned `200`
+- Isolation evidence: an unrelated member received `403` with no groups returned; root usage reporting returned only tenant-scoped zero totals
+
+Completed:
+
+- [x] Scale production to the initial Colorado Springs capacity target.
+- [x] Provision the suspended tenant and seed branding, messaging, and system groups.
+- [x] Grant the two initial permanent administrators.
+- [x] Deploy tenant-scoped usage reporting and verify an empty tenant reports zero.
+- [x] Verify baseline health and a non-root cross-tenant denial.
+
+Still required before activation:
+
+- [ ] Final branding, support/accessibility contacts, logo assets, and colors approved.
+- [ ] Per-tenant email sender/reply-to and SMS sender/provider approved and tested.
+- [ ] Production-shaped import rehearsal completed and reconciled.
+- [ ] Both initial administrators complete sign-in, program selection, role, sign-out, and session-expiry UAT in staging or a synthetic demo tenant.
+- [ ] Cross-tenant denial matrix and representative reports/logs rechecked after import.
+- [ ] Backup/rollback evidence, monitoring owners, support owner, and launch window approved.
+- [ ] Colorado Springs reactivated by a root administrator only after every pre-activation gate passes, then both administrators complete a time-boxed production smoke check.
+
+## Pre-Scale Baseline (September 13, 2026)
 
 - App Service plan: `phw-alpine-splash-plan`, Linux `B1`, one worker. Backend, frontend, and splash apps share this plan.
 - Seven-day plan peak: CPU `100%`, memory `89%`.
@@ -10,7 +42,7 @@ Status: prepared, not yet approved for production execution.
 - Azure SQL: `phwalpinedb`, `Basic`, 5 DTUs, 2 GB maximum. Seven-day peak DTU: `61%`; storage: `2%`.
 - Colorado Springs is expected to add roughly 10 times the current total data volume.
 
-The current capacity is not an acceptable onboarding baseline. Start with App Service `P0v3` x 1 and Azure SQL `S2` with a 20 GB cap. Re-evaluate after the rehearsal import; scale horizontally or move SQL higher only from measured saturation.
+This capacity was not acceptable for onboarding. Production has been moved to App Service `P0v3` x 1 and Azure SQL `S2` with a 20 GB cap. Re-evaluate after the rehearsal import; scale horizontally or move SQL higher only from measured saturation.
 
 ## Required Inputs
 
@@ -20,16 +52,16 @@ The current capacity is not an acceptable onboarding baseline. Start with App Se
 - Email sender/domain decision and SMS provider/number decision.
 - Source member count, event history count, CSV size, duplicate-email count, and expected peak concurrent users.
 
-## Capacity Change
+## Capacity Change and Verification
 
 1. Confirm an Azure SQL restore point/export and application rollback owner.
-2. Preview the exact target and current subscription:
+2. Preview the exact target and current subscription before any future scaling change:
 
    ```bash
    bash scripts/scale-production-capacity.sh
    ```
 
-3. During the approved window, apply the initial target:
+3. The initial target has already been applied. During a future approved scaling window, use:
 
    ```bash
    PRODUCTION_CHANGE_APPROVED=1 bash scripts/scale-production-capacity.sh --apply
@@ -63,9 +95,11 @@ Create the tenant as suspended so it cannot be used before validation:
 }
 ```
 
-Use Root Administration to create it, then grant the designated administrator. Tenant creation now atomically creates branding, messaging, and the `ALL`, `ADMIN`, `VOLUNTEERS`, and `PARTICIPANTS` system groups.
+The tenant has been created and both designated administrators have been granted access. Tenant creation atomically created branding, messaging, and the `ALL`, `ADMIN`, `VOLUNTEERS`, and `PARTICIPANTS` system groups.
 
 Configure branding and messaging while the tenant remains suspended. Keep real outbound email/SMS disabled until sender ownership, consent language, opt-out behavior, and allowlists are verified.
+
+Suspension is an access control, not merely a launch label: normal tenant discovery and forced `X-Tenant-Id` access must exclude a suspended tenant. Root Administration remains available for configuration and reactivation.
 
 ## Import Rehearsal
 

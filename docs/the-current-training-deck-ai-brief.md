@@ -6,6 +6,8 @@ Create a polished, accessible training PowerPoint that teaches Project Healing W
 
 Use `docs/the-current-user-guide.md` as the authoritative content source. Do not invent screens, controls, policies, scores, permissions, URLs, or workflows. When source material is incomplete, add a clearly marked presenter note requesting confirmation instead of guessing.
 
+Content baseline: `docs/the-current-user-guide.md`, version September 13, 2026. Recheck the deployed application immediately before capturing screenshots; do not reuse screenshots that predate multi-program selection or session-recovery changes.
+
 ## Deliverables
 
 Produce:
@@ -25,6 +27,7 @@ The primary audience includes adult volunteers and participants with mixed techn
 By the end of training, learners should be able to:
 
 - sign in and select the correct program;
+- switch programs, recover an expired session, and sign out safely;
 - manage notification preferences;
 - find an event and submit or change an RSVP;
 - understand Volunteer and Participant roles;
@@ -35,7 +38,7 @@ By the end of training, learners should be able to:
 
 ## Required slide sequence
 
-Create 14 slides in this order:
+Create 15 slides in this order:
 
 1. **The Current**
    Subtitle: Project Healing Waters event scheduling and participation. Include audience and session purpose.
@@ -49,37 +52,40 @@ Create 14 slides in this order:
 4. **First Sign-In**
    Show invitation link, Google or email one-time code, matching the invited email, and program selection.
 
-5. **Dashboard and Navigation**
+5. **Programs, Sessions, and Sign-Out**
+   Explain that only active programs appear, show the **Current program** selector and scope bar for a multi-program account, and tell learners to verify the program name before making changes. Explain that the page reloads when the program changes. Cover **Your session has expired** → **Back to sign in**, temporary account-load errors → **Try again**, **No Tenant Access** → contact the program administrator, and **Sign out** for shared computers.
+
+6. **Dashboard and Navigation**
    Explain Dashboard, Preferences, Events, Calendar, and role-dependent menu items.
 
-6. **Find and RSVP to an Event**
+7. **Find and RSVP to an Event**
    Show both signed-in and invitation-link workflows. Include role selection before Yes, Maybe, or Waitlist.
 
-7. **Notification Preferences**
+8. **Notification Preferences**
    Cover mobile number, channel preference, SMS consent, Save, STOP, and HELP.
 
-8. **Create and Publish an Event**
+9. **Create and Publish an Event**
    For Event Creators and Administrators. Cover event categories, core details, lead, scheduler, capacity, audience, draft review, and publish caution. Categories are Fishing Trip, Fundraiser, Community Service, Training, Social, and Other.
 
-9. **Manage Capacity and Guests**
+10. **Manage Capacity and Guests**
    Explain Capacity Controls, Close Event At Capacity, Manual Association, Guest Assignments, and event-specific Volunteer Duty / Specialty values such as Cook or Driver.
 
-10. **Use the RSVP Pool**
+11. **Use the RSVP Pool**
     Explain the two priority-role buttons, history columns, priority rank, assignment buttons, and human judgment.
 
-11. **How CY/PY Is Calculated**
+12. **How CY/PY Is Calculated**
     Define current calendar year and previous calendar year. State that only attended assignments on completed events count, totals are deduplicated by event, and Lead plus Participant earns `0.5` participant credit.
 
-12. **How Priority Is Calculated**
+13. **How Priority Is Calculated**
    Show this formula exactly:
    `Participant score = role CY + (role PY × 0.6) + (total CY × 0.25) + (total PY × 0.1) − service CY − (service PY × 0.5) + RSVP adjustment`
    Show Yes `-0.2`, Maybe `0`, Waitlist `+0.2`. State that lower scores rank first and that the service deduction applies only to Participant priority. Include the `#1 (-0.2)` zero-history Yes example and the three-service-event `-2.45` example.
 
-13. **Record Attendance and Finish the Event**
+14. **Record Attendance and Finish the Event**
     Demonstrate checking Attended, changing the event to completed, and sending or downloading post-event summaries. Emphasize that history does not update until the event is completed.
 
-14. **Troubleshooting and Help**
-    Include the score checklist, sign-in/access checks, support contact location, and what details to include in a help request.
+15. **Troubleshooting and Help**
+   Include the score checklist, the distinction between session expiry, temporary account-load failure, and no active program access, the support contact location, and what details to include in a help request. Never ask for a password, one-time code, sign-in link, or access token.
 
 ## Visual direction
 
@@ -110,6 +116,8 @@ Request or capture these application states at desktop width and, for RSVP, mobi
 
 - Sign-in page branded **The Current**.
 - Program selector, using demo or fictional program data.
+- Header with the **Current program** selector and scope bar, using an account with at least two synthetic program memberships.
+- Session-expired recovery screen and temporary account-load error screen.
 - Dashboard with upcoming events and My RSVPs.
 - Notification Preferences with SMS consent unchecked and no real phone number.
 - Events list and event form in draft state.
@@ -121,6 +129,8 @@ Request or capture these application states at desktop width and, for RSVP, mobi
 
 Before capture, remove or mask real names, email addresses, phone numbers, tokens, tenant identifiers, and private event details.
 
+Use the Demo tenant or a synthetic staging tenant for authenticated screenshots. Do not use Colorado Springs screenshots while that tenant is suspended, and do not reactivate it merely to produce training material.
+
 ## Speaker-note requirements
 
 For each slide, include:
@@ -130,13 +140,17 @@ For each slide, include:
 - one likely question and its answer; and
 - a transition to the next slide.
 
-For slides 11 and 12, explicitly explain why a member with no history and a Yes RSVP can show `-0.2`, and why a checked attendance box does not count while an event remains draft or published.
+For slides 12 and 13, explicitly explain why a member with no history and a Yes RSVP can show `-0.2`, and why a checked attendance box does not count while an event remains draft or published.
 
 ## Quality checks before delivery
 
 Confirm all of the following:
 
 - Every product reference says **The Current**.
+- The deck contains exactly 15 slides in the required sequence.
+- Sign-in screenshots and labels match the current production page, including **Sign in**, **Sign in with Google**, and email OTP **Create one** guidance.
+- Program-selection guidance states that only active programs appear and that **Current program** changes the current program context and reloads page data.
+- Session-expired, temporary account-load, and no-active-access states are described as different conditions with the correct next action.
 - Project Healing Waters is not renamed as an organization.
 - Internal database term `MENTOR` is never shown to learners; use **Volunteer**.
 - CY and PY are defined as calendar years, not rolling 12-month periods.

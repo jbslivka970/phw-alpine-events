@@ -79,6 +79,11 @@ export default function Layout() {
     navigate('/login', { replace: true });
   }
 
+  function handleTenantChange(tenantId: string) {
+    selectTenant(tenantId);
+    navigate('/dashboard');
+  }
+
   const roles = user?.roles ?? [];
   const isRootAdmin = tenants.some((tenant) => tenant.role === 'root_admin');
   const isDemoTenant = Boolean(activeTenant?.is_demo || activeTenant?.slug?.toLowerCase().includes('demo'));
@@ -90,6 +95,7 @@ export default function Layout() {
     ? '/branding/phw-colorado-alpine-orange.png'
     : (branding?.logo_url || '/branding/PHWTroutLogoSagebrush-1.png');
   const tenantAccent = branding?.primary_color ?? '#1f5f4a';
+  const tenantRoleLabel = activeTenant?.role.replaceAll('_', ' ') ?? 'member';
   const eligibleTenants = useMemo(() => tenants.filter((tenant) => {
     if (!tenant.expires_at) {
       return true;
@@ -199,11 +205,12 @@ export default function Layout() {
 
               {canSwitchTenant && (
                 <label className="phw-layout__tenant-switcher">
-                  <span className="phw-layout__tenant-switcher-label">Operate as</span>
+                  <span className="phw-layout__tenant-switcher-label">Current program</span>
                   <select
                     className="members-input"
                     value={activeTenant?.tenant_id ?? ''}
-                    onChange={(event) => selectTenant(event.target.value)}
+                    onChange={(event) => handleTenantChange(event.target.value)}
+                    aria-label="Current program"
                   >
                     {eligibleTenants.map((tenant) => (
                       <option key={tenant.tenant_id} value={tenant.tenant_id}>
@@ -221,6 +228,19 @@ export default function Layout() {
         </div>
       </nav>
 
+      {activeTenant && (
+        <div className="phw-layout__tenant-context" role="status" aria-live="polite">
+          <div className="phw-layout__tenant-context-inner">
+            <span className="phw-layout__tenant-context-marker" style={{ backgroundColor: tenantAccent }} aria-hidden="true" />
+            <span className="phw-layout__tenant-context-label">Current program</span>
+            <strong>{tenantDisplayName}</strong>
+            <span className="phw-layout__tenant-context-detail">
+              All data and actions are scoped to this program · {tenantRoleLabel} access
+            </span>
+          </div>
+        </div>
+      )}
+
       {isDemoTenant && (
         <div className="phw-layout__demo-banner" role="status" aria-live="polite">
           DEMO INSTANCE · NON-PRODUCTION · SAFE FOR TRAINING AND WALKTHROUGHS
@@ -228,7 +248,7 @@ export default function Layout() {
       )}
 
       <main id="main-content" className="phw-layout__main" tabIndex={-1}>
-        <Outlet />
+        <Outlet key={activeTenant?.tenant_id ?? 'no-active-tenant'} />
       </main>
 
       <footer className="phw-layout__footer">

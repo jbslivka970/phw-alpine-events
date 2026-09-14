@@ -5,6 +5,7 @@ import { eventsApi, type EventRecord } from '../api/events';
 import { membersApi } from '../api/members';
 import tavfApi, { type TavfPosting } from '../api/tavf';
 import { useAuth } from '../hooks/useAuth';
+import { useTenantContext } from '../contexts/TenantContext';
 import EmptyState from '../components/EmptyState';
 import CapacityBadge from '../components/CapacityBadge';
 import LoadingSkeleton from '../components/LoadingSkeleton';
@@ -42,7 +43,7 @@ const GALLERY_PHOTOS = [
 
 const ONBOARDING_KEY_PREFIX = 'phw-onboarding-dismissed';
 
-function HeroBanner({ userName }: { userName?: string }) {
+function HeroBanner({ programName, userName }: { programName: string; userName?: string }) {
   return (
     <div className="phw-hero phw-stagger phw-stagger-1">
       <img
@@ -54,7 +55,7 @@ function HeroBanner({ userName }: { userName?: string }) {
       />
       <div className="phw-hero__overlay" />
       <div className="phw-hero__content">
-        <p className="phw-hero__eyebrow">Colorado Alpine Program</p>
+        <p className="phw-hero__eyebrow">{programName}</p>
         <h1 className="phw-hero__title">
           Welcome back{userName ? `, ${userName}` : ''}
         </h1>
@@ -105,6 +106,7 @@ function StatCard({ label, value, color, delay }: { label: string; value: string
 
 function DashboardPage() {
   const { user, isAdmin, canCreateEvents, canCreateTavfPostings } = useAuth();
+  const { activeTenant } = useTenantContext();
   const navigate = useNavigate();
   const isAdminUser = isAdmin();
   const canManageEvents = isAdminUser || canCreateEvents();
@@ -131,6 +133,9 @@ function DashboardPage() {
       try {
         setLoading(true);
         setLoadError(null);
+        setUpcoming([]);
+        setMyRsvps([]);
+        setOpenPostings([]);
         const memberCountPromise = isAdminUser
           ? membersApi.list({ page: 1, pageSize: 1, isActive: true })
           : Promise.resolve(null);
@@ -236,7 +241,7 @@ function DashboardPage() {
     return () => {
       active = false;
     };
-  }, [isAdminUser, user?.email, user?.id]);
+  }, [activeTenant?.tenant_id, isAdminUser, user?.email, user?.id]);
 
   useEffect(() => {
     const identity = user?.id ?? user?.email;
@@ -268,6 +273,7 @@ function DashboardPage() {
   }
 
   const displayName = memberDisplayName ?? user?.name?.split(' ')[0] ?? undefined;
+  const programName = activeTenant?.display_name ?? 'Your Program';
 
   function parseDispositionFilename(headerValue: string | null): string | null {
     if (!headerValue) {
@@ -322,7 +328,7 @@ function DashboardPage() {
 
   return (
     <div className="phw-dashboard" style={{ maxWidth: 1040, margin: '0 auto' }}>
-      <HeroBanner userName={displayName} />
+      <HeroBanner programName={programName} userName={displayName} />
 
       <PhotoStrip />
 

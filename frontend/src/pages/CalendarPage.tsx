@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { calendarApi } from '../api/calendar';
 import { eventsApi } from '../api/events';
 import { useAuth } from '../hooks/useAuth';
+import { useTenantContext } from '../contexts/TenantContext';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -334,6 +335,7 @@ function ListView({
 function CalendarPage() {
   const navigate = useNavigate();
   const { isAdmin, canCreateEvents } = useAuth();
+  const { activeTenant } = useTenantContext();
   const canManage = isAdmin() || canCreateEvents();
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
@@ -376,7 +378,7 @@ function CalendarPage() {
     return () => {
       isMounted = false;
     };
-  }, [monthKey]);
+  }, [activeTenant?.tenant_id, monthKey]);
 
   function prevMonth() {
     if (month === 0) { setMonth(11); setYear((y) => y - 1); }
@@ -391,7 +393,10 @@ function CalendarPage() {
   return (
     <div className="page calendar-page">
       <div className="page-header">
-        <h1>Calendar</h1>
+        <div>
+          <h1>Calendar</h1>
+          <p className="events-subtitle">{activeTenant?.display_name ?? 'Current program'} events</p>
+        </div>
         <div className="header-actions">
           <div className="view-toggle">
             <button

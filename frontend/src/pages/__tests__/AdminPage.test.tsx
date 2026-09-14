@@ -8,6 +8,11 @@ import { rootApi } from '../../api/root'
 import { membersApi } from '../../api/members'
 import { groupsApi } from '../../api/groups'
 import { eventsApi } from '../../api/events'
+import { useTenantContext } from '../../contexts/TenantContext'
+
+vi.mock('../../contexts/TenantContext', () => ({
+  useTenantContext: vi.fn(),
+}))
 
 vi.mock('../../api/baseUrl', () => ({
   getApiBaseUrl: () => 'https://example.test/api/v1',
@@ -20,6 +25,10 @@ vi.mock('../../api/admin', () => ({
     getSupportEmailRelayConfig: vi.fn(),
     getEventSummaryEmailConfig: vi.fn(),
     getProgramCatalog: vi.fn(),
+    getTenantBranding: vi.fn(),
+    getTenantMessaging: vi.fn(),
+    listTenantAdmins: vi.fn(),
+    listTenantMemberships: vi.fn(),
   },
 }))
 
@@ -56,6 +65,10 @@ const mockedAdminApi = adminApi as unknown as {
   getSupportEmailRelayConfig: ReturnType<typeof vi.fn>
   getEventSummaryEmailConfig: ReturnType<typeof vi.fn>
   getProgramCatalog: ReturnType<typeof vi.fn>
+  getTenantBranding: ReturnType<typeof vi.fn>
+  getTenantMessaging: ReturnType<typeof vi.fn>
+  listTenantAdmins: ReturnType<typeof vi.fn>
+  listTenantMemberships: ReturnType<typeof vi.fn>
 }
 
 const mockedRootApi = rootApi as unknown as {
@@ -76,6 +89,8 @@ const mockedGroupsApi = groupsApi as unknown as {
 const mockedEventsApi = eventsApi as unknown as {
   list: ReturnType<typeof vi.fn>
 }
+
+const mockedUseTenantContext = useTenantContext as unknown as ReturnType<typeof vi.fn>
 
 function mockHealthFetch() {
   vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
@@ -110,6 +125,14 @@ describe('AdminPage root access management', () => {
     vi.clearAllMocks()
     mockHealthFetch()
 
+    mockedUseTenantContext.mockReturnValue({
+      activeTenant: {
+        tenant_id: '1b6b9719-663a-4e56-8f7d-9a4bd4c10001',
+        slug: 'colorado-alpine',
+        display_name: 'Colorado Alpine',
+      },
+    })
+
     mockedAdminApi.blastLog.mockResolvedValue({ data: [] })
     mockedAdminApi.listAdminUsers.mockResolvedValue({ data: [] })
     mockedAdminApi.getSupportEmailRelayConfig.mockResolvedValue({
@@ -126,6 +149,10 @@ describe('AdminPage root access management', () => {
       updatedBy: null,
     })
     mockedAdminApi.getProgramCatalog.mockResolvedValue({ programs: [] })
+    mockedAdminApi.getTenantBranding.mockResolvedValue(null)
+    mockedAdminApi.getTenantMessaging.mockResolvedValue(null)
+    mockedAdminApi.listTenantAdmins.mockResolvedValue({ admins: [] })
+    mockedAdminApi.listTenantMemberships.mockResolvedValue({ memberships: [] })
 
     mockedMembersApi.list.mockResolvedValue({ total: 0, data: [] })
     mockedGroupsApi.list.mockResolvedValue([])
@@ -262,7 +289,6 @@ describe('AdminPage root access management', () => {
     expect(payload.email).toBe('sarnitro@gmail.com')
     expect(payload.app_role).toBe('superadmin')
     expect(payload.is_root).toBe(true)
-    expect(Array.isArray(payload.tenant_memberships)).toBe(true)
-    expect(payload.tenant_memberships[0]?.tenant_id).toBe('1b6b9719-663a-4e56-8f7d-9a4bd4c10001')
+    expect(payload).not.toHaveProperty('tenant_memberships')
   })
 })

@@ -217,7 +217,8 @@ export async function listTenantsForAuthenticatedUser(input: {
         ON t.tenant_id = tm.tenant_id
       LEFT JOIN dbo.tenant_branding tb
         ON tb.tenant_id = t.tenant_id
-      WHERE tm.status = 'active'
+      WHERE t.status = 'active'
+        AND tm.status = 'active'
         AND tm.starts_at <= GETUTCDATE()
         AND (tm.expires_at IS NULL OR tm.expires_at > GETUTCDATE())
         AND (
