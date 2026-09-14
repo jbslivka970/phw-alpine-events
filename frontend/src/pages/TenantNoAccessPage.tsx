@@ -30,7 +30,7 @@ function TenantNoAccessPage() {
         Your account is authenticated, but no active tenant memberships were found.
       </p>
       <p style={{ color: '#475569' }}>
-        Contact chapter support if this looks incorrect.
+        Contact program support if this looks incorrect.
       </p>
       <div style={{ marginTop: 20, display: 'flex', gap: 12, justifyContent: 'center' }}>
         <a className="btn btn--outline" href="mailto:accessibility@phwcoloradoalpine.org">Contact support</a>

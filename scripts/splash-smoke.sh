@@ -12,12 +12,12 @@ if [[ "$http_code" != "200" ]]; then
   exit 1
 fi
 
-grep -q "PHW Colorado Alpine Chapter" /tmp/phw-splash-body.html || {
-  echo "FAIL: Missing chapter title text"
+grep -q "PHW Colorado Alpine Program" /tmp/phw-splash-body.html || {
+  echo "FAIL: Missing program title text"
   exit 1
 }
 
-grep -q "Chapter Member Portal" /tmp/phw-splash-body.html || {
+grep -q "Program Member Portal" /tmp/phw-splash-body.html || {
   echo "FAIL: Missing CTA text"
   exit 1
 }

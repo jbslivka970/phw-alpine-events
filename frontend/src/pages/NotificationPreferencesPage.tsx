@@ -145,7 +145,7 @@ function NotificationPreferencesPage() {
       setMember(updated)
       setSmsConsentChecked(Boolean(updated.sms_opt_in))
       if (nextPreference === 'both') {
-        setNotice('You will receive both email and SMS updates for chapter events.')
+        setNotice('You will receive both email and SMS updates for program events.')
       } else if (nextPreference === 'sms_only') {
         setNotice('You will receive SMS-only updates. Email notifications are opted out.')
       } else {
@@ -406,7 +406,7 @@ function NotificationPreferencesPage() {
 
               {!member.mobile_phone && (
                 <p className="card__body">
-                  A mobile number is required before SMS can be enabled. Contact a chapter
+                  A mobile number is required before SMS can be enabled. Contact a program
                   administrator to update your profile.
                 </p>
               )}
@@ -420,7 +420,7 @@ function NotificationPreferencesPage() {
           <h2 className="card__title">Program Terms</h2>
           <p className="card__body">
             SMS messages identify PHW Alpine and include opt-out instructions. Opting out of
-            SMS does not remove you from the chapter roster or email communications.
+            SMS does not remove you from the program roster or email communications.
           </p>
           <p className="card__body">
             Review the <Link to="/privacy">Privacy Policy</Link>,{' '}

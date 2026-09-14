@@ -19,7 +19,7 @@ test('serves the splash home page and a static asset', async () => {
     const homeResponse = await fetch(`${baseUrl}/`);
     assert.equal(homeResponse.status, 200);
     const homeBody = await homeResponse.text();
-    assert.match(homeBody, /PHW Colorado Alpine Chapter/);
+    assert.match(homeBody, /PHW Colorado Alpine Program/);
 
     const assetResponse = await fetch(`${baseUrl}/staticwebapp.config.json`);
     assert.equal(assetResponse.status, 200);

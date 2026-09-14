@@ -33,7 +33,7 @@ The forum will be National and cross-program, but access must be derived server-
 
 ## Overview
 
-This application supports member management, event publishing, RSVP collection, and chapter operations for the Colorado Alpine Chapter. The current repository baseline now includes:
+This application supports member management, event publishing, RSVP collection, and program operations for the Colorado Alpine Program. The current repository baseline now includes:
 
 - an Azure SQL schema aligned with the current PRD model
 - an Express backend with versioned routes under `/api/v1`

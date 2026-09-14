@@ -2014,7 +2014,7 @@ BEGIN
     );
 
     INSERT INTO dbo.[group] (group_id, tenant_id, group_name, description, is_system)
-    SELECT NEWID(), t.tenant_id, N'ADMIN', N'Chapter administrators', 1
+    SELECT NEWID(), t.tenant_id, N'ADMIN', N'Program administrators', 1
     FROM dbo.tenant t
     WHERE NOT EXISTS (
         SELECT 1

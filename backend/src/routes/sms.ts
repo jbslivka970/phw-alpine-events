@@ -330,7 +330,7 @@ async function processInboundMessage(from: string, rawMessage: string, source: I
     return logAndReturn({
       status: 'ignored',
       from,
-      reply: 'PHW Alpine: We could not match this phone number to a member profile. Contact chapter leadership for assistance.',
+      reply: 'PHW Alpine: We could not match this phone number to a member profile. Contact program leadership for assistance.',
     });
   }
 

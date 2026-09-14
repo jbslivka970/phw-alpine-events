@@ -42,7 +42,7 @@ Applies to all records in notification_template and all history snapshots in not
 
 ## Ownership
 
-- Primary owner: Chapter Admin operations lead.
+- Primary owner: Program Admin operations lead.
 - Backup owner: Platform/engineering maintainer.
 
 ## Evidence to retain

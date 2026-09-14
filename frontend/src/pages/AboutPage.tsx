@@ -4,7 +4,7 @@ function AboutPage() {
   return (
     <div className="about-page">
       <div className="about-page__banner">
-        A chapter of{' '}
+        A program of{' '}
         <a href="https://projecthealingwaters.org" target="_blank" rel="noopener noreferrer">
           Project Healing Waters Fly Fishing
         </a>
@@ -22,12 +22,12 @@ function AboutPage() {
         <section>
           <h2>About Our Program</h2>
           <p>
-            The Colorado Alpine Program is a chapter of Project Healing Waters Fly Fishing (PHWFF), a national 501(c)(3)
+            The Colorado Alpine Program is a program of Project Healing Waters Fly Fishing (PHWFF), a national 501(c)(3)
             nonprofit organization dedicated to the physical, emotional, and mental rehabilitation of active military
             service personnel and disabled veterans through fly fishing, fly tying, and rod building.
           </p>
           <p>
-            Our chapter serves veterans across Colorado&apos;s mountain communities &mdash; including Summit County,
+            Our program serves veterans across Colorado&apos;s mountain communities &mdash; including Summit County,
             Eagle County, Lake County, Grand County, Park County, Routt County, Garfield County, and Pitkin County
             &mdash; through guided fly fishing outings, skills clinics, and community events on Colorado&apos;s premier
             tailwater rivers and alpine lakes.
@@ -61,7 +61,7 @@ function AboutPage() {
               <div className="about-page__value"><a href="mailto:alpine@phwcoloradoalpine.org">alpine@phwcoloradoalpine.org</a></div>
             </div>
             <div className="about-page__contact-item">
-              <div className="about-page__label">National Chapter Page</div>
+              <div className="about-page__label">National Program Page</div>
               <div className="about-page__value"><a href="https://projecthealingwaters.org/location/colorado-alpine/" target="_blank" rel="noopener noreferrer">projecthealingwaters.org</a></div>
             </div>
           </div>
@@ -79,7 +79,7 @@ function AboutPage() {
           <div className="about-page__affiliation">
             <strong>National Affiliation:</strong> Project Healing Waters Fly Fishing, Inc. is a 501(c)(3) tax-exempt
             organization (EIN 20-4391295) headquartered in LaPlata, MD. The Colorado Alpine Program operates as a
-            volunteer-led local chapter under the national organization&apos;s mission and governance.
+            volunteer-led local program under the national organization&apos;s mission and governance.
           </div>
         </section>
       </main>

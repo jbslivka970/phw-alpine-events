@@ -43,7 +43,7 @@ function FirstTimeOnboardingPage() {
               <li>If you have an RSVP link, open it first and submit your response.</li>
               <li>When you want full portal access, select Sign in and complete your provider flow.</li>
               <li>If prompted for account setup, complete verification and continue.</li>
-              <li>If sign-in fails, contact your chapter admin to confirm your member email and invite status.</li>
+              <li>If sign-in fails, contact your program admin to confirm your member email and invite status.</li>
             </ol>
           </div>
 

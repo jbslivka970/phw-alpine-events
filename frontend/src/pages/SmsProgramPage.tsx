@@ -25,20 +25,20 @@ function SmsProgramPage() {
           <h2>Program Description</h2>
           <p>
             Project Healing Waters Colorado Alpine Program sends informational SMS messages to
-            members about event invitations, RSVP reminders, schedule changes, and chapter
+            members about event invitations, RSVP reminders, schedule changes, and program
             event logistics.
           </p>
         </section>
 
         <section className="legal-section">
           <h2>Program Content Type</h2>
-          <p>Informational and customer-care messaging related to chapter events.</p>
+          <p>Informational and customer-care messaging related to program events.</p>
         </section>
 
         <section className="legal-section">
           <h2>Opt-In Method</h2>
           <p>
-            Members opt in through a chapter-managed web workflow or member profile update
+            Members opt in through a program-managed web workflow or member profile update
             that requires explicit consent before SMS is enabled.
           </p>
 
@@ -113,7 +113,7 @@ function SmsProgramPage() {
                 <h3>1. Opt-In Confirmation</h3>
               </div>
               <p>
-                PHW Alpine: You are subscribed to chapter event texts. Message frequency
+                PHW Alpine: You are subscribed to program event texts. Message frequency
                 varies. Msg&amp;data rates may apply. Reply HELP for help or STOP to opt out.
               </p>
             </article>
@@ -143,7 +143,7 @@ function SmsProgramPage() {
                 <h3>4. Help / Support</h3>
               </div>
               <p>
-                PHW Alpine: Help for chapter event texts is available through Colorado Alpine
+                PHW Alpine: Help for program event texts is available through Colorado Alpine
                 Program leadership. Reply STOP to opt out. See Terms and Privacy pages for
                 program details.
               </p>

@@ -614,7 +614,7 @@ describe('events routes', () => {
           guest_phone: null,
           guest_program_group_id: null,
           guest_program_id: null,
-          guest_program_name: 'Rocky Mountain Chapter',
+          guest_program_name: 'Rocky Mountain Program',
           guest_program_group_name: null,
           guest_program_catalog_name: null,
           guest_program_state_name: null,
@@ -706,7 +706,7 @@ describe('events routes', () => {
           guest_phone: null,
           guest_program_group_id: null,
           guest_program_id: null,
-          guest_program_name: 'Rocky Mountain Chapter',
+          guest_program_name: 'Rocky Mountain Program',
           invited_at: '2026-04-01T00:00:00.000Z',
         },
       ],
@@ -729,7 +729,7 @@ describe('events routes', () => {
         role: 'PARTICIPANT',
         guest_name: 'Jordan Guest',
         guest_email: 'jordan@example.org',
-        program_name: 'Rocky Mountain Chapter',
+        program_name: 'Rocky Mountain Program',
       });
 
     expect(res.status).toBe(201);
@@ -789,7 +789,7 @@ describe('events routes', () => {
         role: 'PARTICIPANT',
         guest_name: 'Jordan Guest',
         guest_email: 'jordan@example.org',
-        program_name: 'Rocky Mountain Chapter',
+        program_name: 'Rocky Mountain Program',
         program_id: '   ',
         program_group_id: '',
       });
@@ -827,7 +827,7 @@ describe('events routes', () => {
         role: 'PARTICIPANT',
         guest_name: 'Jordan Guest',
         guest_email: 'jordan@example.org',
-        program_name: 'Rocky Mountain Chapter',
+        program_name: 'Rocky Mountain Program',
       });
 
     expect(res.status).toBe(503);

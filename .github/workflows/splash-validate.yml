@@ -35,4 +35,4 @@ jobs:
           SERVER_PID=$!
           trap "kill $SERVER_PID" EXIT
           sleep 2
-          curl -fsS http://127.0.0.1:4173/ | grep -q 'PHW Colorado Alpine Chapter'
+          curl -fsS http://127.0.0.1:4173/ | grep -q 'PHW Colorado Alpine Program'

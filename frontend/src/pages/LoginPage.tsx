@@ -84,7 +84,7 @@ function LoginPage() {
           <h1 className="login-card__title">The Current</h1>
           <p className="login-card__subtitle">{loginProgramName}</p>
           <p className="login-card__desc">
-            Sign in with your chapter identity provider to manage events, RSVPs, and the Take a Vet Fishing program.
+            Sign in with your program identity provider to manage events, RSVPs, and the Take a Vet Fishing program.
           </p>
           <div className="login-card__auth-help" role="note" aria-label="First-time sign-in help">
             <p className="login-card__auth-help-title">First-time sign-in steps</p>

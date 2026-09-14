@@ -288,7 +288,7 @@ async function createTenant(input: CreateTenantInput): Promise<TenantSummary> {
            GETUTCDATE()
          FROM (VALUES
            (N'ALL', N'All active members'),
-           (N'ADMIN', N'Chapter administrators'),
+           (N'ADMIN', N'Program administrators'),
            (N'VOLUNTEERS', N'Volunteers / guides'),
            (N'PARTICIPANTS', N'Program participants (veterans)')
          ) AS seed(group_name, description);

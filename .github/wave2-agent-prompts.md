@@ -255,7 +255,7 @@ PART A — Email Templates:
      - Event details block: 📅 Date, ⏰ Time, 📍 Location
      - Description paragraph
      - RSVP link: "{{rsvpUrl}}" (placeholder URL for now)
-     - Footer: "Project Healing Waters Fly Fishing — Colorado Alpine Chapter"
+    - Footer: "Project Healing Waters Fly Fishing — Colorado Alpine Program"
      - Unsubscribe note (CAN-SPAM)
    - SMS body (160 char max): "PHW Alpine: {{eventTitle}} on {{eventDate}} at {{location}}. RSVP: {{rsvpUrl}} Reply STOP to opt out"
    - Use the existing renderTemplate() and template interface from NotificationTemplate.ts
