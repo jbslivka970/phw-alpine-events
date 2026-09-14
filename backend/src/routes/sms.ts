@@ -363,6 +363,11 @@ router.post('/inbound', publicLimiter, async (req, res) => {
       return;
     }
 
+    if (payload.provider === 'telnyx' && payload.direction === 'outbound') {
+      res.status(200).json({ status: 'ignored', reason: 'outbound_provider_event' });
+      return;
+    }
+
     let providerContext: InboundProviderContext | undefined;
     if (payload.provider === 'telnyx') {
       if (!payload.destination || !payload.providerEventId) {
@@ -940,7 +945,7 @@ function getToken(query: Record<string, unknown>): string {
 }
 
 function extractInboundPayload(body: unknown, headers: Record<string, unknown> = {}):
-  | { kind: 'single'; from: string; message: string; provider?: 'telnyx'; destination?: string; providerEventId?: string }
+  | { kind: 'single'; from: string; message: string; provider?: 'telnyx'; destination?: string; providerEventId?: string; direction?: string }
   | { kind: 'batch'; messages: Array<{ from: string; message: string }> }
   | { kind: 'validation'; validationCode: string } {
   const eventTypeHeader = getHeaderValue(headers, 'aeg-event-type');
@@ -1007,6 +1012,7 @@ function extractTelnyxMessage(record: Record<string, unknown>): {
   message: string;
   destination?: string;
   providerEventId?: string;
+  direction?: string;
 } | null {
   const data = record['data'] as Record<string, unknown> | undefined;
   const payload = data?.['payload'] as Record<string, unknown> | undefined;
@@ -1020,8 +1026,12 @@ function extractTelnyxMessage(record: Record<string, unknown>): {
   const message = readString(payload, 'text')
     ?? readString(payload, 'body')
     ?? '';
-  const destination = readNestedString(payload, ['to', 'phone_number'])?.trim();
+  const destination = (
+    readNestedString(payload, ['to', 'phone_number'])
+    ?? (Array.isArray(payload['to']) ? readNestedString(payload['to'][0], ['phone_number']) : undefined)
+  )?.trim();
   const providerEventId = readString(data, 'id')?.trim();
+  const direction = readString(payload, 'direction')?.trim();
 
   const normalizedFrom = from.trim();
   const normalizedMessage = message.trim();
@@ -1034,6 +1044,7 @@ function extractTelnyxMessage(record: Record<string, unknown>): {
     message: normalizedMessage,
     destination: destination || undefined,
     providerEventId: providerEventId || undefined,
+    direction: direction || undefined,
   };
 }
 

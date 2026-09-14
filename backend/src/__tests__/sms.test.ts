@@ -139,7 +139,7 @@ describe('sms routes', () => {
         id: 'evt-valid-1',
         payload: {
           from: { phone_number: '+13035550111' },
-          to: { phone_number: '+13035550999' },
+          to: [{ phone_number: '+13035550999' }],
           text: 'HELP',
         },
       },
