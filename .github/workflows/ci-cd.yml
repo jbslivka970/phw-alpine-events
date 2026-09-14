@@ -956,12 +956,10 @@ jobs:
           cp backend/web.config deploy-package/web.config
         fi
 
-        if [ "${BACKEND_DEPLOY_INCLUDE_NODE_MODULES:-0}" = "1" ] && [ "$TARGET_OS" != "linux" ]; then
+        if [ "${BACKEND_DEPLOY_INCLUDE_NODE_MODULES:-0}" = "1" ]; then
           echo "Installing production dependencies into the deployment package."
           npm ci --omit=dev --prefix deploy-package
           npm ls --omit=dev --depth=0 --prefix deploy-package
-        elif [ "${BACKEND_DEPLOY_INCLUDE_NODE_MODULES:-0}" = "1" ]; then
-          echo "Linux target detected; dependencies will be installed through Kudu after the slim package deploys."
           printf '%s\n' '[config]' 'SCM_DO_BUILD_DURING_DEPLOYMENT=false' 'ENABLE_ORYX_BUILD=false' > deploy-package/.deployment
         else
           echo "Using slim backend packaging (package-manager restore during deploy)."
