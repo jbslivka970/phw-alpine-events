@@ -1562,7 +1562,7 @@ jobs:
         for attempt in $(seq 1 24); do
           STARTUP_STATUS="$(curl -sS -o /dev/null -w "%{http_code}" "$STARTUP_HEALTH_URL" || true)"
           BASIC_BODY="$(curl -sS "$BASIC_HEALTH_URL" || true)"
-          BASIC_STATUS="$(printf '%s' "$BASIC_BODY" | python -c "import json,sys;\ntry:\n data=json.load(sys.stdin); print(200 if data.get('version') == '$EXPECTED_VERSION' else 409)\nexcept Exception:\n print(0)" 2>/dev/null || true)"
+          BASIC_STATUS="$(printf '%s' "$BASIC_BODY" | EXPECTED_VERSION="$EXPECTED_VERSION" node -e 'let input=""; process.stdin.on("data", chunk => input += chunk).on("end", () => { try { const body = JSON.parse(input); console.log(body.version === process.env.EXPECTED_VERSION ? "200" : "409"); } catch { console.log("0"); } });' 2>/dev/null || true)"
 
           if [ "$STARTUP_STATUS" = "200" ] || [ "$BASIC_STATUS" = "200" ]; then
             echo "Production health is ready on version $EXPECTED_VERSION (attempt $attempt)."
