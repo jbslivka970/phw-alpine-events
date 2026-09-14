@@ -2285,3 +2285,21 @@ IF COL_LENGTH('dbo.event_assignment', 'attended') IS NULL
 
 IF COL_LENGTH('dbo.event_assignment', 'attendance_notes') IS NULL
     ALTER TABLE dbo.event_assignment ADD attendance_notes NVARCHAR(500) NULL;
+
+-- ---------------------------------------------------------------------------
+-- Distributed scheduler coordination
+-- ---------------------------------------------------------------------------
+IF OBJECT_ID(N'dbo.job_lease', N'U') IS NULL
+CREATE TABLE dbo.job_lease (
+    job_name          NVARCHAR(100)    NOT NULL,
+    lease_token       UNIQUEIDENTIFIER NOT NULL,
+    owner_id          NVARCHAR(200)    NOT NULL,
+    lease_expires_at  DATETIME2(3)     NOT NULL,
+    heartbeat_at      DATETIME2(3)     NOT NULL,
+    last_started_at   DATETIME2(3)     NULL,
+    last_finished_at  DATETIME2(3)     NULL,
+    last_status       NVARCHAR(20)     NULL,
+    last_error        NVARCHAR(2000)   NULL,
+    CONSTRAINT PK_job_lease PRIMARY KEY (job_name),
+    CONSTRAINT CHK_job_lease_status CHECK (last_status IS NULL OR last_status IN ('running', 'completed', 'failed'))
+);

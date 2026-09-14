@@ -58,7 +58,6 @@ const MEMBER_INVITE_TOKEN_STORAGE_KEY = 'phw_member_invite_token';
 const ACTIVE_TENANT_STORAGE_KEY = 'phw_active_tenant_id';
 
 let getToken: TokenGetter = async () => getLocalE2EToken();
-let emailHint: string | null = null;
 const AUTH_RETRY_DELAY_MS = 250;
 const TOKEN_CACHE_TTL_MS = 30_000;
 let cachedToken: string | null | undefined;
@@ -128,23 +127,6 @@ function setActiveTenantId(tenantId: string | null): void {
   }
 
   window.localStorage.setItem(ACTIVE_TENANT_STORAGE_KEY, normalized);
-}
-
-// HTTP header values must be 7-bit ASCII; Safari/WebKit throws
-// `TypeError: The string did not match the expected pattern.` from `fetch()`
-// when a header value contains anything outside printable ASCII. The
-// X-Id-Token-Email header is an optional backend hint, so reject any value
-// that would not be safe to send.
-function isHeaderSafeAsciiEmail(value: string): boolean {
-  return /^[\x21-\x7E]+$/.test(value);
-}
-
-function setEmailHint(email: string | null): void {
-  if (email && isHeaderSafeAsciiEmail(email)) {
-    emailHint = email;
-  } else {
-    emailHint = null;
-  }
 }
 
 async function getCachedToken(): Promise<string | null> {
@@ -239,10 +221,6 @@ async function buildHeaders(extra?: HeadersInit, options?: HeaderBuildOptions): 
     headers.Authorization = `Bearer ${token}`;
   }
 
-  if (emailHint) {
-    headers['X-Id-Token-Email'] = emailHint;
-  }
-
   const memberInviteToken = getStoredMemberInviteToken();
   if (memberInviteToken) {
     headers['X-Member-Invite-Token'] = memberInviteToken;
@@ -332,10 +310,6 @@ async function apiPostForm<T>(path: string, formData: FormData): Promise<T> {
       headers.Authorization = `Bearer ${token}`;
     }
 
-    if (emailHint) {
-      headers['X-Id-Token-Email'] = emailHint;
-    }
-
     const memberInviteToken = getStoredMemberInviteToken();
     if (memberInviteToken) {
       headers['X-Member-Invite-Token'] = memberInviteToken;
@@ -399,7 +373,6 @@ async function apiGetBlob(path: string): Promise<{ blob: Blob; headers: Headers 
 export {
   BASE_URL,
   setActiveTenantId,
-  setEmailHint,
   setMemberInviteToken,
   setTokenGetter,
   apiDelete,

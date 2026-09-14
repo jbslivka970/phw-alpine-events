@@ -4,7 +4,7 @@ import { InteractionStatus } from '@azure/msal-browser'
 import { hasAuthConfig, loginRequest, popupRedirectUri, ROLES } from '../authConfig'
 import type { AppRole } from '../authConfig'
 import { getApiBaseUrl as resolveApiBaseUrl } from '../api/baseUrl'
-import { setActiveTenantId, setEmailHint, setMemberInviteToken, setTokenGetter } from '../api/client'
+import { setActiveTenantId, setMemberInviteToken, setTokenGetter } from '../api/client'
 import { authDebugLog, authDebugWarn } from '../utils/authDebug'
 
 const LOGIN_POPUP_TIMEOUT_MS = 240_000
@@ -510,61 +510,22 @@ function useAuth() {
       return []
     }
 
-    const emailHintHeader = resolveEmailHintHeader(accountClaims, account.username)
-    const baseHeaders: Record<string, string> = {
+    const headers: Record<string, string> = {
       Authorization: `Bearer ${accessToken}`,
     }
 
-    const headersWithHint: Record<string, string> = emailHintHeader
-      ? { ...baseHeaders, 'X-Id-Token-Email': emailHintHeader }
-      : baseHeaders
-
     const membersMeUrl = `${getApiBaseUrl()}/members/me`
 
-    const requestMembersMe = async (
-      headers: Record<string, string>,
-    ): Promise<Response> => fetch(membersMeUrl, { method: 'GET', headers })
-
     let response: Response
-    let usedEmailHintHeader = Boolean(emailHintHeader)
     try {
-      response = await requestMembersMe(headersWithHint)
-    } catch (firstError: unknown) {
-      // Some browsers (notably Safari/WebKit) reject `fetch()` with
-      // `TypeError: The string did not match the expected pattern.` when a
-      // header value contains anything outside header-safe ASCII. The
-      // X-Id-Token-Email header is purely an optional backend hint — the
-      // server can resolve the caller from the access token alone — so if the
-      // request was rejected and we attached that header, retry once without
-      // it before giving up.
-      const isTypeError = firstError instanceof TypeError
-      if (!emailHintHeader || !isTypeError) {
-        authDebugWarn('roles:backend:unavailable', {
-          account: account.username,
-          stage: 'request',
-          hasEmailHintHeader: Boolean(emailHintHeader),
-          message: firstError instanceof Error ? firstError.message : String(firstError),
-        })
-        return []
-      }
-
-      authDebugWarn('roles:backend:retry-without-hint', {
+      response = await fetch(membersMeUrl, { method: 'GET', headers })
+    } catch (error: unknown) {
+      authDebugWarn('roles:backend:unavailable', {
         account: account.username,
-        message: firstError instanceof Error ? firstError.message : String(firstError),
+        stage: 'request',
+        message: error instanceof Error ? error.message : String(error),
       })
-
-      try {
-        response = await requestMembersMe(baseHeaders)
-        usedEmailHintHeader = false
-      } catch (retryError: unknown) {
-        authDebugWarn('roles:backend:unavailable', {
-          account: account.username,
-          stage: 'request',
-          hasEmailHintHeader: false,
-          message: retryError instanceof Error ? retryError.message : String(retryError),
-        })
-        return []
-      }
+      return []
     }
 
     try {
@@ -588,7 +549,6 @@ function useAuth() {
         authDebugLog('roles:backend:merged', {
           account: account.username,
           backendRoles,
-          usedEmailHintHeader,
         })
       }
 
@@ -597,7 +557,6 @@ function useAuth() {
       authDebugWarn('roles:backend:unavailable', {
         account: account.username,
         stage: 'response',
-        hasEmailHintHeader: usedEmailHintHeader,
         message: error instanceof Error ? error.message : String(error),
       })
       return []
@@ -897,7 +856,6 @@ function useAuth() {
   async function logout() {
     setMemberInviteToken(null)
     setActiveTenantId(null)
-    setEmailHint(null)
     setTokenGetter(async () => null)
     tokenCacheRef.current = null
     publishSharedRoles(null, [], true)
@@ -937,20 +895,16 @@ function useAuth() {
   useEffect(() => {
     if (externalE2ESessionActive && externalE2EToken) {
       setTokenGetter(async () => externalE2EToken)
-      setEmailHint(externalE2EEmail)
       return
     }
 
     if (localE2EAuth) {
       setTokenGetter(async () => localRoleToken(localE2ERole))
-      setEmailHint(null)
       return
     }
 
-    setEmailHint(resolveEmailHintHeader(accountClaims, account?.username))
-
     setTokenGetter(acquireAccessToken)
-  }, [account, accountClaims, acquireAccessToken, externalE2EEmail, externalE2ESessionActive, externalE2EToken, localE2EAuth, localE2ERole])
+  }, [acquireAccessToken, externalE2ESessionActive, externalE2EToken, localE2EAuth, localE2ERole])
 
   const localUser: AuthUser = {
     id: `e2e-${localE2ERole.toLowerCase()}`,

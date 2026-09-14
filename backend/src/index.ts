@@ -81,6 +81,7 @@ import { runWaitlistLifecycleJob } from './jobs/waitlistLifecycleJob';
 import { runRetentionJob } from './jobs/retentionJob';
 import { ensureBootstrapAdmins } from './services/adminBootstrapService';
 import { initializeShortLivedCache } from './services/shortLivedCache';
+import { runWithJobLease } from './services/jobLeaseService';
 import apiRouter from './routes';
 
 const app = express();
@@ -201,7 +202,7 @@ function scheduleJobs(): void {
 
   const runReminder = async (): Promise<void> => {
     try {
-      await runReminderJob(reminderLookAheadHours);
+      await runWithJobLease('reminder', () => runReminderJob(reminderLookAheadHours));
     } catch (error) {
       console.error('[scheduler] reminder job failed', error);
     }
@@ -209,7 +210,7 @@ function scheduleJobs(): void {
 
   const runPreEventLeadSummary = async (): Promise<void> => {
     try {
-      await runPreEventLeadSummaryJob(preEventLeadSummaryLookAheadHours);
+      await runWithJobLease('pre-event-lead-summary', () => runPreEventLeadSummaryJob(preEventLeadSummaryLookAheadHours));
     } catch (error) {
       console.error('[scheduler] pre-event lead summary job failed', error);
     }
@@ -217,7 +218,7 @@ function scheduleJobs(): void {
 
   const runTavfExpiry = async (): Promise<void> => {
     try {
-      await runTavfExpiryJob();
+      await runWithJobLease('tavf-expiry', runTavfExpiryJob);
     } catch (error) {
       console.error('[scheduler] tavf expiry job failed', error);
     }
@@ -225,7 +226,7 @@ function scheduleJobs(): void {
 
   const runWaitlistLifecycle = async (): Promise<void> => {
     try {
-      await runWaitlistLifecycleJob();
+      await runWithJobLease('waitlist-lifecycle', runWaitlistLifecycleJob);
     } catch (error) {
       console.error('[scheduler] waitlist lifecycle job failed', error);
     }
@@ -233,7 +234,7 @@ function scheduleJobs(): void {
 
   const runRetention = async (): Promise<void> => {
     try {
-      await runRetentionJob();
+      await runWithJobLease('retention', runRetentionJob, 2 * 60 * 60 * 1000);
     } catch (error) {
       console.error('[scheduler] retention job failed', error);
     }

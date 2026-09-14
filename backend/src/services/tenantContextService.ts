@@ -5,7 +5,7 @@ const DEFAULT_TENANT_ID = '1b6b9719-663a-4e56-8f7d-9a4bd4c10001';
 const DEFAULT_TENANT_SLUG = 'colorado-alpine';
 const DEFAULT_TENANT_NAME = 'Colorado Alpine';
 
-type TenantRole = 'member' | 'admin' | 'event_creator' | 'tavf_creator' | 'support' | 'root_admin';
+export type TenantRole = 'member' | 'admin' | 'event_creator' | 'tavf_creator' | 'support' | 'root_admin';
 type MembershipKind = 'home' | 'temporary_demo' | 'admin';
 
 interface TenantMembershipRow {

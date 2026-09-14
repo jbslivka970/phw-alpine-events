@@ -188,10 +188,10 @@ async function createTenant(input: CreateTenantInput): Promise<TenantSummary> {
   }
 
   const tenantType: TenantType = input.tenantType ?? 'program';
-  const status: TenantStatus = input.status ?? 'active';
+  const status: TenantStatus = input.status ?? 'suspended';
   const timezone = (input.timezone?.trim() || 'America/Denver');
   const isDemo = input.isDemo ?? (tenantType === 'demo');
-  const isOperational = input.isOperational ?? !isDemo;
+  const isOperational = input.isOperational ?? false;
 
   const pool = await getPool();
   const transaction = new sql.Transaction(pool);

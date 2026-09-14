@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { rootApi } from '../../api/root'
+import { useTenantContext } from '../../contexts/TenantContext'
 import type {
   RootDemoMembershipSummary,
   RootTenantAdminSummary,
@@ -22,6 +23,8 @@ type TenantCreateForm = {
 }
 
 function RootAdminPage() {
+  const navigate = useNavigate()
+  const { selectTenant } = useTenantContext()
   const frontendProdHost = 'https://phwalpineeventsfe873a.azurewebsites.net'
   const backendProdHost = 'https://phwalpineeventsjb873a.azurewebsites.net'
   const backendStagingHost = 'https://phwalpineeventsjb873a-staging.azurewebsites.net'
@@ -39,7 +42,7 @@ function RootAdminPage() {
     slug: '',
     display_name: '',
     tenant_type: 'program',
-    status: 'active',
+    status: 'suspended',
     timezone: 'America/Denver',
   })
   const [createBusy, setCreateBusy] = useState(false)
@@ -290,6 +293,14 @@ function RootAdminPage() {
     } finally {
       setCreateBusy(false)
     }
+  }
+
+  function openSelectedTenantAdmin(): void {
+    if (!selectedTenantId) {
+      return
+    }
+    selectTenant(selectedTenantId)
+    navigate('/admin')
   }
 
   async function handleSaveBranding(): Promise<void> {
@@ -713,9 +724,12 @@ function RootAdminPage() {
 
       <section className="admin-card" style={{ marginBottom: '1rem' }}>
         <h2 className="admin-section-title">Tenant-Scoped Controls</h2>
-        <p className="admin-note" style={{ marginBottom: 0 }}>
-          Branding, tenant messaging metadata (email from/reply-to/BCC), tenant admin grants, and tenant memberships are managed in <Link to="/admin">Admin</Link> within the active tenant context.
+        <p className="admin-note">
+          Branding, tenant messaging metadata (email from/reply-to/BCC), tenant admin grants, and tenant memberships are managed in Admin within the active tenant context.
         </p>
+        <button className="btn btn--primary btn--sm" disabled={!selectedTenantId} onClick={openSelectedTenantAdmin}>
+          Open selected tenant in Admin
+        </button>
       </section>
 
       <section className="admin-card" style={{ marginBottom: '1rem' }}>

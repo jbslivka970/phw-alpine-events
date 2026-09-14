@@ -33,6 +33,7 @@ jest.mock('../middleware/auth', () => ({
     req.user = {
       sub: '00000000-0000-0000-0000-000000000001',
       email: 'admin@example.com',
+      memberId: '00000000-0000-0000-0000-000000000202',
       roles: headerRoles.split(',') as ('ADMIN' | 'EVENT_CREATOR' | 'USER')[],
       rawClaims: {},
     };
@@ -1380,6 +1381,16 @@ describe('events routes', () => {
     expect(res.status).toBe(200);
     expect(res.body.response).toBe('yes');
     expect(mockRequest.input).toHaveBeenCalledWith('response_channel', 'NVarChar', 'web');
+  });
+
+  it('POST /api/events/:id/rsvp rejects a member_id that differs from the authenticated member', async () => {
+    const res = await request(app)
+      .post('/api/events/00000000-0000-0000-0000-000000000101/rsvp')
+      .send({ member_id: '00000000-0000-0000-0000-000000000303', response: 'yes', response_role: 'PARTICIPANT' });
+
+    expect(res.status).toBe(403);
+    expect(res.body.error).toContain('only submit their own RSVP');
+    expect(getPool).not.toHaveBeenCalled();
   });
 
   it('POST /api/events/:id/rsvp does not reject empty-role authenticated users before request validation', async () => {

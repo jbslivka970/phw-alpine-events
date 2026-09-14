@@ -108,6 +108,7 @@ describe('resolveTenantContext', () => {
 
     expect(req.tenantId).toBe('9f6bdc68-5d77-4fbe-a33a-3dcfd662d123');
     expect(req.tenantContext?.source).toBe('header');
+    expect(req.tenantContext?.activeRole).toBe('member');
     expect(next).toHaveBeenCalled();
   });
 
@@ -136,5 +137,45 @@ describe('resolveTenantContext', () => {
     expect(res.status).toHaveBeenCalledWith(403);
     expect(res.json).toHaveBeenCalledWith({ error: 'Requested tenant is not accessible for this account.' });
     expect(next).not.toHaveBeenCalled();
+  });
+
+  it('does not treat a root_admin membership label as global root scope', async () => {
+    process.env['MULTI_TENANT_ENABLED'] = 'true';
+    (listTenantsForAuthenticatedUser as jest.Mock).mockResolvedValue([
+      {
+        tenant_id: DEFAULT_TENANT_ID,
+        role: 'root_admin',
+        membership_kind: 'home',
+      },
+    ]);
+
+    const req = buildReq({ headers: { 'x-tenant-id': '9f6bdc68-5d77-4fbe-a33a-3dcfd662d123' } });
+    const res = buildRes();
+    const next: NextFunction = jest.fn();
+
+    await resolveTenantContext(req, res, next);
+
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('preserves verified global root authority in a tenant with a lower membership role', async () => {
+    process.env['MULTI_TENANT_ENABLED'] = 'true';
+    (listTenantsForAuthenticatedUser as jest.Mock).mockResolvedValue([
+      {
+        tenant_id: DEFAULT_TENANT_ID,
+        role: 'member',
+        membership_kind: 'home',
+      },
+    ]);
+
+    const req = buildReq({ user: { ...buildReq().user!, rootRole: 'root_admin' } });
+    const res = buildRes();
+    const next: NextFunction = jest.fn();
+
+    await resolveTenantContext(req, res, next);
+
+    expect(req.tenantContext?.activeRole).toBe('root_admin');
+    expect(next).toHaveBeenCalledTimes(1);
   });
 });

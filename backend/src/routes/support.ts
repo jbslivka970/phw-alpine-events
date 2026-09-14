@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { timingSafeEqual } from 'node:crypto';
 import { getPool, sql } from '../db';
 import authenticate from '../middleware/auth';
 import { apiLimiter, writeLimiter } from '../middleware/rateLimiter';
@@ -32,6 +33,12 @@ function getSupportInboxAddress(): string {
 function getInboundWebhookToken(): string | null {
   const raw = process.env['SUPPORT_INBOUND_WEBHOOK_TOKEN']?.trim();
   return raw && raw.length > 0 ? raw : null;
+}
+
+function webhookTokensMatch(expected: string, provided: string): boolean {
+  const expectedBuffer = Buffer.from(expected);
+  const providedBuffer = Buffer.from(provided);
+  return expectedBuffer.length === providedBuffer.length && timingSafeEqual(expectedBuffer, providedBuffer);
 }
 
 function parseRecipientsCsv(csv: string | null | undefined): string[] {
@@ -290,7 +297,12 @@ router.post('/inbound', writeLimiter, async (req, res) => {
     ? req.headers['x-support-inbound-token'].trim()
     : '';
 
-  if (inboundToken && providedToken !== inboundToken) {
+  if (!inboundToken && process.env['NODE_ENV'] === 'production') {
+    res.status(503).json({ error: 'Inbound email webhook is not configured.' });
+    return;
+  }
+
+  if (inboundToken && !webhookTokensMatch(inboundToken, providedToken)) {
     await writeInboundEmailLog({
       source: 'webhook',
       fromEmail: '',

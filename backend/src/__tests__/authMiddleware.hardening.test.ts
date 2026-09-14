@@ -199,20 +199,16 @@ describe('authenticate middleware – hardening scenarios', () => {
     expect(res.body.roles).toEqual([]);
   });
 
-  // ── H2 — X-Id-Token-Email header rescues member resolution ─────────────
+  // ── H2 — caller-controlled email headers are not identity inputs ────────
 
-  it('H2: USER granted when email absent from JWT but X-Id-Token-Email header is present', async () => {
-    // Simulates a CIAM access token with no email claim (the normal case for
-    // custom API audiences).  The frontend sends X-Id-Token-Email as a
-    // fallback.  Member resolution should succeed and grant USER.
+  it('H2: ignores X-Id-Token-Email when the verified JWT has no email claim', async () => {
     setVerifyClaims(makeClaims()); // no email field
 
     const pool = buildMockPool([
-      { recordset: [] },                                         // no identity link
-      { recordset: [{ member_id: 'member-uuid-h2a' }] },        // unique member found via header email
-      { recordset: [] },                                         // MERGE (identity link created)
-      { recordset: [{ member_id: 'member-uuid-h2a' }] },        // outer member lookup
-      { recordset: [] },                                         // no [user] entry
+      { recordset: [] }, // no identity link
+      { recordset: [] }, // no member match
+      { recordset: [] }, // outer member match
+      { recordset: [] }, // no [user] entry
     ]);
     (getPool as jest.Mock).mockResolvedValue(pool);
 
@@ -223,7 +219,7 @@ describe('authenticate middleware – hardening scenarios', () => {
       .set('X-Id-Token-Email', 'member@example.com');
 
     expect(res.status).toBe(200);
-    expect(res.body.roles).toEqual(['USER']);
+    expect(res.body.roles).toEqual([]);
   });
 
   it('H2b: no email in JWT and no X-Id-Token-Email header → roles = [] (no silent USER grant)', async () => {

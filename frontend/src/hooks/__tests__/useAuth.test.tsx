@@ -3,14 +3,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { resetSharedAuthStateForTests, useAuth } from '../useAuth'
 
 const mockSetTokenGetter = vi.fn()
-const mockSetEmailHint = vi.fn()
 const mockSetMemberInviteToken = vi.fn()
 const mockSetActiveTenantId = vi.fn()
 const mockFetch = vi.fn()
 
 vi.mock('../../api/client', () => ({
   setTokenGetter: (...args: unknown[]) => mockSetTokenGetter(...args),
-  setEmailHint: (...args: unknown[]) => mockSetEmailHint(...args),
   setMemberInviteToken: (...args: unknown[]) => mockSetMemberInviteToken(...args),
   setActiveTenantId: (...args: unknown[]) => mockSetActiveTenantId(...args),
 }))
@@ -144,7 +142,6 @@ describe('useAuth auth flow regression coverage', () => {
 
     expect(mockSetMemberInviteToken).toHaveBeenCalledWith(null)
     expect(mockSetActiveTenantId).toHaveBeenCalledWith(null)
-    expect(mockSetEmailHint).toHaveBeenCalledWith(null)
     expect(msalInstance.clearCache).toHaveBeenCalledTimes(1)
   })
 
@@ -211,7 +208,7 @@ describe('useAuth auth flow regression coverage', () => {
     })
   })
 
-  it('normalizes EXT-format account usernames before sending X-Id-Token-Email', async () => {
+  it('does not send account usernames as identity headers', async () => {
     mockUseMsal.mockReturnValue({
       accounts: [{
         ...account,
@@ -231,10 +228,10 @@ describe('useAuth auth flow regression coverage', () => {
     })
 
     const requestInit = mockFetch.mock.calls[0]?.[1] as { headers?: Record<string, string> } | undefined
-    expect(requestInit?.headers?.['X-Id-Token-Email']).toBe('sarnitro@gmail.com')
+    expect(requestInit?.headers?.['X-Id-Token-Email']).toBeUndefined()
   })
 
-  it('prefers nonstandard email claim keys over synthetic tenant usernames for X-Id-Token-Email', async () => {
+  it('does not send nonstandard email claims as identity headers', async () => {
     mockUseMsal.mockReturnValue({
       accounts: [{
         ...account,
@@ -255,10 +252,10 @@ describe('useAuth auth flow regression coverage', () => {
     })
 
     const requestInit = mockFetch.mock.calls[0]?.[1] as { headers?: Record<string, string> } | undefined
-    expect(requestInit?.headers?.['X-Id-Token-Email']).toBe('sarnitro@gmail.com')
+    expect(requestInit?.headers?.['X-Id-Token-Email']).toBeUndefined()
   })
 
-  it('omits synthetic tenant usernames from X-Id-Token-Email when no real email is available', async () => {
+  it('omits identity email headers when no real email is available', async () => {
     mockUseMsal.mockReturnValue({
       accounts: [{
         ...account,
@@ -281,7 +278,7 @@ describe('useAuth auth flow regression coverage', () => {
     expect(requestInit?.headers?.['X-Id-Token-Email']).toBeUndefined()
   })
 
-  it('uses seeded external E2E token and email hint for browser auth state without build-time flags', async () => {
+  it('uses seeded external E2E token and display email without build-time flags', async () => {
     window.localStorage.setItem('phw_e2e_external_auth', '1')
     window.localStorage.setItem('phw_e2e_external_token', 'external-token')
     window.localStorage.setItem('phw_e2e_external_email', 'member@example.org')
@@ -299,7 +296,6 @@ describe('useAuth auth flow regression coverage', () => {
 
     await waitFor(() => {
       expect(mockSetTokenGetter).toHaveBeenCalled()
-      expect(mockSetEmailHint).toHaveBeenCalledWith('member@example.org')
     })
 
     const getter = mockSetTokenGetter.mock.calls.at(-1)?.[0] as (() => Promise<string | null>)

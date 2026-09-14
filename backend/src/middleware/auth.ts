@@ -9,11 +9,14 @@ import { claimIdentityInvite } from '../services/identityInviteClaimService';
 import { resolveTenantContext } from './resolveTenantContext';
 
 type AppRole = 'ADMIN' | 'EVENT_CREATOR' | 'USER' | 'TAVF_CREATOR';
+type RootRole = 'root_admin' | 'support';
 
 interface AuthenticatedUser {
   sub: string;
   email?: string;
   name?: string;
+  memberId?: string;
+  rootRole?: RootRole;
   roles: AppRole[];
   rawClaims: JwtPayload;
 }
@@ -321,12 +324,12 @@ function isTokenRoleFallbackEnabled(): boolean {
   return (process.env['NODE_ENV'] ?? '').toLowerCase() !== 'production';
 }
 
-async function resolveAppAccountRole(claims: JwtPayload, email: string | undefined): Promise<string | null> {
+async function resolveAppAccount(claims: JwtPayload, email: string | undefined): Promise<{ role: string | null; rootRole?: RootRole }> {
   const oid = getStringClaim(claims, 'oid') ?? getStringClaim(claims, 'sub');
   const normalizedEmail = email?.trim().toLowerCase();
 
   if (!oid && !normalizedEmail) {
-    return null;
+    return { role: null };
   }
 
   try {
@@ -335,8 +338,8 @@ async function resolveAppAccountRole(claims: JwtPayload, email: string | undefin
       .request()
       .input('oid', sql.NVarChar(255), oid ?? null)
       .input('email', sql.NVarChar(255), normalizedEmail ?? null)
-      .query<{ role: string }>(
-        `SELECT TOP 1 role
+      .query<{ role: string; is_root: boolean | number | null; root_role: string | null }>(
+        `SELECT TOP 1 role, is_root, root_role
          FROM [user]
          WHERE is_active = 1
            AND (
@@ -353,7 +356,13 @@ async function resolveAppAccountRole(claims: JwtPayload, email: string | undefin
          END`
       );
 
-    const role = result.recordset[0]?.role ?? null;
+    const account = result.recordset[0];
+    const role = account?.role ?? null;
+    const normalizedRootRole = account?.root_role?.trim().toLowerCase();
+    const rootRole = (account?.is_root === true || account?.is_root === 1)
+      && (normalizedRootRole === 'root_admin' || normalizedRootRole === 'support')
+      ? normalizedRootRole
+      : undefined;
 
     // Self-healing: if we matched by email but the row has no azure_oid yet,
     // backfill it now so future lookups resolve by OID (immune to email
@@ -362,11 +371,11 @@ async function resolveAppAccountRole(claims: JwtPayload, email: string | undefin
       void backfillAzureOidByEmail(normalizedEmail, oid);
     }
 
-    return role;
+    return { role, rootRole };
   } catch (error) {
     // Do not fail auth if app role lookup cannot be completed.
     console.warn('[auth] app role lookup failed', error);
-    return null;
+    return { role: null };
   }
 }
 
@@ -906,21 +915,7 @@ function authenticate(req: Request, res: Response, next: NextFunction): void {
       }
 
       const claims = decoded as JwtPayload;
-      let emailClaim = extractEmail(claims);
-
-      // CIAM access tokens for custom API audiences may not contain email claims.
-      // Fall back to the X-Id-Token-Email header sent by the frontend from the
-      // id_token which does include the email.
-      if (!emailClaim) {
-        const headerEmail = req.headers['x-id-token-email'];
-        if (typeof headerEmail === 'string' && headerEmail.includes('@')) {
-          emailClaim = normalizeEmailLikeValue(headerEmail) ?? headerEmail.trim().toLowerCase();
-          console.info('[auth] email resolved from X-Id-Token-Email header (not in access token)', {
-            email: emailClaim,
-            oid: claims['oid'] ?? claims['sub'],
-          });
-        }
-      }
+      const emailClaim = extractEmail(claims);
 
       const roles = extractRoles(claims);
       const normalizedEmail = emailClaim?.toLowerCase();
@@ -969,10 +964,10 @@ function authenticate(req: Request, res: Response, next: NextFunction): void {
         });
       }
 
-      const appAccountRole = await resolveAppAccountRole(claims, emailClaim);
+      const appAccount = await resolveAppAccount(claims, emailClaim);
       const allowTokenRoleFallback = isTokenRoleFallbackEnabled();
       const resolvedRoles = resolveRolesForRequest({
-        appAccountRole,
+        appAccountRole: appAccount.role,
         linkedMemberId,
         uniqueMemberByEmail,
         tokenRoles: roles,
@@ -996,6 +991,8 @@ function authenticate(req: Request, res: Response, next: NextFunction): void {
         sub: String(claims['oid'] ?? claims['sub'] ?? ''),
         email: emailClaim,
         name: typeof claims['name'] === 'string' ? claims['name'] : undefined,
+        memberId: linkedMemberId ?? uniqueMemberByEmail ?? undefined,
+        rootRole: appAccount.rootRole,
         roles: resolvedRoles,
         rawClaims: claims,
       };
@@ -1006,4 +1003,4 @@ function authenticate(req: Request, res: Response, next: NextFunction): void {
 }
 
 export default authenticate;
-export type { AppRole, AuthenticatedUser };
+export type { AppRole, AuthenticatedUser, RootRole };

@@ -1,5 +1,6 @@
 import type { NextFunction, Request, Response } from 'express';
-import { listTenantsForAuthenticatedUser, type UserTenantContext } from '../services/tenantContextService';
+import { listTenantsForAuthenticatedUser, type TenantRole, type UserTenantContext } from '../services/tenantContextService';
+import type { AppRole } from './auth';
 
 const DEFAULT_TENANT_ID = (process.env['DEFAULT_TENANT_ID'] ?? '1b6b9719-663a-4e56-8f7d-9a4bd4c10001').trim().toLowerCase();
 
@@ -10,6 +11,7 @@ declare global {
       tenantContext?: {
         activeTenantId: string;
         availableTenantIds: string[];
+        activeRole: TenantRole;
         source: 'default' | 'header' | 'auto';
       };
     }
@@ -48,12 +50,20 @@ function chooseDefaultTenant(tenants: UserTenantContext[]): string {
   return (home?.tenant_id ?? tenants[0]?.tenant_id ?? DEFAULT_TENANT_ID).toLowerCase();
 }
 
+function fallbackTenantRole(roles: readonly AppRole[]): TenantRole {
+  if (roles.includes('ADMIN')) return 'admin';
+  if (roles.includes('EVENT_CREATOR')) return 'event_creator';
+  if (roles.includes('TAVF_CREATOR')) return 'tavf_creator';
+  return 'member';
+}
+
 async function resolveTenantContext(req: Request, res: Response, next: NextFunction): Promise<void> {
   if (process.env['NODE_ENV'] === 'test') {
     req.tenantId = DEFAULT_TENANT_ID;
     req.tenantContext = {
       activeTenantId: DEFAULT_TENANT_ID,
       availableTenantIds: [DEFAULT_TENANT_ID],
+      activeRole: fallbackTenantRole(req.user?.roles ?? []),
       source: 'default',
     };
     next();
@@ -73,6 +83,7 @@ async function resolveTenantContext(req: Request, res: Response, next: NextFunct
     req.tenantContext = {
       activeTenantId: DEFAULT_TENANT_ID,
       availableTenantIds: [DEFAULT_TENANT_ID],
+      activeRole: fallbackTenantRole(req.user?.roles ?? []),
       source: 'default',
     };
     next();
@@ -92,7 +103,7 @@ async function resolveTenantContext(req: Request, res: Response, next: NextFunct
     }
 
     const availableTenantIds = memberships.map((tenant) => tenant.tenant_id.toLowerCase());
-    const hasRootScope = memberships.some((tenant) => tenant.role === 'root_admin' || tenant.role === 'support');
+    const hasRootScope = req.user.rootRole === 'root_admin' || req.user.rootRole === 'support';
 
     if (requestedTenantId && !availableTenantIds.includes(requestedTenantId) && !hasRootScope) {
       res.status(403).json({ error: 'Requested tenant is not accessible for this account.' });
@@ -100,12 +111,17 @@ async function resolveTenantContext(req: Request, res: Response, next: NextFunct
     }
 
     const activeTenantId = requestedTenantId ?? chooseDefaultTenant(memberships);
+    const activeMembership = memberships.find((tenant) => tenant.tenant_id.toLowerCase() === activeTenantId);
+    const activeRole = req.user.rootRole === 'root_admin'
+      ? 'root_admin'
+      : activeMembership?.role ?? req.user.rootRole ?? 'member';
     const source: 'header' | 'auto' = requestedTenantId ? 'header' : 'auto';
 
     req.tenantId = activeTenantId;
     req.tenantContext = {
       activeTenantId,
       availableTenantIds,
+      activeRole,
       source,
     };
     res.setHeader('X-Active-Tenant-Id', activeTenantId);

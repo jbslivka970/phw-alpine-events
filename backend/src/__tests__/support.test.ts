@@ -163,4 +163,22 @@ describe('support routes', () => {
     expect(res.status).toBe(401);
     expect(notificationService.sendEmail).not.toHaveBeenCalled();
   });
+
+  it('POST /api/support/inbound fails closed in production when the webhook token is missing', async () => {
+    process.env.NODE_ENV = 'production';
+    delete process.env.SUPPORT_INBOUND_WEBHOOK_TOKEN;
+
+    const res = await request(app)
+      .post('/api/support/inbound')
+      .send({
+        from: 'member@example.com',
+        to: 'support@phwcoloradoalpine.org',
+        subject: 'Help',
+        text: 'Need assistance',
+      });
+
+    expect(res.status).toBe(503);
+    expect(getPool).not.toHaveBeenCalled();
+    expect(notificationService.sendEmail).not.toHaveBeenCalled();
+  });
 });

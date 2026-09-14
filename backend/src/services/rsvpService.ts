@@ -222,6 +222,7 @@ async function recordRsvpResponse(options: {
   responseRole?: EventRole;
   allowUngroupedParticipant?: boolean;
   confirmAssignedDecline?: boolean;
+  tenantId?: string;
 }): Promise<RecordedRsvp> {
   const pool = await getPool();
   const notes = options.notes ?? null;
@@ -245,6 +246,7 @@ async function recordRsvpResponse(options: {
   const eventResult = await pool
     .request()
     .input('event_id', sql.UniqueIdentifier, options.eventId)
+    .input('tenant_id', sql.UniqueIdentifier, options.tenantId ?? null)
       .query<{ event_id: string; title: string; status: string; capacity: number | null; mentor_capacity: number | null; participant_capacity: number | null; event_date: Date; event_lead_member_id: string | null; event_lead_email: string | null }>(
         `SELECT
            event_id,
@@ -257,7 +259,8 @@ async function recordRsvpResponse(options: {
            event_lead_member_id,
            (SELECT TOP 1 lm.email FROM member lm WHERE lm.member_id = event_lead_member_id) AS event_lead_email
          FROM event
-         WHERE event_id = @event_id`
+         WHERE event_id = @event_id
+           AND (@tenant_id IS NULL OR tenant_id = @tenant_id)`
     );
 
   const event = eventResult.recordset[0];
