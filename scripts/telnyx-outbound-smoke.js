@@ -65,21 +65,22 @@ async function run() {
   }
 
   for (let attempt = 1; attempt <= pollAttempts; attempt += 1) {
-    let statusResponse;
+    let deliveries;
     try {
-      statusResponse = await telnyxRequest(`/messages/${encodeURIComponent(messageId)}`);
+      deliveries = await telnyxRequest('/webhook_deliveries?page%5Bsize%5D=100');
     } catch (error) {
-      if (error?.status === 404) {
+      if (error?.status === 404 || error?.status === 429 || error?.status >= 500) {
         console.log(`message_id=${messageId}`);
         console.log(`attempt=${attempt}`);
-        console.log('status=pending_lookup');
+        console.log('status=pending_delivery_feed');
         await sleep(pollIntervalMs);
         continue;
       }
       throw error;
     }
-    const message = statusResponse.data || {};
-    const status = message.to?.[0]?.status || message.status || 'unknown';
+    const matchingDeliveries = (deliveries.data || []).filter((delivery) => delivery.webhook?.payload?.id === messageId);
+    const finalized = matchingDeliveries.find((delivery) => delivery.webhook?.event_type === 'message.finalized');
+    const status = finalized?.status || (matchingDeliveries.length > 0 ? 'pending_finalization' : 'pending_delivery_feed');
     console.log(`message_id=${messageId}`);
     console.log(`attempt=${attempt}`);
     console.log(`status=${status}`);
