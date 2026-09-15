@@ -2189,6 +2189,7 @@ jobs:
       if: ${{ vars.SMS_SMOKE_ENABLED == '1' || vars.SMS_COMPLIANCE_REQUIRED == '1' }}
       continue-on-error: ${{ vars.SMS_COMPLIANCE_REQUIRED != '1' }}
       run: |
+        set -o pipefail
         mkdir -p ci-artifacts
         BACKEND_BASE_URL="${{ vars.BACKEND_BASE_URL }}"
         if [ -z "$BACKEND_BASE_URL" ]; then
@@ -2212,7 +2213,7 @@ jobs:
         TELNYX_MESSAGING_PROFILE_ID: ${{ vars.TELNYX_MESSAGING_PROFILE_ID }}
         SMS_TEST_PHONE: ${{ vars.SMS_TEST_PHONE }}
         SMS_TEST_COMMIT_REF: ${{ github.sha }}
-      run: node scripts/telnyx-outbound-smoke.js 2>&1 | tee -a ci-artifacts/deploy-backend-smoke.log
+      run: set -o pipefail; node scripts/telnyx-outbound-smoke.js 2>&1 | tee -a ci-artifacts/deploy-backend-smoke.log
 
     - name: Upload deploy backend smoke logs
       if: ${{ always() }}
