@@ -1539,6 +1539,11 @@ jobs:
 
           if [ "$SWAP_EXIT" -eq 0 ]; then
             echo "Slot swap completed."
+            az webapp restart \
+              --resource-group "$AZURE_BACKEND_RESOURCE_GROUP" \
+              --name "$AZURE_WEBAPP_NAME" \
+              --output none
+            echo "Production slot restart requested after swap."
             exit 0
           fi
 
@@ -1707,6 +1712,11 @@ jobs:
 
           if [ "$ROLLBACK_EXIT" -eq 0 ]; then
             echo "Rollback swap completed."
+            az webapp restart \
+              --resource-group "$AZURE_BACKEND_RESOURCE_GROUP" \
+              --name "$AZURE_WEBAPP_NAME" \
+              --output none
+            echo "Production slot restart requested after rollback."
             exit 0
           fi
 
