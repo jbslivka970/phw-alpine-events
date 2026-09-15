@@ -32,7 +32,9 @@ async function telnyxRequest(path, options = {}) {
     body = { raw };
   }
   if (!response.ok) {
-    throw new Error(`Telnyx API ${response.status}: ${JSON.stringify(body)}`);
+    const error = new Error(`Telnyx API ${response.status}: ${JSON.stringify(body)}`);
+    error.status = response.status;
+    throw error;
   }
   return body;
 }
@@ -63,7 +65,19 @@ async function run() {
   }
 
   for (let attempt = 1; attempt <= pollAttempts; attempt += 1) {
-    const statusResponse = await telnyxRequest(`/messages/${encodeURIComponent(messageId)}`);
+    let statusResponse;
+    try {
+      statusResponse = await telnyxRequest(`/messages/${encodeURIComponent(messageId)}`);
+    } catch (error) {
+      if (error?.status === 404) {
+        console.log(`message_id=${messageId}`);
+        console.log(`attempt=${attempt}`);
+        console.log('status=pending_lookup');
+        await sleep(pollIntervalMs);
+        continue;
+      }
+      throw error;
+    }
     const message = statusResponse.data || {};
     const status = message.to?.[0]?.status || message.status || 'unknown';
     console.log(`message_id=${messageId}`);
