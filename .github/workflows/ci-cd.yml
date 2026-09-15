@@ -2204,6 +2204,16 @@ jobs:
         export SMS_TEST_PRODUCTION_MODE
         npm --prefix backend run smoke:sms 2>&1 | tee -a ci-artifacts/deploy-backend-smoke.log
 
+    - name: Run outbound Telnyx delivery smoke (required)
+      if: ${{ vars.SMS_SMOKE_ENABLED == '1' || vars.SMS_COMPLIANCE_REQUIRED == '1' }}
+      env:
+        TELNYX_API_KEY: ${{ secrets.TELNYX_API_KEY }}
+        TELNYX_FROM_NUMBER: ${{ vars.TELNYX_FROM_NUMBER }}
+        TELNYX_MESSAGING_PROFILE_ID: ${{ vars.TELNYX_MESSAGING_PROFILE_ID }}
+        SMS_TEST_PHONE: ${{ vars.SMS_TEST_PHONE }}
+        SMS_TEST_COMMIT_REF: ${{ github.sha }}
+      run: node scripts/telnyx-outbound-smoke.js 2>&1 | tee -a ci-artifacts/deploy-backend-smoke.log
+
     - name: Upload deploy backend smoke logs
       if: ${{ always() }}
       uses: actions/upload-artifact@v5
