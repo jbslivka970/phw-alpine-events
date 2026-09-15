@@ -1572,9 +1572,10 @@ jobs:
         STARTUP_HEALTH_URL="$PROD_URL/api/v1/health/startup"
         BASIC_HEALTH_URL="$PROD_URL/api/v1/health"
 
-        for attempt in $(seq 1 24); do
-          STARTUP_STATUS="$(curl -sS -o /dev/null -w "%{http_code}" "$STARTUP_HEALTH_URL" || true)"
-          BASIC_BODY="$(curl -sS "$BASIC_HEALTH_URL" || true)"
+        for attempt in $(seq 1 60); do
+          CHECK_QUERY="deploy_check=${GITHUB_RUN_ID}-${attempt}"
+          STARTUP_STATUS="$(curl -sS -o /dev/null -w "%{http_code}" "${STARTUP_HEALTH_URL}?${CHECK_QUERY}" || true)"
+          BASIC_BODY="$(curl -sS "${BASIC_HEALTH_URL}?${CHECK_QUERY}" || true)"
           BASIC_STATUS="$(printf '%s' "$BASIC_BODY" | EXPECTED_VERSION="$EXPECTED_VERSION" node -e 'let input=""; process.stdin.on("data", chunk => input += chunk).on("end", () => { try { const body = JSON.parse(input); console.log(body.version === process.env.EXPECTED_VERSION ? "200" : "409"); } catch { console.log("0"); } });' 2>/dev/null || true)"
 
           if [ "$BASIC_STATUS" = "200" ]; then
