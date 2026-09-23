@@ -834,11 +834,40 @@ function RootAdminPage() {
       <section className="admin-card" style={{ marginBottom: '1rem' }}>
         <h2 className="admin-section-title">Tenant-Scoped Controls</h2>
         <p className="admin-note">
-          Branding, tenant messaging metadata (email from/reply-to/BCC), tenant admin grants, and tenant memberships are managed in Admin within the active tenant context.
+          Branding, tenant messaging metadata, tenant admin grants, and tenant memberships are managed for the selected tenant.
         </p>
-        <button className="btn btn--primary btn--sm" disabled={!selectedTenantId} onClick={openSelectedTenantAdmin}>
-          Open selected tenant in Admin
-        </button>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto', gap: 8, marginBottom: 8 }}>
+          <input className="members-input" type="email" placeholder="admin email" value={adminEmail} onChange={(e) => setAdminEmail(e.target.value)} />
+          <input className="members-input" placeholder="display name (optional)" value={adminDisplayName} onChange={(e) => setAdminDisplayName(e.target.value)} />
+          <input className="members-input" type="datetime-local" value={adminExpiresAt} onChange={(e) => setAdminExpiresAt(e.target.value)} />
+          <button className="btn btn--primary btn--sm" disabled={tenantWriteBusy || !selectedTenantId || !adminEmail.trim()} onClick={() => void handleGrantAdmin()}>
+            {adminGrantBusy ? 'Granting…' : 'Grant Tenant Admin'}
+          </button>
+        </div>
+        {adminGrantError && <p className="ui-notice ui-notice--error">{adminGrantError}</p>}
+        {adminGrantSuccess && <p className="ui-notice ui-notice--success">{adminGrantSuccess}</p>}
+        {adminLoadBusy ? (
+          <p className="admin-note">Loading tenant admins…</p>
+        ) : tenantAdmins.length === 0 ? (
+          <p className="admin-note">No active tenant admins assigned.</p>
+        ) : (
+          <ul>
+            {tenantAdmins.map((admin) => (
+              <li key={admin.tenant_membership_id} style={{ marginBottom: '0.35rem' }}>
+                <strong>{admin.email}</strong>
+                {admin.display_name ? ` (${admin.display_name})` : ''}
+                {' • '}
+                {admin.role}/{admin.membership_kind}
+                {' • '}
+                {admin.expires_at ? `expires ${new Date(admin.expires_at).toLocaleString()}` : 'permanent'}
+                {' '}
+                <button className="btn btn--outline btn--sm" disabled={tenantWriteBusy} onClick={() => void handleRevokeAdmin(admin.user_id, admin.email)}>
+                  Revoke
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
         <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem', alignItems: 'center' }}>
           <button className="btn btn--outline btn--sm" disabled={membershipLoadBusy || writeBusy || membershipPage <= 1} onClick={() => setMembershipPage((page) => page - 1)}>Previous memberships</button>
           <span className="admin-note">Membership page {membershipPage} ({tenantMemberships.length} loaded)</span>
