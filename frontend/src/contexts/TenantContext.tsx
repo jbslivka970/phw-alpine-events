@@ -99,16 +99,16 @@ function pickPreferredTenantContext(current: UserTenantContext, candidate: UserT
     return candidateExpired ? current : candidate
   }
 
-  const currentMembershipScore = MEMBERSHIP_KIND_PRIORITY[current.membership_kind] ?? 0
-  const candidateMembershipScore = MEMBERSHIP_KIND_PRIORITY[candidate.membership_kind] ?? 0
-  if (currentMembershipScore !== candidateMembershipScore) {
-    return candidateMembershipScore > currentMembershipScore ? candidate : current
-  }
-
   const currentRoleScore = ROLE_PRIORITY[current.role] ?? 0
   const candidateRoleScore = ROLE_PRIORITY[candidate.role] ?? 0
   if (currentRoleScore !== candidateRoleScore) {
     return candidateRoleScore > currentRoleScore ? candidate : current
+  }
+
+  const currentMembershipScore = MEMBERSHIP_KIND_PRIORITY[current.membership_kind] ?? 0
+  const candidateMembershipScore = MEMBERSHIP_KIND_PRIORITY[candidate.membership_kind] ?? 0
+  if (currentMembershipScore !== candidateMembershipScore) {
+    return candidateMembershipScore > currentMembershipScore ? candidate : current
   }
 
   return current

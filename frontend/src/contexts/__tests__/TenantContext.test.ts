@@ -69,6 +69,15 @@ describe('dedupeTenantContexts', () => {
     expect(result[0]?.role).toBe('admin')
   })
 
+  it('keeps admin access when the same tenant also has a home member membership', () => {
+    const tenantId = '11111111-1111-4111-8111-111111111111'
+    const homeMember = makeTenant({ tenant_id: tenantId, role: 'member', membership_kind: 'home' })
+    const adminGrant = makeTenant({ tenant_id: tenantId, role: 'admin', membership_kind: 'admin' })
+
+    expect(dedupeTenantContexts([homeMember, adminGrant])[0]?.role).toBe('admin')
+    expect(dedupeTenantContexts([adminGrant, homeMember])[0]?.role).toBe('admin')
+  })
+
   it('keeps distinct tenant ids untouched', () => {
     const home = makeTenant({ tenant_id: '11111111-1111-4111-8111-111111111111' })
     const demo = makeTenant({
