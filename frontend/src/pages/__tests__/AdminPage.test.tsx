@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
@@ -152,7 +152,7 @@ describe('AdminPage root access management', () => {
     mockedAdminApi.getTenantBranding.mockResolvedValue(null)
     mockedAdminApi.getTenantMessaging.mockResolvedValue(null)
     mockedAdminApi.listTenantAdmins.mockResolvedValue({ admins: [] })
-    mockedAdminApi.listTenantMemberships.mockResolvedValue({ memberships: [] })
+    mockedAdminApi.listTenantMemberships.mockResolvedValue({ memberships: [], page: 1, page_size: 25, has_more: false })
 
     mockedMembersApi.list.mockResolvedValue({ total: 0, data: [] })
     mockedGroupsApi.list.mockResolvedValue([])
@@ -223,6 +223,55 @@ describe('AdminPage root access management', () => {
     })
 
     expect(screen.queryByText('Root Access Management')).not.toBeInTheDocument()
+  })
+
+  it('groups admin and member access for the same person', async () => {
+    mockedAdminApi.listTenantMemberships.mockResolvedValue({
+      page: 1,
+      page_size: 25,
+      has_more: false,
+      memberships: [
+        {
+          tenant_membership_id: 'admin-membership',
+          tenant_id: '1b6b9719-663a-4e56-8f7d-9a4bd4c10001',
+          user_id: 'user-1',
+          member_id: null,
+          subject_email: 'cos.program.lead@projecthealingwaters.org',
+          subject_display_name: 'Matthew Green',
+          role: 'admin',
+          membership_kind: 'admin',
+          status: 'active',
+          starts_at: '2026-09-01T00:00:00.000Z',
+          expires_at: null,
+        },
+        {
+          tenant_membership_id: 'home-membership',
+          tenant_id: '1b6b9719-663a-4e56-8f7d-9a4bd4c10001',
+          user_id: null,
+          member_id: 'member-1',
+          subject_email: 'cos.program.lead@projecthealingwaters.org',
+          subject_display_name: 'Matthew Green',
+          role: 'member',
+          membership_kind: 'home',
+          status: 'active',
+          starts_at: '2026-09-01T00:00:00.000Z',
+          expires_at: null,
+        },
+      ],
+    })
+
+    render(
+      <MemoryRouter>
+        <AdminPage />
+      </MemoryRouter>,
+    )
+
+    const section = (await screen.findByText('Tenant Memberships')).closest('section')
+    expect(section).not.toBeNull()
+    const membershipPanel = within(section as HTMLElement)
+    expect(membershipPanel.getAllByRole('row')).toHaveLength(2)
+    expect(membershipPanel.getByText('Administrator')).toBeInTheDocument()
+    expect(membershipPanel.getByText('Member profile')).toBeInTheDocument()
   })
 
   it('loads profile and saves root access payload', async () => {

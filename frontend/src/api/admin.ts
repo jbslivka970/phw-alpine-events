@@ -342,8 +342,13 @@ const adminApi = {
     apiPost<{ admins: TenantAdminGrantSummary[] }>('/admin/tenant/admins', payload),
   revokeTenantAdmin: (userId: string) =>
     apiDelete<{ admins: TenantAdminGrantSummary[] }>(`/admin/tenant/admins/${encodeURIComponent(userId)}`),
-  listTenantMemberships: () =>
-    apiGet<{ memberships: TenantMembershipSummary[] }>('/admin/tenant/memberships'),
+  listTenantMemberships: (params?: { page?: number; pageSize?: number; search?: string }) => {
+    const query = new URLSearchParams();
+    query.set('page', String(params?.page ?? 1));
+    query.set('page_size', String(params?.pageSize ?? 25));
+    if (params?.search) query.set('search', params.search);
+    return apiGet<{ memberships: TenantMembershipSummary[]; page: number; page_size: number; has_more: boolean }>(`/admin/tenant/memberships?${query.toString()}`);
+  },
   grantTenantMembership: (payload: {
     email: string;
     display_name?: string | null;

@@ -1108,18 +1108,20 @@ async function setTenantStatus(tenantId: string, status: TenantStatus): Promise<
 
 async function listTenantMemberships(
   tenantId: string,
-  options?: { page?: number; pageSize?: number; lookahead?: boolean }
+  options?: { page?: number; pageSize?: number; lookahead?: boolean; search?: string }
 ): Promise<TenantMembershipSummary[]> {
   const page = Math.max(1, Math.trunc(options?.page ?? 1));
   const pageSize = Math.min(250, Math.max(1, Math.trunc(options?.pageSize ?? 100)));
   const querySize = pageSize + (options?.lookahead ? 1 : 0);
   const offset = (page - 1) * pageSize;
+  const search = options?.search?.trim().toLowerCase() || null;
   const pool = await getPool();
   const result = await pool
     .request()
     .input('tenant_id', sql.UniqueIdentifier, tenantId)
     .input('offset', sql.Int, offset)
     .input('page_size', sql.Int, querySize)
+    .input('search', sql.NVarChar(255), search)
     .query<{
       tenant_membership_id: string;
       tenant_id: string;
@@ -1155,7 +1157,13 @@ async function listTenantMemberships(
        LEFT JOIN dbo.[user] u ON u.user_id = tm.user_id
        LEFT JOIN dbo.member m ON m.member_id = tm.member_id
        WHERE tm.tenant_id = @tenant_id
-       ORDER BY tm.status ASC, tm.membership_kind ASC, COALESCE(u.email, m.email, '') ASC, tm.tenant_membership_id ASC
+         AND (
+           @search IS NULL
+           OR LOWER(COALESCE(u.email, m.email, '')) LIKE '%' + @search + '%'
+           OR LOWER(COALESCE(u.display_name, '')) LIKE '%' + @search + '%'
+           OR LOWER(CONCAT(COALESCE(m.first_name, ''), ' ', COALESCE(m.last_name, ''))) LIKE '%' + @search + '%'
+         )
+      ORDER BY COALESCE(u.email, m.email, '') ASC, tm.status ASC, tm.membership_kind ASC, tm.tenant_membership_id ASC
        OFFSET @offset ROWS FETCH NEXT @page_size ROWS ONLY`
     );
 

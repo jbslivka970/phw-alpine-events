@@ -1808,6 +1808,59 @@
   min-width: 620px;
 }
 
+.tenant-membership-toolbar,
+.tenant-membership-pagination,
+.tenant-membership-actions,
+.tenant-membership-access-list {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.tenant-membership-toolbar {
+  margin-bottom: 0.75rem;
+}
+
+.tenant-membership-toolbar .members-input {
+  flex: 1 1 260px;
+}
+
+.tenant-membership-grant {
+  margin-bottom: 1rem;
+}
+
+.tenant-membership-grant summary {
+  cursor: pointer;
+  color: var(--primary-strong);
+  font-weight: 700;
+}
+
+.tenant-membership-grant__fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.tenant-membership-access {
+  padding: 0.2rem 0.45rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface-subtle);
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.tenant-membership-table td {
+  vertical-align: top;
+}
+
+.tenant-membership-pagination {
+  justify-content: flex-end;
+  margin-top: 0.75rem;
+}
+
 /* Health card */
 .admin-health-rows { display: flex; flex-direction: column; gap: 0.55rem; }
 
@@ -1936,6 +1989,10 @@
   .admin-tools-card [style*='grid-template-columns: repeat(2, minmax(0, 1fr))'],
   .admin-tools-card [style*='grid-template-columns: repeat(3, minmax(0, 1fr))'] {
     grid-template-columns: 1fr !important;
+  }
+
+  .tenant-membership-grant__fields {
+    grid-template-columns: 1fr;
   }
 }
 

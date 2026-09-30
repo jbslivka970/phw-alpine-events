@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { adminApi } from '../api/admin'
 import type {
@@ -65,6 +65,29 @@ function formatRoleManagementError(error: unknown, fallback: string): string {
   }
 
   return withoutRawGraphJson || fallback;
+}
+
+function groupTenantMemberships(memberships: TenantMembershipSummary[]) {
+  const grouped = new Map<string, {
+    key: string
+    email: string
+    displayName: string | null
+    memberships: TenantMembershipSummary[]
+  }>()
+
+  for (const membership of memberships) {
+    const email = membership.subject_email?.trim() || '(unknown email)'
+    const displayName = membership.subject_display_name?.trim() || null
+    const key = `${email.toLowerCase()}|${displayName?.toLowerCase() ?? ''}`
+    const current = grouped.get(key)
+    if (current) {
+      current.memberships.push(membership)
+    } else {
+      grouped.set(key, { key, email, displayName, memberships: [membership] })
+    }
+  }
+
+  return [...grouped.values()]
 }
 
 function AdminPage() {
@@ -177,11 +200,19 @@ function AdminPage() {
   const [tenantMembershipActionBusy, setTenantMembershipActionBusy] = useState(false)
   const [tenantMembershipError, setTenantMembershipError] = useState<string | null>(null)
   const [tenantMembershipSuccess, setTenantMembershipSuccess] = useState<string | null>(null)
+  const [tenantMembershipPage, setTenantMembershipPage] = useState(1)
+  const [tenantMembershipHasMore, setTenantMembershipHasMore] = useState(false)
+  const [tenantMembershipSearchInput, setTenantMembershipSearchInput] = useState('')
+  const [tenantMembershipSearch, setTenantMembershipSearch] = useState('')
   const [tenantMembershipEmail, setTenantMembershipEmail] = useState('')
   const [tenantMembershipDisplayName, setTenantMembershipDisplayName] = useState('')
   const [tenantMembershipRole, setTenantMembershipRole] = useState('member')
   const [tenantMembershipKind, setTenantMembershipKind] = useState('home')
   const [tenantMembershipExpiresAt, setTenantMembershipExpiresAt] = useState('')
+  const tenantMembershipPeople = useMemo(
+    () => groupTenantMemberships(tenantMemberships),
+    [tenantMemberships],
+  )
 
   // ── Blast state ────────────────────────────────────────────────────────────
   const [blastChannel, setBlastChannel] = useState<'email' | 'sms'>('email')
@@ -762,7 +793,7 @@ function AdminPage() {
       adminApi.getTenantBranding(),
       adminApi.getTenantMessaging(),
       adminApi.listTenantAdmins(),
-      adminApi.listTenantMemberships(),
+      adminApi.listTenantMemberships({ page: 1, pageSize: 25 }),
     ])
 
     if (brandingResult.status === 'fulfilled') {
@@ -788,8 +819,11 @@ function AdminPage() {
 
     if (membershipsResult.status === 'fulfilled') {
       setTenantMemberships(membershipsResult.value.memberships)
+      setTenantMembershipPage(membershipsResult.value.page)
+      setTenantMembershipHasMore(membershipsResult.value.has_more)
     } else {
       setTenantMemberships([])
+      setTenantMembershipHasMore(false)
       setTenantMembershipError(toUserErrorMessage(membershipsResult.reason, 'Failed to load tenant memberships.'))
     }
 
@@ -797,6 +831,29 @@ function AdminPage() {
     setTenantMessagingBusy(false)
     setTenantAdminsBusy(false)
     setTenantMembershipsBusy(false)
+  }
+
+  async function loadTenantMemberships(page: number, search = tenantMembershipSearch): Promise<void> {
+    setTenantMembershipsBusy(true)
+    setTenantMembershipError(null)
+    try {
+      const response = await adminApi.listTenantMemberships({ page, pageSize: 25, search })
+      setTenantMemberships(response.memberships)
+      setTenantMembershipPage(response.page)
+      setTenantMembershipHasMore(response.has_more)
+    } catch (error) {
+      setTenantMemberships([])
+      setTenantMembershipHasMore(false)
+      setTenantMembershipError(toUserErrorMessage(error, 'Failed to load tenant memberships.'))
+    } finally {
+      setTenantMembershipsBusy(false)
+    }
+  }
+
+  function applyTenantMembershipSearch(): void {
+    const search = tenantMembershipSearchInput.trim()
+    setTenantMembershipSearch(search)
+    void loadTenantMemberships(1, search)
   }
 
   async function handleSaveTenantBranding(): Promise<void> {
@@ -905,6 +962,7 @@ function AdminPage() {
       setTenantMembershipEmail('')
       setTenantMembershipDisplayName('')
       setTenantMembershipExpiresAt('')
+      await loadTenantMemberships(1)
     } catch (error) {
       setTenantMembershipError(toUserErrorMessage(error, 'Failed to grant tenant membership.'))
     } finally {
@@ -920,6 +978,7 @@ function AdminPage() {
       const response = await adminApi.updateTenantMembership(membershipId, { status: 'revoked' })
       setTenantMemberships(response.memberships)
       setTenantMembershipSuccess('Tenant membership revoked.')
+      await loadTenantMemberships(tenantMembershipPage)
     } catch (error) {
       setTenantMembershipError(toUserErrorMessage(error, 'Failed to revoke tenant membership.'))
     } finally {
@@ -1432,48 +1491,95 @@ function AdminPage() {
           <h2 className="admin-section-title">Tenant Memberships</h2>
           {tenantMembershipError && <p className="ui-notice ui-notice--error">{tenantMembershipError}</p>}
           {tenantMembershipSuccess && <p className="ui-notice ui-notice--success">{tenantMembershipSuccess}</p>}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr 1fr auto', gap: 8, marginBottom: 8 }}>
-            <input className="members-input" placeholder="user email" value={tenantMembershipEmail} onChange={(e) => setTenantMembershipEmail(e.target.value)} />
-            <input className="members-input" placeholder="display name (optional)" value={tenantMembershipDisplayName} onChange={(e) => setTenantMembershipDisplayName(e.target.value)} />
-            <select className="members-input" value={tenantMembershipRole} onChange={(e) => setTenantMembershipRole(e.target.value)}>
-              {['member', 'admin', 'event_creator', 'tavf_creator', 'support'].map((role) => (
-                <option key={role} value={role}>{role}</option>
-              ))}
-            </select>
-            <select className="members-input" value={tenantMembershipKind} onChange={(e) => setTenantMembershipKind(e.target.value)}>
-              {['home', 'admin', 'temporary_demo'].map((kind) => (
-                <option key={kind} value={kind}>{kind}</option>
-              ))}
-            </select>
-            <input className="members-input" type="datetime-local" value={tenantMembershipExpiresAt} onChange={(e) => setTenantMembershipExpiresAt(e.target.value)} />
-            <button className="btn btn--primary btn--sm" disabled={tenantMembershipActionBusy} onClick={() => void handleGrantTenantMembershipPortal()}>
-              {tenantMembershipActionBusy ? 'Saving…' : 'Grant Membership'}
-            </button>
+          <div className="tenant-membership-toolbar">
+            <input
+              className="members-input"
+              type="search"
+              placeholder="Search email or name"
+              value={tenantMembershipSearchInput}
+              onChange={(e) => setTenantMembershipSearchInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') applyTenantMembershipSearch() }}
+            />
+            <button className="btn btn--outline btn--sm" disabled={tenantMembershipsBusy} onClick={applyTenantMembershipSearch}>Search</button>
+            {tenantMembershipSearch && (
+              <button
+                className="btn btn--outline btn--sm"
+                disabled={tenantMembershipsBusy}
+                onClick={() => {
+                  setTenantMembershipSearchInput('')
+                  setTenantMembershipSearch('')
+                  void loadTenantMemberships(1, '')
+                }}
+              >
+                Clear
+              </button>
+            )}
           </div>
+          <details className="tenant-membership-grant">
+            <summary>Grant membership</summary>
+            <div className="tenant-membership-grant__fields">
+              <input className="members-input" type="email" placeholder="user email" value={tenantMembershipEmail} onChange={(e) => setTenantMembershipEmail(e.target.value)} />
+              <input className="members-input" placeholder="display name (optional)" value={tenantMembershipDisplayName} onChange={(e) => setTenantMembershipDisplayName(e.target.value)} />
+              <select className="members-input" aria-label="Membership role" value={tenantMembershipRole} onChange={(e) => setTenantMembershipRole(e.target.value)}>
+                {['member', 'admin', 'event_creator', 'tavf_creator', 'support'].map((role) => (
+                  <option key={role} value={role}>{role.replaceAll('_', ' ')}</option>
+                ))}
+              </select>
+              <select className="members-input" aria-label="Membership type" value={tenantMembershipKind} onChange={(e) => setTenantMembershipKind(e.target.value)}>
+                {['home', 'admin', 'temporary_demo'].map((kind) => (
+                  <option key={kind} value={kind}>{kind.replaceAll('_', ' ')}</option>
+                ))}
+              </select>
+              <input className="members-input" aria-label="Membership expiration" type="datetime-local" value={tenantMembershipExpiresAt} onChange={(e) => setTenantMembershipExpiresAt(e.target.value)} />
+              <button className="btn btn--primary btn--sm" disabled={tenantMembershipActionBusy || !tenantMembershipEmail.trim()} onClick={() => void handleGrantTenantMembershipPortal()}>
+                {tenantMembershipActionBusy ? 'Saving…' : 'Grant Membership'}
+              </button>
+            </div>
+          </details>
           {tenantMembershipsBusy ? (
             <p className="page-subtitle">Loading tenant memberships…</p>
-          ) : tenantMemberships.length === 0 ? (
+          ) : tenantMembershipPeople.length === 0 ? (
             <p className="page-subtitle">No tenant memberships found.</p>
           ) : (
-            <ul>
-              {tenantMemberships.map((membership) => (
-                <li key={membership.tenant_membership_id} style={{ marginBottom: '0.35rem' }}>
-                  <strong>{membership.subject_email ?? '(unknown email)'}</strong>
-                  {membership.subject_display_name ? ` (${membership.subject_display_name})` : ''}
-                  {' • '}
-                  {membership.role}/{membership.membership_kind}
-                  {' • '}
-                  {membership.status}
-                  {' '}
-                  {membership.status === 'active' && (
-                    <button className="btn btn--outline btn--sm" disabled={tenantMembershipActionBusy} onClick={() => void handleRevokeTenantMembershipPortal(membership.tenant_membership_id)}>
-                      Revoke
-                    </button>
-                  )}
-                </li>
-              ))}
-            </ul>
+            <div className="admin-users-table-wrap">
+              <table className="members-table tenant-membership-table">
+                <thead>
+                  <tr><th>Person</th><th>Access</th><th>Status</th><th>Actions</th></tr>
+                </thead>
+                <tbody>
+                  {tenantMembershipPeople.map((person) => (
+                    <tr key={person.key}>
+                      <td><strong>{person.displayName ?? person.email}</strong>{person.displayName && <div className="page-subtitle">{person.email}</div>}</td>
+                      <td>
+                        <div className="tenant-membership-access-list">
+                          {person.memberships.map((membership) => (
+                            <span className="tenant-membership-access" key={membership.tenant_membership_id}>
+                              {membership.membership_kind === 'admin' ? 'Administrator' : membership.membership_kind === 'home' ? 'Member profile' : 'Temporary demo'}
+                            </span>
+                          ))}
+                        </div>
+                      </td>
+                      <td>{person.memberships.some((membership) => membership.status === 'active') ? 'Active' : 'Revoked'}</td>
+                      <td>
+                        <div className="tenant-membership-actions">
+                          {person.memberships.filter((membership) => membership.status === 'active').map((membership) => (
+                            <button className="btn btn--outline btn--sm" key={membership.tenant_membership_id} disabled={tenantMembershipActionBusy} onClick={() => void handleRevokeTenantMembershipPortal(membership.tenant_membership_id)}>
+                              Revoke {membership.membership_kind === 'admin' ? 'admin' : membership.membership_kind === 'home' ? 'member' : 'demo'}
+                            </button>
+                          ))}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
+          <div className="tenant-membership-pagination">
+            <button className="btn btn--outline btn--sm" disabled={tenantMembershipsBusy || tenantMembershipPage <= 1} onClick={() => void loadTenantMemberships(tenantMembershipPage - 1)}>Previous</button>
+            <span className="page-subtitle">Page {tenantMembershipPage}</span>
+            <button className="btn btn--outline btn--sm" disabled={tenantMembershipsBusy || !tenantMembershipHasMore} onClick={() => void loadTenantMemberships(tenantMembershipPage + 1)}>Next</button>
+          </div>
         </section>
 
         <section className="card admin-tools-card">

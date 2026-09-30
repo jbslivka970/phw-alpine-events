@@ -665,8 +665,18 @@ router.get('/tenant/memberships', async (req, res, next) => {
       return;
     }
 
-    const memberships = await listTenantMemberships(tenantId);
-    res.json({ memberships });
+    const parsedPage = Number.parseInt(String(req.query.page ?? '1'), 10);
+    const parsedPageSize = Number.parseInt(String(req.query.page_size ?? '25'), 10);
+    const page = Number.isFinite(parsedPage) ? Math.max(1, parsedPage) : 1;
+    const pageSize = Number.isFinite(parsedPageSize) ? Math.min(100, Math.max(1, parsedPageSize)) : 25;
+    const search = typeof req.query.search === 'string' ? req.query.search.trim() : undefined;
+    const rows = await listTenantMemberships(tenantId, { page, pageSize, lookahead: true, search });
+    res.json({
+      memberships: rows.slice(0, pageSize),
+      page,
+      page_size: pageSize,
+      has_more: rows.length > pageSize,
+    });
   } catch (error) {
     next(error);
   }
