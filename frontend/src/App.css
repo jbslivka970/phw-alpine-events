@@ -230,13 +230,14 @@
   border-radius: 10px;
   overflow: hidden;
   border: 1px solid var(--border);
-  max-height: 220px;
+  aspect-ratio: 16 / 9;
+  background: var(--surface-muted, #f3f4f6);
 }
 
 .event-card__image {
   display: block;
   width: 100%;
-  height: auto;
+  height: 100%;
   object-fit: cover;
 }
 
@@ -1797,6 +1798,41 @@
   color: var(--primary-strong);
   padding-bottom: 0.55rem;
   border-bottom: 1px solid var(--border);
+}
+
+.tenant-photo-manager {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.75rem;
+}
+
+.tenant-photo-manager__item {
+  margin: 0;
+  min-width: 0;
+}
+
+.tenant-photo-manager__item img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-muted, #f3f4f6);
+}
+
+.tenant-photo-manager__item figcaption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-top: 0.4rem;
+  font-size: 0.82rem;
+}
+
+.tenant-photo-manager__actions {
+  display: flex;
+  gap: 0.25rem;
 }
 
 .admin-users-table-wrap {

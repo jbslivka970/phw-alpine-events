@@ -1,6 +1,6 @@
 import { ensureEventSummaryEmailConfigTable, normalizeEmail } from '../services/eventSummaryEmailConfig';
 import { listPrograms, normalizeProgramNameList, normalizeStateNameInput, replaceProgramsForState } from '../services/programCatalogService';
-import { Request, Router } from 'express';
+import { Request, Response, Router } from 'express';
 import { randomUUID } from 'crypto';
 import { getPool, sql } from '../db';
 import { DEFAULT_TENANT_ID } from '../middleware/resolveTenantContext';
@@ -22,7 +22,13 @@ import {
 import { notificationService } from '../services/notifications';
 import type { SendEmailOptions, SendSmsOptions } from '../services/notifications';
 import { runRetentionJob } from '../jobs/retentionJob';
-import { getTenantBranding, upsertTenantBranding } from '../services/rootTenantBrandingService';
+import {
+  commitBrandingAsset,
+  createBrandingAssetUploadUrl,
+  getTenantBranding,
+  upsertTenantBranding,
+  type TenantBrandingAssetKind,
+} from '../services/rootTenantBrandingService';
 import { getTenantMessaging, upsertTenantMessaging } from '../services/rootTenantMessagingService';
 import {
   grantTenantAdminByEmail,
@@ -34,6 +40,28 @@ import {
 } from '../services/tenantService';
 
 const router = Router();
+const BRANDING_ASSET_KINDS: TenantBrandingAssetKind[] = ['logo', 'logo_dark', 'hero'];
+
+function sendTenantBrandingError(res: Response, error: unknown): boolean {
+  const message = error instanceof Error ? error.message : '';
+  if (message === 'Tenant not found') {
+    res.status(404).json({ error: message });
+    return true;
+  }
+  if (message.includes('Homepage photos must be')
+    || message.includes('Logo uploads must be')
+    || message.includes('homepage images')
+    || message.includes('assetUrl is required')
+    || message.includes('assetUrl does not belong')) {
+    res.status(400).json({ error: message });
+    return true;
+  }
+  if (message.includes('Blob storage credentials are not configured')) {
+    res.status(503).json({ error: message });
+    return true;
+  }
+  return false;
+}
 
 // ─── Identity summary cache ─────────────────────────────────────────────────
 // The summary endpoint runs through every member, which can be slow when
@@ -499,6 +527,7 @@ router.get('/tenant/branding', async (req, res, next) => {
 
     res.json(branding);
   } catch (error) {
+    if (sendTenantBrandingError(res, error)) return;
     next(error);
   }
 });
@@ -534,6 +563,62 @@ router.put('/tenant/branding', writeLimiter, async (req, res, next) => {
 
     res.json(branding);
   } catch (error) {
+    if (sendTenantBrandingError(res, error)) return;
+    next(error);
+  }
+});
+
+router.post('/tenant/branding/assets/upload-url', writeLimiter, async (req, res, next) => {
+  try {
+    const tenantId = (req.tenantId ?? DEFAULT_TENANT_ID).trim();
+    const fileName = typeof req.body?.file_name === 'string' ? req.body.file_name.trim() : '';
+    const contentType = typeof req.body?.content_type === 'string' ? req.body.content_type.trim() : '';
+    const assetKind = typeof req.body?.asset_kind === 'string'
+      ? req.body.asset_kind.trim().toLowerCase() as TenantBrandingAssetKind
+      : null;
+
+    if (!fileName) {
+      res.status(400).json({ error: 'file_name is required' });
+      return;
+    }
+    if (!contentType) {
+      res.status(400).json({ error: 'content_type is required' });
+      return;
+    }
+    if (!assetKind || !BRANDING_ASSET_KINDS.includes(assetKind)) {
+      res.status(400).json({ error: `asset_kind must be one of: ${BRANDING_ASSET_KINDS.join(', ')}` });
+      return;
+    }
+
+    const upload = await createBrandingAssetUploadUrl({ tenantId, fileName, contentType, assetKind });
+    res.json(upload);
+  } catch (error) {
+    if (sendTenantBrandingError(res, error)) return;
+    next(error);
+  }
+});
+
+router.post('/tenant/branding/assets/commit', writeLimiter, async (req, res, next) => {
+  try {
+    const tenantId = (req.tenantId ?? DEFAULT_TENANT_ID).trim();
+    const assetUrl = typeof req.body?.asset_url === 'string' ? req.body.asset_url.trim() : '';
+    const assetKind = typeof req.body?.asset_kind === 'string'
+      ? req.body.asset_kind.trim().toLowerCase() as TenantBrandingAssetKind
+      : null;
+
+    if (!assetUrl) {
+      res.status(400).json({ error: 'asset_url is required' });
+      return;
+    }
+    if (!assetKind || !BRANDING_ASSET_KINDS.includes(assetKind)) {
+      res.status(400).json({ error: `asset_kind must be one of: ${BRANDING_ASSET_KINDS.join(', ')}` });
+      return;
+    }
+
+    const branding = await commitBrandingAsset({ tenantId, assetKind, assetUrl });
+    res.json(branding);
+  } catch (error) {
+    if (sendTenantBrandingError(res, error)) return;
     next(error);
   }
 });

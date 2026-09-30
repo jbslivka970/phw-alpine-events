@@ -1,4 +1,4 @@
-import { NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { NavLink, Outlet } from 'react-router-dom'
 import { ROLES } from '../authConfig'
 import { useAuth } from '../hooks/useAuth'
 
@@ -14,12 +14,10 @@ function primaryRole(roles: string[]): string | null {
 }
 
 function AppShell() {
-  const { isAdmin, user, logout } = useAuth()
-  const navigate = useNavigate()
+  const { isAdmin, user, logout, isLoggingOut } = useAuth()
 
   async function handleLogout() {
     await logout()
-    navigate('/login', { replace: true })
   }
 
   const displayRole = user ? primaryRole(user.roles) : null
@@ -61,7 +59,7 @@ function AppShell() {
               {displayRole && <span className="app-header__role">{displayRole}</span>}
             </span>
           )}
-          <button className="btn btn--outline btn--sm" onClick={handleLogout}>Sign out</button>
+          <button className="btn btn--outline btn--sm" disabled={isLoggingOut} onClick={handleLogout}>{isLoggingOut ? 'Signing out…' : 'Sign out'}</button>
         </div>
       </header>
 

@@ -31,7 +31,7 @@ function isLinkActive(pathname: string, to: string): boolean {
 export default function Layout() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, logout, canCreateTavfPostings } = useAuth();
+  const { user, logout, isLoggingOut, canCreateTavfPostings } = useAuth();
   const { activeTenant, activeRole, tenants, selectTenant } = useTenantContext();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isAdminMenuOpen, setIsAdminMenuOpen] = useState(false);
@@ -76,7 +76,6 @@ export default function Layout() {
 
   async function handleLogout() {
     await logout();
-    navigate('/login', { replace: true });
   }
 
   function handleTenantChange(tenantId: string) {
@@ -219,8 +218,8 @@ export default function Layout() {
                   </select>
                 </label>
               )}
-              <button className="btn btn--outline btn--sm" type="button" onClick={handleLogout}>
-                Sign out
+              <button className="btn btn--outline btn--sm" type="button" disabled={isLoggingOut} onClick={handleLogout}>
+                {isLoggingOut ? 'Signing out…' : 'Sign out'}
               </button>
             </div>
           </div>

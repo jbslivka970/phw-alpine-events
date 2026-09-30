@@ -1,9 +1,7 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 
 function TenantNoAccessPage() {
-  const navigate = useNavigate()
   const { logout } = useAuth()
   const [isSigningOut, setIsSigningOut] = useState(false)
   const [signOutError, setSignOutError] = useState<string | null>(null)
@@ -14,7 +12,6 @@ function TenantNoAccessPage() {
 
     try {
       await logout()
-      navigate('/login', { replace: true })
     } catch (error) {
       console.error('[tenant-no-access] Sign-out failed', error)
       setSignOutError('Sign-out could not complete. Please close this tab and open the app again.')

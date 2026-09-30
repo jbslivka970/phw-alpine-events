@@ -81,6 +81,20 @@ Capacity rollback does not roll back data. Use Azure SQL point-in-time restore f
 
 ## Tenant Provisioning
 
+Use **Root Tenant Administration > New Tenant Onboarding** for future programs:
+
+1. Enter the program name, confirm the generated slug, timezone, and tenant type.
+2. Enter the first tenant administrator. This grants tenant-scoped administration only; global root access and member participation remain separate grants.
+3. Review the summary and create the suspended tenant.
+4. Confirm the completion screen reports whether onboarding email delivery succeeded. If delivery failed, use **Copy Sign-in Link** and send it manually; do not recreate the tenant.
+5. Open **Configure Tenant**, complete branding and messaging setup, verify the administrator's first sign-in, and reactivate only after the launch gates pass.
+
+Tenant creation commits the tenant, default branding and messaging rows, system groups, app user, and first tenant-admin membership before attempting email delivery. A provider failure therefore returns a recoverable partial success rather than rolling back durable access.
+
+Tenant administrators can manage up to five homepage photos from **Admin > Tenant Branding**. The first image is the dashboard hero and the next four fill the gallery strip. Accepted formats are JPEG, PNG, WebP, and AVIF. Removing a photo detaches it from the homepage but does not immediately delete the underlying Blob.
+
+Sign-out must return through the top-level Entra logout flow to `/login`. Acceptance requires that protected routes cannot be reopened from cached app state and that a different account can sign in without clearing browser storage manually.
+
 Create the tenant as suspended so it cannot be used before validation:
 
 ```json

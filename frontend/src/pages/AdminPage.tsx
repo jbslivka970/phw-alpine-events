@@ -29,6 +29,10 @@ import { toUserErrorMessage } from '../utils/errorMessage'
 
 type HealthState = 'loading' | 'ok' | 'error' | 'unconfigured'
 
+const HOMEPAGE_PHOTO_LIMIT = 5
+const HOMEPAGE_PHOTO_MAX_BYTES = 10 * 1024 * 1024
+const HOMEPAGE_PHOTO_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/avif'])
+
 interface HealthStatus {
   api: HealthState
   db: HealthState
@@ -886,6 +890,82 @@ function AdminPage() {
     }
   }
 
+  async function persistHomepagePhotos(heroImageUrls: string[], successMessage: string): Promise<void> {
+    if (!tenantBranding) return
+    setTenantBrandingSaveBusy(true)
+    setTenantBrandingError(null)
+    setTenantBrandingSuccess(null)
+    try {
+      const saved = await adminApi.updateTenantBranding({ hero_image_urls: heroImageUrls })
+      setTenantBranding(saved)
+      setTenantBrandingSuccess(successMessage)
+    } catch (error) {
+      setTenantBrandingError(toUserErrorMessage(error, 'Failed to update homepage photos.'))
+    } finally {
+      setTenantBrandingSaveBusy(false)
+    }
+  }
+
+  async function handleHomepagePhotoUpload(file: File): Promise<void> {
+    if (!tenantBranding) return
+    if (tenantBranding.hero_image_urls.length >= HOMEPAGE_PHOTO_LIMIT) {
+      setTenantBrandingError(`Remove a photo before uploading another. The limit is ${HOMEPAGE_PHOTO_LIMIT}.`)
+      return
+    }
+    if (!HOMEPAGE_PHOTO_TYPES.has(file.type)) {
+      setTenantBrandingError('Homepage photos must be JPEG, PNG, WebP, or AVIF.')
+      return
+    }
+    if (file.size > HOMEPAGE_PHOTO_MAX_BYTES) {
+      setTenantBrandingError('Homepage photos must be 10 MB or smaller.')
+      return
+    }
+
+    setTenantBrandingSaveBusy(true)
+    setTenantBrandingError(null)
+    setTenantBrandingSuccess(null)
+    try {
+      const upload = await adminApi.createTenantBrandingUploadUrl({
+        file_name: file.name,
+        content_type: file.type,
+        asset_kind: 'hero',
+      })
+      const response = await fetch(upload.upload_url, {
+        method: 'PUT',
+        headers: upload.required_headers,
+        body: file,
+      })
+      if (!response.ok) {
+        throw new Error(`Blob upload failed with status ${response.status}`)
+      }
+      const saved = await adminApi.commitTenantBrandingAsset({ asset_kind: 'hero', asset_url: upload.blob_url })
+      setTenantBranding(saved)
+      setTenantBrandingSuccess('Homepage photo uploaded. The first photo is used as the dashboard hero.')
+    } catch (error) {
+      setTenantBrandingError(toUserErrorMessage(error, 'Failed to upload homepage photo.'))
+    } finally {
+      setTenantBrandingSaveBusy(false)
+    }
+  }
+
+  function moveHomepagePhoto(index: number, direction: -1 | 1): void {
+    if (!tenantBranding) return
+    const targetIndex = index + direction
+    if (targetIndex < 0 || targetIndex >= tenantBranding.hero_image_urls.length) return
+    const nextUrls = [...tenantBranding.hero_image_urls]
+    const [movedUrl] = nextUrls.splice(index, 1)
+    nextUrls.splice(targetIndex, 0, movedUrl)
+    void persistHomepagePhotos(nextUrls, 'Homepage photo order updated.')
+  }
+
+  function removeHomepagePhoto(index: number): void {
+    if (!tenantBranding || !window.confirm('Remove this photo from the homepage?')) return
+    void persistHomepagePhotos(
+      tenantBranding.hero_image_urls.filter((_, photoIndex) => photoIndex !== index),
+      'Homepage photo removed.',
+    )
+  }
+
   async function handleSaveTenantMessaging(): Promise<void> {
     if (!tenantMessaging) return
     setTenantMessagingSaveBusy(true)
@@ -1404,6 +1484,45 @@ function AdminPage() {
             <p className="page-subtitle">Loading tenant branding…</p>
           ) : (
             <>
+              <div style={{ marginBottom: '1rem' }}>
+                <h3 style={{ margin: '0 0 0.35rem' }}>Homepage Photos</h3>
+                <p className="page-subtitle" style={{ marginBottom: '0.75rem' }}>
+                  The first photo is the dashboard hero. The next four appear in the photo strip.
+                </p>
+                {tenantBranding.hero_image_urls.length > 0 ? (
+                  <div className="tenant-photo-manager" style={{ marginBottom: '0.75rem' }}>
+                    {tenantBranding.hero_image_urls.map((url, index) => (
+                      <figure className="tenant-photo-manager__item" key={url}>
+                        <img src={url} alt={index === 0 ? 'Dashboard hero preview' : `Dashboard gallery preview ${index}`} />
+                        <figcaption>
+                          <strong>{index === 0 ? 'Hero' : `Gallery ${index}`}</strong>
+                          <span className="tenant-photo-manager__actions">
+                            <button className="btn btn--outline btn--sm" type="button" title="Move photo earlier" disabled={tenantBrandingSaveBusy || index === 0} onClick={() => moveHomepagePhoto(index, -1)}>↑</button>
+                            <button className="btn btn--outline btn--sm" type="button" title="Move photo later" disabled={tenantBrandingSaveBusy || index === tenantBranding.hero_image_urls.length - 1} onClick={() => moveHomepagePhoto(index, 1)}>↓</button>
+                            <button className="btn btn--outline btn--sm" type="button" disabled={tenantBrandingSaveBusy} onClick={() => removeHomepagePhoto(index)}>Remove</button>
+                          </span>
+                        </figcaption>
+                      </figure>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="admin-note">No tenant photos uploaded. The bundled default photos will be shown.</p>
+                )}
+                <label className="btn btn--outline btn--sm" style={{ display: 'inline-flex', cursor: tenantBrandingSaveBusy ? 'not-allowed' : 'pointer' }}>
+                  {tenantBrandingSaveBusy ? 'Saving…' : 'Upload Photo'}
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,image/avif"
+                    hidden
+                    disabled={tenantBrandingSaveBusy || tenantBranding.hero_image_urls.length >= HOMEPAGE_PHOTO_LIMIT}
+                    onChange={(event) => {
+                      const file = event.target.files?.[0]
+                      event.target.value = ''
+                      if (file) void handleHomepagePhotoUpload(file)
+                    }}
+                  />
+                </label>
+              </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8, marginBottom: 8 }}>
                 <input className="members-input" placeholder="Organization long name" value={tenantBranding.org_long_name ?? ''} onChange={(e) => setTenantBranding((current) => current ? { ...current, org_long_name: e.target.value } : current)} />
                 <input className="members-input" placeholder="Organization short name" value={tenantBranding.org_short_name ?? ''} onChange={(e) => setTenantBranding((current) => current ? { ...current, org_short_name: e.target.value } : current)} />

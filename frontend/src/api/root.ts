@@ -26,6 +26,14 @@ interface RootTenantSummary {
   status: string | null
 }
 
+interface RootTenantCreateResult extends RootTenantSummary {
+  onboarding: {
+    invite_status: 'sent' | 'failed'
+    sign_in_url: string
+    admin_email: string
+  }
+}
+
 interface RootAccessMembershipSummary {
   tenant_membership_id: string
   tenant_id: string
@@ -203,7 +211,7 @@ const rootApi = {
   getSession: () => apiGet<RootSession>('/root/session'),
   listTenants: (page = 1, pageSize = 100) =>
     apiGet<{ tenants: RootTenantSummary[]; page: number; page_size: number; has_more: boolean }>(`/root/tenants?page=${page}&page_size=${pageSize}`),
-  createTenant: (payload: RootCreateTenantPayload) => apiPost<RootTenantSummary>('/root/tenants', payload),
+  createTenant: (payload: RootCreateTenantPayload) => apiPost<RootTenantCreateResult>('/root/tenants', payload),
   listTenantAdmins: (tenantId: string, signal?: AbortSignal) => apiGet<{ admins: RootTenantAdminSummary[] }>(`/root/tenants/${encodeURIComponent(tenantId)}/admins`, { signal }),
   grantTenantAdmin: (tenantId: string, payload: { email: string; display_name?: string | null; expires_at?: string | null }) =>
     apiPost<{ admins: RootTenantAdminSummary[] }>(`/root/tenants/${encodeURIComponent(tenantId)}/admins`, payload),
@@ -262,6 +270,7 @@ export type {
   RootTenantMembershipSummary,
   RootTenantUsageSummary,
   RootTenantSummary,
+  RootTenantCreateResult,
   SmsProvider,
   TenantBrandingAssetKind,
   TenantMembershipKind,

@@ -102,8 +102,8 @@ function TenantLoadError({ error, retry }: { error: 'session_expired' | 'unavail
     setBusy(true)
     try {
       await logout()
-    } finally {
-      window.location.assign('/login')
+    } catch {
+      setBusy(false)
     }
   }
 

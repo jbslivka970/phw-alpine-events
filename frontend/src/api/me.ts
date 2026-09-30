@@ -1,4 +1,4 @@
-import { apiGetWithoutTenant } from './client';
+import { apiGet, apiGetWithoutTenant } from './client';
 
 type TenantRole = 'member' | 'admin' | 'event_creator' | 'tavf_creator' | 'support' | 'root_admin';
 type MembershipKind = 'home' | 'temporary_demo' | 'admin';
@@ -21,6 +21,11 @@ interface UserTenantContext {
   branding: TenantBranding | null;
 }
 
+interface TenantEffectiveBranding {
+  tenant_id: string;
+  hero_image_urls: string[];
+}
+
 type TenantListResponse = {
   tenants: UserTenantContext[];
 } | UserTenantContext[];
@@ -38,7 +43,8 @@ const meApi = {
     const response = await apiGetWithoutTenant<TenantListResponse>('/me/tenants', { signal });
     return unwrapTenantList(response);
   },
+  getTenantBranding: () => apiGet<TenantEffectiveBranding>('/me/tenant-branding'),
 };
 
 export { meApi };
-export type { TenantBranding, UserTenantContext, TenantRole, MembershipKind };
+export type { TenantBranding, TenantEffectiveBranding, UserTenantContext, TenantRole, MembershipKind };

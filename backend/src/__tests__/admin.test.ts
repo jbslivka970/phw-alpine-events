@@ -5,6 +5,7 @@ import { getPool } from '../db';
 import { generateInviteDraft } from '../services/aiInviteService';
 import { runRetentionJob } from '../jobs/retentionJob';
 import { apiLimiter } from '../middleware/rateLimiter';
+import { createBrandingAssetUploadUrl } from '../services/rootTenantBrandingService';
 
 jest.mock('../db', () => ({
   getPool: jest.fn(),
@@ -27,6 +28,7 @@ jest.mock('../middleware/auth', () => ({
       roles: ['ADMIN'],
       rawClaims: {},
     };
+    req.tenantId = '527d755c-6818-40a0-bd7f-137a91b9e54e';
     next();
   },
 }));
@@ -42,6 +44,13 @@ jest.mock('../services/aiInviteService', () => ({
 
 jest.mock('../jobs/retentionJob', () => ({
   runRetentionJob: jest.fn(),
+}));
+
+jest.mock('../services/rootTenantBrandingService', () => ({
+  createBrandingAssetUploadUrl: jest.fn(),
+  commitBrandingAsset: jest.fn(),
+  getTenantBranding: jest.fn(),
+  upsertTenantBranding: jest.fn(),
 }));
 
 interface MockRequest {
@@ -88,6 +97,26 @@ describe('admin routes', () => {
       .send({ email: 'bad@example.com', role: 'owner' });
 
     expect(res.status).toBe(400);
+  });
+
+  it('POST /api/admin/tenant/branding/assets/upload-url uses the resolved tenant scope', async () => {
+    (createBrandingAssetUploadUrl as jest.Mock).mockResolvedValue({
+      upload_url: 'https://storage.example.org/upload?sas=1',
+      blob_url: 'https://storage.example.org/tenant-branding/photo.jpg',
+      required_headers: { 'x-ms-blob-type': 'BlockBlob' },
+    });
+
+    const res = await request(app)
+      .post('/api/admin/tenant/branding/assets/upload-url')
+      .send({ file_name: 'photo.jpg', content_type: 'image/jpeg', asset_kind: 'hero' });
+
+    expect(res.status).toBe(200);
+    expect(createBrandingAssetUploadUrl).toHaveBeenCalledWith({
+      tenantId: '527d755c-6818-40a0-bd7f-137a91b9e54e',
+      fileName: 'photo.jpg',
+      contentType: 'image/jpeg',
+      assetKind: 'hero',
+    });
   });
 
   it('POST /api/admin/import returns import snapshot', async () => {

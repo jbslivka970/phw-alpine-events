@@ -2,6 +2,7 @@ import express from 'express';
 import request from 'supertest';
 import meRouter from '../routes/me';
 import { listTenantsForAuthenticatedUser } from '../services/tenantContextService';
+import { getTenantBranding } from '../services/rootTenantBrandingService';
 
 let mockUser: express.Request['user'] | undefined;
 
@@ -10,6 +11,7 @@ jest.mock('../middleware/auth', () => ({
   default: (req: express.Request, _res: express.Response, next: express.NextFunction) => {
     if (mockUser) {
       req.user = mockUser;
+      req.tenantId = '527d755c-6818-40a0-bd7f-137a91b9e54e';
     }
     next();
   },
@@ -21,6 +23,10 @@ jest.mock('../middleware/rateLimiter', () => ({
 
 jest.mock('../services/tenantContextService', () => ({
   listTenantsForAuthenticatedUser: jest.fn(),
+}));
+
+jest.mock('../services/rootTenantBrandingService', () => ({
+  getTenantBranding: jest.fn(),
 }));
 
 describe('me routes', () => {
@@ -87,5 +93,18 @@ describe('me routes', () => {
     expect(res.status).toBe(403);
     expect(res.body).toEqual({ error: 'No recognized application role was found for this account' });
     expect(listTenantsForAuthenticatedUser).not.toHaveBeenCalled();
+  });
+
+  it('GET /api/v1/me/tenant-branding reads effective branding for the resolved tenant', async () => {
+    (getTenantBranding as jest.Mock).mockResolvedValue({
+      tenant_id: '527d755c-6818-40a0-bd7f-137a91b9e54e',
+      hero_image_urls: ['https://assets.example.org/hero.jpg'],
+    });
+
+    const res = await request(app).get('/api/v1/me/tenant-branding');
+
+    expect(res.status).toBe(200);
+    expect(res.body.hero_image_urls).toEqual(['https://assets.example.org/hero.jpg']);
+    expect(getTenantBranding).toHaveBeenCalledWith('527d755c-6818-40a0-bd7f-137a91b9e54e');
   });
 });

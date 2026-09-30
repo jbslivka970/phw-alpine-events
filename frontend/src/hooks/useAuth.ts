@@ -4,8 +4,9 @@ import { InteractionStatus } from '@azure/msal-browser'
 import { hasAuthConfig, loginRequest, popupRedirectUri, ROLES } from '../authConfig'
 import type { AppRole } from '../authConfig'
 import { getApiBaseUrl as resolveApiBaseUrl } from '../api/baseUrl'
-import { setActiveTenantId, setMemberInviteToken, setTokenGetter } from '../api/client'
+import { resetAuthClientState, setTokenGetter } from '../api/client'
 import { authDebugLog, authDebugWarn } from '../utils/authDebug'
+import { redirectAfterLocalLogout } from '../auth/logoutNavigation'
 
 const LOGIN_POPUP_TIMEOUT_MS = 240_000
 const LOGIN_ACCOUNT_RECOVERY_TIMEOUT_MS = 45_000
@@ -55,6 +56,7 @@ let sharedClaimsRefresh: {
 } | null = null
 let sharedClaimsRefreshAccountKey: string | null = null
 let sharedClaimsRefreshedAtMs = 0
+let sharedLogoutPromise: Promise<void> | null = null
 const sharedRoleSubscribers = new Set<(state: SharedRoleState) => void>()
 
 function resetSharedAuthStateForTests(): void {
@@ -65,6 +67,7 @@ function resetSharedAuthStateForTests(): void {
   sharedClaimsRefresh = null
   sharedClaimsRefreshAccountKey = null
   sharedClaimsRefreshedAtMs = 0
+  sharedLogoutPromise = null
 }
 
 function isLocalE2EAuthEnabled(): boolean {
@@ -230,6 +233,7 @@ function useAuth() {
     return initialRoles.length > 0
   })
   const [isLoggingIn, setIsLoggingIn] = useState(false)
+  const [isLoggingOut, setIsLoggingOut] = useState(false)
   const [loginError, setLoginError] = useState<string | null>(null)
   const [localE2ERole, setLocalE2ERole] = useState<AppRole>(() => readLocalE2ERole())
   const [externalE2EToken, setExternalE2EToken] = useState<string | null>(() => readExternalE2EToken())
@@ -854,34 +858,43 @@ function useAuth() {
   }
 
   async function logout() {
-    setMemberInviteToken(null)
-    setActiveTenantId(null)
-    setTokenGetter(async () => null)
-    tokenCacheRef.current = null
-    publishSharedRoles(null, [], true)
+    if (sharedLogoutPromise) {
+      return sharedLogoutPromise
+    }
 
-    if (e2eModeActive) {
+    const logoutPromise = (async () => {
+      setIsLoggingOut(true)
+      resetAuthClientState()
+      tokenCacheRef.current = null
+      tokenRequestInFlightRef.current = null
+      tokenInteractiveInFlightRef.current = false
+      tokenInteractiveCooldownUntilRef.current = 0
+      loginRequestRef.current = null
+      publishSharedRoles(null, [], true)
+
       if (typeof window !== 'undefined') {
+        const identityKey = (user?.id || user?.email || '').trim().toLowerCase()
+        if (identityKey) {
+          window.localStorage.removeItem(`phw_active_tenant_id:${encodeURIComponent(identityKey)}`)
+        }
+        window.localStorage.removeItem(LOCAL_E2E_AUTH_TOGGLE_KEY)
         window.localStorage.removeItem(LOCAL_E2E_AUTH_ROLE_KEY)
         window.localStorage.removeItem(EXTERNAL_E2E_AUTH_TOGGLE_KEY)
         window.localStorage.removeItem(EXTERNAL_E2E_AUTH_TOKEN_KEY)
         window.localStorage.removeItem(EXTERNAL_E2E_AUTH_EMAIL_KEY)
         window.localStorage.removeItem(EXTERNAL_E2E_AUTH_USER_ID_KEY)
       }
+
       setLocalE2ERole(ROLES.USER)
       setExternalE2EToken(null)
       setExternalE2EEmail(null)
       setExternalE2EUserId(null)
-      return
-    }
 
-    try {
-      await instance.logoutPopup({
-        account: account ?? undefined,
-        postLogoutRedirectUri: popupRedirectUri ?? null,
-        mainWindowRedirectUri: `${window.location.origin}/login`,
-      })
-    } finally {
+      if (e2eModeActive) {
+        window.location.assign('/login')
+        return
+      }
+
       try {
         await instance.clearCache()
       } catch (error) {
@@ -889,6 +902,28 @@ function useAuth() {
           message: error instanceof Error ? error.message : String(error),
         })
       }
+
+      try {
+        await instance.logoutRedirect({
+          account: account ?? undefined,
+          postLogoutRedirectUri: `${window.location.origin}/login`,
+        })
+      } catch (error) {
+        authDebugWarn('logout:provider:error', {
+          message: error instanceof Error ? error.message : String(error),
+        })
+        redirectAfterLocalLogout()
+      }
+    })()
+
+    sharedLogoutPromise = logoutPromise
+    try {
+      await logoutPromise
+    } finally {
+      if (sharedLogoutPromise === logoutPromise) {
+        sharedLogoutPromise = null
+      }
+      setIsLoggingOut(false)
     }
   }
 
@@ -937,6 +972,7 @@ function useAuth() {
     user: effectiveUser,
     interactionBusy: effectiveInteractionBusy,
     isLoggingIn,
+    isLoggingOut,
     loginError,
     rolesReady: effectiveRolesReady,
   }

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { rootApi } from '../../api/root'
 import { useTenantContext } from '../../contexts/TenantContext'
 import type {
@@ -9,6 +9,7 @@ import type {
   RootTenantMembershipSummary,
   RootTenantMessaging,
   RootTenantSummary,
+  RootTenantCreateResult,
   RootTenantUsageSummary,
   TenantBrandingAssetKind,
 } from '../../api/root'
@@ -22,6 +23,16 @@ type TenantCreateForm = {
   tenant_type: 'program' | 'demo' | 'system'
   status: 'active' | 'suspended' | 'archived'
   timezone: string
+}
+
+type TenantCreateStep = 'tenant' | 'admin' | 'review' | 'complete'
+
+function suggestTenantSlug(displayName: string): string {
+  return displayName
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
 }
 
 function RootAdminPage() {
@@ -54,6 +65,10 @@ function RootAdminPage() {
   const [createBusy, setCreateBusy] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
   const [createSuccess, setCreateSuccess] = useState<string | null>(null)
+  const [createStep, setCreateStep] = useState<TenantCreateStep>('tenant')
+  const [createdTenant, setCreatedTenant] = useState<RootTenantSummary | null>(null)
+  const [createdTenantOnboarding, setCreatedTenantOnboarding] = useState<RootTenantCreateResult['onboarding'] | null>(null)
+  const [slugEdited, setSlugEdited] = useState(false)
 
   const [selectedTenantId, setSelectedTenantId] = useState('')
   const [branding, setBranding] = useState<RootTenantBranding | null>(null)
@@ -341,13 +356,9 @@ function RootAdminPage() {
     try {
       const created = await rootApi.createTenant(createForm)
       setCreateSuccess(`Created tenant ${created.display_name} (${created.slug}).`)
-      setCreateForm((current) => ({
-        ...current,
-        slug: '',
-        display_name: '',
-        initial_admin_email: '',
-        initial_admin_display_name: '',
-      }))
+      setCreatedTenant(created)
+      setCreatedTenantOnboarding(created.onboarding)
+      setCreateStep('complete')
       await refreshTenants(1)
       setSelectedTenantId(created.tenant_id)
     } catch (error) {
@@ -356,6 +367,24 @@ function RootAdminPage() {
       finishTenantWrite()
       setCreateBusy(false)
     }
+  }
+
+  function resetTenantCreateFlow(): void {
+    setCreateForm({
+      slug: '',
+      display_name: '',
+      initial_admin_email: '',
+      initial_admin_display_name: '',
+      tenant_type: 'program',
+      status: 'suspended',
+      timezone: 'America/Denver',
+    })
+    setCreateStep('tenant')
+    setCreatedTenant(null)
+    setCreatedTenantOnboarding(null)
+    setCreateError(null)
+    setCreateSuccess(null)
+    setSlugEdited(false)
   }
 
   function openSelectedTenantAdmin(): void {
@@ -778,29 +807,110 @@ function RootAdminPage() {
       <p className="admin-note">Create tenants, monitor usage, and manage demo lifecycle. Tenant branding, messaging metadata, and tenant access are managed inside the tenant admin portal.</p>
 
       <section className="admin-card" style={{ marginBottom: '1rem' }}>
-        <h2 className="admin-section-title">Create Tenant</h2>
+        <h2 className="admin-section-title">New Tenant Onboarding</h2>
+        <p className="admin-note">
+          Create the program in a suspended state, assign its first tenant administrator, then configure and activate it after validation.
+        </p>
         {createError && <p className="ui-notice ui-notice--error">{createError}</p>}
         {createSuccess && <p className="ui-notice ui-notice--success">{createSuccess}</p>}
-        <div className="admin-grid admin-grid--3" style={{ marginBottom: '0.75rem' }}>
-          <input className="members-input" placeholder="slug (e.g. montrose)" value={createForm.slug} onChange={(e) => setCreateForm((c) => ({ ...c, slug: e.target.value }))} />
-          <input className="members-input" placeholder="display name" value={createForm.display_name} onChange={(e) => setCreateForm((c) => ({ ...c, display_name: e.target.value }))} />
-          <input className="members-input" type="email" placeholder="initial admin email" value={createForm.initial_admin_email} onChange={(e) => setCreateForm((c) => ({ ...c, initial_admin_email: e.target.value }))} />
-          <input className="members-input" placeholder="initial admin display name (optional)" value={createForm.initial_admin_display_name} onChange={(e) => setCreateForm((c) => ({ ...c, initial_admin_display_name: e.target.value }))} />
-          <input className="members-input" placeholder="timezone" value={createForm.timezone} onChange={(e) => setCreateForm((c) => ({ ...c, timezone: e.target.value }))} />
-          <select className="members-input" value={createForm.tenant_type} onChange={(e) => setCreateForm((c) => ({ ...c, tenant_type: e.target.value as TenantCreateForm['tenant_type'] }))}>
-            <option value="program">program</option>
-            <option value="demo">demo</option>
-            <option value="system">system</option>
-          </select>
-          <select className="members-input" value={createForm.status} onChange={(e) => setCreateForm((c) => ({ ...c, status: e.target.value as TenantCreateForm['status'] }))}>
-            <option value="active">active</option>
-            <option value="suspended">suspended</option>
-            <option value="archived">archived</option>
-          </select>
-          <button className="btn btn--primary btn--sm" disabled={writeBusy || !createForm.slug.trim() || !createForm.display_name.trim() || !createForm.initial_admin_email.includes('@')} onClick={() => void handleCreateTenant()}>
-            {createBusy ? 'Creating…' : 'Create Tenant'}
-          </button>
-        </div>
+        {createStep !== 'complete' && (
+          <p className="page-subtitle" aria-live="polite">
+            Step {createStep === 'tenant' ? '1' : createStep === 'admin' ? '2' : '3'} of 3
+          </p>
+        )}
+
+        {createStep === 'tenant' && (
+          <div style={{ display: 'grid', gap: '0.75rem' }}>
+            <label>
+              <span className="admin-note">Program name</span>
+              <input
+                className="members-input"
+                placeholder="Colorado Springs"
+                value={createForm.display_name}
+                onChange={(event) => {
+                  const displayName = event.target.value
+                  setCreateForm((current) => ({
+                    ...current,
+                    display_name: displayName,
+                    slug: slugEdited ? current.slug : suggestTenantSlug(displayName),
+                  }))
+                }}
+              />
+            </label>
+            <div className="admin-grid admin-grid--3">
+              <label>
+                <span className="admin-note">Tenant slug</span>
+                <input className="members-input" placeholder="colorado-springs" value={createForm.slug} onChange={(event) => { setSlugEdited(true); setCreateForm((current) => ({ ...current, slug: event.target.value })) }} />
+              </label>
+              <label>
+                <span className="admin-note">Timezone</span>
+                <input className="members-input" value={createForm.timezone} onChange={(event) => setCreateForm((current) => ({ ...current, timezone: event.target.value }))} />
+              </label>
+              <label>
+                <span className="admin-note">Tenant type</span>
+                <select className="members-input" value={createForm.tenant_type} onChange={(event) => setCreateForm((current) => ({ ...current, tenant_type: event.target.value as TenantCreateForm['tenant_type'] }))}>
+                  <option value="program">Program</option>
+                  <option value="demo">Demo</option>
+                  <option value="system">System</option>
+                </select>
+              </label>
+            </div>
+            <div><button className="btn btn--primary btn--sm" disabled={!createForm.slug.trim() || !createForm.display_name.trim() || !createForm.timezone.trim()} onClick={() => setCreateStep('admin')}>Continue</button></div>
+          </div>
+        )}
+
+        {createStep === 'admin' && (
+          <div style={{ display: 'grid', gap: '0.75rem' }}>
+            <p className="admin-note">This person will administer only {createForm.display_name}. Global root access and member participation are granted separately.</p>
+            <div className="admin-grid admin-grid--3">
+              <label>
+                <span className="admin-note">Administrator email</span>
+                <input className="members-input" type="email" placeholder="admin@example.org" value={createForm.initial_admin_email} onChange={(event) => setCreateForm((current) => ({ ...current, initial_admin_email: event.target.value }))} />
+              </label>
+              <label>
+                <span className="admin-note">Administrator name</span>
+                <input className="members-input" placeholder="Optional" value={createForm.initial_admin_display_name} onChange={(event) => setCreateForm((current) => ({ ...current, initial_admin_display_name: event.target.value }))} />
+              </label>
+            </div>
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <button className="btn btn--outline btn--sm" onClick={() => setCreateStep('tenant')}>Back</button>
+              <button className="btn btn--primary btn--sm" disabled={!createForm.initial_admin_email.includes('@')} onClick={() => setCreateStep('review')}>Review</button>
+            </div>
+          </div>
+        )}
+
+        {createStep === 'review' && (
+          <div style={{ display: 'grid', gap: '0.75rem' }}>
+            <dl className="admin-note" style={{ display: 'grid', gridTemplateColumns: 'max-content 1fr', gap: '0.35rem 1rem', margin: 0 }}>
+              <dt>Program</dt><dd style={{ margin: 0 }}>{createForm.display_name}</dd>
+              <dt>Slug</dt><dd style={{ margin: 0 }}>{createForm.slug}</dd>
+              <dt>Type</dt><dd style={{ margin: 0 }}>{createForm.tenant_type}</dd>
+              <dt>Timezone</dt><dd style={{ margin: 0 }}>{createForm.timezone}</dd>
+              <dt>Status</dt><dd style={{ margin: 0 }}>Suspended until launch validation is complete</dd>
+              <dt>Tenant admin</dt><dd style={{ margin: 0 }}>{createForm.initial_admin_display_name || createForm.initial_admin_email} ({createForm.initial_admin_email})</dd>
+            </dl>
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <button className="btn btn--outline btn--sm" disabled={writeBusy} onClick={() => setCreateStep('admin')}>Back</button>
+              <button className="btn btn--primary btn--sm" disabled={writeBusy} onClick={() => void handleCreateTenant()}>{createBusy ? 'Creating…' : 'Create Suspended Tenant'}</button>
+            </div>
+          </div>
+        )}
+
+        {createStep === 'complete' && createdTenant && (
+          <div style={{ display: 'grid', gap: '0.75rem' }}>
+            <p className="admin-note">The tenant, default configuration, system groups, app user, and tenant-admin access are ready. Identity linking completes when the administrator first signs in.</p>
+            {createdTenantOnboarding?.invite_status === 'sent' ? (
+              <p className="ui-notice ui-notice--success">Onboarding instructions were sent to {createdTenantOnboarding.admin_email}.</p>
+            ) : (
+              <p className="ui-notice ui-notice--error">The tenant was created, but the onboarding email could not be sent. Copy the sign-in link and send it manually.</p>
+            )}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+              <button className="btn btn--primary btn--sm" onClick={openSelectedTenantAdmin}>Configure Tenant</button>
+              <button className="btn btn--outline btn--sm" onClick={() => void navigator.clipboard.writeText(createdTenantOnboarding?.sign_in_url ?? `${window.location.origin}/login`)}>Copy Sign-in Link</button>
+              <button className="btn btn--outline btn--sm" onClick={resetTenantCreateFlow}>Create Another Tenant</button>
+            </div>
+          </div>
+        )}
       </section>
 
       <section className="admin-card" style={{ marginBottom: '1rem' }}>

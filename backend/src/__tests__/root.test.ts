@@ -35,6 +35,7 @@ const listDemoAccessMembershipsMock = jest.fn();
 const grantDemoAccessByEmailMock = jest.fn();
 const revokeDemoAccessMembershipMock = jest.fn();
 const resetAndReseedDemoTenantMock = jest.fn();
+const sendEmailMock = jest.fn();
 
 jest.mock('../middleware/auth', () => ({
   __esModule: true,
@@ -91,6 +92,16 @@ jest.mock('../services/rootTenantMessagingService', () => ({
   upsertTenantMessaging: (...args: unknown[]) => upsertTenantMessagingMock(...args),
 }));
 
+jest.mock('../services/notifications', () => ({
+  notificationService: {
+    sendEmail: (...args: unknown[]) => sendEmailMock(...args),
+  },
+}));
+
+jest.mock('../config', () => ({
+  loadRsvpLinkConfig: () => ({ frontendBaseUrl: 'https://app.example.org' }),
+}));
+
 import rootRouter from '../routes/root';
 
 const app = express();
@@ -100,6 +111,7 @@ app.use('/api/v1/root', rootRouter);
 describe('root routes', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    sendEmailMock.mockResolvedValue(undefined);
   });
 
   it('GET /api/v1/root/session returns root session', async () => {
@@ -356,6 +368,35 @@ describe('root routes', () => {
       initialAdminDisplayName: 'Program Admin',
       actorEmail: 'root@example.com',
     }));
+    expect(sendEmailMock).toHaveBeenCalledWith(expect.objectContaining({
+      to: 'admin@example.org',
+      tenantId: '22222222-2222-4222-8222-222222222222',
+      operationType: 'tenant_admin_onboarding',
+    }));
+    expect(res.body.onboarding).toEqual({
+      invite_status: 'sent',
+      sign_in_url: 'https://app.example.org/login',
+      admin_email: 'admin@example.org',
+    });
+  });
+
+  it('POST /api/v1/root/tenants reports email failure without rolling back creation', async () => {
+    createTenantMock.mockResolvedValue({
+      tenant_id: '22222222-2222-4222-8222-222222222222',
+      slug: 'montrose',
+      display_name: 'Montrose',
+    });
+    sendEmailMock.mockRejectedValue(new Error('provider unavailable'));
+
+    const res = await request(app).post('/api/v1/root/tenants').send({
+      slug: 'montrose',
+      display_name: 'Montrose',
+      initial_admin_email: 'admin@example.org',
+    });
+
+    expect(res.status).toBe(201);
+    expect(res.body.tenant_id).toBe('22222222-2222-4222-8222-222222222222');
+    expect(res.body.onboarding.invite_status).toBe('failed');
   });
 
   it('GET /api/v1/root/tenants/:tenantId/admins validates tenant id', async () => {

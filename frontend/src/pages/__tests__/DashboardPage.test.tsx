@@ -7,6 +7,7 @@ import tavfApi from '../../api/tavf';
 import { useTenantContext } from '../../contexts/TenantContext';
 import { useAuth } from '../../hooks/useAuth';
 import DashboardPage from '../DashboardPage';
+import { meApi } from '../../api/me';
 
 vi.mock('../../api/events', () => ({
   eventsApi: {
@@ -27,6 +28,12 @@ vi.mock('../../api/members', () => ({
 vi.mock('../../api/tavf', () => ({
   default: {
     listPostings: vi.fn(),
+  },
+}));
+
+vi.mock('../../api/me', () => ({
+  meApi: {
+    getTenantBranding: vi.fn(),
   },
 }));
 
@@ -58,6 +65,9 @@ const mockedMembersApi = membersApi as unknown as {
 
 const mockedTavfApi = tavfApi as unknown as {
   listPostings: ReturnType<typeof vi.fn>;
+};
+const mockedMeApi = meApi as unknown as {
+  getTenantBranding: ReturnType<typeof vi.fn>;
 };
 
 const mockedUseAuth = useAuth as unknown as ReturnType<typeof vi.fn>;
@@ -144,6 +154,7 @@ describe('DashboardPage regression coverage', () => {
 
     mockedMembersApi.myRsvps.mockResolvedValue([]);
     mockedTavfApi.listPostings.mockResolvedValue([]);
+    mockedMeApi.getTenantBranding.mockResolvedValue({ tenant_id: '527d755c-6818-40a0-bd7f-137a91b9e54e', hero_image_urls: [] });
   });
 
   it('loads my RSVPs using the authenticated self endpoint', async () => {
@@ -162,5 +173,22 @@ describe('DashboardPage regression coverage', () => {
 
     expect(await screen.findByText('Colorado Springs')).toBeInTheDocument();
     expect(screen.queryByText('Colorado Alpine Program')).not.toBeInTheDocument();
+  });
+
+  it('uses ordered tenant photos for the hero and gallery', async () => {
+    mockedMeApi.getTenantBranding.mockResolvedValue({
+      tenant_id: '527d755c-6818-40a0-bd7f-137a91b9e54e',
+      hero_image_urls: [
+        'https://assets.example.org/hero.jpg',
+        'https://assets.example.org/gallery-1.jpg',
+      ],
+    });
+
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByAltText('Colorado fly fishing')).toHaveAttribute('src', 'https://assets.example.org/hero.jpg');
+      expect(screen.getByAltText('PHW event 1')).toHaveAttribute('src', 'https://assets.example.org/gallery-1.jpg');
+    });
   });
 });

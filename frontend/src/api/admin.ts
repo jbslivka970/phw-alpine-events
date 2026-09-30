@@ -200,6 +200,14 @@ interface TenantAdminBranding {
   updated_at: string;
 }
 
+interface TenantBrandingUploadUrlResponse {
+  upload_url: string;
+  blob_url: string;
+  blob_path: string;
+  expires_at: string;
+  required_headers: Record<string, string>;
+}
+
 interface TenantAdminMessaging {
   tenant_id: string;
   email_from: string | null;
@@ -329,6 +337,10 @@ const adminApi = {
     apiGet<TenantAdminBranding>('/admin/tenant/branding'),
   updateTenantBranding: (payload: Partial<TenantAdminBranding>) =>
     apiPut<TenantAdminBranding>('/admin/tenant/branding', payload),
+  createTenantBrandingUploadUrl: (payload: { file_name: string; content_type: string; asset_kind: 'logo' | 'logo_dark' | 'hero' }) =>
+    apiPost<TenantBrandingUploadUrlResponse>('/admin/tenant/branding/assets/upload-url', payload),
+  commitTenantBrandingAsset: (payload: { asset_kind: 'logo' | 'logo_dark' | 'hero'; asset_url: string }) =>
+    apiPost<TenantAdminBranding>('/admin/tenant/branding/assets/commit', payload),
   getTenantMessaging: () =>
     apiGet<TenantAdminMessaging>('/admin/tenant/messaging'),
   updateTenantMessaging: (payload: {

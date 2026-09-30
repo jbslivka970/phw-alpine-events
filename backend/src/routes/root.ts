@@ -40,6 +40,8 @@ import {
   upsertTenantMessaging,
   type SmsProvider,
 } from '../services/rootTenantMessagingService';
+import { notificationService } from '../services/notifications';
+import { loadRsvpLinkConfig } from '../config';
 
 const router = Router();
 
@@ -68,6 +70,44 @@ function parsePagination(query: Record<string, unknown>): { page: number; pageSi
   };
 }
 
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>'"]/g, (character) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    "'": '&#39;',
+    '"': '&quot;',
+  })[character] ?? character);
+}
+
+async function sendTenantAdminOnboardingEmail(input: {
+  tenantId: string;
+  tenantName: string;
+  adminEmail: string;
+  adminDisplayName: string;
+  signInUrl: string;
+}): Promise<'sent' | 'failed'> {
+  try {
+    await notificationService.sendEmail({
+      to: input.adminEmail,
+      tenantId: input.tenantId,
+      subject: `Welcome to ${input.tenantName} in The Current`,
+      htmlBody: `<p>Hi ${escapeHtml(input.adminDisplayName)},</p><p>Your tenant administrator access for <strong>${escapeHtml(input.tenantName)}</strong> is ready.</p><p><a href="${escapeHtml(input.signInUrl)}">Sign in to The Current</a></p><p>Use the same email address that received this message. Your identity will link automatically on first sign-in.</p>`,
+      textBody: `Hi ${input.adminDisplayName},\n\nYour tenant administrator access for ${input.tenantName} is ready.\n\nSign in: ${input.signInUrl}\n\nUse the same email address that received this message.`,
+      operationType: 'tenant_admin_onboarding',
+      operationReason: 'Initial tenant administrator onboarding',
+    });
+    return 'sent';
+  } catch (error) {
+    console.warn('tenant_admin_onboarding_email_failed', {
+      tenantId: input.tenantId,
+      adminEmail: input.adminEmail,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return 'failed';
+  }
+}
+
 function sendBrandingServiceError(res: Response, error: unknown): boolean {
   const message = error instanceof Error ? error.message : '';
   if (message === 'Tenant not found') {
@@ -75,6 +115,9 @@ function sendBrandingServiceError(res: Response, error: unknown): boolean {
     return true;
   }
   if (message.includes('Only image uploads are allowed')
+    || message.includes('Homepage photos must be')
+    || message.includes('Logo uploads must be')
+    || message.includes('homepage images')
     || message.includes('assetUrl is required')
     || message.includes('assetUrl does not belong')) {
     res.status(400).json({ error: message });
@@ -158,7 +201,24 @@ router.post('/tenants', writeLimiter, async (req, res, next) => {
       isOperational,
     });
 
-    res.status(201).json(tenant);
+    const frontendBaseUrl = loadRsvpLinkConfig().frontendBaseUrl || `${req.protocol}://${req.get('host') ?? ''}`;
+    const signInUrl = `${frontendBaseUrl.replace(/\/+$/, '')}/login`;
+    const inviteStatus = await sendTenantAdminOnboardingEmail({
+      tenantId: tenant.tenant_id,
+      tenantName: tenant.display_name,
+      adminEmail: initialAdminEmail.toLowerCase(),
+      adminDisplayName: initialAdminDisplayName || initialAdminEmail,
+      signInUrl,
+    });
+
+    res.status(201).json({
+      ...tenant,
+      onboarding: {
+        invite_status: inviteStatus,
+        sign_in_url: signInUrl,
+        admin_email: initialAdminEmail.toLowerCase(),
+      },
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to create tenant';
     if (message.includes('already exists')) {

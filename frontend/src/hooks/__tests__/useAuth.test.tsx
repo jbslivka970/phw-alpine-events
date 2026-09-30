@@ -5,12 +5,15 @@ import { resetSharedAuthStateForTests, useAuth } from '../useAuth'
 const mockSetTokenGetter = vi.fn()
 const mockSetMemberInviteToken = vi.fn()
 const mockSetActiveTenantId = vi.fn()
+const mockResetAuthClientState = vi.fn()
 const mockFetch = vi.fn()
+const mockRedirectAfterLocalLogout = vi.fn()
 
 vi.mock('../../api/client', () => ({
   setTokenGetter: (...args: unknown[]) => mockSetTokenGetter(...args),
   setMemberInviteToken: (...args: unknown[]) => mockSetMemberInviteToken(...args),
   setActiveTenantId: (...args: unknown[]) => mockSetActiveTenantId(...args),
+  resetAuthClientState: (...args: unknown[]) => mockResetAuthClientState(...args),
 }))
 
 vi.mock('../../authConfig', () => ({
@@ -24,6 +27,10 @@ vi.mock('../../authConfig', () => ({
     USER: 'USER',
     TAVF_CREATOR: 'TAVF_CREATOR',
   },
+}))
+
+vi.mock('../../auth/logoutNavigation', () => ({
+  redirectAfterLocalLogout: () => mockRedirectAfterLocalLogout(),
 }))
 
 const mockUseMsal = vi.fn()
@@ -48,6 +55,7 @@ describe('useAuth auth flow regression coverage', () => {
   const msalInstance = {
     loginPopup: vi.fn(),
     logoutPopup: vi.fn(),
+    logoutRedirect: vi.fn(),
     clearCache: vi.fn(),
     acquireTokenSilent: vi.fn(),
     acquireTokenPopup: vi.fn(),
@@ -71,6 +79,7 @@ describe('useAuth auth flow regression coverage', () => {
 
     msalInstance.loginPopup.mockResolvedValue({})
     msalInstance.logoutPopup.mockResolvedValue({})
+    msalInstance.logoutRedirect.mockResolvedValue(undefined)
     msalInstance.clearCache.mockResolvedValue(undefined)
     msalInstance.acquireTokenSilent.mockResolvedValue({
       accessToken: 'silent-token',
@@ -114,35 +123,34 @@ describe('useAuth auth flow regression coverage', () => {
     expect(result.current.loginError).toMatch(/blocked the sign-in (window|popup)/i)
   })
 
-  it('logs out via popup and keeps redirect in the main window', async () => {
+  it('clears app auth state and logs out via a top-level redirect', async () => {
     const { result } = renderHook(() => useAuth())
 
     await act(async () => {
       await result.current.logout()
     })
 
-    expect(msalInstance.logoutPopup).toHaveBeenCalledTimes(1)
-    expect(mockSetMemberInviteToken).toHaveBeenCalledWith(null)
-    expect(mockSetActiveTenantId).toHaveBeenCalledWith(null)
+    expect(mockResetAuthClientState).toHaveBeenCalledTimes(1)
     expect(msalInstance.clearCache).toHaveBeenCalledTimes(1)
-    expect(msalInstance.logoutPopup).toHaveBeenCalledWith(
+    expect(msalInstance.logoutRedirect).toHaveBeenCalledWith(
       expect.objectContaining({
         account,
-        postLogoutRedirectUri: null,
-        mainWindowRedirectUri: `${window.location.origin}/login`,
+        postLogoutRedirectUri: `${window.location.origin}/login`,
       }),
     )
   })
 
-  it('clears local auth state even when provider logout fails', async () => {
-    msalInstance.logoutPopup.mockRejectedValueOnce(new Error('popup blocked'))
+  it('keeps local auth state cleared when provider logout fails', async () => {
+    msalInstance.logoutRedirect.mockRejectedValueOnce(new Error('provider unavailable'))
     const { result } = renderHook(() => useAuth())
 
-    await expect(result.current.logout()).rejects.toThrow('popup blocked')
+    await act(async () => {
+      await result.current.logout()
+    })
 
-    expect(mockSetMemberInviteToken).toHaveBeenCalledWith(null)
-    expect(mockSetActiveTenantId).toHaveBeenCalledWith(null)
+    expect(mockResetAuthClientState).toHaveBeenCalledTimes(1)
     expect(msalInstance.clearCache).toHaveBeenCalledTimes(1)
+    expect(mockRedirectAfterLocalLogout).toHaveBeenCalledTimes(1)
   })
 
   it('registers token getter and falls back to popup token acquisition on interaction-required', async () => {

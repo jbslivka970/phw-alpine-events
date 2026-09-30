@@ -11,6 +11,7 @@ import EmptyState from '../components/EmptyState';
 import CapacityBadge from '../components/CapacityBadge';
 import LoadingSkeleton from '../components/LoadingSkeleton';
 import { toUserErrorMessage } from '../utils/errorMessage';
+import { meApi } from '../api/me';
 
 type DashboardRsvp = {
   event_id: string;
@@ -44,15 +45,20 @@ const GALLERY_PHOTOS = [
 
 const ONBOARDING_KEY_PREFIX = 'phw-onboarding-dismissed';
 
-function HeroBanner({ programName, userName }: { programName: string; userName?: string }) {
+function HeroBanner({ programName, userName, photoUrl }: { programName: string; userName?: string; photoUrl: string }) {
   return (
     <div className="phw-hero phw-stagger phw-stagger-1">
       <img
         className="phw-hero__image"
-        src={HERO_PHOTO}
+        src={photoUrl}
         alt="Colorado fly fishing"
         loading="eager"
         fetchPriority="high"
+        onError={(event) => {
+          if (!event.currentTarget.src.endsWith(HERO_PHOTO)) {
+            event.currentTarget.src = HERO_PHOTO;
+          }
+        }}
       />
       <div className="phw-hero__overlay" />
       <div className="phw-hero__content">
@@ -68,10 +74,10 @@ function HeroBanner({ programName, userName }: { programName: string; userName?:
   );
 }
 
-function PhotoStrip() {
+function PhotoStrip({ photos }: { photos: string[] }) {
   return (
     <div className="phw-photo-strip phw-stagger phw-stagger-2">
-      {GALLERY_PHOTOS.map((src, i) => (
+      {photos.map((src, i) => (
         <div key={i} className="phw-photo-strip__item">
           <img
             src={src}
@@ -126,6 +132,23 @@ function DashboardPage() {
   });
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [memberDisplayName, setMemberDisplayName] = useState<string | undefined>(undefined);
+  const [homepagePhotos, setHomepagePhotos] = useState<string[]>([]);
+
+  useEffect(() => {
+    let active = true;
+    setHomepagePhotos([]);
+    if (!activeTenant?.tenant_id) return () => { active = false };
+
+    void meApi.getTenantBranding()
+      .then((branding) => {
+        if (active) setHomepagePhotos(branding.hero_image_urls);
+      })
+      .catch(() => {
+        if (active) setHomepagePhotos([]);
+      });
+
+    return () => { active = false };
+  }, [activeTenant?.tenant_id]);
 
   useEffect(() => {
     let active = true;
@@ -329,9 +352,9 @@ function DashboardPage() {
 
   return (
     <div className="phw-dashboard" style={{ maxWidth: 1040, margin: '0 auto' }}>
-      <HeroBanner programName={programName} userName={displayName} />
+      <HeroBanner programName={programName} userName={displayName} photoUrl={homepagePhotos[0] ?? HERO_PHOTO} />
 
-      <PhotoStrip />
+      <PhotoStrip photos={GALLERY_PHOTOS.map((fallback, index) => homepagePhotos[index + 1] ?? fallback)} />
 
       {showOnboarding && (
         <div className="phw-onboarding-card phw-stagger phw-stagger-3">

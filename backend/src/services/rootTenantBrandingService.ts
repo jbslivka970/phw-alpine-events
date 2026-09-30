@@ -103,6 +103,7 @@ const BLOB_ACCOUNT_KEY = process.env['TENANT_BRANDING_BLOB_ACCOUNT_KEY']?.trim()
 const BLOB_CONTAINER_NAME = process.env['TENANT_BRANDING_BLOB_CONTAINER']?.trim() || 'tenant-branding';
 const BLOB_PUBLIC_BASE_URL = process.env['TENANT_BRANDING_BLOB_PUBLIC_BASE_URL']?.trim() ?? '';
 const DEFAULT_TENANT_ID = (process.env['DEFAULT_TENANT_ID'] ?? '1b6b9719-663a-4e56-8f7d-9a4bd4c10001').trim().toLowerCase();
+const MAX_HERO_IMAGES = 5;
 
 function asIsoString(value: Date | string): string {
   const parsed = value instanceof Date ? value : new Date(value);
@@ -142,15 +143,17 @@ function normalizeContentType(value: string): string {
   return value.trim().toLowerCase();
 }
 
-function isAllowedImageContentType(value: string): boolean {
-  return [
+function isAllowedImageContentType(value: string, assetKind: TenantBrandingAssetKind): boolean {
+  const commonTypes = [
     'image/png',
     'image/jpeg',
     'image/webp',
-    'image/gif',
-    'image/svg+xml',
     'image/avif',
-  ].includes(value);
+  ];
+  if (assetKind === 'hero') {
+    return commonTypes.includes(value);
+  }
+  return [...commonTypes, 'image/svg+xml'].includes(value);
 }
 
 function resolveBlobConfig(): BlobConfig {
@@ -277,6 +280,9 @@ async function upsertTenantBranding(input: UpsertTenantBrandingInput): Promise<T
   if (!tenant) {
     throw new Error('Tenant not found');
   }
+  if (input.hero_image_urls && input.hero_image_urls.length > MAX_HERO_IMAGES) {
+    throw new Error(`A tenant can have at most ${MAX_HERO_IMAGES} homepage images`);
+  }
 
   const pool = await getPool();
   const result = await pool
@@ -385,8 +391,10 @@ async function createBrandingAssetUploadUrl(input: CreateBrandingAssetUploadUrlI
   }
 
   const normalizedContentType = normalizeContentType(input.contentType);
-  if (!isAllowedImageContentType(normalizedContentType)) {
-    throw new Error('Only image uploads are allowed');
+  if (!isAllowedImageContentType(normalizedContentType, input.assetKind)) {
+    throw new Error(input.assetKind === 'hero'
+      ? 'Homepage photos must be JPEG, PNG, WebP, or AVIF'
+      : 'Logo uploads must be JPEG, PNG, WebP, AVIF, or SVG');
   }
 
   const fileName = normalizeFileName(input.fileName || 'asset');
@@ -447,6 +455,9 @@ async function commitBrandingAsset(input: CommitBrandingAssetInput): Promise<Ten
 
   const nextHeroImages = existing?.hero_image_urls ? [...existing.hero_image_urls] : [];
   if (!nextHeroImages.includes(normalizedUrl)) {
+    if (nextHeroImages.length >= MAX_HERO_IMAGES) {
+      throw new Error(`A tenant can have at most ${MAX_HERO_IMAGES} homepage images`);
+    }
     nextHeroImages.push(normalizedUrl);
   }
 
